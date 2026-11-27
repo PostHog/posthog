@@ -830,6 +830,27 @@ export interface AEOPromptImportResultApi {
     skipped: number
 }
 
+export interface AEOPromptBulkSetTopicRequestApi {
+    /**
+     * Ids of the prompts to change, from GET aeo_prompts/. At most 500. Archived prompts are refused.
+     * @minItems 1
+     * @maxItems 500
+     */
+    prompt_ids: string[]
+    /**
+     * The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic.
+     * @maxLength 200
+     */
+    topic: string
+}
+
+export interface AEOPromptTopicChangeApi {
+    /** How many prompts now have the new topic, archived prompts included. */
+    prompts: number
+    /** How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with. */
+    checks: number
+}
+
 export interface AEOPromptCitationApi {
     /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
     brand_sentiment_sentences: AEOBrandSentimentSentenceApi[]
@@ -1423,6 +1444,40 @@ export interface AEOPromptTopicApi {
     topic: string
     /** How many prompts in the set have this topic. */
     prompts: number
+}
+
+export interface AEOPromptTopicMergeRequestApi {
+    /**
+     * The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+    /**
+     * The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored.
+     * @maxLength 200
+     */
+    into_topic: string
+}
+
+export interface AEOPromptTopicRemoveRequestApi {
+    /**
+     * The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+}
+
+export interface AEOPromptTopicRenameRequestApi {
+    /**
+     * The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.
+     * @maxLength 200
+     */
+    topic: string
+    /**
+     * The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.
+     * @maxLength 200
+     */
+    new_topic: string
 }
 
 export interface AEOSetupRequestApi {

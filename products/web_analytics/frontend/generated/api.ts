@@ -22,6 +22,7 @@ import type {
     AEOKeywordSuggestionJobApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
+    AEOPromptBulkSetTopicRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
@@ -30,6 +31,10 @@ import type {
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
+    AEOPromptTopicChangeApi,
+    AEOPromptTopicMergeRequestApi,
+    AEOPromptTopicRemoveRequestApi,
+    AEOPromptTopicRenameRequestApi,
     AEOPromptVersionApi,
     AEOSetupContextApi,
     AEOSetupJobApi,
@@ -645,6 +650,27 @@ export const aeoPromptsBulkImport = async (
     })
 }
 
+export const getAeoPromptsBulkSetTopicUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/bulk_set_topic/`
+}
+
+/**
+ * Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.
+ * @summary Set the topic of several AEO prompts
+ */
+export const aeoPromptsBulkSetTopic = async (
+    projectId: string,
+    aEOPromptBulkSetTopicRequestApi: AEOPromptBulkSetTopicRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptTopicChangeApi> => {
+    return apiMutator<AEOPromptTopicChangeApi>(getAeoPromptsBulkSetTopicUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptBulkSetTopicRequestApi),
+    })
+}
+
 export const getAeoPromptsCitationsUrl = (projectId: string, params?: AeoPromptsCitationsParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -832,13 +858,76 @@ export const getAeoPromptsTopicsUrl = (projectId: string) => {
 }
 
 /**
- * Lists the topics in the project's AEO prompt set, with the number of prompts in each.
+ * Lists the topics in the project's AEO prompt set, with the number of prompts in each. Archived prompts are not counted, and a topic only archived prompts have is left out.
  * @summary List AEO prompt topics
  */
 export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
     return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAeoPromptsTopicsMergeUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/topics/merge/`
+}
+
+/**
+ * Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.
+ * @summary Merge two AEO prompt topics
+ */
+export const aeoPromptsTopicsMerge = async (
+    projectId: string,
+    aEOPromptTopicMergeRequestApi: AEOPromptTopicMergeRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptTopicChangeApi> => {
+    return apiMutator<AEOPromptTopicChangeApi>(getAeoPromptsTopicsMergeUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptTopicMergeRequestApi),
+    })
+}
+
+export const getAeoPromptsTopicsRemoveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/topics/remove/`
+}
+
+/**
+ * Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.
+ * @summary Remove an AEO prompt topic
+ */
+export const aeoPromptsTopicsRemove = async (
+    projectId: string,
+    aEOPromptTopicRemoveRequestApi: AEOPromptTopicRemoveRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptTopicChangeApi> => {
+    return apiMutator<AEOPromptTopicChangeApi>(getAeoPromptsTopicsRemoveUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptTopicRemoveRequestApi),
+    })
+}
+
+export const getAeoPromptsTopicsRenameUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/topics/rename/`
+}
+
+/**
+ * Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.
+ * @summary Rename an AEO prompt topic
+ */
+export const aeoPromptsTopicsRename = async (
+    projectId: string,
+    aEOPromptTopicRenameRequestApi: AEOPromptTopicRenameRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptTopicChangeApi> => {
+    return apiMutator<AEOPromptTopicChangeApi>(getAeoPromptsTopicsRenameUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptTopicRenameRequestApi),
     })
 }
 
