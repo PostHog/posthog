@@ -43,10 +43,10 @@ from ..logic.routing.fork_labels import fork_labels
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
+    BroadcastRequest,
+    BroadcastRequestDelivery,
+    BroadcastRequestParticipant,
     DigestRun,
-    ExpressRequest,
-    ExpressRequestDelivery,
-    ExpressRequestParticipant,
     PullRequest,
     ReviewRun,
     RoutingRun,
@@ -57,11 +57,11 @@ from ..models import (
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -129,9 +129,9 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
-        express_enabled=obj.express_enabled,
-        express_slack_channel_id=obj.express_slack_channel_id,
-        express_slack_channel_name=obj.express_slack_channel_name,
+        broadcast_enabled=obj.broadcast_enabled,
+        broadcast_slack_channel_id=obj.broadcast_slack_channel_id,
+        broadcast_slack_channel_name=obj.broadcast_slack_channel_name,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -172,23 +172,23 @@ def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
     )
 
 
-# The attribute that _with_express_requests prefetches onto each pull request. It holds only the newest request.
-_EXPRESS_REQUESTS_ATTR = "prefetched_express_requests"
+# The attribute that _with_broadcast_requests prefetches onto each pull request. It holds only the newest request.
+_BROADCAST_REQUESTS_ATTR = "prefetched_broadcast_requests"
 
 
-def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
-    """Expects the looking participants and the posted deliveries that _with_express_requests prefetches."""
-    return contracts.ExpressRequestDTO(
+def _broadcast_request_to_dto(obj: BroadcastRequest) -> contracts.BroadcastRequestDTO:
+    """Expects the looking participants and the posted deliveries that _with_broadcast_requests prefetches."""
+    return contracts.BroadcastRequestDTO(
         id=obj.id,
-        status=ExpressRequestStatus(obj.status),
+        status=BroadcastRequestStatus(obj.status),
         head_sha=obj.head_sha,
-        requested_via=ExpressRequestSource(obj.requested_via),
+        requested_via=BroadcastRequestSource(obj.requested_via),
         note=obj.note,
         looking=[participant.display_name or participant.slack_user_id for participant in obj.participants.all()],
         approved_by_login=obj.approved_by_login,
         deliveries=[
-            contracts.ExpressRequestDeliveryDTO(
-                kind=ExpressRequestDeliveryKind(delivery.kind), url=delivery.permalink or None
+            contracts.BroadcastRequestDeliveryDTO(
+                kind=BroadcastRequestDeliveryKind(delivery.kind), url=delivery.permalink or None
             )
             for delivery in obj.deliveries.all()
         ],
@@ -198,42 +198,42 @@ def _express_request_to_dto(obj: ExpressRequest) -> contracts.ExpressRequestDTO:
     )
 
 
-def _express_request_reads(team_id: int) -> QuerySet[ExpressRequest]:
+def _broadcast_request_reads(team_id: int) -> QuerySet[BroadcastRequest]:
     team_id = resolve_effective_team_id(team_id)
-    participants = ExpressRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
+    participants = BroadcastRequestParticipant.objects.for_team(team_id, canonical=True).filter(looking=True)
     deliveries = (
-        ExpressRequestDelivery.objects.for_team(team_id, canonical=True)
-        .filter(state=ExpressRequestDelivery.State.POSTED)
+        BroadcastRequestDelivery.objects.for_team(team_id, canonical=True)
+        .filter(state=BroadcastRequestDelivery.State.POSTED)
         .exclude(message_ts="")
     )
     return (
-        ExpressRequest.objects.for_team(team_id, canonical=True)
+        BroadcastRequest.objects.for_team(team_id, canonical=True)
         .prefetch_related(Prefetch("participants", queryset=participants.order_by("created_at")))
         .prefetch_related(Prefetch("deliveries", queryset=deliveries.order_by("created_at")))
     )
 
 
-def _with_express_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
-    """Prefetch the newest Express request of each row's pull request, so a page of rows reads them in three queries."""
+def _with_broadcast_requests(qs: _QS, team_id: int, pull_request_path: str) -> _QS:
+    """Prefetch the newest Broadcast request of each row's pull request, so a page of rows reads them in three queries."""
     return qs.prefetch_related(
         Prefetch(
             pull_request_path,
-            queryset=_express_request_reads(team_id).order_by("-created_at")[:1],
-            to_attr=_EXPRESS_REQUESTS_ATTR,
+            queryset=_broadcast_request_reads(team_id).order_by("-created_at")[:1],
+            to_attr=_BROADCAST_REQUESTS_ATTR,
         )
     )
 
 
-def _latest_express_request(pull_request: PullRequest) -> contracts.ExpressRequestDTO | None:
-    """The newest Express request of a pull request, or None when there is none or the read did not prefetch them."""
-    requests = getattr(pull_request, _EXPRESS_REQUESTS_ATTR, None)
-    return _express_request_to_dto(requests[0]) if requests else None
+def _latest_broadcast_request(pull_request: PullRequest) -> contracts.BroadcastRequestDTO | None:
+    """The newest Broadcast request of a pull request, or None when there is none or the read did not prefetch them."""
+    requests = getattr(pull_request, _BROADCAST_REQUESTS_ATTR, None)
+    return _broadcast_request_to_dto(requests[0]) if requests else None
 
 
-def express_request_to_dto(team_id: int, express_request_id: UUID) -> contracts.ExpressRequestDTO:
-    """One Express request with its participants and deliveries, from the writer, so it includes a request just made."""
-    obj = _express_request_reads(team_id).using(router.db_for_write(ExpressRequest)).get(id=express_request_id)
-    return _express_request_to_dto(obj)
+def broadcast_request_to_dto(team_id: int, broadcast_request_id: UUID) -> contracts.BroadcastRequestDTO:
+    """One Broadcast request with its participants and deliveries, from the writer, so it includes a request just made."""
+    obj = _broadcast_request_reads(team_id).using(router.db_for_write(BroadcastRequest)).get(id=broadcast_request_id)
+    return _broadcast_request_to_dto(obj)
 
 
 def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
@@ -256,7 +256,7 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         posted_comment_id=obj.posted_comment_id,
         routing_mode=RoutingMode(obj.repo_config.routing_mode),
         routing=_routing_to_dto(obj.routing),
-        express_request=_latest_express_request(obj),
+        broadcast_request=_latest_broadcast_request(obj),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -376,7 +376,7 @@ def _build_review_run_dto(obj: ReviewRun, *, output: dict[str, Any], trigger: Re
         posted_review_id=obj.posted_review_id,
         verdict_posted_at=obj.verdict_posted_at,
         approval_dismissed_at=obj.approval_dismissed_at,
-        express_request=_latest_express_request(obj.pull_request),
+        broadcast_request=_latest_broadcast_request(obj.pull_request),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
         completed_at=obj.completed_at,
@@ -504,7 +504,7 @@ def check_approval_gates(
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     """One run for the API. Its `output` carries only the summary keys and `reviewer_raw`."""
     qs = ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config")
-    qs = _with_express_requests(qs, team_id, "pull_request__express_requests")
+    qs = _with_broadcast_requests(qs, team_id, "pull_request__broadcast_requests")
     obj = _slim_review_runs(qs, _RETRIEVE_OUTPUT_KEYS).first()
     return _slim_review_run_to_dto(obj, _RETRIEVE_OUTPUT_KEYS) if obj is not None else None
 
@@ -565,7 +565,7 @@ def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO |
 
 def get_pull_request(team_id: int, pull_request_id: str) -> contracts.PullRequestDTO | None:
     qs = PullRequest.objects.for_team(team_id).filter(id=pull_request_id).select_related("repo_config")
-    obj = _with_express_requests(qs, team_id, "express_requests").first()
+    obj = _with_broadcast_requests(qs, team_id, "broadcast_requests").first()
     return _pull_request_to_dto(obj) if obj is not None else None
 
 
@@ -589,9 +589,9 @@ def create_repo_config(
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
-    express_enabled: bool | None = None,
-    express_slack_channel_id: str | None = None,
-    express_slack_channel_name: str | None = None,
+    broadcast_enabled: bool | None = None,
+    broadcast_slack_channel_id: str | None = None,
+    broadcast_slack_channel_name: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -612,12 +612,12 @@ def create_repo_config(
         fields["routing_fork_labels"] = routing_fork_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
-    if express_enabled is not None:
-        fields["express_enabled"] = express_enabled
-    if express_slack_channel_id is not None:
-        fields["express_slack_channel_id"] = express_slack_channel_id
-    if express_slack_channel_name is not None:
-        fields["express_slack_channel_name"] = express_slack_channel_name
+    if broadcast_enabled is not None:
+        fields["broadcast_enabled"] = broadcast_enabled
+    if broadcast_slack_channel_id is not None:
+        fields["broadcast_slack_channel_id"] = broadcast_slack_channel_id
+    if broadcast_slack_channel_name is not None:
+        fields["broadcast_slack_channel_name"] = broadcast_slack_channel_name
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
@@ -814,7 +814,7 @@ def list_review_runs(
         qs = qs.filter(status=status)
     if trigger:
         qs = _filter_by_trigger(qs, trigger)
-    qs = _with_express_requests(qs, team_id, "pull_request__express_requests")
+    qs = _with_broadcast_requests(qs, team_id, "pull_request__broadcast_requests")
     return LazyDTOList(_slim_review_runs(qs, contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS), _review_run_list_row_to_dto)
 
 
@@ -829,7 +829,7 @@ def list_pull_requests(
         qs = qs.filter(pr_number=pr_number)
     if merged is not None:
         qs = qs.filter(merged_at__isnull=not merged)
-    return LazyDTOList(_with_express_requests(qs, team_id, "express_requests"), _pull_request_to_dto)
+    return LazyDTOList(_with_broadcast_requests(qs, team_id, "broadcast_requests"), _pull_request_to_dto)
 
 
 # --- Reviewer routing runs ---

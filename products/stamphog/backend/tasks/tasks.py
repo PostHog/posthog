@@ -34,7 +34,7 @@ from posthog.models.team import Team
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
-    ACTIVE_EXPRESS_REQUEST_STATUSES,
+    ACTIVE_BROADCAST_REQUEST_STATUSES,
     ROUTING_ACTIONS,
     TERMINAL_STATUSES,
     ReviewMode,
@@ -56,12 +56,12 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.attestation_checks import AttestationCheck, all_reported, attestation_check
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.bot_admission import admitted_bot_author
-from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
-from products.stamphog.backend.logic.express_requests import (
-    ExpressRequestAsk,
-    OpenedExpressRequest,
-    open_express_request,
+from products.stamphog.backend.logic.broadcast_requests import (
+    BroadcastRequestAsk,
+    OpenedBroadcastRequest,
+    open_broadcast_request,
 )
+from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import (
     delete_installation,
@@ -90,16 +90,16 @@ from products.stamphog.backend.logic.routing.triggers import (
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.logic.workflow_proofs import seen_on_head
 from products.stamphog.backend.models import (
-    ExpressRequest,
+    BroadcastRequest,
     PullRequest,
     PullRequestAudience,
     ReviewRun,
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.tasks.express_requests import (
-    queue_express_request_refresh,
-    refresh_express_requests_for_pull_request,
+from products.stamphog.backend.tasks.broadcast_requests import (
+    queue_broadcast_request_refresh,
+    refresh_broadcast_requests_for_pull_request,
 )
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -1187,27 +1187,27 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
 def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     """Turn one verified pull_request webhook delivery into a queued ReviewRun."""
     _process_pull_request_event(payload, delivery_id)
-    # An Express request reads "no run at the head" as "no review is coming" and opens its card only on this
+    # A broadcast request reads "no run at the head" as "no review is coming" and opens its card only on this
     # refresh, because it runs after this delivery created the head's run or skipped the head. A retry raises
     # above, and its own attempt refreshes once it decides.
     if payload.get("action") in _HEAD_CHANGING_ACTIONS or _is_base_retarget(payload):
-        _refresh_express_requests_after_review_decision(payload)
+        _refresh_broadcast_requests_after_review_decision(payload)
 
 
-def _refresh_express_requests_after_review_decision(payload: dict[str, Any]) -> None:
+def _refresh_broadcast_requests_after_review_decision(payload: dict[str, Any]) -> None:
     repository = (payload.get("repository") or {}).get("full_name")
     pr_number = (payload.get("pull_request") or {}).get("number")
     if not repository or not isinstance(pr_number, int):
         return
     try:
-        refresh_express_requests_for_pull_request(
+        refresh_broadcast_requests_for_pull_request(
             repository=repository,
             pr_number=pr_number,
             installation_id=str((payload.get("installation") or {}).get("id", "")),
             decided_head_sha=((payload.get("pull_request") or {}).get("head") or {}).get("sha") or "",
         )
     except Exception:
-        logger.exception("stamphog_express_request_refresh_after_review_failed", repo=repository, pr_number=pr_number)
+        logger.exception("stamphog_broadcast_request_refresh_after_review_failed", repo=repository, pr_number=pr_number)
 
 
 def _process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
@@ -1656,8 +1656,8 @@ _UNPUBLISHED_SILENT_RUN = Q(
 
 EVIDENCE_RERUN_OUTPUT_KEY = "evidence_rerun_of"
 _EVIDENCE_RERUNS_PER_HEAD = 3
-EXPRESS_REVISIT_OUTPUT_KEY = "express_revisit_of"
-_EXPRESS_REVISITS_PER_HEAD = 3
+BROADCAST_REVISIT_OUTPUT_KEY = "broadcast_revisit_of"
+_BROADCAST_REVISITS_PER_HEAD = 3
 _DELIVERED_STATUSES = (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED)
 
 
@@ -1715,8 +1715,8 @@ class _HeadQueueResult:
     # None when a newer PR snapshot already committed, so this caller's head is stale.
     run: ReviewRun | None
     created: bool
-    # The pull request's active Express request, or the final one this ask recorded. None unless the caller asked.
-    express: OpenedExpressRequest | None = None
+    # The pull request's active Broadcast request, or the final one this ask recorded. None unless the caller asked.
+    allow_broadcast: OpenedBroadcastRequest | None = None
 
 
 def _queue_review_at_head(
@@ -1729,7 +1729,7 @@ def _queue_review_at_head(
     revisit_engine_wait: bool = False,
     evidence: str | None = None,
     delivery_id: str = "",
-    express: ExpressRequestAsk | None = None,
+    allow_broadcast: BroadcastRequestAsk | None = None,
 ) -> _HeadQueueResult:
     """Create a QUEUED run for the PR's current head, or return the run that already covers it.
 
@@ -1743,7 +1743,7 @@ def _queue_review_at_head(
     it, because the caller wants that verdict revisited. A newer run at this head still counts, so
     repeated requests collapse into one run. ``revisit_engine_wait`` does the same for an engine WAIT
     only, so a gate denial, stored as a GATED WAIT, still covers the head. It revisits a head at most
-    ``_EXPRESS_REVISITS_PER_HEAD`` times, and a re-run that failed or was superseded does not count.
+    ``_BROADCAST_REVISITS_PER_HEAD`` times, and a re-run that failed or was superseded does not count.
 
     ``evidence`` is the caller's evidence fingerprint of the PR as it is now. When the newest run at
     this head is a delivered refusal, the head is reviewed again only for evidence that no finished
@@ -1756,7 +1756,7 @@ def _queue_review_at_head(
     silent request until its verdict is posted. A visible request's new run is pointed at a verdict
     that a silent run withheld for this head, which its workflow publishes when nothing changed.
 
-    ``express`` also gets or creates the pull request's Express request in this transaction, while the
+    ``allow_broadcast`` also gets or creates the pull request's Broadcast request in this transaction, while the
     returned run is locked, so a run that finishes right after the commit always sees the request.
     """
     team_id = repo_config.team_id
@@ -1788,9 +1788,9 @@ def _queue_review_at_head(
             elif (
                 revisit_engine_wait
                 and existing.status == ReviewRunStatus.COMPLETED
-                and _reruns_used(runs_at_head, EXPRESS_REVISIT_OUTPUT_KEY) < _EXPRESS_REVISITS_PER_HEAD
+                and _reruns_used(runs_at_head, BROADCAST_REVISIT_OUTPUT_KEY) < _BROADCAST_REVISITS_PER_HEAD
             ):
-                output = {**output, EXPRESS_REVISIT_OUTPUT_KEY: str(existing.id)}
+                output = {**output, BROADCAST_REVISIT_OUTPUT_KEY: str(existing.id)}
                 existing = None
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
@@ -1809,8 +1809,8 @@ def _queue_review_at_head(
             if existing.status == ReviewRunStatus.QUEUED:
                 existing_run_id = str(existing.id)
                 transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
-            opened = _open_express_request(pr_obj, existing, express, using=run_write_db)
-            return _HeadQueueResult(run=existing, created=False, express=opened)
+            opened = _open_broadcast_request(pr_obj, existing, allow_broadcast, using=run_write_db)
+            return _HeadQueueResult(run=existing, created=False, allow_broadcast=opened)
         _supersede_prior_runs(pr_obj)
         review_run = ReviewRun.objects.for_team(team_id).create(
             team_id=team_id,
@@ -1824,23 +1824,23 @@ def _queue_review_at_head(
         # A post-commit start failure propagates to the caller. A retry re-enters through the
         # dedupe above and restarts the still-QUEUED run.
         transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
-        opened = _open_express_request(pr_obj, review_run, express, using=run_write_db)
-    return _HeadQueueResult(run=review_run, created=True, express=opened)
+        opened = _open_broadcast_request(pr_obj, review_run, allow_broadcast, using=run_write_db)
+    return _HeadQueueResult(run=review_run, created=True, allow_broadcast=opened)
 
 
-def _open_express_request(
-    pr_obj: PullRequest, run: ReviewRun, ask: ExpressRequestAsk | None, *, using: str
-) -> OpenedExpressRequest | None:
-    """Get or create the Express request of ``ask``, and queue its refresh once the transaction commits."""
+def _open_broadcast_request(
+    pr_obj: PullRequest, run: ReviewRun, ask: BroadcastRequestAsk | None, *, using: str
+) -> OpenedBroadcastRequest | None:
+    """Get or create the Broadcast request of ``ask``, and queue its refresh once the transaction commits."""
     if ask is None:
         return None
-    opened = open_express_request(pr_obj, run, ask, using=using)
+    opened = open_broadcast_request(pr_obj, run, ask, using=using)
     request = opened.request
     # A request that the run already decided is OPEN with no card yet, and an older request can be stranded.
     # The refresh is idempotent, so queue it on every ask while the request is active.
-    if request.status in ACTIVE_EXPRESS_REQUEST_STATUSES:
+    if request.status in ACTIVE_BROADCAST_REQUEST_STATUSES:
         team_id, request_id = request.team_id, str(request.id)
-        transaction.on_commit(lambda: queue_express_request_refresh(team_id, request_id), using=using)
+        transaction.on_commit(lambda: queue_broadcast_request_refresh(team_id, request_id), using=using)
     return opened
 
 
@@ -2013,9 +2013,9 @@ class QueuedReview:
 
     run: ReviewRun
     created: bool
-    express_request: ExpressRequest | None = None
-    express_request_created: bool = False
-    express_request_channel_name: str = ""
+    broadcast_request: BroadcastRequest | None = None
+    broadcast_request_created: bool = False
+    broadcast_request_channel_name: str = ""
 
 
 def _evidence_after_refusal(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
@@ -2172,7 +2172,12 @@ def _review_label_request_in_all_mode(repo_config: StamphogRepoConfig, pr: dict[
 
 
 def request_manual_review(
-    team_id: int, user_id: int | None, repository: str, pr_number: int, *, express: ExpressRequestAsk | None = None
+    team_id: int,
+    user_id: int | None,
+    repository: str,
+    pr_number: int,
+    *,
+    allow_broadcast: BroadcastRequestAsk | None = None,
 ) -> QueuedReview:
     """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
 
@@ -2184,8 +2189,8 @@ def request_manual_review(
     Runs synchronously in the API request, so the caller learns right away why a request was
     refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
 
-    ``express`` also asks for people to review when stamphog does not approve. The repository must have
-    Express turned on.
+    ``allow_broadcast`` also asks for people to review when stamphog does not approve. The repository must have
+    broadcasting turned on.
     """
     repo_config = reviewable_repo_config(team_id, repository)
     if repo_config is None:
@@ -2194,11 +2199,11 @@ def request_manual_review(
             f"Auto-approval is not connected and enabled for {repository} in this project. "
             "Connect the repository in the auto-approval settings and turn on reviews first.",
         )
-    if express is not None and not repo_config.express_enabled:
+    if allow_broadcast is not None and not repo_config.broadcast_enabled:
         raise ReviewRequestRefusedError(
-            ReviewRequestRefusal.EXPRESS_OFF,
-            "Express isn't turned on for this repository. A manager can turn it on through the API by "
-            "setting express_enabled and a Slack channel in the repository's auto-approval config.",
+            ReviewRequestRefusal.BROADCAST_OFF,
+            "Broadcasting isn't turned on for this repository. A manager can turn it on through the API by "
+            "setting broadcast_enabled and a Slack channel in the repository's auto-approval config.",
         )
     repo = repo_config.repository
     try:
@@ -2242,10 +2247,10 @@ def request_manual_review(
         output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
         evidence=evidence,
         # A delivered engine WAIT can wait on something that never wakes it, such as a reviewer bot's 👀 that ages
-        # out. The Express request opens only on a verdict, so this ask reviews such a head again, at most
-        # _EXPRESS_REVISITS_PER_HEAD times. A gate denial already opens the request.
-        revisit_engine_wait=express is not None,
-        express=express,
+        # out. The Broadcast request opens only on a verdict, so this ask reviews such a head again, at most
+        # _BROADCAST_REVISITS_PER_HEAD times. A gate denial already opens the request.
+        revisit_engine_wait=allow_broadcast is not None,
+        allow_broadcast=allow_broadcast,
     )
     if queued.run is None:
         raise ReviewRequestRefusedError(
@@ -2259,17 +2264,17 @@ def request_manual_review(
         review_run_id=str(queued.run.id),
         created=queued.created,
         evidence_rerun=queued.created and EVIDENCE_RERUN_OUTPUT_KEY in (queued.run.output or {}),
-        express_request_id=str(queued.express.request.id) if queued.express is not None else None,
+        broadcast_request_id=str(queued.allow_broadcast.request.id) if queued.allow_broadcast is not None else None,
         team_id=team_id,
     )
-    if queued.express is None:
+    if queued.allow_broadcast is None:
         return QueuedReview(run=queued.run, created=queued.created)
     return QueuedReview(
         run=queued.run,
         created=queued.created,
-        express_request=queued.express.request,
-        express_request_created=queued.express.created,
-        express_request_channel_name=repo_config.express_slack_channel_name,
+        broadcast_request=queued.allow_broadcast.request,
+        broadcast_request_created=queued.allow_broadcast.created,
+        broadcast_request_channel_name=repo_config.broadcast_slack_channel_name,
     )
 
 

@@ -211,14 +211,14 @@ const codeReviewApprovalsRepositoriesUpdate = (): ToolBase<
         if (params.review_on_clean_external_review !== undefined) {
             body['review_on_clean_external_review'] = params.review_on_clean_external_review
         }
-        if (params.express_enabled !== undefined) {
-            body['express_enabled'] = params.express_enabled
+        if (params.broadcast_enabled !== undefined) {
+            body['broadcast_enabled'] = params.broadcast_enabled
         }
-        if (params.express_slack_channel_id !== undefined) {
-            body['express_slack_channel_id'] = params.express_slack_channel_id
+        if (params.broadcast_slack_channel_id !== undefined) {
+            body['broadcast_slack_channel_id'] = params.broadcast_slack_channel_id
         }
-        if (params.express_slack_channel_name !== undefined) {
-            body['express_slack_channel_name'] = params.express_slack_channel_name
+        if (params.broadcast_slack_channel_name !== undefined) {
+            body['broadcast_slack_channel_name'] = params.broadcast_slack_channel_name
         }
         const result = await context.api.request<Schemas.CodeReviewApprovalRepository>({
             method: 'PATCH',
@@ -324,8 +324,8 @@ const codeReviewApprovalsRunsCreate = (): ToolBase<
         if (params.pr_number !== undefined) {
             body['pr_number'] = params.pr_number
         }
-        if (params.express !== undefined) {
-            body['express'] = params.express
+        if (params.allow_broadcast !== undefined) {
+            body['allow_broadcast'] = params.allow_broadcast
         }
         if (params.note !== undefined) {
             body['note'] = params.note

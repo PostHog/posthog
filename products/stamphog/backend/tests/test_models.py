@@ -15,12 +15,12 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
 from products.stamphog.backend.facade.enums import (
-    ACTIVE_EXPRESS_REQUEST_STATUSES,
-    ExpressRequestSource,
-    ExpressRequestStatus,
+    ACTIVE_BROADCAST_REQUEST_STATUSES,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
 )
 from products.stamphog.backend.models import (
-    ExpressRequest,
+    BroadcastRequest,
     PullRequest,
     ReviewRun,
     StamphogInstallation,
@@ -133,30 +133,30 @@ class TestReviewRunModel(StamphogTeamScopedTestMixin, APIBaseTest):
         assert results == [mine]
 
 
-class TestExpressRequestModel(StamphogTeamScopedTestMixin, APIBaseTest):
+class TestBroadcastRequestModel(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
-    def _make_request(self, pull_request: PullRequest, status: ExpressRequestStatus) -> ExpressRequest:
-        return ExpressRequest.objects.unscoped().create(
+    def _make_request(self, pull_request: PullRequest, status: BroadcastRequestStatus) -> BroadcastRequest:
+        return BroadcastRequest.objects.unscoped().create(
             team_id=self.team.id,
             pull_request=pull_request,
             status=status,
             head_sha="abc123",
-            requested_via=ExpressRequestSource.API,
+            requested_via=BroadcastRequestSource.API,
         )
 
-    @parameterized.expand([(status.value, status) for status in ExpressRequestStatus])
-    def test_a_pull_request_has_one_active_request(self, _name: str, existing: ExpressRequestStatus) -> None:
+    @parameterized.expand([(status.value, status) for status in BroadcastRequestStatus])
+    def test_a_pull_request_has_one_active_request(self, _name: str, existing: BroadcastRequestStatus) -> None:
         # The constraint backs "asking again returns the existing request": two racing requests must not
         # both be active, or each posts its own message. A finished request must not block a new one.
         pull_request = _make_pull_request(self.team, _make_repo_config(self.team))
         self._make_request(pull_request, existing)
 
-        if existing in ACTIVE_EXPRESS_REQUEST_STATUSES:
+        if existing in ACTIVE_BROADCAST_REQUEST_STATUSES:
             with pytest.raises(IntegrityError):
-                self._make_request(pull_request, ExpressRequestStatus.PENDING)
+                self._make_request(pull_request, BroadcastRequestStatus.PENDING)
         else:
-            self._make_request(pull_request, ExpressRequestStatus.PENDING)
+            self._make_request(pull_request, BroadcastRequestStatus.PENDING)
 
 
 class TestInstallationMigrations(StamphogTeamScopedTestMixin, APIBaseTest):

@@ -80,9 +80,11 @@ def sanitize_argument(raw: str) -> str:
 
 @frozen
 class StampArgs:
-    express: bool = flag("Also ask people in the repository's Slack channel to review if Stamphog doesn't approve.")
+    allow_broadcast: bool = flag(
+        "Also ask people in the repository's Slack channel to review if Stamphog doesn't approve."
+    )
     note: str = text(
-        "A note for the people you ask, with `--express`. Slack only, because pull request comments are public."
+        "A note for the people you ask, with `--allow-broadcast`. Slack only, because pull request comments are public."
     )
 
 

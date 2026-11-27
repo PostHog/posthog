@@ -14,9 +14,9 @@ import * as zod from 'zod'
  */
 export const codeReviewApprovalsRepositoriesCreateBodyRoutingForkLabelsMaxOne = 50
 
-export const codeReviewApprovalsRepositoriesCreateBodyExpressSlackChannelIdMax = 64
+export const codeReviewApprovalsRepositoriesCreateBodyBroadcastSlackChannelIdMax = 64
 
-export const codeReviewApprovalsRepositoriesCreateBodyExpressSlackChannelNameMax = 255
+export const codeReviewApprovalsRepositoriesCreateBodyBroadcastSlackChannelNameMax = 255
 
 export const CodeReviewApprovalsRepositoriesCreateBody = /* @__PURE__ */ zod
     .object({
@@ -67,25 +67,25 @@ export const CodeReviewApprovalsRepositoriesCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
-        express_enabled: zod
+        broadcast_enabled: zod
             .boolean()
             .optional()
             .describe(
-                'Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false.'
+                'Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false.'
             ),
-        express_slack_channel_id: zod
+        broadcast_slack_channel_id: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesCreateBodyExpressSlackChannelIdMax)
+            .max(codeReviewApprovalsRepositoriesCreateBodyBroadcastSlackChannelIdMax)
             .optional()
             .describe(
                 "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set."
             ),
-        express_slack_channel_name: zod
+        broadcast_slack_channel_name: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesCreateBodyExpressSlackChannelNameMax)
+            .max(codeReviewApprovalsRepositoriesCreateBodyBroadcastSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(
@@ -97,9 +97,9 @@ export const CodeReviewApprovalsRepositoriesCreateBody = /* @__PURE__ */ zod
  */
 export const codeReviewApprovalsRepositoriesUpdateBodyRoutingForkLabelsMaxOne = 50
 
-export const codeReviewApprovalsRepositoriesUpdateBodyExpressSlackChannelIdMax = 64
+export const codeReviewApprovalsRepositoriesUpdateBodyBroadcastSlackChannelIdMax = 64
 
-export const codeReviewApprovalsRepositoriesUpdateBodyExpressSlackChannelNameMax = 255
+export const codeReviewApprovalsRepositoriesUpdateBodyBroadcastSlackChannelNameMax = 255
 
 export const CodeReviewApprovalsRepositoriesUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -150,25 +150,25 @@ export const CodeReviewApprovalsRepositoriesUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
-        express_enabled: zod
+        broadcast_enabled: zod
             .boolean()
             .optional()
             .describe(
-                'Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false.'
+                'Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false.'
             ),
-        express_slack_channel_id: zod
+        broadcast_slack_channel_id: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesUpdateBodyExpressSlackChannelIdMax)
+            .max(codeReviewApprovalsRepositoriesUpdateBodyBroadcastSlackChannelIdMax)
             .optional()
             .describe(
                 "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set."
             ),
-        express_slack_channel_name: zod
+        broadcast_slack_channel_name: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesUpdateBodyExpressSlackChannelNameMax)
+            .max(codeReviewApprovalsRepositoriesUpdateBodyBroadcastSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(
@@ -180,9 +180,9 @@ export const CodeReviewApprovalsRepositoriesUpdateBody = /* @__PURE__ */ zod
  */
 export const codeReviewApprovalsRepositoriesPartialUpdateBodyRoutingForkLabelsMaxOne = 50
 
-export const codeReviewApprovalsRepositoriesPartialUpdateBodyExpressSlackChannelIdMax = 64
+export const codeReviewApprovalsRepositoriesPartialUpdateBodyBroadcastSlackChannelIdMax = 64
 
-export const codeReviewApprovalsRepositoriesPartialUpdateBodyExpressSlackChannelNameMax = 255
+export const codeReviewApprovalsRepositoriesPartialUpdateBodyBroadcastSlackChannelNameMax = 255
 
 export const CodeReviewApprovalsRepositoriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -237,25 +237,25 @@ export const CodeReviewApprovalsRepositoriesPartialUpdateBody = /* @__PURE__ */ 
             .describe(
                 "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
-        express_enabled: zod
+        broadcast_enabled: zod
             .boolean()
             .optional()
             .describe(
-                'Whether `stamp --express` and review requests with express set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to express_slack_channel_id. Turning it on needs a channel. Defaults to false.'
+                'Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false.'
             ),
-        express_slack_channel_id: zod
+        broadcast_slack_channel_id: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesPartialUpdateBodyExpressSlackChannelIdMax)
+            .max(codeReviewApprovalsRepositoriesPartialUpdateBodyBroadcastSlackChannelIdMax)
             .optional()
             .describe(
                 "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set."
             ),
-        express_slack_channel_name: zod
+        broadcast_slack_channel_name: zod
             .string()
-            .max(codeReviewApprovalsRepositoriesPartialUpdateBodyExpressSlackChannelNameMax)
+            .max(codeReviewApprovalsRepositoriesPartialUpdateBodyBroadcastSlackChannelNameMax)
             .optional()
             .describe(
-                "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
+                "Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go."
             ),
     })
     .describe(
@@ -307,7 +307,7 @@ export const CodeReviewApprovalsRepositoriesSyncInstallationCreateBody = /* @__P
  * History of auto-approval review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 
-export const codeReviewApprovalsRunsCreateBodyExpressDefault = false
+export const codeReviewApprovalsRunsCreateBodyBroadcastDefault = false
 export const codeReviewApprovalsRunsCreateBodyNoteDefault = ``
 export const codeReviewApprovalsRunsCreateBodyNoteMax = 200
 
@@ -319,18 +319,18 @@ export const CodeReviewApprovalsRunsCreateBody = /* @__PURE__ */ zod
                 "Full name of the GitHub repository, e.g. 'PostHog\/posthog'. It must be connected and enabled for auto-approval."
             ),
         pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
-        express: zod
+        allow_broadcast: zod
             .boolean()
-            .default(codeReviewApprovalsRunsCreateBodyExpressDefault)
+            .default(codeReviewApprovalsRunsCreateBodyBroadcastDefault)
             .describe(
-                "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have Express turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review."
+                "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review."
             ),
         note: zod
             .string()
             .max(codeReviewApprovalsRunsCreateBodyNoteMax)
             .default(codeReviewApprovalsRunsCreateBodyNoteDefault)
             .describe(
-                'A short note for the people who review, shown in Slack only and never on GitHub. Needs express set to true. A request that is already active keeps its note.'
+                'A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.'
             ),
     })
     .describe('Request body for asking auto-approval to review one pull request.')

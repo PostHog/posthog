@@ -141,43 +141,43 @@ def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
     )
 
 
-_EXPRESS_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.ExpressRequestSource] = {
-    "github": stamphog_enums.ExpressRequestSource.GITHUB,
-    "slack": stamphog_enums.ExpressRequestSource.SLACK,
+_BROADCAST_REQUEST_SOURCES: dict[ChannelName, stamphog_enums.BroadcastRequestSource] = {
+    "github": stamphog_enums.BroadcastRequestSource.GITHUB,
+    "slack": stamphog_enums.BroadcastRequestSource.SLACK,
 }
 
 
-def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO, asked_from: ChannelName) -> str | None:
-    """The reply to `stamp --express`, or None to fall back to the reply about the run.
+def _broadcast_request_reply(result: stamphog_contracts.ReviewRequestResultDTO, asked_from: ChannelName) -> str | None:
+    """The reply to `stamp --allow-broadcast`, or None to fall back to the reply about the run.
 
     Built from fixed text, the channel name a manager set, the Slack link and the requester's weekly card count,
     so it never repeats the note. A reply on GitHub is a public comment, so it leaves out the Slack channel, the
     link and the count.
     """
-    express_request = result.express_request
-    if express_request is None:
+    broadcast_request = result.broadcast_request
+    if broadcast_request is None:
         return None
-    slack_channel = result.express_request_channel_name.lstrip("#")
+    slack_channel = result.broadcast_request_channel_name.lstrip("#")
     on_slack = asked_from == "slack"
     channel = f"#{slack_channel}" if slack_channel and on_slack else "the repository's Slack channel"
-    status = express_request.status
-    if status == stamphog_enums.ExpressRequestStatus.STAMPHOG_APPROVED:
+    status = broadcast_request.status
+    if status == stamphog_enums.BroadcastRequestStatus.STAMPHOG_APPROVED:
         return "Stamphog approved. No one else needs to look."
-    if express_request.deliveries:
-        url = express_request.deliveries[0].url
+    if broadcast_request.deliveries:
+        url = broadcast_request.deliveries[0].url
         return f"Already asked in {channel}: {url}" if url and on_slack else f"Already asked in {channel}."
-    if status == stamphog_enums.ExpressRequestStatus.PENDING:
+    if status == stamphog_enums.BroadcastRequestStatus.PENDING:
         return f"Stamphog is reviewing. If it doesn't approve, this goes to {channel}."
-    if status != stamphog_enums.ExpressRequestStatus.OPEN:
+    if status != stamphog_enums.BroadcastRequestStatus.OPEN:
         return None
-    if result.express_request_card_blocked:
+    if result.broadcast_request_card_blocked:
         return (
             f"Stamphog didn't approve, but the request couldn't be posted to {channel}. "
             "A manager can check that Slack is connected and that the app can post in the channel."
         )
-    if not result.express_request_created:
+    if not result.broadcast_request_created:
         return f"Already asked. Stamphog didn't approve, so this goes to {channel}."
-    card_count = result.express_request_card_count
+    card_count = result.broadcast_request_card_count
     if on_slack and card_count is not None and card_count >= 2:
         return f"Stamphog didn't approve, so this goes to {channel}. It's your {ordinal(card_count)} this week."
     return f"Stamphog didn't approve, so this goes to {channel}."
@@ -186,7 +186,7 @@ def _express_request_reply(result: stamphog_contracts.ReviewRequestResultDTO, as
 def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     """Ask Stamphog to review the pull request. Stamphog alone decides whether to approve.
 
-    With `--express`, people in the repository's Slack channel are also asked to review when Stamphog
+    With `--allow-broadcast`, people in the repository's Slack channel are also asked to review when Stamphog
     doesn't approve.
     """
     # The refusals never repeat the note, because a reply on GitHub is public.
@@ -195,8 +195,8 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
             accepted=False,
             message="Notes only work from Slack, because pull request comments are public. Run it again without the note.",
         )
-    if args.note and not args.express:
-        return CommandOutcome(accepted=False, message="Add `--express` to ask people, or leave out the text.")
+    if args.note and not args.allow_broadcast:
+        return CommandOutcome(accepted=False, message="Add `--allow-broadcast` to ask people, or leave out the text.")
     pull_request = context.pull_request
     member = context.members[0]
     try:
@@ -205,9 +205,9 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
             user_id=member.user_id,
             repository=pull_request.repository,
             pr_number=pull_request.number,
-            express=args.express,
+            allow_broadcast=args.allow_broadcast,
             note=args.note,
-            requested_via=_EXPRESS_REQUEST_SOURCES[context.request.channel],
+            requested_via=_BROADCAST_REQUEST_SOURCES[context.request.channel],
             requester_slack_user_id=context.request.slack_user_id,
             requester_github_login=context.request.github_login,
         )
@@ -217,9 +217,9 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     follow_up = _follow_up(context)
     if follow_up is not None and result.run.status not in stamphog_enums.TERMINAL_STATUSES:
         follow_ups.remember(follow_ups.stamphog_run_key(str(result.run.id)), follow_up)
-    express_request_reply = _express_request_reply(result, context.request.channel)
-    if express_request_reply is not None:
-        return CommandOutcome(accepted=True, message=express_request_reply)
+    broadcast_request_reply = _broadcast_request_reply(result, context.request.channel)
+    if broadcast_request_reply is not None:
+        return CommandOutcome(accepted=True, message=broadcast_request_reply)
     if result.created:
         return CommandOutcome(accepted=True, message="Stamphog is reviewing this pull request.")
     return CommandOutcome(

@@ -17,11 +17,11 @@ from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedLi
 
 from ..facade import contracts
 from ..facade.enums import (
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     OwnersFileStatus,
@@ -85,18 +85,18 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     )
 
 
-EXPRESS_ENABLED_HELP = (
-    "Whether `stamp --express` and review requests with express set to true may ask people to review. When "
+BROADCAST_ENABLED_HELP = (
+    "Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When "
     "auto-approval does not approve the pull request, it posts the pull request to "
-    "express_slack_channel_id. Turning it on needs a channel. Defaults to false."
+    "broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false."
 )
-EXPRESS_CHANNEL_ID_HELP = (
+BROADCAST_CHANNEL_ID_HELP = (
     "Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to "
     "review. It uses the project's Slack integration, which must be able to post in the channel. Blank when "
     "no channel is set."
 )
-EXPRESS_CHANNEL_NAME_HELP = (
-    "Display name of the Slack channel in express_slack_channel_id, without the '#'. Letters, digits, '-' and "
+BROADCAST_CHANNEL_NAME_HELP = (
+    "Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and "
     "'_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not "
     "change where requests go."
 )
@@ -113,7 +113,7 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
             "The caller's access level on the code review auto-approval resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
             "review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, "
-            "express_enabled, express_slack_channel_id or express_slack_channel_name."
+            "broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name."
         ),
     )
 
@@ -181,9 +181,9 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
             "routing_mode",
             "routing_fork_labels",
             "review_on_clean_external_review",
-            "express_enabled",
-            "express_slack_channel_id",
-            "express_slack_channel_name",
+            "broadcast_enabled",
+            "broadcast_slack_channel_id",
+            "broadcast_slack_channel_name",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -231,17 +231,17 @@ class CodeReviewApprovalRepositorySerializer(DataclassSerializer):
                     "review before routing. Defaults to false."
                 ),
             },
-            "express_enabled": {
+            "broadcast_enabled": {
                 "read_only": True,
-                "help_text": EXPRESS_ENABLED_HELP,
+                "help_text": BROADCAST_ENABLED_HELP,
             },
-            "express_slack_channel_id": {
+            "broadcast_slack_channel_id": {
                 "read_only": True,
-                "help_text": EXPRESS_CHANNEL_ID_HELP,
+                "help_text": BROADCAST_CHANNEL_ID_HELP,
             },
-            "express_slack_channel_name": {
+            "broadcast_slack_channel_name": {
                 "read_only": True,
-                "help_text": EXPRESS_CHANNEL_NAME_HELP,
+                "help_text": BROADCAST_CHANNEL_NAME_HELP,
             },
         }
 
@@ -494,10 +494,10 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="CodeReviewApprovalExpressRequestDelivery")
-class ExpressRequestDeliverySerializer(DataclassSerializer):
+@extend_schema_serializer(component_name="CodeReviewApprovalBroadcastRequestDelivery")
+class BroadcastRequestDeliverySerializer(DataclassSerializer):
     kind = serializers.ChoiceField(
-        choices=ExpressRequestDeliveryKind.choices,
+        choices=BroadcastRequestDeliveryKind.choices,
         read_only=True,
         help_text="Where the request was posted. 'slack_message' is a message in the repository's Slack channel.",
     )
@@ -508,14 +508,14 @@ class ExpressRequestDeliverySerializer(DataclassSerializer):
     )
 
     class Meta:
-        dataclass = contracts.ExpressRequestDeliveryDTO
+        dataclass = contracts.BroadcastRequestDeliveryDTO
         fields = ["kind", "url"]
 
 
-@extend_schema_serializer(component_name="CodeReviewApprovalExpressRequest")
-class ExpressRequestSerializer(DataclassSerializer):
+@extend_schema_serializer(component_name="CodeReviewApprovalBroadcastRequest")
+class BroadcastRequestSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
-        choices=ExpressRequestStatus.choices,
+        choices=BroadcastRequestStatus.choices,
         read_only=True,
         help_text=(
             "'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did "
@@ -526,7 +526,7 @@ class ExpressRequestSerializer(DataclassSerializer):
         ),
     )
     requested_via = serializers.ChoiceField(
-        choices=ExpressRequestSource.choices,
+        choices=BroadcastRequestSource.choices,
         read_only=True,
         help_text="Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').",
     )
@@ -543,7 +543,7 @@ class ExpressRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise.",
     )
-    deliveries = ExpressRequestDeliverySerializer(
+    deliveries = BroadcastRequestDeliverySerializer(
         many=True,
         read_only=True,
         help_text="Where the request was posted. Empty until auto-approval does not approve.",
@@ -552,13 +552,13 @@ class ExpressRequestSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "How many Express messages the requester caused in the 7 days up to this request's message, this one "
+            "How many broadcast messages the requester caused in the 7 days up to this request's message, this one "
             "included. Counted once when the message is posted. Null until then."
         ),
     )
 
     class Meta:
-        dataclass = contracts.ExpressRequestDTO
+        dataclass = contracts.BroadcastRequestDTO
         fields = [
             "id",
             "status",
@@ -575,16 +575,16 @@ class ExpressRequestSerializer(DataclassSerializer):
         # Only the fields NOT declared above (see ReviewRunSerializer).
         read_only_fields = ["id", "head_sha", "created_at", "updated_at"]
         extra_kwargs = {
-            "id": {"help_text": "ID of the Express request."},
+            "id": {"help_text": "ID of the Broadcast request."},
             "head_sha": {"help_text": "The pull request head the request follows. A push moves it."},
             "created_at": {"help_text": "When somebody asked for people to review."},
             "updated_at": {"help_text": "When the request last changed."},
         }
 
 
-EXPRESS_REQUEST_FIELD_HELP = (
+BROADCAST_REQUEST_FIELD_HELP = (
     "The newest request for people to review this pull request, or null when nobody asked. Set by a review "
-    "request with express set to true, or by `@posthog stamp --express`."
+    "request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`."
 )
 
 
@@ -616,7 +616,9 @@ class PullRequestSerializer(DataclassSerializer):
             "routing runs list for the owners each run requested or cut."
         ),
     )
-    express_request = ExpressRequestSerializer(read_only=True, allow_null=True, help_text=EXPRESS_REQUEST_FIELD_HELP)
+    broadcast_request = BroadcastRequestSerializer(
+        read_only=True, allow_null=True, help_text=BROADCAST_REQUEST_FIELD_HELP
+    )
 
     class Meta:
         dataclass = contracts.PullRequestDTO
@@ -638,7 +640,7 @@ class PullRequestSerializer(DataclassSerializer):
             "changed_files",
             "routing_mode",
             "routing",
-            "express_request",
+            "broadcast_request",
             "created_at",
             "updated_at",
         ]
@@ -788,10 +790,10 @@ class ReviewRunSerializer(DataclassSerializer):
         ),
     )
 
-    express_request = ExpressRequestSerializer(
+    broadcast_request = BroadcastRequestSerializer(
         read_only=True,
         allow_null=True,
-        help_text=f"{EXPRESS_REQUEST_FIELD_HELP} It belongs to the pull request, so every run of the pull request shows it.",
+        help_text=f"{BROADCAST_REQUEST_FIELD_HELP} It belongs to the pull request, so every run of the pull request shows it.",
     )
 
     reasoning = serializers.SerializerMethodField(
@@ -849,7 +851,7 @@ class ReviewRunSerializer(DataclassSerializer):
             "posted_review_id",
             "verdict_posted_at",
             "approval_dismissed_at",
-            "express_request",
+            "broadcast_request",
             "created_at",
             "updated_at",
             "completed_at",
@@ -872,13 +874,13 @@ class ReviewRequestSerializer(serializers.Serializer):
         help_text="Full name of the GitHub repository, e.g. 'PostHog/posthog'. It must be connected and enabled for auto-approval."
     )
     pr_number = serializers.IntegerField(min_value=1, help_text="Pull request number on GitHub.")
-    express = serializers.BooleanField(
+    allow_broadcast = serializers.BooleanField(
         required=False,
         default=False,
         help_text=(
             "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull "
             "request to the repository's Slack channel for people to review. When it approves, nothing is posted. "
-            "The repository must have Express turned on. Asking again returns the request that is already "
+            "The repository must have broadcasting turned on. Asking again returns the request that is already "
             "active. Only set it when the user asks for people to review."
         ),
     )
@@ -888,15 +890,17 @@ class ReviewRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=200,
         help_text=(
-            "A short note for the people who review, shown in Slack only and never on GitHub. Needs express set to "
+            "A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to "
             "true. A request that is already active keeps its note."
         ),
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["note"] and not attrs["express"]:
+        if attrs["note"] and not attrs["allow_broadcast"]:
             raise serializers.ValidationError(
-                {"note": "A note goes with a request for people to review. Set express to true, or leave out the note."}
+                {
+                    "note": "A note goes with a request for people to review. Set allow_broadcast to true, or leave out the note."
+                }
             )
         return attrs
 
@@ -918,11 +922,11 @@ class ReviewRequestResponseSerializer(serializers.Serializer):
             "covered the current head, which is returned instead."
         ),
     )
-    express_request = ExpressRequestSerializer(
+    broadcast_request = BroadcastRequestSerializer(
         read_only=True,
         allow_null=True,
         help_text=(
-            "The request for people to review that this request made or found active. Null unless express was true."
+            "The request for people to review that this request made or found active. Null unless allow_broadcast was true."
         ),
     )
 
@@ -1111,12 +1115,12 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         ),
     )
 
-    express_enabled = serializers.BooleanField(required=False, help_text=EXPRESS_ENABLED_HELP)
-    express_slack_channel_id = serializers.CharField(
-        required=False, allow_blank=True, max_length=64, help_text=EXPRESS_CHANNEL_ID_HELP
+    broadcast_enabled = serializers.BooleanField(required=False, help_text=BROADCAST_ENABLED_HELP)
+    broadcast_slack_channel_id = serializers.CharField(
+        required=False, allow_blank=True, max_length=64, help_text=BROADCAST_CHANNEL_ID_HELP
     )
-    express_slack_channel_name = serializers.CharField(
-        required=False, allow_blank=True, max_length=255, help_text=EXPRESS_CHANNEL_NAME_HELP
+    broadcast_slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, max_length=255, help_text=BROADCAST_CHANNEL_NAME_HELP
     )
 
     def __init__(
@@ -1175,10 +1179,10 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
         if "review_mode" in attrs:
             attrs["review_on_clean_external_review"] = False
 
-    def validate_express_slack_channel_id(self, value: str) -> str:
+    def validate_broadcast_slack_channel_id(self, value: str) -> str:
         return value.strip()
 
-    def validate_express_slack_channel_name(self, value: str) -> str:
+    def validate_broadcast_slack_channel_name(self, value: str) -> str:
         value = value.strip().lstrip("#")
         if value and not _SLACK_CHANNEL_NAME.fullmatch(value):
             raise serializers.ValidationError(
@@ -1186,16 +1190,16 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
             )
         return value
 
-    def _validate_express_request_channel(self, attrs: dict[str, Any]) -> None:
+    def _validate_broadcast_request_channel(self, attrs: dict[str, Any]) -> None:
         # Judge the stored row on a PATCH, so clearing the channel of a switched-on repo fails too.
-        enabled = attrs.get("express_enabled", self.current.express_enabled if self.current else False)
+        enabled = attrs.get("broadcast_enabled", self.current.broadcast_enabled if self.current else False)
         channel_id = attrs.get(
-            "express_slack_channel_id", self.current.express_slack_channel_id if self.current else ""
+            "broadcast_slack_channel_id", self.current.broadcast_slack_channel_id if self.current else ""
         )
         if enabled and not channel_id:
             raise serializers.ValidationError(
                 {
-                    "express_slack_channel_id": (
+                    "broadcast_slack_channel_id": (
                         "Set a Slack channel before you turn this on. Requests for people to review are posted there."
                     )
                 }
@@ -1204,7 +1208,7 @@ class CodeReviewApprovalRepositoryWriteSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         self._validate_clean_review_switch(attrs)
-        self._validate_express_request_channel(attrs)
+        self._validate_broadcast_request_channel(attrs)
         # The digest reports what stamphog approved, so it has nothing to report without the review
         # path running.
         enabled = attrs.get("enabled", self.current.enabled if self.current else True)

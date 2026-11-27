@@ -61,11 +61,11 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
-from products.stamphog.backend.facade.contracts import ExpressRequestDeliveryDTO, ExpressRequestDTO
+from products.stamphog.backend.facade.contracts import BroadcastRequestDeliveryDTO, BroadcastRequestDTO
 from products.stamphog.backend.facade.enums import (
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
 )
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
@@ -188,7 +188,7 @@ class TestDispatchCommentCommand(BaseTest):
         github = FakeGitHub()
 
         with patch(
-            REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, express_request=None)
+            REQUEST_STAMPHOG_REVIEW, return_value=MagicMock(created=True, broadcast_request=None)
         ) as request_review:
             outcome = dispatch_comment_command(self._request(), github=github)
 
@@ -198,9 +198,9 @@ class TestDispatchCommentCommand(BaseTest):
             user_id=self.user.id,
             repository=REPOSITORY,
             pr_number=7,
-            express=False,
+            allow_broadcast=False,
             note="",
-            requested_via=ExpressRequestSource.GITHUB,
+            requested_via=BroadcastRequestSource.GITHUB,
             requester_slack_user_id="",
             requester_github_login="octo",
         )
@@ -445,7 +445,7 @@ class TestDispatchCommentCommand(BaseTest):
         request_review.assert_not_called()
         assert github.replies == [
             "<!-- posthog-github-command:555 -->\n@octo `stamp` doesn't take that option. "
-            "Use `@posthog stamp [--express] [<note>]`."
+            "Use `@posthog stamp [--allow-broadcast] [<note>]`."
         ]
 
     def test_an_installation_outside_the_rollout_stays_silent(self) -> None:
@@ -474,9 +474,14 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("from_github", "github", StampArgs(express=True, note="ask Jane about billing"), "Notes only work"),
-            ("from_github_without_express", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
-            ("without_express", "slack", StampArgs(note="ask Jane about billing"), "Add `--express`"),
+            (
+                "from_github",
+                "github",
+                StampArgs(allow_broadcast=True, note="ask Jane about billing"),
+                "Notes only work",
+            ),
+            ("from_github_without_broadcast", "github", StampArgs(note="ask Jane about billing"), "Notes only work"),
+            ("without_broadcast", "slack", StampArgs(note="ask Jane about billing"), "Add `--allow-broadcast`"),
         ]
     )
     def test_stamp_refuses_a_note_it_cannot_use(
@@ -501,22 +506,22 @@ class TestDispatchCommentCommand(BaseTest):
         [
             (
                 "pending",
-                ExpressRequestStatus.PENDING,
+                BroadcastRequestStatus.PENDING,
                 [],
                 "reviews",
                 "If it doesn't approve, this goes to #reviews.",
             ),
             (
                 "pending_without_a_channel_name",
-                ExpressRequestStatus.PENDING,
+                BroadcastRequestStatus.PENDING,
                 [],
                 "",
                 "If it doesn't approve, this goes to the repository's Slack channel.",
             ),
-            ("open", ExpressRequestStatus.OPEN, [], "reviews", "Stamphog didn't approve, so this goes to #reviews."),
+            ("open", BroadcastRequestStatus.OPEN, [], "reviews", "Stamphog didn't approve, so this goes to #reviews."),
             (
                 "open_first_card_this_week",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [],
                 "reviews",
                 "Stamphog didn't approve, so this goes to #reviews.",
@@ -524,7 +529,7 @@ class TestDispatchCommentCommand(BaseTest):
             ),
             (
                 "open_twelfth_card_this_week",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [],
                 "reviews",
                 "Stamphog didn't approve, so this goes to #reviews. It's your 12th this week.",
@@ -532,7 +537,7 @@ class TestDispatchCommentCommand(BaseTest):
             ),
             (
                 "already_posted",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 ["https://example.slack.com/archives/C1/p100200"],
                 "reviews",
                 "Already asked in #reviews: https://example.slack.com/archives/C1/p100200",
@@ -540,14 +545,14 @@ class TestDispatchCommentCommand(BaseTest):
             # Slack gave no link for the message, so the reply names only the channel.
             (
                 "already_posted_without_a_link",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [None],
                 "reviews",
                 "Already asked in #reviews.",
             ),
             (
                 "stamphog_approved",
-                ExpressRequestStatus.STAMPHOG_APPROVED,
+                BroadcastRequestStatus.STAMPHOG_APPROVED,
                 [],
                 "reviews",
                 "Stamphog approved. No one else needs to look.",
@@ -555,7 +560,7 @@ class TestDispatchCommentCommand(BaseTest):
             # Someone else asked first and the card is not out yet, so the reply promises no count of theirs.
             (
                 "asked_by_someone_else",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [],
                 "reviews",
                 "Already asked. Stamphog didn't approve, so this goes to #reviews.",
@@ -565,7 +570,7 @@ class TestDispatchCommentCommand(BaseTest):
             # No Slack integration, or Slack refused the post: nothing goes to the channel until a person fixes it.
             (
                 "card_blocked",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [],
                 "reviews",
                 "Stamphog didn't approve, but the request couldn't be posted to #reviews. "
@@ -577,7 +582,7 @@ class TestDispatchCommentCommand(BaseTest):
             # A reply on GitHub is a public comment, so it names no channel and has no Slack link or count.
             (
                 "already_posted_from_github",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 ["https://example.slack.com/archives/C1/p100200"],
                 "reviews",
                 "Already asked in the repository's Slack channel.",
@@ -588,7 +593,7 @@ class TestDispatchCommentCommand(BaseTest):
             ),
             (
                 "open_twelfth_card_from_github",
-                ExpressRequestStatus.OPEN,
+                BroadcastRequestStatus.OPEN,
                 [],
                 "reviews",
                 "Stamphog didn't approve, so this goes to the repository's Slack channel.",
@@ -599,10 +604,10 @@ class TestDispatchCommentCommand(BaseTest):
             ),
         ]
     )
-    def test_stamp_express_replies_with_where_the_request_stands(
+    def test_stamp_broadcast_replies_with_where_the_request_stands(
         self,
         _name: str,
-        status: ExpressRequestStatus,
+        status: BroadcastRequestStatus,
         urls: list[str | None],
         channel_name: str,
         expected: str,
@@ -611,14 +616,14 @@ class TestDispatchCommentCommand(BaseTest):
         card_blocked: bool = False,
         asked_from: ChannelName = "slack",
     ) -> None:
-        express_request = ExpressRequestDTO(
+        broadcast_request = BroadcastRequestDTO(
             id=uuid4(),
             status=status,
             head_sha="abc123",
-            requested_via=ExpressRequestSource.SLACK,
+            requested_via=BroadcastRequestSource.SLACK,
             note="ask Jane about billing",
             deliveries=[
-                ExpressRequestDeliveryDTO(kind=ExpressRequestDeliveryKind.SLACK_MESSAGE, url=url) for url in urls
+                BroadcastRequestDeliveryDTO(kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE, url=url) for url in urls
             ],
         )
         context = CommandContext(
@@ -628,16 +633,16 @@ class TestDispatchCommentCommand(BaseTest):
         )
         result = MagicMock(
             created=True,
-            express_request=express_request,
-            express_request_created=created,
-            express_request_card_blocked=card_blocked,
-            express_request_channel_name=channel_name,
-            express_request_card_count=card_count,
+            broadcast_request=broadcast_request,
+            broadcast_request_created=created,
+            broadcast_request_card_blocked=card_blocked,
+            broadcast_request_channel_name=channel_name,
+            broadcast_request_card_count=card_count,
         )
         note = "ask Jane about billing" if asked_from == "slack" else ""
 
         with patch(REQUEST_STAMPHOG_REVIEW, return_value=result):
-            outcome = handle_stamp(context, StampArgs(express=True, note=note))
+            outcome = handle_stamp(context, StampArgs(allow_broadcast=True, note=note))
 
         assert outcome.accepted
         assert outcome.message.endswith(expected)
@@ -810,17 +815,20 @@ class TestDispatchCommentCommand(BaseTest):
         )
         mention = dataclasses.replace(
             self._slack_mention("stamp", (str(self.organization.id),), integration_id=slack.id),
-            text=f"stamp --express https://github.com/{REPOSITORY}/pull/7 check the billing migration",
+            text=f"stamp --allow-broadcast https://github.com/{REPOSITORY}/pull/7 check the billing migration",
         )
-        express_request = ExpressRequestDTO(
-            id=uuid4(), status=ExpressRequestStatus.PENDING, head_sha="abc123", requested_via=ExpressRequestSource.SLACK
+        broadcast_request = BroadcastRequestDTO(
+            id=uuid4(),
+            status=BroadcastRequestStatus.PENDING,
+            head_sha="abc123",
+            requested_via=BroadcastRequestSource.SLACK,
         )
         result = MagicMock(
             created=True,
-            express_request=express_request,
-            express_request_created=True,
-            express_request_card_blocked=False,
-            express_request_channel_name="reviews",
+            broadcast_request=broadcast_request,
+            broadcast_request_created=True,
+            broadcast_request_card_blocked=False,
+            broadcast_request_channel_name="reviews",
         )
         budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
         answers: list[str] = []
@@ -838,9 +846,9 @@ class TestDispatchCommentCommand(BaseTest):
             "user_id": self.user.id,
             "repository": REPOSITORY,
             "pr_number": 7,
-            "express": True,
+            "allow_broadcast": True,
             "note": "check the billing migration",
-            "requested_via": ExpressRequestSource.SLACK,
+            "requested_via": BroadcastRequestSource.SLACK,
             "requester_slack_user_id": "U1",
             "requester_github_login": "",
         }

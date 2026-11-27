@@ -1,6 +1,6 @@
 """Requests for a person to review a pull request that stamphog did not approve.
 
-A request starts with a manual review request that sets ``express``. It follows the pull request
+A request starts with a manual review request that sets ``allow_broadcast``. It follows the pull request
 until a person or stamphog approves it, or the pull request merges or closes. ``refresh`` decides
 the request's state from the database and GitHub, then posts or edits its Slack card, so every
 change to a request goes through one idempotent path.
@@ -26,18 +26,18 @@ from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
 
 from ..facade.enums import (
-    ACTIVE_EXPRESS_REQUEST_STATUSES,
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
+    ACTIVE_BROADCAST_REQUEST_STATUSES,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ReviewRunStatus,
     ReviewVerdict,
 )
-from ..models import ExpressRequest, ExpressRequestDelivery, ExpressRequestParticipant, PullRequest, ReviewRun
-from .express_request_slack import (
+from ..models import BroadcastRequest, BroadcastRequestDelivery, BroadcastRequestParticipant, PullRequest, ReviewRun
+from .broadcast_request_slack import (
+    BroadcastRequestCard,
+    BroadcastRequestSlackError,
     CardLooker,
-    ExpressRequestCard,
-    ExpressRequestSlackError,
     LookClick,
     card_permalink,
     card_workspace,
@@ -54,10 +54,10 @@ from .scrubbing import neutralize_active_markdown, scrub_credentials
 
 logger = structlog.get_logger(__name__)
 
-REQUEST_CREATED_EVENT = "stamphog_express_request_created"
-CARD_POSTED_EVENT = "stamphog_express_card_posted"
-LOOK_CLICKED_EVENT = "stamphog_express_look_clicked"
-STATUS_CHANGED_EVENT = "stamphog_express_request_status_changed"
+REQUEST_CREATED_EVENT = "stamphog_broadcast_request_created"
+CARD_POSTED_EVENT = "stamphog_broadcast_card_posted"
+LOOK_CLICKED_EVENT = "stamphog_broadcast_look_clicked"
+STATUS_CHANGED_EVENT = "stamphog_broadcast_request_status_changed"
 
 CARD_COUNT_WINDOW = timedelta(days=7)
 
@@ -67,47 +67,47 @@ _NOT_APPROVED_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALAT
 
 
 @frozen
-class ExpressRequestAsk:
+class BroadcastRequestAsk:
     """Who asked for people to review a pull request, and from where."""
 
     requested_by_user_id: int | None
-    requested_via: ExpressRequestSource
+    requested_via: BroadcastRequestSource
     requester_slack_user_id: str = ""
     requester_github_login: str = ""
     note: str = ""
 
 
 @frozen
-class OpenedExpressRequest:
+class OpenedBroadcastRequest:
     """The active request for a pull request, and whether this ask created it."""
 
-    request: ExpressRequest
+    request: BroadcastRequest
     created: bool
 
 
-def status_for_run(run: ReviewRun) -> ExpressRequestStatus:
+def status_for_run(run: ReviewRun) -> BroadcastRequestStatus:
     """What a request waits for while ``run`` is stamphog's newest review of the request's head.
 
     Only a verdict that GitHub already has counts, so a run that has not posted one leaves the request
     PENDING. ``stamphog_status_at_head`` never passes a silent run that withheld its verdict.
     """
     if run.status == ReviewRunStatus.FAILED:
-        return ExpressRequestStatus.OPEN if run.may_publish() else ExpressRequestStatus.PENDING
+        return BroadcastRequestStatus.OPEN if run.may_publish() else BroadcastRequestStatus.PENDING
     if run.status not in (ReviewRunStatus.COMPLETED, ReviewRunStatus.GATED) or run.verdict_posted_at is None:
-        return ExpressRequestStatus.PENDING
+        return BroadcastRequestStatus.PENDING
     # A gate denial is stored as a GATED WAIT, and stamphog does not review that head again.
     if run.status == ReviewRunStatus.GATED:
-        return ExpressRequestStatus.OPEN
+        return BroadcastRequestStatus.OPEN
     if run.verdict == ReviewVerdict.APPROVED and run.approval_dismissed_at is None:
-        return ExpressRequestStatus.STAMPHOG_APPROVED
+        return BroadcastRequestStatus.STAMPHOG_APPROVED
     if run.verdict in _NOT_APPROVED_VERDICTS:
-        return ExpressRequestStatus.OPEN
-    return ExpressRequestStatus.PENDING
+        return BroadcastRequestStatus.OPEN
+    return BroadcastRequestStatus.PENDING
 
 
-def open_express_request(
-    pull_request: PullRequest, run: ReviewRun, ask: ExpressRequestAsk, *, using: str
-) -> OpenedExpressRequest:
+def open_broadcast_request(
+    pull_request: PullRequest, run: ReviewRun, ask: BroadcastRequestAsk, *, using: str
+) -> OpenedBroadcastRequest:
     """Return the pull request's active request, or create one for the head that ``run`` covers.
 
     Call it inside the transaction that locked ``run``. The run cannot reach a terminal state before
@@ -118,17 +118,17 @@ def open_express_request(
     ask for that head returns the newest request when that request already records this approval.
     """
     active = (
-        ExpressRequest.objects.for_team(pull_request.team_id)
+        BroadcastRequest.objects.for_team(pull_request.team_id)
         .using(using)
-        .filter(pull_request=pull_request, status__in=ACTIVE_EXPRESS_REQUEST_STATUSES)
+        .filter(pull_request=pull_request, status__in=ACTIVE_BROADCAST_REQUEST_STATUSES)
     )
     existing = active.first()
     if existing is not None:
-        return OpenedExpressRequest(request=existing, created=False)
+        return OpenedBroadcastRequest(request=existing, created=False)
     status = status_for_run(run)
-    if status == ExpressRequestStatus.STAMPHOG_APPROVED:
+    if status == BroadcastRequestStatus.STAMPHOG_APPROVED:
         latest = (
-            ExpressRequest.objects.for_team(pull_request.team_id)
+            BroadcastRequest.objects.for_team(pull_request.team_id)
             .using(using)
             .filter(pull_request=pull_request)
             .order_by("-created_at")
@@ -136,15 +136,15 @@ def open_express_request(
         )
         if (
             latest is not None
-            and latest.status == ExpressRequestStatus.STAMPHOG_APPROVED
+            and latest.status == BroadcastRequestStatus.STAMPHOG_APPROVED
             and latest.head_sha == run.head_sha
         ):
-            return OpenedExpressRequest(request=latest, created=False)
+            return OpenedBroadcastRequest(request=latest, created=False)
     try:
         # The savepoint keeps the outer transaction usable when a concurrent ask wins the unique constraint.
         with transaction.atomic(using=using):
             request = (
-                ExpressRequest.objects.for_team(pull_request.team_id)
+                BroadcastRequest.objects.for_team(pull_request.team_id)
                 .using(using)
                 .create(
                     team_id=pull_request.team_id,
@@ -159,29 +159,29 @@ def open_express_request(
                 )
             )
     except IntegrityError:
-        return OpenedExpressRequest(request=active.get(), created=False)
+        return OpenedBroadcastRequest(request=active.get(), created=False)
     transaction.on_commit(
         lambda: _capture(
             request,
             REQUEST_CREATED_EVENT,
             {
-                "stamphog_express_request_status": str(request.status),
-                "stamphog_express_request_has_note": bool(request.note),
+                "stamphog_broadcast_request_status": str(request.status),
+                "stamphog_broadcast_request_has_note": bool(request.note),
             },
         ),
         using=using,
     )
-    return OpenedExpressRequest(request=request, created=True)
+    return OpenedBroadcastRequest(request=request, created=True)
 
 
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
 _DECIDING_REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
-_REVIEWABLE_STATUSES = frozenset({ExpressRequestStatus.OPEN, ExpressRequestStatus.PENDING})
+_REVIEWABLE_STATUSES = frozenset({BroadcastRequestStatus.OPEN, BroadcastRequestStatus.PENDING})
 
 
 def stamphog_status_at_head(
     pull_request: PullRequest, head_sha: str, *, using: str
-) -> tuple[ExpressRequestStatus, ReviewRun | None]:
+) -> tuple[BroadcastRequestStatus, ReviewRun | None]:
     """What stamphog's newest review of ``head_sha`` means for a request, and that run.
 
     No review that still counts means stamphog will not answer this head, for example after a push in
@@ -201,8 +201,8 @@ def stamphog_status_at_head(
         return status_for_run(run), run
     retained = runs.filter(retained_at_head(head_sha)).order_by("-created_at").first()
     if retained is not None:
-        return ExpressRequestStatus.STAMPHOG_APPROVED, retained
-    return ExpressRequestStatus.OPEN, None
+        return BroadcastRequestStatus.STAMPHOG_APPROVED, retained
+    return BroadcastRequestStatus.OPEN, None
 
 
 def human_approver(reviews: list[dict[str, Any]], head_sha: str, author_login: str) -> str:
@@ -242,7 +242,7 @@ def _findings(run: ReviewRun | None) -> tuple[str, ...]:
     return tuple(neutralize_active_markdown(scrub_credentials(item)) for item in items if item.strip())
 
 
-def _requester_name(request: ExpressRequest) -> str:
+def _requester_name(request: BroadcastRequest) -> str:
     if request.requester_slack_user_id:
         return ""
     name = ""
@@ -251,20 +251,20 @@ def _requester_name(request: ExpressRequest) -> str:
     return name or request.requester_github_login
 
 
-def _same_requester(request: ExpressRequest) -> Q | None:
+def _same_requester(request: BroadcastRequest) -> Q | None:
     """Requests by the person who made ``request``: any one of its identities matches. None when it has none."""
     match = Q()
     if request.requested_by_user_id is not None:
-        match |= Q(express_request__requested_by_user_id=request.requested_by_user_id)
+        match |= Q(broadcast_request__requested_by_user_id=request.requested_by_user_id)
     if request.requester_slack_user_id:
-        match |= Q(express_request__requester_slack_user_id=request.requester_slack_user_id)
+        match |= Q(broadcast_request__requester_slack_user_id=request.requester_slack_user_id)
     if request.requester_github_login:
         # GitHub logins are case-insensitive.
-        match |= Q(express_request__requester_github_login__iexact=request.requester_github_login)
+        match |= Q(broadcast_request__requester_github_login__iexact=request.requester_github_login)
     return match or None
 
 
-def _lock_requester_cards(request: ExpressRequest, *, using: str) -> None:
+def _lock_requester_cards(request: BroadcastRequest, *, using: str) -> None:
     """Serialize card posts of one requester until the transaction ends, so each post counts the ones before it.
 
     A post saves its delivery as POSTED in a transaction that is still open, so a concurrent post for the same
@@ -282,11 +282,11 @@ def _lock_requester_cards(request: ExpressRequest, *, using: str) -> None:
         for identity in sorted(identities):
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                [f"stamphog-express-cards:{request.team_id}:{identity}"],
+                [f"stamphog-broadcast-cards:{request.team_id}:{identity}"],
             )
 
 
-def requester_card_count(request: ExpressRequest, *, at: datetime, using: str) -> int:
+def requester_card_count(request: BroadcastRequest, *, at: datetime, using: str) -> int:
     """How many cards the person who made ``request`` caused in the window up to ``at``, its own card included.
 
     Only posted cards count, because a request that stamphog approved asked nobody to look.
@@ -295,21 +295,21 @@ def requester_card_count(request: ExpressRequest, *, at: datetime, using: str) -
     if match is None:
         return 1
     earlier = (
-        ExpressRequestDelivery.objects.for_team(request.team_id)
+        BroadcastRequestDelivery.objects.for_team(request.team_id)
         .using(using)
         .filter(
             match,
-            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
-            state=ExpressRequestDelivery.State.POSTED,
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            state=BroadcastRequestDelivery.State.POSTED,
             posted_at__gt=at - CARD_COUNT_WINDOW,
         )
-        .exclude(express_request_id=request.id)
+        .exclude(broadcast_request_id=request.id)
         .count()
     )
     return earlier + 1
 
 
-def card_cannot_post(request: ExpressRequest, *, using: str) -> bool:
+def card_cannot_post(request: BroadcastRequest, *, using: str) -> bool:
     """Whether the card of an open request cannot go out until a person fixes something.
 
     That is the case when the team has no Slack integration, or when Slack refused an earlier post, for
@@ -318,29 +318,29 @@ def card_cannot_post(request: ExpressRequest, *, using: str) -> bool:
     if find_card_integration(request.team_id) is None:
         return True
     return (
-        ExpressRequestDelivery.objects.for_team(request.team_id)
+        BroadcastRequestDelivery.objects.for_team(request.team_id)
         .using(using)
         .filter(
-            express_request_id=request.id,
-            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
-            state=ExpressRequestDelivery.State.FAILED,
+            broadcast_request_id=request.id,
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            state=BroadcastRequestDelivery.State.FAILED,
         )
         .exists()
     )
 
 
 def _card(
-    request: ExpressRequest,
+    request: BroadcastRequest,
     pr: Mapping[str, Any],
     *,
     integration_id: int,
-    status: ExpressRequestStatus,
+    status: BroadcastRequestStatus,
     approved_by_login: str,
     run: ReviewRun | None,
-    lookers: list[ExpressRequestParticipant],
-) -> ExpressRequestCard:
+    lookers: list[BroadcastRequestParticipant],
+) -> BroadcastRequestCard:
     pull_request = request.pull_request
-    return ExpressRequestCard(
+    return BroadcastRequestCard(
         request_id=str(request.id),
         team_id=request.team_id,
         integration_id=integration_id,
@@ -356,10 +356,10 @@ def _card(
             *(reviewer.get("login") or "" for reviewer in pr.get("requested_reviewers") or []),
             *(team.get("slug") or "" for team in pr.get("requested_teams") or []),
         ),
-        findings=_findings(run) if status in (ExpressRequestStatus.OPEN, ExpressRequestStatus.APPROVED) else (),
+        findings=_findings(run) if status in (BroadcastRequestStatus.OPEN, BroadcastRequestStatus.APPROVED) else (),
         stamphog_failed=run is not None
         and run.status == ReviewRunStatus.FAILED
-        and status == ExpressRequestStatus.OPEN,
+        and status == BroadcastRequestStatus.OPEN,
         note=request.note,
         requester_slack_user_id=request.requester_slack_user_id,
         requester_name=_requester_name(request),
@@ -371,14 +371,14 @@ def _card(
 
 @frozen
 class _NextState:
-    status: ExpressRequestStatus
+    status: BroadcastRequestStatus
     approved_by_login: str
     # Stamphog's newest review of the head, for its findings. None for a final request.
     run: ReviewRun | None
 
 
 def _next_state(
-    request: ExpressRequest,
+    request: BroadcastRequest,
     client: StamphogGitHubClient,
     pr: Mapping[str, Any],
     *,
@@ -386,14 +386,14 @@ def _next_state(
     using: str,
 ) -> _NextState | None:
     """The request's next state, or None while the review path has not yet decided a new head."""
-    if request.status not in ACTIVE_EXPRESS_REQUEST_STATUSES:
+    if request.status not in ACTIVE_BROADCAST_REQUEST_STATUSES:
         return _NextState(
-            status=ExpressRequestStatus(request.status), approved_by_login=request.approved_by_login, run=None
+            status=BroadcastRequestStatus(request.status), approved_by_login=request.approved_by_login, run=None
         )
     if pr.get("merged") or pr.get("merged_at"):
-        return _NextState(status=ExpressRequestStatus.MERGED, approved_by_login=request.approved_by_login, run=None)
+        return _NextState(status=BroadcastRequestStatus.MERGED, approved_by_login=request.approved_by_login, run=None)
     if pr.get("state") == "closed":
-        return _NextState(status=ExpressRequestStatus.CLOSED, approved_by_login=request.approved_by_login, run=None)
+        return _NextState(status=BroadcastRequestStatus.CLOSED, approved_by_login=request.approved_by_login, run=None)
     pull_request = request.pull_request
     head_sha = pr["head"]["sha"]
     status, run = stamphog_status_at_head(pull_request, head_sha, using=using)
@@ -401,29 +401,29 @@ def _next_state(
     # the new head's run. That missing run does not mean that no review is coming, so the request waits.
     if (
         run is None
-        and status == ExpressRequestStatus.OPEN
+        and status == BroadcastRequestStatus.OPEN
         and head_sha != request.head_sha
         and head_sha != decided_head_sha
     ):
         return None
-    if status == ExpressRequestStatus.STAMPHOG_APPROVED:
+    if status == BroadcastRequestStatus.STAMPHOG_APPROVED:
         return _NextState(status=status, approved_by_login="", run=run)
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     approver = human_approver(
         client.get_pr_reviews(pull_request.repo_config.repository, pull_request.pr_number), head_sha, author
     )
     if approver:
-        return _NextState(status=ExpressRequestStatus.APPROVED, approved_by_login=approver, run=run)
+        return _NextState(status=BroadcastRequestStatus.APPROVED, approved_by_login=approver, run=run)
     return _NextState(status=status, approved_by_login="", run=run)
 
 
-def _capture(request: ExpressRequest, event: str, properties: dict[str, Any], *, background: bool = False) -> None:
+def _capture(request: BroadcastRequest, event: str, properties: dict[str, Any], *, background: bool = False) -> None:
     repo_config = request.pull_request.repo_config
     all_properties = {
         "stamphog_repo": repo_config.repository,
         "stamphog_team_id": request.team_id,
-        "stamphog_express_request_id": str(request.id),
-        "stamphog_express_request_via": request.requested_via,
+        "stamphog_broadcast_request_id": str(request.id),
+        "stamphog_broadcast_request_via": request.requested_via,
         **properties,
     }
     try:
@@ -433,38 +433,38 @@ def _capture(request: ExpressRequest, event: str, properties: dict[str, Any], *,
         with ph_scoped_capture() as capture:
             capture(distinct_id=repo_config.repository, event=event, properties=all_properties)
     except Exception:
-        logger.exception("stamphog_express_request_capture_failed", express_request_id=str(request.id))
+        logger.exception("stamphog_broadcast_request_capture_failed", broadcast_request_id=str(request.id))
 
 
 def _capture_status_change(
-    request: ExpressRequest,
-    delivery: ExpressRequestDelivery | None,
-    old: ExpressRequestStatus,
-    new: ExpressRequestStatus,
+    request: BroadcastRequest,
+    delivery: BroadcastRequestDelivery | None,
+    old: BroadcastRequestStatus,
+    new: BroadcastRequestStatus,
     *,
     using: str,
 ) -> None:
     """Record how a request with a posted card ended, or moved, so the data shows whether a card got a review."""
-    if delivery is None or delivery.state != ExpressRequestDelivery.State.POSTED or delivery.posted_at is None:
+    if delivery is None or delivery.state != BroadcastRequestDelivery.State.POSTED or delivery.posted_at is None:
         return
     properties = {
-        "stamphog_express_request_old_status": old.value,
-        "stamphog_express_request_new_status": new.value,
-        "stamphog_express_request_seconds_since_card": int((timezone.now() - delivery.posted_at).total_seconds()),
+        "stamphog_broadcast_request_old_status": old.value,
+        "stamphog_broadcast_request_new_status": new.value,
+        "stamphog_broadcast_request_seconds_since_card": int((timezone.now() - delivery.posted_at).total_seconds()),
     }
     # After the commit, so a refresh that rolls back and retries records the change once.
     transaction.on_commit(lambda: _capture(request, STATUS_CHANGED_EVENT, properties), using=using)
 
 
-def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str, *, using: str) -> None:
+def _post_once(request: BroadcastRequest, card: BroadcastRequestCard, head_sha: str, *, using: str) -> None:
     """Post the card unless another refresh already did. The delivery row lock makes a retry wait and then skip."""
     repo_config = request.pull_request.repo_config
-    kind = ExpressRequestDeliveryKind.SLACK_MESSAGE
-    deliveries = ExpressRequestDelivery.objects.for_team(request.team_id).using(using)
+    kind = BroadcastRequestDeliveryKind.SLACK_MESSAGE
+    deliveries = BroadcastRequestDelivery.objects.for_team(request.team_id).using(using)
     with transaction.atomic(using=using):
-        deliveries.get_or_create(team_id=request.team_id, express_request=request, kind=kind)
-        delivery = deliveries.select_for_update().get(express_request=request, kind=kind)
-        if delivery.state == ExpressRequestDelivery.State.POSTED:
+        deliveries.get_or_create(team_id=request.team_id, broadcast_request=request, kind=kind)
+        delivery = deliveries.select_for_update().get(broadcast_request=request, kind=kind)
+        if delivery.state == BroadcastRequestDelivery.State.POSTED:
             return
         _lock_requester_cards(request, using=using)
         posted_at = timezone.now()
@@ -473,18 +473,20 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         # When Slack accepts the post and the commit then fails, the retry posts one more card. That is accepted,
         # because recording the post before Slack accepts it could leave a card that never posts.
         try:
-            ts = post_card(card, repo_config.express_slack_channel_id, repo_config.express_slack_channel_name)
-        except ExpressRequestSlackError as e:
+            ts = post_card(card, repo_config.broadcast_slack_channel_id, repo_config.broadcast_slack_channel_name)
+        except BroadcastRequestSlackError as e:
             # A missing integration, a channel the app cannot join, or a Slack refusal such as a revoked token needs a
             # person, so a retry would fail the same way. The next refresh tries again.
-            logger.warning("stamphog_express_request_post_refused", express_request_id=str(request.id), error=str(e))
-            delivery.state = ExpressRequestDelivery.State.FAILED
+            logger.warning(
+                "stamphog_broadcast_request_post_refused", broadcast_request_id=str(request.id), error=str(e)
+            )
+            delivery.state = BroadcastRequestDelivery.State.FAILED
             delivery.save(update_fields=["state", "updated_at"])
             return
         delivery.integration_id = card.integration_id
-        delivery.channel_id = repo_config.express_slack_channel_id
+        delivery.channel_id = repo_config.broadcast_slack_channel_id
         delivery.message_ts = ts
-        delivery.state = ExpressRequestDelivery.State.POSTED
+        delivery.state = BroadcastRequestDelivery.State.POSTED
         delivery.posted_at = posted_at
         delivery.save(
             update_fields=[
@@ -498,45 +500,45 @@ def _post_once(request: ExpressRequest, card: ExpressRequestCard, head_sha: str,
         )
         # The people who look later see the card at this head, so only a later head pings them. Later edits show
         # the count the card went out with.
-        ExpressRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
+        BroadcastRequest.objects.for_team(request.team_id).using(using).filter(id=request.id).update(
             pinged_head_sha=head_sha, requester_card_count=card_count, updated_at=timezone.now()
         )
         channel_id = delivery.channel_id
         transaction.on_commit(
             lambda: _record_permalink(request.team_id, delivery.id, card, channel_id, ts, using=using), using=using
         )
-    _capture(request, CARD_POSTED_EVENT, {"stamphog_express_request_status": card.status.value})
+    _capture(request, CARD_POSTED_EVENT, {"stamphog_broadcast_request_status": card.status.value})
 
 
 def _record_permalink(
-    team_id: int, delivery_id: UUID, card: ExpressRequestCard, channel_id: str, ts: str, *, using: str
+    team_id: int, delivery_id: UUID, card: BroadcastRequestCard, channel_id: str, ts: str, *, using: str
 ) -> None:
     permalink = card_permalink(card, channel_id, ts)
     if not permalink:
         return
-    ExpressRequestDelivery.objects.for_team(team_id).using(using).filter(id=delivery_id, permalink="").update(
+    BroadcastRequestDelivery.objects.for_team(team_id).using(using).filter(id=delivery_id, permalink="").update(
         permalink=permalink, updated_at=timezone.now()
     )
 
 
 def _post_if_open(
-    request: ExpressRequest,
+    request: BroadcastRequest,
     pr: Mapping[str, Any],
     state: _NextState,
-    lookers: list[ExpressRequestParticipant],
+    lookers: list[BroadcastRequestParticipant],
     head_sha: str,
     *,
     using: str,
 ) -> None:
-    if state.status != ExpressRequestStatus.OPEN:
+    if state.status != BroadcastRequestStatus.OPEN:
         return
     repo_config = request.pull_request.repo_config
-    if not repo_config.express_enabled or not repo_config.express_slack_channel_id:
-        logger.info("stamphog_express_request_not_configured", express_request_id=str(request.id))
+    if not repo_config.broadcast_enabled or not repo_config.broadcast_slack_channel_id:
+        logger.info("stamphog_broadcast_request_not_configured", broadcast_request_id=str(request.id))
         return
     integration_id = find_card_integration(request.team_id)
     if integration_id is None:
-        logger.warning("stamphog_express_request_no_slack_integration", express_request_id=str(request.id))
+        logger.warning("stamphog_broadcast_request_no_slack_integration", broadcast_request_id=str(request.id))
         return
     card = _card(
         request,
@@ -550,8 +552,8 @@ def _post_if_open(
     _post_once(request, card, head_sha, using=using)
 
 
-def refresh(team_id: int, express_request_id: str, *, decided_head_sha: str = "") -> None:
-    """Recompute one Express request from the database and GitHub, then post or edit its Slack card.
+def refresh(team_id: int, broadcast_request_id: str, *, decided_head_sha: str = "") -> None:
+    """Recompute one Broadcast request from the database and GitHub, then post or edit its Slack card.
 
     Idempotent: a retry, or a second refresh for the same state, posts nothing new. Every read that
     decides a post is pinned to the writer.
@@ -565,17 +567,17 @@ def refresh(team_id: int, express_request_id: str, *, decided_head_sha: str = ""
     GitHub reads and the Slack call. Without it, a refresh that read GitHub before a push or a merge
     could write its older state, or edit the card to it, after a newer refresh finished.
     """
-    db = router.db_for_write(ExpressRequest)
+    db = router.db_for_write(BroadcastRequest)
     with transaction.atomic(using=db):
         request = (
-            ExpressRequest.objects.for_team(team_id)
+            BroadcastRequest.objects.for_team(team_id)
             .using(db)
             .select_related("pull_request__repo_config")
             # Only the request row: a lock on the pull request row would block the review path's upsert.
             # NO KEY UPDATE does not block the FOR KEY SHARE lock of a participant insert, so a click
             # does not wait for the GitHub and Slack calls of a refresh.
             .select_for_update(no_key=True, of=("self",))
-            .filter(id=express_request_id)
+            .filter(id=broadcast_request_id)
             .first()
         )
         if request is None:
@@ -583,7 +585,7 @@ def refresh(team_id: int, express_request_id: str, *, decided_head_sha: str = ""
         _refresh_locked(request, decided_head_sha=decided_head_sha, using=db)
 
 
-def _refresh_locked(request: ExpressRequest, *, decided_head_sha: str, using: str) -> None:
+def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: str) -> None:
     team_id = request.team_id
     pull_request = request.pull_request
     repo_config = pull_request.repo_config
@@ -597,30 +599,30 @@ def _refresh_locked(request: ExpressRequest, *, decided_head_sha: str, using: st
         return
 
     delivery = (
-        ExpressRequestDelivery.objects.for_team(team_id)
+        BroadcastRequestDelivery.objects.for_team(team_id)
         .using(using)
-        .filter(express_request=request, kind=ExpressRequestDeliveryKind.SLACK_MESSAGE)
+        .filter(broadcast_request=request, kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE)
         .first()
     )
-    if request.status in ACTIVE_EXPRESS_REQUEST_STATUSES:
-        ExpressRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
+    if request.status in ACTIVE_BROADCAST_REQUEST_STATUSES:
+        BroadcastRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
             status=state.status, head_sha=head_sha, approved_by_login=state.approved_by_login, updated_at=timezone.now()
         )
         if state.status != request.status:
-            _capture_status_change(request, delivery, ExpressRequestStatus(request.status), state.status, using=using)
+            _capture_status_change(request, delivery, BroadcastRequestStatus(request.status), state.status, using=using)
     lookers = list(
-        ExpressRequestParticipant.objects.for_team(team_id)
+        BroadcastRequestParticipant.objects.for_team(team_id)
         .using(using)
-        .filter(express_request=request, looking=True)
+        .filter(broadcast_request=request, looking=True)
         .order_by("created_at")
     )
 
-    if delivery is None or delivery.state != ExpressRequestDelivery.State.POSTED or delivery.integration_id is None:
+    if delivery is None or delivery.state != BroadcastRequestDelivery.State.POSTED or delivery.integration_id is None:
         _post_if_open(request, pr, state, lookers, head_sha, using=using)
         return
-    # Turning Express off, or moving it to another channel, stops PR data from reaching the old card's audience.
-    if not repo_config.express_enabled or repo_config.express_slack_channel_id != delivery.channel_id:
-        logger.info("stamphog_express_request_card_frozen", express_request_id=str(request.id))
+    # Turning Broadcast off, or moving it to another channel, stops PR data from reaching the old card's audience.
+    if not repo_config.broadcast_enabled or repo_config.broadcast_slack_channel_id != delivery.channel_id:
+        logger.info("stamphog_broadcast_request_card_frozen", broadcast_request_id=str(request.id))
         return
 
     card = _card(
@@ -634,18 +636,18 @@ def _refresh_locked(request: ExpressRequest, *, decided_head_sha: str, using: st
     )
     try:
         update_card(card, delivery.channel_id, delivery.message_ts)
-    except ExpressRequestSlackError as e:
-        logger.warning("stamphog_express_request_update_refused", express_request_id=str(request.id), error=str(e))
+    except BroadcastRequestSlackError as e:
+        logger.warning("stamphog_broadcast_request_update_refused", broadcast_request_id=str(request.id), error=str(e))
         return
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.
-    ExpressRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
+    BroadcastRequest.objects.for_team(team_id).using(using).filter(id=request.id).update(
         pinged_head_sha=head_sha, updated_at=timezone.now()
     )
     if lookers and state.status in _REVIEWABLE_STATUSES:
         ping_lookers(
-            card, delivery.channel_id, delivery.message_ts, reviewing=state.status == ExpressRequestStatus.PENDING
+            card, delivery.channel_id, delivery.message_ts, reviewing=state.status == BroadcastRequestStatus.PENDING
         )
 
 
@@ -657,23 +659,23 @@ def record_look(click: LookClick) -> bool:
     can be copied into another message. Slack expects an answer in 3 seconds, so the refresh is queued
     by the caller, and the click event goes through the background client, which does not wait for a flush.
     """
-    db = router.db_for_write(ExpressRequest)
+    db = router.db_for_write(BroadcastRequest)
     request = (
-        ExpressRequest.objects.for_team(click.team_id)
+        BroadcastRequest.objects.for_team(click.team_id)
         .using(db)
         .select_related("pull_request__repo_config")
-        .filter(id=click.express_request_id, status__in=_REVIEWABLE_STATUSES)
+        .filter(id=click.broadcast_request_id, status__in=_REVIEWABLE_STATUSES)
         .first()
     )
     if request is None:
         return False
     on_card = (
-        ExpressRequestDelivery.objects.for_team(click.team_id)
+        BroadcastRequestDelivery.objects.for_team(click.team_id)
         .using(db)
         .filter(
-            express_request=request,
-            kind=ExpressRequestDeliveryKind.SLACK_MESSAGE,
-            state=ExpressRequestDelivery.State.POSTED,
+            broadcast_request=request,
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            state=BroadcastRequestDelivery.State.POSTED,
             integration_id=click.integration_id,
             channel_id=click.channel_id,
             message_ts=click.message_ts,
@@ -684,14 +686,14 @@ def record_look(click: LookClick) -> bool:
         return False
     workspace = card_workspace(click.team_id, click.integration_id)
     if not workspace or workspace != click.slack_team_id or click.slack_user_team_id != workspace:
-        logger.info("stamphog_express_request_click_from_another_workspace", express_request_id=str(request.id))
+        logger.info("stamphog_broadcast_request_click_from_another_workspace", broadcast_request_id=str(request.id))
         return False
 
-    participants = ExpressRequestParticipant.objects.for_team(click.team_id).using(db)
+    participants = BroadcastRequestParticipant.objects.for_team(click.team_id).using(db)
     if click.looking:
         participant, created = participants.get_or_create(
             team_id=click.team_id,
-            express_request=request,
+            broadcast_request=request,
             slack_user_id=click.slack_user_id,
             defaults={"display_name": click.display_name, "looking": True},
         )
@@ -704,10 +706,10 @@ def record_look(click: LookClick) -> bool:
         )
     else:
         changed = bool(
-            participants.filter(express_request=request, slack_user_id=click.slack_user_id, looking=True).update(
+            participants.filter(broadcast_request=request, slack_user_id=click.slack_user_id, looking=True).update(
                 looking=False, updated_at=timezone.now()
             )
         )
     if changed:
-        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_express_request_looking": click.looking}, background=True)
+        _capture(request, LOOK_CLICKED_EVENT, {"stamphog_broadcast_request_looking": click.looking}, background=True)
     return changed

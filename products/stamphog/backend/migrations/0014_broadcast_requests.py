@@ -15,21 +15,21 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="express_enabled",
+            name="broadcast_enabled",
             field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="express_slack_channel_id",
+            name="broadcast_slack_channel_id",
             field=models.CharField(blank=True, db_default="", default="", max_length=64),
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="express_slack_channel_name",
+            name="broadcast_slack_channel_name",
             field=models.CharField(blank=True, db_default="", default="", max_length=255),
         ),
         migrations.CreateModel(
-            name="ExpressRequest",
+            name="BroadcastRequest",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -93,7 +93,7 @@ class Migration(migrations.Migration):
                     "pull_request",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="express_requests",
+                        related_name="broadcast_requests",
                         to="stamphog.pullrequest",
                     ),
                 ),
@@ -107,7 +107,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name="ExpressRequestDelivery",
+            name="BroadcastRequestDelivery",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -143,7 +143,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "express_request",
+                    "broadcast_request",
                     models.ForeignKey(
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
@@ -161,7 +161,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name="ExpressRequestParticipant",
+            name="BroadcastRequestParticipant",
             fields=[
                 ("team_id", models.BigIntegerField(db_index=True)),
                 (
@@ -182,7 +182,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "express_request",
+                    "broadcast_request",
                     models.ForeignKey(
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
@@ -204,21 +204,21 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 condition=models.Q(("status__in", ["approved", "open", "pending"])),
                 fields=("pull_request",),
-                name="unique_stamphog_active_express_request",
+                name="unique_stamphog_active_broadcast_request",
             ),
         ),
         migrations.AddConstraint(
             model_name="expressrequestdelivery",
             constraint=models.UniqueConstraint(
-                fields=("express_request", "kind"),
-                name="unique_stamphog_express_request_delivery",
+                fields=("broadcast_request", "kind"),
+                name="unique_stamphog_broadcast_request_delivery",
             ),
         ),
         migrations.AddConstraint(
             model_name="expressrequestparticipant",
             constraint=models.UniqueConstraint(
-                fields=("express_request", "slack_user_id"),
-                name="unique_stamphog_express_request_participant",
+                fields=("broadcast_request", "slack_user_id"),
+                name="unique_stamphog_broadcast_request_participant",
             ),
         ),
     ]

@@ -19,11 +19,11 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 
 from .enums import (
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     PinReason,
@@ -55,9 +55,9 @@ class RepoConfigDTO:
     routing_mode: str = ""
     routing_fork_labels: dict[str, str] = Field(default_factory=dict)
     review_on_clean_external_review: bool = False
-    express_enabled: bool = False
-    express_slack_channel_id: str = ""
-    express_slack_channel_name: str = ""
+    broadcast_enabled: bool = False
+    broadcast_slack_channel_id: str = ""
+    broadcast_slack_channel_name: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -101,26 +101,26 @@ class PullRequestRoutingDTO:
 
 
 @dataclass(frozen=True)
-class ExpressRequestDeliveryDTO:
-    """Where an Express request was posted."""
+class BroadcastRequestDeliveryDTO:
+    """Where a broadcast request was posted."""
 
-    kind: ExpressRequestDeliveryKind
+    kind: BroadcastRequestDeliveryKind
     url: str | None
 
 
 @dataclass(frozen=True)
-class ExpressRequestDTO:
+class BroadcastRequestDTO:
     """A request for a person to review a pull request when stamphog does not approve it."""
 
     id: UUID
-    status: ExpressRequestStatus
+    status: BroadcastRequestStatus
     head_sha: str
-    requested_via: ExpressRequestSource
+    requested_via: BroadcastRequestSource
     note: str = ""
     # Display names of the people who said they will look, in the order they said it.
     looking: list[str] = Field(default_factory=list)
     approved_by_login: str = ""
-    deliveries: list[ExpressRequestDeliveryDTO] = Field(default_factory=list)
+    deliveries: list[BroadcastRequestDeliveryDTO] = Field(default_factory=list)
     # How many cards the requester caused in the 7 days up to this request's card, that card included.
     requester_card_count: int | None = None
     created_at: datetime | None = None
@@ -149,8 +149,8 @@ class PullRequestDTO:
     posted_comment_id: int | None = None
     routing_mode: RoutingMode = RoutingMode.OFF
     routing: PullRequestRoutingDTO | None = None
-    # The newest Express request of the pull request, None when nobody asked or the read did not load it.
-    express_request: ExpressRequestDTO | None = None
+    # The newest Broadcast request of the pull request, None when nobody asked or the read did not load it.
+    broadcast_request: BroadcastRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -206,7 +206,7 @@ class ReviewRunDTO:
     posted_review_id: int | None = None
     verdict_posted_at: datetime | None = None
     approval_dismissed_at: datetime | None = None
-    express_request: ExpressRequestDTO | None = None
+    broadcast_request: BroadcastRequestDTO | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
@@ -307,16 +307,16 @@ class ReviewRequestResultDTO:
     # False when a live or delivered run already covered the PR's current head.
     created: bool
     # Set only when the request asked for people to review. It can be a request that already existed.
-    express_request: ExpressRequestDTO | None = None
-    # The Slack channel name the repository sends Express requests to, without the '#'. Blank when unknown.
-    express_request_channel_name: str = ""
-    express_request_created: bool = False
+    broadcast_request: BroadcastRequestDTO | None = None
+    # The Slack channel name the repository sends Broadcast requests to, without the '#'. Blank when unknown.
+    broadcast_request_channel_name: str = ""
+    broadcast_request_created: bool = False
     # True when the request is open with no posted card and the card cannot go out: the team has no Slack
     # integration, or Slack refused the post.
-    express_request_card_blocked: bool = False
+    broadcast_request_card_blocked: bool = False
     # The requester's weekly card count that the card on its way will show. Set only when this request created
-    # ``express_request`` and the card is on its way, so it is always the count of the person who asked.
-    express_request_card_count: int | None = None
+    # ``broadcast_request`` and the card is on its way, so it is always the count of the person who asked.
+    broadcast_request_card_count: int | None = None
 
 
 @dataclass(frozen=True)

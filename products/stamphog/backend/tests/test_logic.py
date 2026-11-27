@@ -21,7 +21,7 @@ from posthog.api.oauth.client_assertion import UnknownSigningKeyError
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 
-from products.stamphog.backend.facade.enums import AudienceReason, ExpressRequestStatus, ReviewMode, ReviewTrigger
+from products.stamphog.backend.facade.enums import AudienceReason, BroadcastRequestStatus, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
 from products.stamphog.backend.logic.attestation_checks import all_reported, attestation_check
 from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
@@ -31,12 +31,17 @@ from products.stamphog.backend.logic.attestation_policy import (
     workflow_publishers,
 )
 from products.stamphog.backend.logic.audiences import resolve_audiences
+from products.stamphog.backend.logic.broadcast_request_slack import (
+    BroadcastRequestCard,
+    CardLooker,
+    card_blocks,
+    card_text,
+)
+from products.stamphog.backend.logic.broadcast_requests import human_approver
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, run_engine_attestation_proof
-from products.stamphog.backend.logic.express_request_slack import CardLooker, ExpressRequestCard, card_blocks, card_text
-from products.stamphog.backend.logic.express_requests import human_approver
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_CHECK_RUNS,
@@ -622,13 +627,13 @@ class HumanApproverTests(SimpleTestCase):
         assert human_approver(reviews, "head2", "Author") == expected
 
 
-class ExpressRequestCardTests(SimpleTestCase):
-    def _card(self, **overrides: Any) -> ExpressRequestCard:
+class BroadcastRequestCardTests(SimpleTestCase):
+    def _card(self, **overrides: Any) -> BroadcastRequestCard:
         fields: dict[str, Any] = {
             "request_id": "req-1",
             "team_id": 3,
             "integration_id": 42,
-            "status": ExpressRequestStatus.OPEN,
+            "status": BroadcastRequestStatus.OPEN,
             "repository": "o/r",
             "pr_number": 7,
             "pr_url": "https://github.com/o/r/pull/7",
@@ -645,7 +650,7 @@ class ExpressRequestCardTests(SimpleTestCase):
             "lookers": (CardLooker(slack_user_id="not-an-id", display_name="<!channel>"),),
             "approved_by_login": "",
         }
-        return ExpressRequestCard(**(fields | overrides))
+        return BroadcastRequestCard(**(fields | overrides))
 
     def test_pull_request_text_cannot_mention_anyone(self) -> None:
         # The title, requested reviewers, findings, note and display names come from the pull request or from
@@ -669,21 +674,24 @@ class ExpressRequestCardTests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (ExpressRequestStatus.OPEN, True),
-            (ExpressRequestStatus.PENDING, True),
-            (ExpressRequestStatus.APPROVED, False),
-            (ExpressRequestStatus.STAMPHOG_APPROVED, False),
-            (ExpressRequestStatus.MERGED, False),
+            (BroadcastRequestStatus.OPEN, True),
+            (BroadcastRequestStatus.PENDING, True),
+            (BroadcastRequestStatus.APPROVED, False),
+            (BroadcastRequestStatus.STAMPHOG_APPROVED, False),
+            (BroadcastRequestStatus.MERGED, False),
         ]
     )
     def test_buttons_route_back_to_the_request_only_while_it_waits_for_a_person(
-        self, status: ExpressRequestStatus, has_buttons: bool
+        self, status: BroadcastRequestStatus, has_buttons: bool
     ) -> None:
         actions = [block for block in card_blocks(self._card(status=status)) if block["type"] == "actions"]
         assert bool(actions) is has_buttons
         if has_buttons:
             (look, stop) = actions[0]["elements"]
-            assert (look["action_id"], stop["action_id"]) == ("stamphog_express.look", "stamphog_express.stop_looking")
+            assert (look["action_id"], stop["action_id"]) == (
+                "stamphog_broadcast.look",
+                "stamphog_broadcast.stop_looking",
+            )
             value = json.loads(look["value"])
             assert (value["request_id"], value["integration_id"], value["team_id"]) == ("req-1", 42, 3)
 

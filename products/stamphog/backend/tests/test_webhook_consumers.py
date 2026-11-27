@@ -19,7 +19,7 @@ WEBHOOK_PATH = "/webhooks/stamphog/github"
 PULL_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.process_pull_request_event.delay"
 INSTALLATION_DELAY = "products.stamphog.backend.facade.tasks.process_installation_event.delay"
 ROUTING_DELAY = "products.stamphog.backend.facade.tasks.route_pull_request_reviewers.delay"
-EXPRESS_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.refresh_express_requests_for_pull_request.delay"
+BROADCAST_REQUEST_DELAY = "products.stamphog.backend.facade.tasks.refresh_broadcast_requests_for_pull_request.delay"
 
 POSTHOG_APP_SECRET = "test-posthog-app-secret"
 POSTHOG_APP_PATH = "/webhooks/github"
@@ -163,7 +163,7 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
             ("labeled", {}, False),
         ]
     )
-    def test_a_pull_request_change_a_card_shows_refreshes_its_express_requests(
+    def test_a_pull_request_change_a_card_shows_refreshes_its_broadcast_requests(
         self, action: str, extra: dict, refreshes: bool
     ) -> None:
         payload = {"action": action, "installation": {"id": 42}, **PULL_REQUEST_FIELDS, **extra}
@@ -172,15 +172,17 @@ class TestStamphogGitHubWebhook(SimpleTestCase):
         with (
             patch(PULL_REQUEST_DELAY),
             patch(ROUTING_DELAY),
-            patch(EXPRESS_REQUEST_DELAY) as express_request_delay,
+            patch(BROADCAST_REQUEST_DELAY) as broadcast_request_delay,
         ):
             assert self._post(body, signature=_signature(body, WEBHOOK_SECRET)).status_code == 202
 
         if refreshes:
             # Stamphog's own installation names the one repo config that owns the repository.
-            express_request_delay.assert_called_once_with(repository="acme/widgets", pr_number=7, installation_id="42")
+            broadcast_request_delay.assert_called_once_with(
+                repository="acme/widgets", pr_number=7, installation_id="42"
+            )
         else:
-            express_request_delay.assert_not_called()
+            broadcast_request_delay.assert_not_called()
 
 
 class TestPostHogAppReviewWebhook(SimpleTestCase):
@@ -213,7 +215,7 @@ class TestPostHogAppReviewWebhook(SimpleTestCase):
             ("edited", "edited", "approved", "User", False),
         ]
     )
-    def test_a_review_that_can_move_an_approval_refreshes_the_express_requests(
+    def test_a_review_that_can_move_an_approval_refreshes_the_broadcast_requests(
         self, _name: str, action: str, state: str, user_type: str, refreshes: bool
     ) -> None:
         payload = {
@@ -224,7 +226,7 @@ class TestPostHogAppReviewWebhook(SimpleTestCase):
         }
         body = json.dumps(payload).encode("utf-8")
 
-        with patch(EXPRESS_REQUEST_DELAY) as express_request_delay:
+        with patch(BROADCAST_REQUEST_DELAY) as broadcast_request_delay:
             response = self.client.post(
                 POSTHOG_APP_PATH,
                 data=body,
@@ -239,6 +241,6 @@ class TestPostHogAppReviewWebhook(SimpleTestCase):
         assert response.status_code == 202
         if refreshes:
             # The PostHog App's installation is not stamphog's, so it must not narrow the match.
-            express_request_delay.assert_called_once_with(repository="acme/widgets", pr_number=7, installation_id="")
+            broadcast_request_delay.assert_called_once_with(repository="acme/widgets", pr_number=7, installation_id="")
         else:
-            express_request_delay.assert_not_called()
+            broadcast_request_delay.assert_not_called()

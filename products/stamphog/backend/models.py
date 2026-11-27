@@ -17,13 +17,13 @@ from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
 from .facade.enums import (
-    ACTIVE_EXPRESS_REQUEST_STATUSES,
+    ACTIVE_BROADCAST_REQUEST_STATUSES,
     AudienceReason,
+    BroadcastRequestDeliveryKind,
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
-    ExpressRequestDeliveryKind,
-    ExpressRequestSource,
-    ExpressRequestStatus,
     LlmSkipReason,
     OwnerKind,
     ReviewMode,
@@ -78,9 +78,9 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     routing_fork_labels = models.JSONField(default=dict, db_default={})
     # Off by default: a clean external review starts a review outside review_mode, which widens when stamphog runs.
     review_on_clean_external_review = models.BooleanField(default=False, db_default=False)
-    express_enabled = models.BooleanField(default=False, db_default=False)
-    express_slack_channel_id = models.CharField(max_length=64, blank=True, default="", db_default="")
-    express_slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
+    broadcast_enabled = models.BooleanField(default=False, db_default=False)
+    broadcast_slack_channel_id = models.CharField(max_length=64, blank=True, default="", db_default="")
+    broadcast_slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -460,7 +460,7 @@ class RoutingRunOwner(ProductTeamModel):
         return f"{self.owner} {self.outcome} ({self.reason})"
 
 
-class ExpressRequest(ProductTeamModel):
+class BroadcastRequest(ProductTeamModel):
     """A request for a person to review one pull request when stamphog does not approve it.
 
     It follows the pull request across heads until a person or stamphog approves, or the pull
@@ -469,15 +469,15 @@ class ExpressRequest(ProductTeamModel):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="express_requests")
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="broadcast_requests")
     status = models.CharField(
-        max_length=32, choices=ExpressRequestStatus.choices, default=ExpressRequestStatus.PENDING.value
+        max_length=32, choices=BroadcastRequestStatus.choices, default=BroadcastRequestStatus.PENDING.value
     )
     head_sha = models.CharField(max_length=64)
     # The PostHog user who asked (plain id, no FK: multi-DB product). Null when a Slack user who
     # asked has no PostHog account.
     requested_by_user_id = models.BigIntegerField(null=True, blank=True)
-    requested_via = models.CharField(max_length=16, choices=ExpressRequestSource.choices)
+    requested_via = models.CharField(max_length=16, choices=BroadcastRequestSource.choices)
     requester_slack_user_id = models.CharField(max_length=64, blank=True, default="")
     requester_github_login = models.CharField(max_length=255, blank=True, default="")
     # A request from a pull request comment never carries a note, because pull request comments are public.
@@ -497,17 +497,17 @@ class ExpressRequest(ProductTeamModel):
             models.UniqueConstraint(
                 fields=["pull_request"],
                 # Sorted, because set order changes between processes and would make makemigrations see a change.
-                condition=Q(status__in=sorted(status.value for status in ACTIVE_EXPRESS_REQUEST_STATUSES)),
-                name="unique_stamphog_active_express_request",
+                condition=Q(status__in=sorted(status.value for status in ACTIVE_BROADCAST_REQUEST_STATUSES)),
+                name="unique_stamphog_active_broadcast_request",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"Express request {self.status} at {self.head_sha[:10]}"
+        return f"Broadcast request {self.status} at {self.head_sha[:10]}"
 
 
-class ExpressRequestDelivery(ProductTeamModel):
-    """Where one Express request was posted, so that it can be edited in place."""
+class BroadcastRequestDelivery(ProductTeamModel):
+    """Where one Broadcast request was posted, so that it can be edited in place."""
 
     class State(models.TextChoices):
         # The row exists before the first post, so a retry locks it and does not post a second time.
@@ -517,10 +517,10 @@ class ExpressRequestDelivery(ProductTeamModel):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
-    express_request = models.ForeignKey(
-        ExpressRequest, on_delete=models.CASCADE, related_name="deliveries", db_index=False
+    broadcast_request = models.ForeignKey(
+        BroadcastRequest, on_delete=models.CASCADE, related_name="deliveries", db_index=False
     )
-    kind = models.CharField(max_length=32, choices=ExpressRequestDeliveryKind.choices)
+    kind = models.CharField(max_length=32, choices=BroadcastRequestDeliveryKind.choices)
     # The integration that posted the message. An edit must use the same bot token, because a
     # message can only be edited by the app that posted it.
     integration_id = models.BigIntegerField(null=True, blank=True)
@@ -536,7 +536,7 @@ class ExpressRequestDelivery(ProductTeamModel):
     class Meta(ProductTeamModel.Meta):
         constraints = [
             models.UniqueConstraint(
-                fields=["express_request", "kind"], name="unique_stamphog_express_request_delivery"
+                fields=["broadcast_request", "kind"], name="unique_stamphog_broadcast_request_delivery"
             ),
         ]
 
@@ -544,13 +544,13 @@ class ExpressRequestDelivery(ProductTeamModel):
         return f"{self.kind} {self.state}"
 
 
-class ExpressRequestParticipant(ProductTeamModel):
-    """A Slack user who said they will look at an Express request."""
+class BroadcastRequestParticipant(ProductTeamModel):
+    """A Slack user who said they will look at a broadcast request."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # The unique constraint below leads with the request, so it serves the lookups a plain FK index would.
-    express_request = models.ForeignKey(
-        ExpressRequest, on_delete=models.CASCADE, related_name="participants", db_index=False
+    broadcast_request = models.ForeignKey(
+        BroadcastRequest, on_delete=models.CASCADE, related_name="participants", db_index=False
     )
     slack_user_id = models.CharField(max_length=64)
     display_name = models.CharField(max_length=255, blank=True, default="")
@@ -562,7 +562,7 @@ class ExpressRequestParticipant(ProductTeamModel):
     class Meta(ProductTeamModel.Meta):
         constraints = [
             models.UniqueConstraint(
-                fields=["express_request", "slack_user_id"], name="unique_stamphog_express_request_participant"
+                fields=["broadcast_request", "slack_user_id"], name="unique_stamphog_broadcast_request_participant"
             ),
         ]
 
