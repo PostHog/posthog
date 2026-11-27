@@ -20,11 +20,12 @@ from posthog.slack.channels import is_shared_channel
 from products.slack_app.backend.feature_flags import CHANNEL_CONTEXT_REQUIRED_SCOPES
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_conversations import lookup_channel_info
-from products.slack_app.backend.services.slack_scopes import has_scopes
+from products.slack_app.backend.services.slack_scopes import SLACK_USERGROUPS_SCOPE, has_scopes
 
 logger = structlog.get_logger(__name__)
 
 METADATA_REFRESH_SECONDS = 24 * 60 * 60
+GROUP_LOOKUP_RETRY_SECONDS = 10 * 60
 # After a rate limit or a network error, the next mention may try again once this has passed.
 LOOKUP_RETRY_SECONDS = 15 * 60
 # Errors that mean the app can no longer read the channel, for example because it turned private on an install
@@ -49,6 +50,47 @@ def parse_owner_groups(*texts: str) -> list[OwnerGroup]:
             if group_id not in groups or (handle and not groups[group_id].handle):
                 groups[group_id] = OwnerGroup(id=group_id, handle=handle)
     return list(groups.values())
+
+
+@frozen
+class _GroupLookup:
+    handles: dict[str, str]
+    # False when another refresh holds the workspace read or Slack failed, so a handle may still arrive soon.
+    answered: bool
+
+
+def _workspace_group_handles(slack: SlackIntegration, wanted: set[str]) -> _GroupLookup:
+    workspace_id = slack.integration.integration_id
+    key = f"slack_app_usergroup_handles:{workspace_id}"
+    cached: dict[str, str] | None = cache.get(key)
+    if cached is not None and wanted <= cached.keys():
+        return _GroupLookup(handles=cached, answered=True)
+    # One read returns every group in the workspace and serves all its channels. At most one read per retry
+    # window, so a burst of refreshes, a new group or a read that always fails cannot spend the rate limit.
+    if not cache.add(f"{key}:read", 1, timeout=GROUP_LOOKUP_RETRY_SECONDS):
+        return _GroupLookup(handles=cached or {}, answered=False)
+    try:
+        # `team_id` is required for an org-wide Enterprise Grid install. Disabled groups still name an owner.
+        response = slack.client.usergroups_list(team_id=workspace_id, include_disabled=True)
+    except Exception:
+        logger.warning("slack_app_usergroups_lookup_failed", exc_info=True)
+        return _GroupLookup(handles=cached or {}, answered=False)
+    handles = {str(row.get("id")): str(row.get("handle") or "") for row in response.get("usergroups") or []}
+    cache.set(key, handles, timeout=METADATA_REFRESH_SECONDS)
+    return _GroupLookup(handles=handles, answered=True)
+
+
+def _stored_group_handles(slack_workspace_id: str, slack_channel_id: str) -> dict[str, str]:
+    stored = (
+        SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, slack_channel_id=slack_channel_id)
+        .values_list("owner_groups", flat=True)
+        .first()
+    )
+    return {
+        str(group["id"]): str(group["handle"])
+        for group in stored or []
+        if isinstance(group, dict) and group.get("id") and group.get("handle")
+    }
 
 
 def _refresh_slot_key(integration_id: int, slack_channel_id: str) -> str:
@@ -129,13 +171,24 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
     # Slack escapes &, < and > in this text. Tags are read before unescaping, so an escaped `&lt;` cannot form one.
     raw_topic = str((channel.get("topic") or {}).get("value") or "")
     raw_purpose = str((channel.get("purpose") or {}).get("value") or "")
+    groups = parse_owner_groups(raw_topic, raw_purpose)
+    known = _stored_group_handles(slack_workspace_id, slack_channel_id)
+    wanted = {group.id for group in groups if not group.handle}
+    lookup_answered = True
+    if wanted and not slack.missing_scopes([SLACK_USERGROUPS_SCOPE]):
+        group_lookup = _workspace_group_handles(slack, wanted)
+        known = {**known, **group_lookup.handles}
+        lookup_answered = group_lookup.answered
+    groups = [group if group.handle else OwnerGroup(id=group.id, handle=known.get(group.id, "")) for group in groups]
     SlackChannel.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_channel_id=slack_channel_id,
         defaults={
             "topic": html.unescape(raw_topic),
             "purpose": html.unescape(raw_purpose),
-            "owner_groups": [dataclasses.asdict(group) for group in parse_owner_groups(raw_topic, raw_purpose)],
+            "owner_groups": [dataclasses.asdict(group) for group in groups],
         },
     )
+    if not lookup_answered:
+        cache.set(_refresh_slot_key(slack.integration.id, slack_channel_id), 1, timeout=GROUP_LOOKUP_RETRY_SECONDS)
     return True

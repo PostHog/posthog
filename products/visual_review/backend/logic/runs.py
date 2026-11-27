@@ -237,6 +237,27 @@ def _add_snapshots_inner(run, run_id, team_id, repo, snapshots):
     return added, uploads
 
 
+def may_classify(run_id: UUID) -> bool:
+    """Whether the diff task may still classify the run: it has not completed or failed yet.
+
+    A redelivered task must leave a finished run alone, because a review decision names the pair of
+    pictures the run showed when it completed, and a second classification can change that pair.
+    """
+    return Run.objects.using(WRITER_DB).filter(id=run_id, status__in=(RunStatus.PENDING, RunStatus.PROCESSING)).exists()
+
+
+def republish_verdict(run_id: UUID) -> None:
+    """Post a finished run's status again, for a diff task that was delivered again.
+
+    The worker can stop after `finish_processing` saved the run as finished and before it posted the
+    status. The task that is delivered again must not classify the run again, so it only posts.
+    """
+    run = Run.objects.using(WRITER_DB).select_related("repo").filter(id=run_id).first()
+    if run is None or run.status not in (RunStatus.COMPLETED, RunStatus.FAILED):
+        return
+    gating._update_counts_and_post_status(run)
+
+
 def mark_run_processing(run_id: UUID) -> Run:
     run = run_queries.get_run(run_id)
     run.status = RunStatus.PROCESSING

@@ -451,9 +451,10 @@
             ]
         },
         "feature_flag_policy_config": {
+            "description": "A list sent replaces the saved one. Omitted fields are kept.",
             "properties": {
                 "allowed_hosts": {
-                    "description": "Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.",
+                    "description": "Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.",
                     "items": {
                         "maxLength": 2000,
                         "type": "string"
@@ -462,7 +463,7 @@
                     "type": "array"
                 },
                 "allowed_ips": {
-                    "description": "IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.",
+                    "description": "IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins.",
                     "items": {
                         "maxLength": 2000,
                         "type": "string"
@@ -471,7 +472,7 @@
                     "type": "array"
                 },
                 "blocked_hosts": {
-                    "description": "Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.",
+                    "description": "Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.",
                     "items": {
                         "maxLength": 2000,
                         "type": "string"

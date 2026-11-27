@@ -142,6 +142,30 @@ ENDPOINTS: dict[str, Endpoint] = {
             extra_columns=(("VersionNumber", "version_number"),),
         ),
     ),
+    "registration_attachments": Endpoint(
+        operation="DescribeRegistrationAttachments",
+        result_key="RegistrationAttachments",
+        primary_keys=("registration_attachment_arn",),
+        description="Documents attached to registrations, with their upload status.",
+    ),
+    "registration_type_definitions": Endpoint(
+        operation="DescribeRegistrationTypeDefinitions",
+        result_key="RegistrationTypeDefinitions",
+        primary_keys=("registration_type",),
+        description="Registration types that AWS offers, with the resources and countries that each type supports.",
+    ),
+    "rcs_agents": Endpoint(
+        operation="DescribeRcsAgents",
+        result_key="RcsAgents",
+        primary_keys=("rcs_agent_arn",),
+        description="RCS sender agents, with their status, two-way settings, and messaging limits.",
+    ),
+    "notify_configurations": Endpoint(
+        operation="DescribeNotifyConfigurations",
+        result_key="NotifyConfigurations",
+        primary_keys=("notify_configuration_arn",),
+        description="Notify configurations for templated code verification messages, with their tier and status.",
+    ),
     "pool_origination_identities": Endpoint(
         operation="ListPoolOriginationIdentities",
         result_key="OriginationIdentities",

@@ -48,8 +48,8 @@ UNSUPPORTED_CHARACTER_ERROR = (
     "the key again from the Settings tab of OpenAI Ads Manager, then reconnect."
 )
 SERVER_ERROR_MESSAGE = (
-    "OpenAI Ads had a temporary server error. This can also happen for a few minutes after you create an "
-    "API key. The next sync will try again automatically."
+    "OpenAI Ads had a server error, so this sync run did not finish. "
+    "The next sync runs on schedule, and if this keeps happening for a day, contact OpenAI Ads support."
 )
 
 # `requests` writes this prefix for every 403. The source's non-retryable 403 entry matches it.

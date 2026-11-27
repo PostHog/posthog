@@ -8,10 +8,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxGithubAccessReasons } from './InboxGithubAccessReasons'
 
 export function InboxGithubAccessExplanation({ children }: { children?: ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasGithubIntegration, isGithubOptionalSetup } = useValues(inboxSetupLogic)
+    const { hasGithubIntegration, isGithubOptionalSetup, isQuickSetup, quickSetupSkipsGithub } =
+        useValues(inboxSetupLogic)
     const [visible, setVisible] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const contentId = useId()
@@ -21,7 +23,7 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
 
     if (
         hasGithubIntegration ||
-        isGithubOptionalSetup ||
+        (isQuickSetup ? quickSetupSkipsGithub : isGithubOptionalSetup) ||
         featureFlags[FEATURE_FLAGS.SELF_DRIVING_GITHUB_ACCESS_EXPLANATION] !== 'test'
     ) {
         return <>{children}</>
@@ -48,51 +50,26 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
                         tabIndex={-1}
                         className="flex w-128 max-w-full flex-col gap-3 p-4 text-sm text-secondary"
                     >
-                        <div className="flex items-start justify-between gap-3">
-                            <p className="m-0 font-semibold text-default">
-                                We use GitHub access to research issues and may automatically open pull requests with
-                                proposed fixes.
-                            </p>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconX />}
-                                aria-label="Close GitHub access explanation"
-                                data-attr="inbox-github-access-explanation-close"
-                                onClick={() => {
-                                    setVisible(false)
-                                    triggerRef.current?.focus({ preventScroll: true })
-                                }}
-                            />
-                        </div>
-                        <ul className="m-0 list-none space-y-3 p-0">
-                            <li>
-                                <h4 className="m-0 text-sm font-semibold text-default">Find root causes</h4>
-                                <p className="m-0">
-                                    Code access allows us to accurately identify root causes by comparing the behavior
-                                    we see in your product with its implementation.
-                                </p>
-                            </li>
-                            <li>
-                                <h4 className="m-0 text-sm font-semibold text-default">Find the change behind a bug</h4>
-                                <p className="m-0">
-                                    Code history allows us to correlate changes in behavior with changes in the code.
-                                    Our reports are more useful if we can point to a specific PR that may have
-                                    introduced a user-affecting bug.
-                                </p>
-                            </li>
-                            <li>
-                                <h4 className="m-0 text-sm font-semibold text-default">Reach the right people</h4>
-                                <p className="m-0">
-                                    GitHub commit history lets us assign reports more accurately because we can tell
-                                    which team members care about an issue.
-                                </p>
-                            </li>
-                            <li>
-                                <h4 className="m-0 text-sm font-semibold text-default">Automatic fixes</h4>
-                                <p className="m-0">We can open PRs to fix issues we've researched automatically.</p>
-                            </li>
-                        </ul>
+                        <InboxGithubAccessReasons
+                            pullRequests={{
+                                title: 'You review every change.',
+                                description:
+                                    'Fixes arrive as pull requests for you to review and merge. You can turn off PR generation in settings.',
+                            }}
+                            action={
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={<IconX />}
+                                    aria-label="Close GitHub access explanation"
+                                    data-attr="inbox-github-access-explanation-close"
+                                    onClick={() => {
+                                        setVisible(false)
+                                        triggerRef.current?.focus({ preventScroll: true })
+                                    }}
+                                />
+                            }
+                        />
                     </div>
                 }
             >

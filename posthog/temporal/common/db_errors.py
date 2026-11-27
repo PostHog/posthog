@@ -67,6 +67,12 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # from the excluded prefix above, which wraps a definite failure response. A handshake that
     # hasn't finished is a load/network blip that clears on retry, not a configuration problem.
     "connection timeout expired",
+    # libpq's message when the TLS socket hits EOF while it reads a query result: the server or a
+    # pooler dropped an open connection mid-query. Same dead-socket condition as "server closed the
+    # connection unexpectedly" above, so a retry on a fresh connection self-heals. The "consuming
+    # input failed:" prefix keeps the connect-time "connection failed: ... SSL SYSCALL error" form
+    # unmatched, because a TLS failure at connect can be a persistent misconfiguration.
+    "consuming input failed: SSL SYSCALL error",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

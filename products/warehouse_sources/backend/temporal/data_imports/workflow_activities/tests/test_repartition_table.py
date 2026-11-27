@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
@@ -1278,11 +1279,14 @@ class TestRepartitionActivityHasWork:
                 PENDING_TARGET,
                 None,
                 False,
+                False,
             ),
-            ("queued_rewrite", {}, PENDING_TARGET, None, True),
-            ("staged_swap", {}, None, {"state": "ready"}, True),
-            ("nothing_queued_measures_the_table", {}, None, None, True),
-            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, False),
+            ("queued_rewrite", {}, PENDING_TARGET, None, True, True),
+            ("staged_swap", {}, None, {"state": "ready"}, True, True),
+            ("nothing_queued_measures_the_table", {}, None, None, False, True),
+            ("current_measurement_skips_the_read", {}, None, None, True, False),
+            ("a_failed_check_measures_the_table", {}, None, None, OperationalError("server closed"), True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, False, False),
         ]
     )
     def test_matches_the_activitys_own_fast_path(
@@ -1291,6 +1295,7 @@ class TestRepartitionActivityHasWork:
         overrides: dict[str, Any],
         pending: dict[str, Any] | None,
         swap: dict[str, Any] | None,
+        measurement_holds: bool | Exception,
         expected: bool,
     ) -> None:
         # The workflow skips scheduling the activity on this answer, so a False here for a table the
@@ -1300,7 +1305,12 @@ class TestRepartitionActivityHasWork:
         for attribute, value in overrides.items():
             setattr(schema, attribute, value)
 
-        assert repartition_activity_has_work(schema) is expected
+        with patch(
+            f"{CONTROLLER_MODULE}.pre_extraction_measurement_is_redundant",
+            side_effect=measurement_holds if isinstance(measurement_holds, Exception) else None,
+            return_value=measurement_holds,
+        ):
+            assert repartition_activity_has_work(schema, MagicMock()) is expected
 
 
 _COMPLETED = ExternalDataJob.Status.COMPLETED

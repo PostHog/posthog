@@ -471,6 +471,8 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutMessage
+                              |SignalScoutMessageDelivery
                               |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
@@ -1024,6 +1026,8 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutMessage
+                        |SignalScoutMessageDelivery
                         |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
@@ -1720,6 +1724,8 @@ rules:
                       regex: |
                           (?x)(
                               AccountAuditCredential
+                              |AdventCalendarAnswer
+                              |AdventCalendarDoorOpen
                               |CommunitySkillVote
                               |GitHubInstallRequest
                               |IdentityProviderEmailVerification
@@ -1778,6 +1784,8 @@ rules:
                 regex: |
                     (?x)(
                         AccountAuditCredential
+                        |AdventCalendarAnswer
+                        |AdventCalendarDoorOpen
                         |CommunitySkillVote
                         |GitHubInstallRequest
                         |IdentityProviderEmailVerification

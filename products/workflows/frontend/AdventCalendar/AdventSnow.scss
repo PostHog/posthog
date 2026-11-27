@@ -1,0 +1,25 @@
+.AdventSnow {
+    container-type: size;
+}
+
+.AdventSnow__flake {
+    top: -8px;
+    animation: AdventSnow__fall var(--advent-snow-duration) linear var(--advent-snow-delay) infinite;
+}
+
+@keyframes AdventSnow__fall {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(var(--advent-snow-drift), calc(100cqh + 16px), 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AdventSnow__flake {
+        top: var(--advent-snow-rest);
+        animation: none;
+    }
+}

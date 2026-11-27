@@ -15,7 +15,7 @@ from django.utils import timezone
 
 import posthoganalytics
 from prometheus_client import Counter
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -40,6 +40,7 @@ from products.experiments.backend.temporal.recalculation.dispatch import (
 from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from . import payloads, runs
+from .kill_switch import recalculation_enabled
 
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
@@ -77,6 +78,16 @@ class RecalculationRateLimited(Throttled):
     default_code = "recalculation_rate_limited"
     # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
     default_detail = "Metrics were recalculated less than 5 minutes ago."
+
+
+class RecalculationPaused(APIException):
+    """Staff turned off EXPERIMENTS_RECALCULATION_ENABLED, so no run row is created."""
+
+    status_code = 503
+    default_code = "recalculation_paused"
+    default_detail = "Experiment recalculations are paused. Try again later."
+    # The exception handler sends `wait` as Retry-After, and the setting cache lives 60 seconds.
+    wait = 60
 
 
 class MetricsRecalculationStartOutcome(StrEnum):
@@ -254,7 +265,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     ``RECALCULATION_MAX_EXPERIMENT_AGE`` ago gets a rejected run: status FAILED, ``is_existing=False``, and the
     caller must not start a workflow for it either. A user-driven trigger inside
     ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished raises
-    ``RecalculationRateLimited`` when the organization has the rate-limit flag on. A ``stale_refresh`` whose
+    ``RecalculationRateLimited`` when the organization has the rate-limit flag on. With no active run to reuse,
+    ``EXPERIMENTS_RECALCULATION_ENABLED`` set to False raises ``RecalculationPaused``. A ``stale_refresh`` whose
     latest terminal run is not stale (``_results_are_stale``) returns that run with ``is_existing=True``, and the
     caller must not start a workflow. Otherwise creates a fresh pending row.
     """
@@ -306,6 +318,9 @@ def _request_recalculation(
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
 
+    # Read before the transaction: a failed read inside it would abort the transaction instead of failing open.
+    enabled = recalculation_enabled()
+
     with team_scope(experiment.team_id, canonical=True), transaction.atomic():
         # Serialize concurrent POSTs for this experiment by locking the Experiment row up front. Without this,
         # two simultaneous POSTs (double-click, retry storm, two tabs) both see no active recalc row and both
@@ -336,6 +351,9 @@ def _request_recalculation(
         if queued is not None:
             _recalculation_reuse_counter.inc()
             return payloads.build_job_payload(queued, is_existing=True)
+
+        if not enabled:
+            raise RecalculationPaused()
 
         if trigger in _RATE_LIMITED_TRIGGERS and _refresh_window_enforced(experiment):
             # get the latest terminal run and check against the rate limiting rules

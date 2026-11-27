@@ -5,6 +5,7 @@ import { Client } from 'pg'
 
 import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2/manager'
 import { CyclotronV2JobInit } from '~/cdp/services/cyclotron-v2/types'
+import { CYCLOTRON_QUEUE_ROLES } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { Backlog, Profile } from '../cards'
@@ -152,7 +153,10 @@ export async function seedBacklog(
         (client) => client.query('DELETE FROM cyclotron_jobs WHERE team_id >= $1', [RESIDENT_TEAMS_FROM]),
         cyclotronUrl
     )
-    const manager = new CyclotronV2Manager({ pool: { dbUrl: cyclotronUrl, maxConnections: 1 } })
+    const manager = new CyclotronV2Manager({
+        pool: { dbUrl: cyclotronUrl, maxConnections: 1 },
+        ...CYCLOTRON_QUEUE_ROLES,
+    })
     await manager.connect()
     try {
         const scheduled = new Date(now.getTime() + durationMs(backlog.parkFor))
