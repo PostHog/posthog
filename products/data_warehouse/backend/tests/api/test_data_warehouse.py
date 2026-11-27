@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -159,40 +160,44 @@ class TestDataWarehouseAPI(APIBaseTest):
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.get_cached_instance_license")
-    def test_basic_calculation_with_billing_data(self, mock_license, mock_billing_manager):
-        """trackedBillingRows from billing; pending = db_total - tracked; totalRows = tracked + pending"""
+    def test_total_rows_counts_only_this_teams_billable_rows(self, mock_license, mock_billing_manager):
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/total_rows_stats"
 
+        # Billing's usage summary is organization-wide, so it must not reach this project's total.
         mock_billing_manager.return_value.get_billing.return_value = {
             "billing_period": {
                 "current_period_start": "2023-08-01T00:00:00Z",
                 "current_period_end": "2023-09-01T00:00:00Z",
                 "interval": "month",
             },
-            "usage_summary": {"rows_synced": {"usage": 100}},
+            "usage_summary": {"rows_synced": {"usage": 25_000}},
         }
 
-        source = ExternalDataSource.objects.create(
-            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
-        )
-        schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
-
-        job = ExternalDataJob.objects.create(
-            pipeline_id=source.pk,
-            schema=schema,
-            team=self.team,
-            rows_synced=150,
-            billable=True,
-        )
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime(2023, 8, 15, tzinfo=UTC))
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        in_period = datetime(2023, 8, 15, tzinfo=UTC)
+        for team, rows_synced, billable, created_at in [
+            (self.team, 150, True, in_period),
+            (self.team, 70, False, in_period),
+            (self.team, 40, True, datetime(2023, 7, 31, tzinfo=UTC)),
+            (self.team, 30, True, datetime(2023, 9, 1, tzinfo=UTC)),
+            (other_team, 500, True, in_period),
+        ]:
+            source = ExternalDataSource.objects.create(
+                source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=team, source_type="Stripe"
+            )
+            schema = ExternalDataSchema.objects.create(name="test", team=team, source=source)
+            job = ExternalDataJob.objects.create(
+                pipeline_id=source.pk, schema=schema, team=team, rows_synced=rows_synced, billable=billable
+            )
+            ExternalDataJob.objects.filter(pk=job.pk).update(created_at=created_at)
 
         response = self.client.get(endpoint)
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(data["tracked_billing_rows"], 100)
-        self.assertEqual(data["pending_billing_rows"], 50)
         self.assertEqual(data["total_rows"], 150)
+        self.assertNotIn("tracked_billing_rows", data)
+        self.assertNotIn("pending_billing_rows", data)
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.get_cached_instance_license")
