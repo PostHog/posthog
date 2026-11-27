@@ -668,6 +668,25 @@ describe('measurements', () => {
             ],
         ],
         [
+            'marks the last minute incomplete when the worker restarts before a scrape closes the valve end',
+            [
+                ...pickedEvery5s(between(705, 760), { offsetS: 2 }).filter(({ at }) => at <= atS(877)),
+                {
+                    ...sample(882, 881, 1),
+                    role: HOGFLOW,
+                    lateness: { hogflow: { '0.5': 10, '5': 10, '+Inf': 10 } },
+                },
+            ],
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5, incomplete: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
             'censors a minute whose p99 is past the largest bucket',
             pickedEvery5s(between(705, 760), { pastLargest: true }),
             [
