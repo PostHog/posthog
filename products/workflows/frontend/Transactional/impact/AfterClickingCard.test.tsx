@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -59,6 +60,14 @@ describe('AfterClickingCard', () => {
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay })
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.ReplayScanner]: AccessControlLevel.Editor,
+                    [AccessControlResourceType.SessionRecording]: AccessControlLevel.Viewer,
+                },
+            } as AppContext
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(
                 replayVision ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT_REPLAY_VISION] : [],

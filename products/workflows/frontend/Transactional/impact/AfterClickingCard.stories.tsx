@@ -37,7 +37,7 @@ function scanRequest(
     session: (index: number) => Partial<ObservationRequestSessionApi>
 ): ObservationRequestApi {
     return {
-        id: 'request-1',
+        id: '01a21d51-012a-7d3d-a576-b38b7254d78a',
         status,
         scanner_id: 'scanner-1',
         reference: `workflows-email:${WORKFLOW_ID}`,
@@ -53,7 +53,9 @@ function scanRequest(
     }
 }
 
-const SCANNING = scanRequest('running', (index) => (index < 5 ? { state: 'succeeded' } : {}))
+const SCANNING = scanRequest('running', (index) =>
+    index < 5 ? { state: 'succeeded', observation_id: `01a21d52-3c4d-7e5f-8a9b-0c1d2e3f4a5${index}` } : {}
+)
 const CREDITS_USED_UP = scanRequest('completed', () => ({ state: 'skipped', scan_outcome: 'skipped_quota' }))
 const AI_ANALYSIS_NOT_ALLOWED: [number, unknown] = [
     400,
@@ -109,7 +111,7 @@ const Template: StoryFn<AfterClickingStoryArgs> = ({ sessions, scan = [202, SCAN
 async function askWhereStuck(canvasElement: HTMLElement, shows: string): Promise<void> {
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByText('Where do people get stuck after clicking?'))
-    await waitFor(() => canvas.getByText(shows))
+    await waitFor(() => canvas.getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === shows))
 }
 
 export const Questions: StoryObj<AfterClickingStoryArgs> = {

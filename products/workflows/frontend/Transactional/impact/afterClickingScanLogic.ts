@@ -6,6 +6,8 @@ import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 
+import type { TeamPublicType, TeamType } from '~/types'
+
 import { transactionalEmailLogImpactSessionsRetrieve } from 'products/messaging/frontend/generated/api'
 import type { TransactionalEmailImpactSessionsApi } from 'products/messaging/frontend/generated/api.schemas'
 import { visionRequestsCreate, visionRequestsRetrieve } from 'products/replay_vision/frontend/generated/api'
@@ -13,10 +15,13 @@ import type {
     ObservationRequestApi,
     ObservationRequestSessionApi,
 } from 'products/replay_vision/frontend/generated/api.schemas'
+import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 
 import { EmailImpactLogicProps, emailImpactLogic } from './emailImpactLogic'
+import type { LinkTagging } from './impactSteps'
 
 export const SCAN_POLL_INTERVAL_MS = 3000
+export const MAX_POLL_FAILURES = 5
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
 
 export interface AfterClickingQuestion {
@@ -39,18 +44,27 @@ export interface AskedQuestion {
 
 export type ScanFailure = { kind: 'ai-analysis-not-allowed' } | { kind: 'scan-error'; message: string }
 
+export interface ScanSkips {
+    busy: number
+    quota: number
+}
+
 export type AfterClickingScanState =
+    | { kind: 'not-main-environment' }
+    | { kind: 'no-access'; reason: string }
+    | { kind: 'link-tagging-off' }
+    | { kind: 'sensitive-email' }
     | { kind: 'loading-sessions' }
     | { kind: 'sessions-error' }
     | { kind: 'no-sessions' }
     | { kind: 'questions'; sessionCount: number; hasMore: boolean }
-    | { kind: 'scanning'; done: number; total: number }
-    | { kind: 'finished'; withResult: number; total: number }
+    | { kind: 'scanning'; done: number; total: number; skipped: ScanSkips }
+    | { kind: 'finished'; withResult: number; scanned: number; skipped: ScanSkips }
     | { kind: 'credits-used-up' }
     | ScanFailure
 
 export function scanPrompt(question: string): string {
-    return `The person in this session arrived by clicking a link in an email. Answer this question about what they did next: ${question}`
+    return `At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: ${question}`
 }
 
 function scanFailureFrom(error: unknown): ScanFailure {
@@ -65,22 +79,63 @@ function isSettled(session: ObservationRequestSessionApi): boolean {
     return session.state !== 'pending' && session.state !== 'running'
 }
 
+function isSkipped(session: ObservationRequestSessionApi): boolean {
+    return (
+        session.scan_outcome === 'skipped_quota' ||
+        session.scan_outcome === 'skipped_limit' ||
+        session.scan_outcome === 'skipped_scanner_limit'
+    )
+}
+
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
     const total = request.sessions.length
     if (total > 0 && request.sessions.every((session) => session.scan_outcome === 'skipped_quota')) {
         return { kind: 'credits-used-up' }
     }
-    if (request.status === 'completed') {
-        const withResult = request.sessions.filter((session) => session.state === 'succeeded').length
-        return { kind: 'finished', withResult, total }
+    const started = request.sessions.filter((session) => !isSkipped(session))
+    const skipped = {
+        busy: request.sessions.filter((session) => isSkipped(session) && session.scan_outcome !== 'skipped_quota')
+            .length,
+        quota: request.sessions.filter((session) => session.scan_outcome === 'skipped_quota').length,
     }
-    return { kind: 'scanning', done: request.sessions.filter(isSettled).length, total }
+    if (request.status === 'completed') {
+        const withResult = started.filter((session) => session.state === 'succeeded').length
+        return { kind: 'finished', withResult, scanned: started.length, skipped }
+    }
+    return { kind: 'scanning', done: started.filter(isSettled).length, total: started.length, skipped }
+}
+
+function isTransient(error: unknown): boolean {
+    return !(error instanceof ApiError) || !error.status || error.status >= 500
+}
+
+function scanBlockedState(
+    currentTeam: TeamPublicType | TeamType | null,
+    linkTagging: LinkTagging
+): AfterClickingScanState | null {
+    // Scan requests live in the project's main environment, and the API refuses them from any other.
+    if (currentTeam?.project_id && currentTeam.id !== currentTeam.project_id) {
+        return { kind: 'not-main-environment' }
+    }
+    const reason = getReplayVisionEditDisabledReason()
+    if (reason) {
+        return { kind: 'no-access', reason }
+    }
+    if (linkTagging === 'off') {
+        return { kind: 'link-tagging-off' }
+    }
+    if (linkTagging === 'sensitive-email') {
+        return { kind: 'sensitive-email' }
+    }
+    return null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface afterClickingScanLogicValues {
+    currentTeam: TeamPublicType | TeamType | null // emailImpactLogic
     currentTeamId: number | null // emailImpactLogic
     days: number // emailImpactLogic
+    linkTagging: LinkTagging // emailImpactLogic
     askedQuestion: AskedQuestion | null
     customQuestion: string
     scanFailure: ScanFailure | null
@@ -179,6 +234,8 @@ export interface afterClickingScanLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         scanState: (
+            currentTeam: TeamPublicType | TeamType | null,
+            linkTagging: LinkTagging,
             sessions: TransactionalEmailImpactSessionsApi | null,
             sessionsLoading: boolean,
             sessionsFailed: boolean,
@@ -201,7 +258,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     key((props) => props.workflowId),
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'afterClickingScanLogic', key]),
     connect((props: EmailImpactLogicProps) => ({
-        values: [emailImpactLogic(props), ['currentTeamId', 'days']],
+        values: [emailImpactLogic(props), ['currentTeamId', 'currentTeam', 'days', 'linkTagging']],
         actions: [emailImpactLogic(props), ['setDays']],
     })),
     actions({
@@ -213,19 +270,28 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
         setCustomQuestion: (customQuestion: string) => ({ customQuestion }),
         retryScan: true,
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         sessions: [
             null as TransactionalEmailImpactSessionsApi | null,
             {
                 loadSessions: async (_: void, breakpoint) => {
-                    const sessions = await transactionalEmailLogImpactSessionsRetrieve(String(values.currentTeamId), {
-                        workflow_id: props.workflowId,
-                        date_from: dayjs()
-                            .subtract(values.days * 24, 'hour')
-                            .toISOString(),
-                    })
-                    breakpoint()
-                    return sessions
+                    try {
+                        const sessions = await transactionalEmailLogImpactSessionsRetrieve(
+                            String(values.currentTeamId),
+                            {
+                                workflow_id: props.workflowId,
+                                date_from: dayjs()
+                                    .subtract(values.days * 24, 'hour')
+                                    .toISOString(),
+                            }
+                        )
+                        breakpoint()
+                        return sessions
+                    } catch (error) {
+                        // A newer list replaced this one, so its failure belongs to a period nobody looks at.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -237,21 +303,41 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                     if (!asked || !values.sessions) {
                         return null
                     }
-                    const request = await visionRequestsCreate(String(values.currentTeamId), {
-                        session_ids: values.sessions.sessions.map((session) => session.session_id),
-                        inline: { prompt: scanPrompt(asked.question) },
-                        reference: `workflows-email:${props.workflowId}`,
-                        idempotency_key: asked.idempotencyKey,
-                    })
-                    return values.askedQuestion === asked ? request : values.scanRequest
+                    try {
+                        const request = await visionRequestsCreate(String(values.currentTeamId), {
+                            session_ids: values.sessions.sessions.map((session) => session.session_id),
+                            inline: { prompt: scanPrompt(asked.question) },
+                            reference: `workflows-email:${props.workflowId}`,
+                            idempotency_key: asked.idempotencyKey,
+                        })
+                        return values.askedQuestion === asked ? request : values.scanRequest
+                    } catch (error) {
+                        if (values.askedQuestion !== asked) {
+                            return values.scanRequest
+                        }
+                        throw error
+                    }
                 },
                 refreshScan: async () => {
                     const current = values.scanRequest
                     if (!current) {
                         return null
                     }
-                    const request = await visionRequestsRetrieve(String(values.currentTeamId), current.id)
-                    return values.scanRequest === current ? request : values.scanRequest
+                    try {
+                        const request = await visionRequestsRetrieve(String(values.currentTeamId), current.id)
+                        cache.pollFailures = 0
+                        return values.scanRequest === current ? request : values.scanRequest
+                    } catch (error) {
+                        if (values.scanRequest !== current) {
+                            return values.scanRequest
+                        }
+                        // The scan keeps running on the server, so a blip in one poll shouldn't end it here.
+                        cache.pollFailures = (cache.pollFailures ?? 0) + 1
+                        if (isTransient(error) && cache.pollFailures < MAX_POLL_FAILURES) {
+                            return current
+                        }
+                        throw error
+                    }
                 },
                 resetScan: () => null,
             },
@@ -266,7 +352,15 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             },
         ],
         customQuestion: ['', { setCustomQuestion: (_, { customQuestion }) => customQuestion }],
-        scanStarting: [false, { startScan: () => true, startScanSuccess: () => false, startScanFailure: () => false }],
+        scanStarting: [
+            false,
+            {
+                startScan: () => true,
+                startScanSuccess: () => false,
+                startScanFailure: () => false,
+                resetScan: () => false,
+            },
+        ],
         sessionsFailed: [
             false,
             { loadSessions: () => false, loadSessionsSuccess: () => false, loadSessionsFailure: () => true },
@@ -284,8 +378,19 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     }),
     selectors({
         scanState: [
-            (s) => [s.sessions, s.sessionsLoading, s.sessionsFailed, s.scanRequest, s.scanStarting, s.scanFailure],
+            (s) => [
+                s.currentTeam,
+                s.linkTagging,
+                s.sessions,
+                s.sessionsLoading,
+                s.sessionsFailed,
+                s.scanRequest,
+                s.scanStarting,
+                s.scanFailure,
+            ],
             (
+                currentTeam: TeamPublicType | TeamType | null,
+                linkTagging: LinkTagging,
                 sessions: TransactionalEmailImpactSessionsApi | null,
                 sessionsLoading: boolean,
                 sessionsFailed: boolean,
@@ -293,6 +398,10 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 scanStarting: boolean,
                 scanFailure: ScanFailure | null
             ): AfterClickingScanState => {
+                const blocked = scanBlockedState(currentTeam, linkTagging)
+                if (blocked) {
+                    return blocked
+                }
                 if (scanFailure) {
                     return scanFailure
                 }
@@ -300,7 +409,12 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                     return scanRequestState(scanRequest)
                 }
                 if (scanStarting) {
-                    return { kind: 'scanning', done: 0, total: sessions?.sessions.length ?? 0 }
+                    return {
+                        kind: 'scanning',
+                        done: 0,
+                        total: sessions?.sessions.length ?? 0,
+                        skipped: { busy: 0, quota: 0 },
+                    }
                 }
                 if (sessionsFailed) {
                     return { kind: 'sessions-error' }
@@ -327,11 +441,19 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 }, 'scanPoll')
                 return
             }
+            // The plugin restarts a registered timer when the tab comes back, which would poll a finished scan.
+            cache.disposables.dispose('scanPoll')
+            if (cache.finishedRequestId === request.id) {
+                return
+            }
+            cache.finishedRequestId = request.id
             const state = scanRequestState(request)
             posthog.capture('transactional email impact scan finished', {
                 sessions: request.sessions.length,
                 sessions_with_result: state.kind === 'finished' ? state.withResult : 0,
-                credits_used_up: state.kind === 'credits-used-up',
+                sessions_skipped: state.kind === 'finished' ? state.skipped.busy + state.skipped.quota : 0,
+                credits_used_up:
+                    state.kind === 'credits-used-up' || (state.kind === 'finished' && state.skipped.quota > 0),
             })
         }
         const reportFailure = (): void => {
@@ -352,7 +474,10 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             startScanFailure: reportFailure,
             refreshScanFailure: reportFailure,
             retryScan: () => (values.scanRequest ? actions.refreshScan() : actions.startScan()),
-            resetScan: () => cache.disposables.dispose('scanPoll'),
+            resetScan: () => {
+                cache.disposables.dispose('scanPoll')
+                cache.pollFailures = 0
+            },
             setDays: () => {
                 actions.resetScan()
                 actions.loadSessions()

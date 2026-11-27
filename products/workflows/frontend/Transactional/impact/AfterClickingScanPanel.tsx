@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { AfterClickingNotice } from './AfterClickingNotice'
 import { AfterClickingQuestionPicker } from './AfterClickingQuestionPicker'
 import { afterClickingScanLogic } from './afterClickingScanLogic'
+import { AfterClickingSkippedSessions } from './AfterClickingSkippedSessions'
 
 export function AfterClickingScanPanel(): JSX.Element {
     const { scanState: state } = useValues(afterClickingScanLogic)
@@ -20,6 +21,37 @@ export function AfterClickingScanPanel(): JSX.Element {
     )
 
     switch (state.kind) {
+        case 'not-main-environment':
+            return (
+                <AfterClickingNotice title="Replay vision scans run in the main environment">
+                    <span className="text-secondary text-sm">
+                        Switch to this project's main environment to ask about these sessions.
+                    </span>
+                </AfterClickingNotice>
+            )
+        case 'no-access':
+            return (
+                <AfterClickingNotice title="You can't ask Replay vision about these sessions">
+                    <span className="text-secondary text-sm">{state.reason}</span>
+                </AfterClickingNotice>
+            )
+        case 'link-tagging-off':
+            return (
+                <AfterClickingNotice title="Link tracking is off">
+                    <span className="text-secondary text-sm">
+                        Replay vision finds the sessions this email starts through the tag on its links. Turn on link
+                        tracking to tag the links of new sends.
+                    </span>
+                </AfterClickingNotice>
+            )
+        case 'sensitive-email':
+            return (
+                <AfterClickingNotice title="This email's sessions can't be found">
+                    <span className="text-secondary text-sm">
+                        This email is always sensitive, so its links carry no tag that ties a session to it.
+                    </span>
+                </AfterClickingNotice>
+            )
         case 'loading-sessions':
             return <LemonSkeleton className="h-24" />
         case 'sessions-error':
@@ -54,16 +86,20 @@ export function AfterClickingScanPanel(): JSX.Element {
                         percent={state.total ? (state.done / state.total) * 100 : 0}
                     />
                     <span className="text-secondary text-sm">
-                        {state.done} of {pluralize(state.total, 'session')} scanned
+                        <span>{state.done}</span> of <span>{state.total}</span>{' '}
+                        {pluralize(state.total, 'session', 'sessions', false)} scanned
                     </span>
+                    <AfterClickingSkippedSessions skipped={state.skipped} />
                 </AfterClickingNotice>
             )
         case 'finished':
             return (
                 <AfterClickingNotice title="Scan finished">
                     <span className="text-secondary text-sm">
-                        {state.withResult} of {pluralize(state.total, 'session')} have an answer.
+                        <span>{state.withResult}</span> of <span>{state.scanned}</span> scanned{' '}
+                        {pluralize(state.scanned, 'session', 'sessions', false)} have an answer.
                     </span>
+                    <AfterClickingSkippedSessions skipped={state.skipped} />
                     {askAnother}
                 </AfterClickingNotice>
             )

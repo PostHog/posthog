@@ -27,9 +27,9 @@ export function AfterClickingQuestionPicker({
     return (
         <AfterClickingNotice title="Ask Replay vision about these sessions">
             <span className="text-secondary text-sm">
-                Replay vision watches {hasMore ? 'the newest ' : 'the '}
-                {pluralize(sessionCount, 'session')} people started from this email in the {period} and answers your
-                question for each one. Each session it scans uses Replay vision credits.
+                Replay vision watches {hasMore ? `${sessionCount} of the` : `the ${sessionCount}`}{' '}
+                {pluralize(sessionCount, 'session', 'sessions', false)} people started from this email's sends in the{' '}
+                {period} and answers your question for each one. Each session it scans uses Replay vision credits.
             </span>
             <div className="flex flex-wrap gap-2">
                 {AFTER_CLICKING_QUESTIONS.map(({ key, question }) => (
