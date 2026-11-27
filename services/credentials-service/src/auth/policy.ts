@@ -22,6 +22,7 @@ export const INTEGRATION_OPS = [
     'delete_by_external_id',
     'delete_owner',
     'mirror',
+    'reconcile',
 ] as const
 
 export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
@@ -31,6 +32,7 @@ export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
  * no other op and carries no `owner`. `delete_owner` is not one of them: it deletes the rows of
  * the token's owner.
  * `reverse_sync` is one: the reverse sync reads the changes of every team with one cursor.
+ * `reconcile` is one: it pages the mirrored rows of one kind across every team.
  */
 export const CROSS_TEAM_OPS = [
     'reverse_sync',
@@ -38,6 +40,7 @@ export const CROSS_TEAM_OPS = [
     'read_by_external_id',
     'write_by_external_id',
     'delete_by_external_id',
+    'reconcile',
 ] as const satisfies readonly IntegrationOp[]
 
 export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
@@ -48,6 +51,12 @@ export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
  * and the token must carry it (see `IntegrationGrant.authorize`).
  */
 export const SINGLE_REF_OPS = ['delete', 'refresh', 'revoke', 'mint'] as const satisfies readonly IntegrationOp[]
+
+/**
+ * Operations whose token must carry `kinds`. `reconcile` decrypts every mirrored row of a kind,
+ * so a token minted for one kind cannot reach another.
+ */
+export const KINDS_REQUIRED_OPS = ['reconcile'] as const satisfies readonly IntegrationOp[]
 
 /**
  * Any kind, source rows included. Only for a deployment whose code can touch any kind: web,
@@ -138,8 +147,9 @@ const GITHUB_APP_OPS = ['read', 'resolve', 'refresh', 'mint'] as const satisfies
 // Callers that read, resolve and mint for GitHub but never refresh a token themselves.
 const GITHUB_READ_OPS = ['read', 'resolve', 'mint'] as const satisfies readonly IntegrationOp[]
 
-// The changes feed has its own deployment, and only the Celery mirror task may write by legacy id.
-const WEB_EXCLUDED_OPS: readonly IntegrationOp[] = ['reverse_sync', 'mirror']
+// The changes feed has its own deployment, and only the Celery mirror tasks may write or
+// reconcile by legacy id.
+const WEB_EXCLUDED_OPS: readonly IntegrationOp[] = ['reverse_sync', 'mirror', 'reconcile']
 
 const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS }
 
@@ -156,9 +166,9 @@ const TABLE: Record<string, DeploymentPolicy> = {
     'posthog-integrations-reverse-sync': { ops: ['reverse_sync'], kinds: ALL_KINDS },
 
     // Celery, admin Django and the general-purpose Temporal worker run sweeps and jobs over
-    // every OAuth kind (posthog/tasks/integrations.py) and many others. Only the Celery task
-    // that copies Django rows to the service mirrors.
-    'posthog-worker-django': { ops: [...WORKER_OPS, 'mirror'], kinds: ALL_KINDS },
+    // every OAuth kind (posthog/tasks/integrations.py) and many others. Only the Celery tasks
+    // that copy Django rows to the service and compare the copies mirror and reconcile.
+    'posthog-worker-django': { ops: [...WORKER_OPS, 'mirror', 'reconcile'], kinds: ALL_KINDS },
     'posthog-admin-django': { ops: WORKER_OPS, kinds: ALL_KINDS },
     'temporal-worker-general-purpose': { ops: WORKER_OPS, kinds: ALL_KINDS },
     // HogQL `system.integrations` lists every kind of the team.

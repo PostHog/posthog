@@ -205,3 +205,38 @@ export async function softDeleteMirrored(
         [id, sourceVersion, owner.type, owner.id]
     )
 }
+
+export interface DigestPageQuery {
+    kind: string
+    /** Keyset mode: rows after this legacy id. Ignored when `legacyIds` is set. */
+    afterLegacyId: number | null
+    limit: number
+    /** Exact mode: these legacy ids only. */
+    legacyIds: readonly number[] | null
+}
+
+/**
+ * Rows of one kind that the mirror wrote (`source_version` set), live and deleted, of every
+ * owner, ordered by legacy id. Only the reconcile route may call it: it binds no owner.
+ */
+export async function listMirroredForDigest(db: Queryable, page: DigestPageQuery): Promise<MirrorRow[]> {
+    const result =
+        page.legacyIds === null
+            ? await query<MirrorDbRow>(
+                  db,
+                  `SELECT ${MIRROR_COLUMNS} FROM integrations
+                   WHERE kind = $1 AND legacy_id IS NOT NULL AND source_version IS NOT NULL
+                     AND ($2::bigint IS NULL OR legacy_id > $2::bigint)
+                   ORDER BY legacy_id
+                   LIMIT $3`,
+                  [page.kind, page.afterLegacyId, page.limit]
+              )
+            : await query<MirrorDbRow>(
+                  db,
+                  `SELECT ${MIRROR_COLUMNS} FROM integrations
+                   WHERE kind = $1 AND legacy_id = ANY($2::bigint[]) AND source_version IS NOT NULL
+                   ORDER BY legacy_id`,
+                  [page.kind, page.legacyIds]
+              )
+    return result.rows.map(toMirrorRow)
+}
