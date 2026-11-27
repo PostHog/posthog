@@ -334,6 +334,7 @@ describe('tracingDataLogic', () => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
             const countSpy = jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 10, traceCount: 3 })
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('spans')
             await logic.asyncActions.fetchMatchingCounts()
             expect(logic.values.totalMatchingFilters).toEqual(10)
 
@@ -355,7 +356,7 @@ describe('tracingDataLogic', () => {
             // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
             // view-mode toggle changes its scope and the auto re-query must re-fetch it.
             await expectLogic(logic, () => {
-                tracingFiltersLogic().actions.setViewMode('traces')
+                tracingFiltersLogic().actions.setViewMode('spans')
             }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()

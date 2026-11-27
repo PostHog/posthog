@@ -10,6 +10,7 @@ import { makeSpan } from './__mocks__/span'
 import { spanErrorsLogic } from './spanErrorsLogic'
 import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
+import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 jest.mock('products/tracing/frontend/generated/api', () => ({
@@ -79,6 +80,10 @@ describe('spanErrorsLogic', () => {
     // test that changes it has to build the logics again afterwards.
     const mountLogics = (): void => {
         initKeaTests()
+        // Traces is the default view mode, which collapses the list to one row per trace.
+        const filtersLogic = tracingFiltersLogic()
+        filtersLogic.mount()
+        filtersLogic.actions.setViewMode('spans')
         dataLogic = tracingDataLogic()
         dataLogic.mount()
         logic = spanErrorsLogic()
