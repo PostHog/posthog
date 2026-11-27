@@ -1,4 +1,4 @@
-import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
 
 import { AdventClassicNavTreeButton } from './AdventClassicNavTreeButton'
 import { AdventTodayNavTreeButton } from './AdventTodayNavTreeButton'
