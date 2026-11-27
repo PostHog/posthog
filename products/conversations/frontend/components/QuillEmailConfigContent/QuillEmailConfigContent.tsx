@@ -16,7 +16,7 @@ import { useEmailConfigContent } from '../../scenes/settings/useEmailConfigConte
 import { QuillDnsRecordsTable } from '../QuillDnsRecordsTable/QuillDnsRecordsTable'
 import { QuillEmailDisplayNameSettings } from '../QuillEmailDisplayNameSettings/QuillEmailDisplayNameSettings'
 import { QuillEmailForwardingAddress } from '../QuillEmailForwardingAddress/QuillEmailForwardingAddress'
-import { QuillSenderNameModeSettings } from '../QuillSenderNameModeSettings/QuillSenderNameModeSettings'
+import { QuillSenderNameTemplateSettings } from '../QuillSenderNameTemplateSettings/QuillSenderNameTemplateSettings'
 import { QuillTrustedRelaySenderSettings } from '../QuillTrustedRelaySenderSettings/QuillTrustedRelaySenderSettings'
 
 export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
@@ -36,14 +36,16 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
                 onSave={email.saveDisplayName}
             />
 
-            {config.sender_name_mode !== undefined && (
-                <QuillSenderNameModeSettings
+            {config.sender_name_template !== undefined && (
+                <QuillSenderNameTemplateSettings
                     configId={config.id}
-                    value={config.sender_name_mode}
+                    value={email.senderNameTemplate}
+                    savedValue={config.sender_name_template}
                     displayName={config.from_name}
                     restrictionReason={email.adminRestrictionReason}
-                    savingConfigId={email.emailSenderNameModeSavingConfigId}
-                    onChange={email.saveSenderNameMode}
+                    savingConfigId={email.emailSenderNameTemplateSavingConfigId}
+                    onChange={email.setSenderNameTemplateDraft}
+                    onSave={email.saveSenderNameTemplate}
                 />
             )}
 

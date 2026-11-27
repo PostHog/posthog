@@ -1,1 +1,1 @@
-0092_email_sender_name_mode
+0092_email_sender_name_template

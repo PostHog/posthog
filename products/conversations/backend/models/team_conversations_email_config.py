@@ -19,9 +19,7 @@ class EmailChannelConnectionStatus(models.TextChoices):
     CONFIRMATION_EXPIRED = "confirmation_expired", "Confirmation expired"
 
 
-class EmailSenderNameMode(models.TextChoices):
-    CHANNEL = "channel", "Channel display name"
-    AGENT = "agent", "Agent first name and channel display name"
+SENDER_NAME_AUTHOR_PLACEHOLDER = "{author_first_name}"
 
 
 class EmailChannel(UUIDModel):
@@ -54,18 +52,15 @@ class EmailChannel(UUIDModel):
 
     from_email = models.EmailField()
     from_name = models.CharField(max_length=255)
-    sender_name_mode = models.CharField(
-        max_length=16,
-        choices=EmailSenderNameMode.choices,
-        default=EmailSenderNameMode.CHANNEL,
-        db_default=EmailSenderNameMode.CHANNEL,
-    )
+    # Blank means every reply uses from_name.
+    sender_name_template = models.CharField(max_length=255, blank=True, default="", db_default="")
 
     def sender_name_for(self, author_first_name: str) -> str:
         """Return the From display name for a reply written by a person with this first name."""
         author_first_name = author_first_name.strip()
-        if self.sender_name_mode == EmailSenderNameMode.AGENT and author_first_name and self.from_name:
-            return f"{author_first_name} from {self.from_name}"
+        if self.sender_name_template and author_first_name:
+            # str.replace, not str.format: the template is admin input and must not reach attribute lookups.
+            return self.sender_name_template.replace(SENDER_NAME_AUTHOR_PLACEHOLDER, author_first_name)
         return self.from_name
 
     domain = models.CharField(max_length=255)

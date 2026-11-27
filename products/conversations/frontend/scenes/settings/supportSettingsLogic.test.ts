@@ -243,18 +243,21 @@ describe('supportSettingsLogic', () => {
         })
     })
 
-    describe('email sender name mode', () => {
-        it('saves the mode and updates the channel', async () => {
+    describe('email sender name template', () => {
+        it('saves the trimmed template and updates the channel', async () => {
             useMocks({
                 get: {
                     '/api/conversations/v1/email/status': {
-                        configs: [{ id: 'email-config', from_name: 'Acme Support', sender_name_mode: 'channel' }],
+                        configs: [{ id: 'email-config', from_name: 'Acme Support', sender_name_template: '' }],
                     },
                     '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
                 },
                 post: {
-                    '/api/conversations/v1/email/set_sender_name_mode': async ({ request }) => {
-                        expect(await request.json()).toEqual({ config_id: 'email-config', sender_name_mode: 'agent' })
+                    '/api/conversations/v1/email/set_sender_name_template': async ({ request }) => {
+                        expect(await request.json()).toEqual({
+                            config_id: 'email-config',
+                            sender_name_template: '{author_first_name} at Acme',
+                        })
                         return [200, { ok: true }]
                     },
                 },
@@ -263,12 +266,13 @@ describe('supportSettingsLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.saveEmailSenderNameMode('email-config', 'agent')
+            logic.actions.setEmailSenderNameTemplateDraft('email-config', '  {author_first_name} at Acme  ')
+            logic.actions.saveEmailSenderNameTemplate('email-config')
 
-            expect(logic.values.emailSenderNameModeSavingConfigId).toBe('email-config')
+            expect(logic.values.emailSenderNameTemplateSavingConfigId).toBe('email-config')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.emailConfigs[0].sender_name_mode).toBe('agent')
-            expect(logic.values.emailSenderNameModeSavingConfigId).toBeNull()
+            expect(logic.values.emailConfigs[0].sender_name_template).toBe('{author_first_name} at Acme')
+            expect(logic.values.emailSenderNameTemplateSavingConfigId).toBeNull()
         })
     })
 

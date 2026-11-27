@@ -20,6 +20,7 @@ from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 
+from products.conversations.backend.api.email_settings import EmailSetSenderNameTemplateSerializer
 from products.conversations.backend.api.tests.mailgun_signing import MailgunWebhookTestMixin, post_mailgun
 from products.conversations.backend.mailgun import (
     MailgunDomainConflict,
@@ -36,7 +37,6 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailMessageMapping,
     EmailOutboxMessage,
-    EmailSenderNameMode,
 )
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.email_thread_ingestion import EmailAddress
@@ -147,10 +147,10 @@ class TestEmailChannelPermissions(BaseTest):
                 {"config_id": "00000000-0000-0000-0000-000000000999", "from_name": "Support"},
             ),
             (
-                "set-sender-name-mode",
+                "set-sender-name-template",
                 "post",
-                "/api/conversations/v1/email/set_sender_name_mode",
-                {"config_id": "00000000-0000-0000-0000-000000000999", "sender_name_mode": "agent"},
+                "/api/conversations/v1/email/set_sender_name_template",
+                {"config_id": "00000000-0000-0000-0000-000000000999", "sender_name_template": "{author_first_name}"},
             ),
             (
                 "set-trusted-relay",
@@ -1749,46 +1749,73 @@ class TestEmailDisplayNameSettings(BaseTest):
         assert (other_config.from_name, config.from_name) == ("Other", "Support")
 
 
-class TestEmailSenderNameMode(SimpleTestCase):
+class TestEmailSenderNameTemplate(SimpleTestCase):
     @parameterized.expand(
         [
-            ("channel_mode_ignores_the_agent", "channel", "Lisa", "Acme Support", "Acme Support"),
-            ("agent_mode_adds_the_first_name", "agent", " Lisa ", "Acme Support", "Lisa from Acme Support"),
-            ("agent_mode_without_an_author", "agent", "", "Acme Support", "Acme Support"),
-            ("agent_mode_without_a_channel_name", "agent", "Lisa", "", ""),
+            ("no_template_uses_the_display_name", "", "Sam", "Acme Support"),
+            ("template_names_the_agent", "{author_first_name} at Acme", " Sam ", "Sam at Acme"),
+            ("template_without_an_author_uses_the_display_name", "{author_first_name} at Acme", "", "Acme Support"),
         ]
     )
-    def test_sender_name_for(self, _name, mode, first_name, from_name, expected):
-        config = EmailChannel(from_name=from_name, sender_name_mode=mode)
+    def test_sender_name_for(self, _name, template, first_name, expected):
+        config = EmailChannel(from_name="Acme Support", sender_name_template=template)
 
         assert config.sender_name_for(first_name) == expected
 
+    @parameterized.expand(
+        [
+            ("blank_clears_the_template", "  ", None),
+            ("valid_template_is_trimmed", " {author_first_name} at Acme ", None),
+            ("missing_placeholder", "Acme Support", "Include {author_first_name} in the sender name."),
+            (
+                "unknown_placeholder",
+                "{author_first_name} {last_name}",
+                "{author_first_name} is the only supported placeholder.",
+            ),
+            (
+                "line_break",
+                "{author_first_name}\nBcc: a@example.com",
+                "Sender name cannot contain line breaks or control characters.",
+            ),
+        ]
+    )
+    def test_template_validation(self, _name, template, expected_error):
+        serializer = EmailSetSenderNameTemplateSerializer(
+            data={"config_id": "00000000-0000-0000-0000-000000000999", "sender_name_template": template}
+        )
 
-class TestEmailSenderNameModeSettings(BaseTest):
+        assert serializer.is_valid() == (expected_error is None)
+        if expected_error is None:
+            assert serializer.validated_data["sender_name_template"] == template.strip()
+        else:
+            assert serializer.errors["sender_name_template"] == [expected_error]
+
+
+class TestEmailSenderNameTemplateSettings(BaseTest):
     def setUp(self):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.force_login(self.user)
 
-    def _set_mode(self, config: EmailChannel, mode: str):
+    def _set_template(self, config: EmailChannel, template: str):
         return self.client.post(
-            "/api/conversations/v1/email/set_sender_name_mode",
-            {"config_id": str(config.id), "sender_name_mode": mode},
+            "/api/conversations/v1/email/set_sender_name_template",
+            {"config_id": str(config.id), "sender_name_template": template},
             content_type="application/json",
         )
 
-    def test_admin_sets_the_mode_on_a_support_channel_of_the_current_team_only(self):
+    def test_admin_sets_the_template_on_a_support_channel_of_the_current_team_only(self):
         config = EmailChannel.objects.create(
             team=self.team,
-            inbound_token="sender-mode",
+            inbound_token="sender-template",
             from_email="support@example.com",
             from_name="Support",
             domain="example.com",
         )
         other_config = EmailChannel.objects.create(
             team=Team.objects.create(organization=self.organization),
-            inbound_token="other-sender-mode",
+            inbound_token="other-sender-template",
             from_email="other@example.com",
             from_name="Other",
             domain="example.com",
@@ -1797,24 +1824,25 @@ class TestEmailSenderNameModeSettings(BaseTest):
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
             owner=self.user,
-            inbound_token="personal-sender-mode",
+            inbound_token="personal-sender-template",
             from_email="me@example.com",
             from_name="Me",
             domain="example.com",
         )
+        template = "{author_first_name} at Acme"
 
-        assert self._set_mode(config, "agent").status_code == 200
-        assert self._set_mode(config, "nickname").status_code == 400
-        assert self._set_mode(other_config, "agent").status_code == 404
-        assert self._set_mode(personal_config, "agent").status_code == 400
+        assert self._set_template(config, template).status_code == 200
+        assert self._set_template(config, "Acme").status_code == 400
+        assert self._set_template(other_config, template).status_code == 404
+        assert self._set_template(personal_config, template).status_code == 400
 
-        modes = {
-            channel.from_email: channel.sender_name_mode
+        templates = {
+            channel.from_email: channel.sender_name_template
             for channel in EmailChannel.objects.filter(id__in=[config.id, other_config.id, personal_config.id])
         }
-        assert modes == {"support@example.com": "agent", "other@example.com": "channel", "me@example.com": "channel"}
+        assert templates == {"support@example.com": template, "other@example.com": "", "me@example.com": ""}
         status_response = self.client.get("/api/conversations/v1/email/status")
-        assert status_response.json()["configs"][0]["sender_name_mode"] == "agent"
+        assert status_response.json()["configs"][0]["sender_name_template"] == template
 
 
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
@@ -2241,15 +2269,15 @@ class TestSendEmailReplyMultiConfig(BaseTest):
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_names_the_agent_when_the_channel_asks_for_it(self, mock_send_mime: MagicMock):
         config = self._create_config("support@example.com", "agentname")
-        config.sender_name_mode = EmailSenderNameMode.AGENT
-        config.save(update_fields=["sender_name_mode"])
-        self.user.first_name = "Lisa"
+        config.sender_name_template = "{author_first_name} at Acme"
+        config.save(update_fields=["sender_name_template"])
+        self.user.first_name = "Sam"
         self.user.save(update_fields=["first_name"])
 
         self._run_reply(self._create_ticket(config))
 
         message = message_from_bytes(mock_send_mime.call_args.args[1])
-        assert parseaddr(message["From"]) == ("Lisa from Test", "support@example.com")
+        assert parseaddr(message["From"]) == ("Sam at Acme", "support@example.com")
 
     @parameterized.expand(
         [
