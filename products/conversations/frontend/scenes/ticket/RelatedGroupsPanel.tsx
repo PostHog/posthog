@@ -33,10 +33,8 @@ interface RelatedGroupsPanelProps {
     organizationIdSource?: string | null
 }
 
-// The scene loads a person only when the ticket's distinct_id belongs to one. An email ticket keeps the
-// sender address as distinct_id, so its person comes from the ticket API's email property match instead.
-// A relayed or forwarded email without verification can carry any sender address, so that match is not
-// trusted for it. The backend applies the same rule when it resolves the ticket's organization.
+// An unverified relayed email can carry any sender address, so its email match is not trusted.
+// This mirrors _has_unverified_relayed_identity in backend/events.py.
 export function relatedGroupsPersonUuid(
     ticket: Pick<Ticket, 'person' | 'anonymous_traits' | 'identity_verified'> | null,
     loadedPersonUuid: string | undefined
