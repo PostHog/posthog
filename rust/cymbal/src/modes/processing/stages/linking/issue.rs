@@ -196,13 +196,8 @@ async fn apply_event_release(
     loaded: LoadedIssue,
     input: &Arc<ExceptionEvent<Fingerprinted>>,
 ) -> Result<Issue, UnhandledError> {
-    let issue = ctx
-        .batch_issue_state
-        .lock()
-        .expect("batch issue state mutex poisoned")
-        .get(&loaded.issue.id)
-        .cloned()
-        .unwrap_or(loaded.issue);
+    let first_seen = loaded.first_seen;
+    let issue = ctx.batch_issue_state.current(loaded.issue);
     let release = input.release();
     // Most events land on an active issue, and those must not pay for a transaction.
     match issue.release_check(release.map(ReleaseInfo::created_at)) {
@@ -214,28 +209,13 @@ async fn apply_event_release(
         ReleaseCheck::RecordRelease | ReleaseCheck::Reopen => {}
     }
 
-    let key = (issue.id, release.map(ReleaseInfo::id));
-    let first_seen = loaded.first_seen;
+    let context = ctx.app_context.clone();
     let input = input.clone();
-    let ctx_for_write = ctx.clone();
-    ctx.batch_release_writes
-        .try_get_with(key, async move {
-            let issue = write_release(
-                ctx_for_write.app_context.as_ref(),
-                issue,
-                first_seen,
-                &input,
-            )
-            .await?;
-            ctx_for_write
-                .batch_issue_state
-                .lock()
-                .expect("batch issue state mutex poisoned")
-                .insert(issue.id, issue.clone());
-            Ok::<Issue, UnhandledError>(issue)
+    ctx.batch_issue_state
+        .apply_write(issue, release.map(ReleaseInfo::id), |issue| async move {
+            write_release(context.as_ref(), issue, first_seen, &input).await
         })
         .await
-        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))
 }
 
 async fn write_release(
