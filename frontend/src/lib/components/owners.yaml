@@ -42,6 +42,7 @@ rules:
           - '/EmojiPicker/*.test.*'
           - '/FeedbackSurveyButton/*.test.*'
           - '/GuidedWizard/*.test.*'
+          - '/InAppOnboarding/*.test.*'
           - '/MarkdownEditor/inline/*.test.*'
           - '/MarkdownEditor/rich/*.test.*'
           - '/MarkdownEditor/shared/*.test.*'
