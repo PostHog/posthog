@@ -479,7 +479,9 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const vanishing = values.graph.doors.filter(
                     (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
                 )
-                posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
+                if (values.isLive) {
+                    posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
+                }
                 actions.openDoor(uuid, door.day, optionId, values.isLive)
                 const answer = pollAnswerOf(door.day, optionId)
                 if (answer && values.isLive) {
@@ -493,7 +495,9 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
             },
             openDoor: ({ day }) => {
-                posthog.capture(EVENTS.doorOpened, { day })
+                if (values.isLive) {
+                    posthog.capture(EVENTS.doorOpened, { day })
+                }
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
                 if (hoggy && values.isLive) {
                     void api

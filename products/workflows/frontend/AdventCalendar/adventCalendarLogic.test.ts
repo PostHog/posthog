@@ -442,31 +442,67 @@ describe('adventCalendarLogic', () => {
     })
 
     it.each([
-        ['previews the real day with ?day=2 and sends and stores nothing', { day: '2' }, [], 0, false],
-        ['sends the opens and the answer without ?day=', {}, [1, 2], 1, true],
-    ])('for a staff user on 2 December, %s', async (_, searchParams, opens, answers, storesProgress) => {
+        ['a staff user previews the real day', true, new Date(2026, 11, 2, 9, 0), { day: '2' }, [], 0, false],
+        ['anyone previews a day in November', false, new Date(2026, 10, 27, 9, 0), { day: '2' }, [], 0, false],
+        ['a staff user opens the real day', true, new Date(2026, 11, 2, 9, 0), {}, [1, 2], 1, true],
+    ])(
+        'when %s, it sends and stores only what is live',
+        async (_, isStaff, now, searchParams, opens, answers, isLive) => {
+            const api = calendarApi()
+            useMocks(api.mocks)
+            jest.setSystemTime(now)
+            logic.actions.refreshClock()
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+            signIn({ is_staff: isStaff })
+            router.actions.push('/workflows/advent', searchParams)
+            const storedBefore = window.localStorage.getItem('workflows-advent-calendar-progress')
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
+
+            await waitFor(() => expect(api.opens).toHaveLength(opens.length))
+            await waitFor(() => expect(api.answers).toHaveLength(answers))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(doorOf(logic, 'door-2')?.status).toBe('open')
+            const captured = (event: string): number => capture.mock.calls.filter(([name]) => name === event).length
+            expect({
+                opens: api.opens.map((open) => (open as { day: number }).day),
+                answers: api.answers.length,
+                storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
+                openEvents: captured('workflows advent door opened'),
+                answerEvents: captured('workflows advent answer picked'),
+            }).toEqual({ opens, answers, storesProgress: isLive, openEvents: opens.length, answerEvents: answers })
+        }
+    )
+
+    it('lets anyone who previewed doors in November open and answer them for real on 2 December', async () => {
         const api = calendarApi()
         useMocks(api.mocks)
-        jest.setSystemTime(new Date(2026, 11, 2, 9, 0))
+        jest.setSystemTime(new Date(2026, 10, 27, 9, 0))
         logic.actions.refreshClock()
-        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
-        signIn({ is_staff: true })
-        router.actions.push('/workflows/advent', searchParams)
-        const storedBefore = window.localStorage.getItem('workflows-advent-calendar-progress')
+        router.actions.push('/workflows/advent', { day: '2' })
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
-
-        await waitFor(() => expect(api.opens).toHaveLength(opens.length))
-        await waitFor(() => expect(api.answers).toHaveLength(answers))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(doorOf(logic, 'door-2')?.status).toBe('open')
-        expect({
-            opens: api.opens.map((open) => (open as { day: number }).day),
-            answers: api.answers.length,
-            storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
-        }).toEqual({ opens, answers, storesProgress })
+        logic.unmount()
+        jest.setSystemTime(new Date(2026, 11, 2, 9, 0))
+        router.actions.push('/workflows/advent')
+        logic = adventCalendarLogic()
+        logic.mount()
+        logic.actions.refreshClock()
+        const doorsBefore = [doorOf(logic, 'door-1')?.status, doorOf(logic, 'door-2')?.status]
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
+        await waitFor(() => expect(api.answers).toHaveLength(1))
+
+        expect({ doorsBefore, opens: api.opens.map((open) => (open as { day: number }).day) }).toEqual({
+            doorsBefore: ['ready', 'locked'],
+            opens: [1, 2],
+        })
     })
 
     it('reports a tip click with its day', () => {
