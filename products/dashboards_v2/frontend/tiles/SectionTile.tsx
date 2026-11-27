@@ -23,7 +23,7 @@ import { useDashboard } from '../dashboard/core/dashboardContext'
 import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
-import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
+import { DESCRIPTION_ICON_CLASS, DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
@@ -126,9 +126,21 @@ export function SectionTile({
                             <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
                         )}
                         {description && descriptionMode === 'below' && (
-                            <DescriptionInfo description={description} className={clsx(DESCRIPTION_TEXT, 'text-left')}>
-                                {description}
-                            </DescriptionInfo>
+                            <>
+                                <DescriptionInfo
+                                    description={description}
+                                    className={clsx(
+                                        DESCRIPTION_ICON_CLASS,
+                                        'SectionTile__description-narrow-icon shrink-0 text-muted-foreground'
+                                    )}
+                                />
+                                <DescriptionInfo
+                                    description={description}
+                                    className={clsx(DESCRIPTION_TEXT, 'SectionTile__description-text text-left')}
+                                >
+                                    {description}
+                                </DescriptionInfo>
+                            </>
                         )}
                     </SectionHeader>
                     {!collapsed && (
