@@ -17,10 +17,13 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.core.cache import cache
 
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, Template, select_autoescape
 from pydantic import BaseModel, Field
+
+from posthog.models.integration import SlackIntegration
 
 from products.mcp_store.backend.facade.api import slack_mcp_installation_id
 from products.slack_app.backend.feature_flags import is_slack_app_daily_focus_agent_enabled
@@ -41,6 +44,7 @@ from products.slack_app.backend.services.workspace_integrations import Workspace
 from products.slack_app.backend.task_profiles import DAILY_FOCUS
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.model_catalogue import model_allowed_by_product_pin
+from products.tasks.backend.facade.profiles import GithubAccess
 
 logger = structlog.get_logger(__name__)
 
@@ -64,6 +68,7 @@ _CHANNEL_ID = re.compile(r"[CG][A-Z0-9]+")
 _USER_ID = re.compile(r"[UW][A-Z0-9_]+")
 _CHANNEL_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 _UNSAFE_IN_LINK = re.compile(r"[<>|\s\x00-\x1f\x7f]")
+WORKSPACE_HOST_CACHE_SECONDS = 24 * 60 * 60
 
 
 class AgentSummaryItem(BaseModel):
@@ -148,7 +153,7 @@ def start_daily_focus_agent(
     )
 
 
-def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocus:
+def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str, *, workspace_host: str | None) -> WorkFocus:
     """The agent's answer within the pipeline's limits, whatever the prompt said. A summary item the person already
     saw, and an offer someone already reacted to, are dropped like resolved ones, so the DM holds only what is new to
     the person. So is a link that is not a Slack link, and an offer whose source the person wrote."""
@@ -164,7 +169,7 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
         WorkFocusSummaryItem(
             text=item.text.strip()[:MAX_SUMMARY_CHARS],
             channel_id=item.channel_id,
-            permalink=_slack_link(item.permalink),
+            permalink=_slack_link(item.permalink, workspace_host),
             section=kind,
         )
         for kind in ("for_you", "news")
@@ -174,7 +179,7 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
         WorkFocusSuggestion(
             offer=item.offer.strip()[:MAX_OFFER_CHARS],
             request=item.request.strip()[:MAX_REQUEST_CHARS],
-            source_permalink=_slack_link(item.source_permalink),
+            source_permalink=_slack_link(item.source_permalink, workspace_host),
             source_author_id=_matching(_USER_ID, item.source_author_id),
             source_channel_name=_matching(_CHANNEL_NAME, (item.source_channel_name or "").lstrip("#")),
         )
@@ -188,20 +193,37 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
     return WorkFocus(intro=output.intro.strip()[:MAX_INTRO_CHARS], suggestions=suggestions, summary=summary)
 
 
-def _slack_link(value: str | None) -> str | None:
-    if not value or _UNSAFE_IN_LINK.search(value):
+def _slack_link(value: str | None, workspace_host: str | None) -> str | None:
+    if not value or not workspace_host or _UNSAFE_IN_LINK.search(value):
         return None
     try:
         parts = urlsplit(value)
         port = parts.port
     except ValueError:
         return None
-    host = parts.hostname or ""
     if parts.scheme != "https" or parts.username or parts.password or port is not None:
         return None
-    if not (host == "slack.com" or host.endswith(".slack.com")) or not parts.path.startswith("/archives/"):
+    # The person's own workspace only, so a message cannot have the DM link to a thread in a workspace it chose.
+    if parts.hostname != workspace_host or not parts.path.startswith("/archives/"):
         return None
     return value
+
+
+def workspace_host(integration: WorkspaceIntegration) -> str | None:
+    """The host of the workspace's Slack links, such as `example.slack.com`. None when Slack does not answer, which
+    drops every link from the DM rather than trusting one."""
+    key = f"slack_app:workspace_host:{integration.integration_id}"
+    if (cached := cache.get(key)) is not None:
+        return cached or None
+    try:
+        url = SlackIntegration(integration).client.auth_test().get("url") or ""
+    except Exception:
+        logger.warning("slack_app_workspace_host_failed", integration_id=integration.id, exc_info=True)
+        return None
+    host = urlsplit(url).hostname or ""
+    host = host if host.endswith(".slack.com") else ""
+    cache.set(key, host, WORKSPACE_HOST_CACHE_SECONDS)
+    return host or None
 
 
 def _matching(pattern: re.Pattern[str], value: str | None) -> str | None:
@@ -226,7 +248,7 @@ def run_daily_focus_agent(
     if installation_id is None:
         return "agent_unavailable"
     output = asyncio.run(_ask_agent(integration, slack_user_id, owner_id, installation_id, since=since, zone=zone))
-    focus = to_work_focus(output, slack_user_id)
+    focus = to_work_focus(output, slack_user_id, workspace_host=workspace_host(integration))
     if not focus.summary and not focus.suggestions:
         return "nothing_actionable"
     return send_agent_daily_focus(integration, slack_user_id, focus, at=daily.at, zone=zone, run_at=run_at, since=since)
@@ -250,6 +272,8 @@ async def _ask_agent(
             posthog_mcp_scopes="read_only",
             model=AGENT_MODEL,
             runtime_adapter=AGENT_RUNTIME_ADAPTER,
+            # Slack messages steer the run and it has no repository work, so it gets no GitHub credential at all.
+            github_access=GithubAccess.NONE,
         ),
         model=DailyFocusAgentOutput,
         profile=DAILY_FOCUS,

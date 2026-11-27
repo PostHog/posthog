@@ -78,6 +78,8 @@ CURSOR = Member("U0CURSOR", "Cursor", is_bot=True)
 MEMBERS = (DANA, ANA, BEN, CHLOE, RAJ, MEI, POSTHOG, CLAUDE, CURSOR)
 BOT_IDS = frozenset(member.user_id for member in MEMBERS if member.is_bot)
 
+WORKSPACE_HOST = "hedgebox.slack.com"
+
 # The person every digest in the evals is for.
 PERSON = DANA
 
@@ -342,7 +344,7 @@ def people_messages(thread: Thread) -> list[dict[str, str]]:
 
 def permalink(thread: Thread) -> str:
     # A Slack-shaped link, because the daily focus agent's answer keeps only Slack links.
-    return f"https://example.slack.com/archives/{thread.channel_id}/p{thread.key}"
+    return f"https://{WORKSPACE_HOST}/archives/{thread.channel_id}/p{thread.key}"
 
 
 def text_of(thread: Thread) -> str:

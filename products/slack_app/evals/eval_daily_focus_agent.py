@@ -178,7 +178,7 @@ def _ask(team_id: int, case: BaseEvalCase) -> dict:
     if parsed is None:
         raise ValueError(f"The reply is not a JSON object: {reply[:200]}")
     answer = daily_focus_agent.DailyFocusAgentOutput.model_validate(parsed)
-    focus = daily_focus_agent.to_work_focus(answer, PERSON.user_id)
+    focus = daily_focus_agent.to_work_focus(answer, PERSON.user_id, workspace_host=slack_workspace.WORKSPACE_HOST)
 
     key_of = {slack_workspace.permalink(thread): thread.key for thread in threads}
     items = [

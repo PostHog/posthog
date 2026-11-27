@@ -10,6 +10,7 @@ legible. Each scorer opts into a case through its own ``expected`` key and skips
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser
@@ -652,6 +653,16 @@ def _summary_sources(output: dict | None) -> list[str]:
     return [str(item.get("source")) for item in (output or {}).get("items") or []]
 
 
+def _recall(name: str, want: Collection[str], found: list[str], output: dict | None, *, nothing_wanted: str) -> Score:
+    """The share of `want` that shows up in `found`. A failed call scores 0, so an outage counts against the run."""
+    if not want:
+        return Score(name=name, score=None, metadata={"reason": nothing_wanted})
+    if output and output.get("error"):
+        return Score(name=name, score=0.0, metadata={"reason": output["error"]})
+    missed = [key for key in want if key not in set(found)]
+    return Score(name=name, score=(len(want) - len(missed)) / len(want), metadata={"missed": missed})
+
+
 class SummaryCovers(Scorer):
     """The share of the threads that had to be in the summary, such as the day's incident, that it covers."""
 
@@ -660,14 +671,7 @@ class SummaryCovers(Scorer):
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         must = _summary_spec(expected).get("must_cover") or []
-        if not must:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case requires no thread"})
-        if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
-
-        sources = set(_summary_sources(output))
-        missed = [key for key in must if key not in sources]
-        return Score(name=self._name(), score=(len(must) - len(missed)) / len(must), metadata={"missed": missed})
+        return _recall(self._name(), must, _summary_sources(output), output, nothing_wanted="Case requires no thread")
 
 
 class SummaryOmitsChatter(Scorer):
@@ -845,14 +849,7 @@ class AgentCovers(Scorer):
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         must = _agent_spec(expected).get("must_cover") or {}
-        if not must:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case requires no thread"})
-        if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
-
-        sources = set(_summary_sources(output))
-        missed = [key for key in must if key not in sources]
-        return Score(name=self._name(), score=(len(must) - len(missed)) / len(must), metadata={"missed": missed})
+        return _recall(self._name(), must, _summary_sources(output), output, nothing_wanted="Case requires no thread")
 
 
 class AgentSections(Scorer):
@@ -902,14 +899,9 @@ class AgentOfferRecall(Scorer):
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
         want = _agent_spec(expected).get("offers") or []
-        if not want:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case has no request to offer"})
-        if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
-
-        sources = set(_offer_sources(output))
-        missed = [key for key in want if key not in sources]
-        return Score(name=self._name(), score=(len(want) - len(missed)) / len(want), metadata={"missed": missed})
+        return _recall(
+            self._name(), want, _offer_sources(output), output, nothing_wanted="Case has no request to offer"
+        )
 
 
 class NoReactedOffer(Scorer):

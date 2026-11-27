@@ -29,13 +29,15 @@ from products.slack_app.backend.services.workspace_integrations import (
 )
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
 from products.slack_app.backend.tests.helpers import all_block_text
+from products.tasks.backend.facade.profiles import GithubAccess
 
 AGENT = "products.slack_app.backend.logic.onboarding.daily_focus_agent"
 WORK_FOCUS = "products.slack_app.backend.logic.onboarding.work_focus"
 SINCE = datetime(2026, 11, 6, 8, 0, tzinfo=UTC)
 RUN_AT = datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
 PRAGUE = ZoneInfo("Europe/Prague")
-LINK = "https://example.slack.com/archives/C1/p1"
+HOST = "example.slack.com"
+LINK = f"https://{HOST}/archives/C1/p1"
 
 
 def _install(team) -> WorkspaceIntegration:
@@ -110,6 +112,7 @@ def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
             # News comes first in the answer, but what is for the person still leads the DM.
             *(_item(f"<@U_BEN> launched {n}") for n in range(4)),
             _item("<@U_ANA> asked you about the pricing page", kind="for_you", permalink="https://evil.example/x"),
+            _item("<@U_BEN> linked elsewhere", kind="for_you", permalink="https://other.slack.com/archives/C1/p1"),
             _item("<@U_ANA> spoofed a channel", kind="for_you", channel_id="C1> <https://evil.example|Sign in> <#C1"),
             _item("<@U_ANA> pinged you about trial length", kind="for_you", seen=True),
             _item("<@U_BEN> fixed the export, merged", kind="for_you", resolved=True),
@@ -128,18 +131,18 @@ def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
         ],
     )
 
-    focus = to_work_focus(output, SLACK_USER_ID)
+    focus = to_work_focus(output, SLACK_USER_ID, workspace_host=HOST)
 
     assert [(item.section, item.text) for item in focus.summary] == [
         ("for_you", "<@U_ANA> asked you about the pricing page"),
+        ("for_you", "<@U_BEN> linked elsewhere"),
         ("for_you", "<@U_ANA> asked you 0"),
-        ("for_you", "<@U_ANA> asked you 1"),
         ("news", "<@U_BEN> launched 0"),
         ("news", "<@U_BEN> launched 1"),
         ("news", "<@U_BEN> launched 2"),
     ]
-    # A link the model made up off Slack never renders as a link.
-    assert focus.summary[0].permalink is None
+    # A link off Slack, or to a thread in another workspace, never renders as a link.
+    assert [item.permalink for item in focus.summary[:3]] == [None, None, LINK]
     # Work someone already reacted to, resolved work and the person's own message never become offers. What a
     # message could smuggle into the DM's mrkdwn through a link, an author or a channel name is dropped.
     assert [(s.offer, s.source_permalink, s.source_author_id, s.source_channel_name) for s in focus.suggestions] == [
@@ -243,9 +246,11 @@ def test_the_agent_run_sends_one_dm_and_mounts_only_the_slack_mcp(answer, expect
         patch(f"{AGENT}.slack_mcp_installation_id", return_value="slack-installation"),
         patch(f"{AGENT}.MultiTurnSession.start", new=AsyncMock(return_value=(session, answer))) as start,
         patch(f"{WORK_FOCUS}.SlackIntegration") as bot,
+        patch(f"{AGENT}.SlackIntegration") as workspace,
         patch(f"{WORK_FOCUS}.capture_slack_event") as captured,
         time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),
     ):
+        workspace.return_value.client.auth_test.return_value = {"url": f"https://{HOST}/"}
         first = run_daily_focus_agent(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT, zone=PRAGUE)
         retry = run_daily_focus_agent(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT, zone=PRAGUE)
 
@@ -257,12 +262,16 @@ def test_the_agent_run_sends_one_dm_and_mounts_only_the_slack_mcp(answer, expect
         "sandbox_cpu_cores": 2,
         "sandbox_memory_gb": 4,
     }
-    assert start.call_args.kwargs["context"].model == "zai-org/glm-5.3-flash"
+    context = start.call_args.kwargs["context"]
+    # Slack messages steer the run, so it never holds the person's GitHub credential.
+    assert (context.model, context.github_access) == ("zai-org/glm-5.3-flash", GithubAccess.NONE)
     posts = bot.return_value.client.chat_postMessage.call_args_list
     if expected == "sent":
         assert retry == "already_sent" and start.call_count == 1 and len(posts) == 1
         shown = all_block_text(posts[0].kwargs["blocks"])
         assert "Offer 1. Want me to look?" in shown
+        # The link to the thread survives, because it is on the workspace Slack names for this integration.
+        assert LINK in shown
         # The run keeps a transcript, so the DM must not promise that nothing was kept.
         assert "with your access" in shown and "kept nothing" not in shown
         assert captured.call_args.kwargs["engine"] == "agent"
