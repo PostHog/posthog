@@ -43317,6 +43317,10 @@
                     "key": "max_report_actions_per_day"
                 },
                 {
+                    "param": "max_messages_per_day",
+                    "key": "max_messages_per_day"
+                },
+                {
                     "param": "lifecycle_locked",
                     "key": "lifecycle_locked"
                 },
@@ -46305,6 +46309,10 @@
                 {
                     "param": "max_report_actions_per_day",
                     "key": "max_report_actions_per_day"
+                },
+                {
+                    "param": "max_messages_per_day",
+                    "key": "max_messages_per_day"
                 },
                 {
                     "param": "lifecycle_locked",

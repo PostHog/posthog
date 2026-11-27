@@ -1040,6 +1040,8 @@ tools:
             `template_key`: the scout then picks up later improvements to that template, until someone edits it. The
             `scratch` template is the exception: fill in its `<ALL CAPS>` placeholders first.
         requires_ai_consent: true
+        exclude_params:
+            - config.max_messages_per_day
     vision-scanners-scouts-templates-list:
         operation: vision_scanners_scouts_templates_list
         enabled: true

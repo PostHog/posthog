@@ -580,6 +580,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 started_at=started_at,
                 message_routes=_MESSAGE_ROUTES,
                 messages_dry_run=dry_run,
+                message_cap=12,
             )
             start = prompt.index("# Messages")
             return prompt[start : prompt.index("# Your run identity", start)]
@@ -590,8 +591,12 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert first == second
         assert "- `outside-team-change`: Someone outside the team merges a significant change" in first
         assert ("leave `report_id` out" in first) is dry_run
+        assert "This scout sends at most 12 messages in any 24 hours." in first
 
-    def test_messages_section_is_absent_without_routes(self) -> None:
+    @parameterized.expand([("no_routes", (), 5), ("cap_of_zero", _MESSAGE_ROUTES, 0)])
+    def test_messages_section_is_absent_when_the_scout_cannot_send(
+        self, _name: str, routes: tuple, message_cap: int
+    ) -> None:
         prompt = build_run_prompt(
             LoadedSkill(
                 name="signals-scout-routes",
@@ -607,6 +612,8 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             run_id="00000000-0000-0000-0000-000000000001",
             team_id=1,
             started_at=datetime(2026, 5, 1, tzinfo=UTC),
+            message_routes=routes,
+            message_cap=message_cap,
         )
 
         assert "# Messages" not in prompt

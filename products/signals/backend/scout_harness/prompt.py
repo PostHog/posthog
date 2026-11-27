@@ -37,7 +37,7 @@ from products.signals.backend.scout_harness.limits import (
 )
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
-    MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
+    DEFAULT_SCOUT_MESSAGES_PER_DAY,
     MESSAGE_CAP_WINDOW,
     MessageRoute,
 )
@@ -106,7 +106,6 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
     "DEDUPE_WINDOW": DEDUPE_WINDOW,
-    "MAX_MESSAGES_PER_SCOUT_PER_WINDOW": MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
     "MESSAGE_CAP_WINDOW": MESSAGE_CAP_WINDOW,
 }
 
@@ -1240,16 +1239,16 @@ This scout's config carries a structured output schema, so producing records is 
 - Records complement your other outputs, they don't replace them: still write your scratchpad entries and close-out summary, and mention how many records you produced."""
 
 
-def _messages_section(routes: Sequence[MessageRoute], *, dry_run: bool) -> str:
+def _messages_section(routes: Sequence[MessageRoute], *, dry_run: bool, message_cap: int) -> str:
     """Compose the messages section, or empty when the run may not send messages.
 
-    Renders each route's `key` and `when` from the stored config and nothing else, so the section
-    changes only when the config does. Recently sent keys stay out: they change every run, and the
-    tool result already returns them on a duplicate. The runner passes no routes when the flag is
-    off, on a private trial, or when the config has none, so the prompt never names a tool that
-    fails closed.
+    Renders each route's `key` and `when` and the scout's resolved message cap, so the section
+    changes only when the config or the flag payload does. Recently sent keys stay out: they change
+    every run, and the tool result already returns them on a duplicate. The runner passes no routes
+    when the flag is off, on a private trial, or when the config has none, and a cap of 0 renders
+    nothing too, so the prompt never names a tool that fails closed.
     """
-    if not routes:
+    if not routes or message_cap <= 0:
         return ""
     route_lines = "\n".join(f"- `{route.key}`: {route.when}" for route in routes)
     cap_hours = int(MESSAGE_CAP_WINDOW.total_seconds() // 3600)
@@ -1270,7 +1269,7 @@ This scout's owner set routes for interrupting a person or a channel. A report r
 {report_rule}
 - Choose `dedupe_key` as a stable id for the subject, not for this run, for example `pr-12345`. A route and key sent in the last {DEDUPE_WINDOW.days} days is refused as `duplicate`, and the result lists the keys recently sent on that route, so follow that convention.
 - Nothing is posted during the run. Messages go out when the run ends, so a second call with the same route and key replaces the queued message.
-- A scout sends at most {MAX_MESSAGES_PER_SCOUT_PER_WINDOW} messages in any {cap_hours} hours. Past that the call returns `over_cap`: do not retry, and say so in your close-out summary.
+- This scout sends at most {message_cap} messages in any {cap_hours} hours. Past that the call returns `over_cap`: do not retry, and say so in your close-out summary.
 - Name each message you sent in your close-out summary."""
 
 
@@ -1859,6 +1858,7 @@ def build_run_prompt(
     structured_output_schema: dict | None = None,
     message_routes: Sequence[MessageRoute] = (),
     messages_dry_run: bool = False,
+    message_cap: int = DEFAULT_SCOUT_MESSAGES_PER_DAY,
     write_scopes: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
@@ -2084,7 +2084,7 @@ def build_run_prompt(
             _NARROWED_TOOLS_SECTION if tool_allowlist_narrowed else "",
             checkout_section,
             structured_output_section,
-            _messages_section(message_routes, dry_run=messages_dry_run),
+            _messages_section(message_routes, dry_run=messages_dry_run, message_cap=message_cap),
             run_identity,
             _own_scratchpad_section(own_scratchpad, is_private_trial=is_private_trial),
             _precheck_result_section(precheck_rows),

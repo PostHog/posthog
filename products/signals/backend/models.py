@@ -3480,6 +3480,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     max_report_actions_per_day = models.SmallIntegerField(
         default=DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY, db_default=DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY
     )
+    # How many messages this scout may send through its routes in a rolling 24 hours. Null uses the
+    # project default, `0` stops sending and keeps the routes. Resolved against the flag payload's
+    # ceiling by `message_routes.resolve_scout_message_cap`, so a stored value above it is clamped.
+    # Gated in the config API like the routes, because it widens how often the scout interrupts people.
+    max_messages_per_day = models.SmallIntegerField(null=True, blank=True)
     # Opt-in guard on the lifecycle fields (`enabled`, `emit`, deletion, and this flag). Off by
     # default, so the fleet keeps the plain `signal_scout:write` bar. On, only the scout's
     # resolved acting user or a project admin may pause, resume, switch to dry run, or delete it

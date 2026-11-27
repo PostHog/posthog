@@ -11,9 +11,11 @@ report posts, so a message can link to its report and a report edited several ti
 reaches Slack once. A second call in the same run with the same route and `dedupe_key` replaces the
 queued message.
 
-Limits are enforced here, under a lock on the scout's lane: at most `MAX_MESSAGES_PER_SCOUT_PER_WINDOW` per scout
-in any rolling `MESSAGE_CAP_WINDOW`, and no message whose route and `dedupe_key` were sent in the last
-`DEDUPE_WINDOW`. A refusal is an outcome, not an error, and is recorded on the run's metadata.
+Limits are enforced here, under a lock on the scout's lane: at most the scout's message cap in any rolling
+`MESSAGE_CAP_WINDOW`, and no message whose route and `dedupe_key` were sent in the last `DEDUPE_WINDOW`.
+The cap is resolved once per call by `resolve_scout_message_cap`, from the config's `max_messages_per_day`
+and the `signals-scout` flag payload. A refusal is an outcome, not an error, and is recorded on the run's
+metadata with the cap that applied.
 
 The title and body pass the report safety judge before the message is queued. The report a message
 points at was judged on its own text, and the scout writes the message text separately, so text the
@@ -40,14 +42,15 @@ from products.signals.backend.models import SignalReport, SignalScoutConfig, Sig
 from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.message_routes import (
     DEDUPE_WINDOW,
-    MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
     MESSAGE_CAP_WINDOW,
     UNSENDABLE_REPORT_STATUSES,
     find_message_route,
     get_message_routes,
     lock_scout_message_lane,
+    resolve_scout_message_cap,
     scout_send_message_enabled,
 )
+from products.signals.backend.scout_harness.team_limits import team_config_layers_for_team
 from products.signals.backend.scout_report.judge import judge_edited_report_content
 
 logger = logging.getLogger(__name__)
@@ -110,6 +113,9 @@ def send_message_sync(
         raise InvalidMessageError(f"Unknown route `{route_key}`. This scout's routes are: {known}.")
 
     dry_run = config is not None and not config.emit
+    message_cap = resolve_scout_message_cap(
+        config.max_messages_per_day if config else None, team_config_layers_for_team(team.parent_team_id or team.id)
+    ).limit
     report = None if dry_run else _resolve_report(team=team, run=run, report_id=report_id)
     # Outside the queue transaction: the judge is a model call and must not hold the lane lock.
     safety = async_to_sync(judge_edited_report_content)(team_id=team.id, title=title, summary=body)
@@ -125,8 +131,9 @@ def send_message_sync(
         body=body,
         dedupe_key=dedupe_key,
         dry_run=dry_run,
+        message_cap=message_cap,
     )
-    _capture_requested(team=team, run=run, route_key=route_key, outcome=result.outcome)
+    _capture_requested(team=team, run=run, route_key=route_key, outcome=result.outcome, message_cap=message_cap)
     return result
 
 
@@ -182,6 +189,7 @@ def _queue(
     body: str,
     dedupe_key: str,
     dry_run: bool,
+    message_cap: int,
 ) -> SendMessageResult:
     now = timezone.now()
     pending_status = SignalScoutMessage.Status.DRY_RUN if dry_run else SignalScoutMessage.Status.QUEUED
@@ -215,7 +223,7 @@ def _queue(
             recent_keys = tuple(
                 dict.fromkeys(on_route.order_by("-created_at").values_list("dedupe_key", flat=True)[:50])
             )[:MAX_RECENT_DEDUPE_KEYS]
-            _record_refusal(locked_run, SendMessageOutcome.DUPLICATE, route_key, dedupe_key, now)
+            _record_refusal(locked_run, SendMessageOutcome.DUPLICATE, route_key, dedupe_key, now, message_cap)
             return SendMessageResult(
                 outcome=SendMessageOutcome.DUPLICATE, message_id=None, recent_dedupe_keys=recent_keys
             )
@@ -227,8 +235,8 @@ def _queue(
             | Q(status=SignalScoutMessage.Status.QUEUED, created_at__gte=now - MESSAGE_CAP_WINDOW)
             | Q(status=SignalScoutMessage.Status.DRY_RUN, run_id=run.pk)
         ).count()
-        if spent >= MAX_MESSAGES_PER_SCOUT_PER_WINDOW:
-            _record_refusal(locked_run, SendMessageOutcome.OVER_CAP, route_key, dedupe_key, now)
+        if spent >= message_cap:
+            _record_refusal(locked_run, SendMessageOutcome.OVER_CAP, route_key, dedupe_key, now, message_cap)
             return SendMessageResult(outcome=SendMessageOutcome.OVER_CAP, message_id=None)
 
         message = SignalScoutMessage.all_teams.create(
@@ -247,18 +255,34 @@ def _queue(
 
 
 def _record_refusal(
-    locked_run: SignalScoutRun, outcome: SendMessageOutcome, route_key: str, dedupe_key: str, now
+    locked_run: SignalScoutRun,
+    outcome: SendMessageOutcome,
+    route_key: str,
+    dedupe_key: str,
+    now,
+    message_cap: int,
 ) -> None:
     metadata = dict(locked_run.metadata or {})
     refusals = metadata.get(MESSAGE_REFUSALS_METADATA_KEY)
     refusals = list(refusals) if isinstance(refusals, list) else []
-    refusals.append({"outcome": str(outcome), "route_key": route_key, "dedupe_key": dedupe_key, "at": now.isoformat()})
+    # The cap is stored with the refusal because the config or the flag payload can change afterwards.
+    refusals.append(
+        {
+            "outcome": str(outcome),
+            "route_key": route_key,
+            "dedupe_key": dedupe_key,
+            "message_cap": message_cap,
+            "at": now.isoformat(),
+        }
+    )
     metadata[MESSAGE_REFUSALS_METADATA_KEY] = refusals[-MAX_RECORDED_REFUSALS:]
     locked_run.metadata = metadata
     locked_run.save(update_fields=["metadata"])
 
 
-def _capture_requested(*, team: Team, run: SignalScoutRun, route_key: str, outcome: SendMessageOutcome) -> None:
+def _capture_requested(
+    *, team: Team, run: SignalScoutRun, route_key: str, outcome: SendMessageOutcome, message_cap: int
+) -> None:
     try:
         posthoganalytics.capture(
             event="signals_scout_message_requested",
@@ -269,6 +293,7 @@ def _capture_requested(*, team: Team, run: SignalScoutRun, route_key: str, outco
                 "run_id": str(run.id),
                 "route_key": route_key,
                 "outcome": str(outcome),
+                "message_cap": message_cap,
             },
             groups=groups(team.organization, team),
         )

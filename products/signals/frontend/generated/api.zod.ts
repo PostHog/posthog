@@ -2307,6 +2307,9 @@ export const signalsScoutCreateBodyConfigOneReportActionsMax = 2
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
 
+export const signalsScoutCreateBodyConfigOneMaxMessagesPerDayMin = 0
+export const signalsScoutCreateBodyConfigOneMaxMessagesPerDayMax = 32767
+
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
@@ -2433,6 +2436,14 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
+                    ),
+                max_messages_per_day: zod
+                    .number()
+                    .min(signalsScoutCreateBodyConfigOneMaxMessagesPerDayMin)
+                    .max(signalsScoutCreateBodyConfigOneMaxMessagesPerDayMax)
+                    .nullish()
+                    .describe(
+                        'Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.'
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -2640,6 +2651,9 @@ export const signalsScoutConfigCreateBodyReportActionsMax = 2
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
 
+export const signalsScoutConfigCreateBodyMaxMessagesPerDayMin = 0
+export const signalsScoutConfigCreateBodyMaxMessagesPerDayMax = 32767
+
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
@@ -2739,6 +2753,14 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
+            ),
+        max_messages_per_day: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyMaxMessagesPerDayMin)
+            .max(signalsScoutConfigCreateBodyMaxMessagesPerDayMax)
+            .nullish()
+            .describe(
+                'Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.'
             ),
         lifecycle_locked: zod
             .boolean()
@@ -2985,6 +3007,9 @@ export const signalsScoutConfigUpdateBodyReportActionsMax = 2
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
 
+export const signalsScoutConfigUpdateBodyMaxMessagesPerDayMin = 0
+export const signalsScoutConfigUpdateBodyMaxMessagesPerDayMax = 32767
+
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
 export const signalsScoutConfigUpdateBodySuggestionIdMax = 64
@@ -3215,6 +3240,14 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it."
+            ),
+        max_messages_per_day: zod
+            .number()
+            .min(signalsScoutConfigUpdateBodyMaxMessagesPerDayMin)
+            .max(signalsScoutConfigUpdateBodyMaxMessagesPerDayMax)
+            .nullish()
+            .describe(
+                'Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access.'
             ),
         precheck_query: zod
             .string()
@@ -4876,7 +4909,7 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key sent in the last 30 days is refused as a duplicate.
+ * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. Each scout has its own limit on messages in any 24 hours, set on its config, and a route and key sent in the last 30 days is refused as a duplicate.
  * @summary Send a message through an owner-set route
  */
 export const signalsScoutSendMessageBodyRouteMax = 64

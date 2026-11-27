@@ -50,6 +50,19 @@
                     "description": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
                     "type": "boolean"
                 },
+                "max_messages_per_day": {
+                    "anyOf": [
+                        {
+                            "maximum": 32767,
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Messages this scout may send in any 24 hours. Null uses the project default, 0 stops sending. At most the project ceiling. Changing it needs skill editor access."
+                },
                 "max_report_actions_per_day": {
                     "description": "Report actions this scout may start per rolling 24 hours, across all its runs. Defaults to 3. Only the person the scout's runs act as can raise it. A project admin can lower it.",
                     "maximum": 20,
