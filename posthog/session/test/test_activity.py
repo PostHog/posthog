@@ -3,6 +3,7 @@ from datetime import timedelta
 from importlib import import_module
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
@@ -11,9 +12,11 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from loginas import settings as la_settings
+from parameterized import parameterized
 
 from posthog.models import User
 from posthog.session.activity import (
+    client_attribution_properties,
     list_user_sessions,
     revoke_other_sessions,
     revoke_other_sessions_for_request,
@@ -51,6 +54,34 @@ class TestSessionActivity(BaseTest):
         self.assertEqual(session_public_id(key), session_public_id(key))
         self.assertNotEqual(session_public_id(key), session_public_id("other-key"))
         self.assertNotIn(key, str(session_public_id(key)))
+
+    @parameterized.expand(
+        [
+            ("own_session", "user", False, {"$ip", "session_public_id"}),
+            # The social auth pipeline reports a login before login() replaces the session key.
+            ("another_users_session", "other", False, {"$ip"}),
+            ("anonymous_session", None, False, {"$ip"}),
+            ("self_hosted", "user", True, set()),
+        ]
+    )
+    def test_client_attribution_names_only_the_users_own_session(
+        self, _name: str, session_owner: str | None, self_hosted: bool, expected_keys: set[str]
+    ):
+        user = self._make_user()
+        owner = {"user": user, "other": self._make_user()}.get(session_owner or "")
+        if owner is None:
+            store = self.engine.SessionStore()
+            store.create()
+            key = store.session_key
+        else:
+            key = self._login_session(owner)
+        request = self._request(user, key)
+
+        with patch("posthog.session.activity.self_hosted_capture_reaches_posthog", return_value=self_hosted):
+            properties = client_attribution_properties(request, user)
+
+        expected = {"$ip": "127.0.0.1", "session_public_id": str(session_public_id(key))}
+        self.assertEqual(properties, {k: v for k, v in expected.items() if k in expected_keys})
 
     def test_list_returns_only_the_users_live_sessions(self):
         user = self._make_user()

@@ -15,6 +15,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import User
+from posthog.session.activity import client_attribution_properties
 
 
 def start_impersonation(request, user_id, *, read_only: bool):
@@ -59,6 +60,7 @@ def start_impersonation(request, user_id, *, read_only: bool):
                 "staff_user_email": staff_user.email,
                 "target_user_id": user_id,
                 "target_user_email": target_user.email if target_user else None,
+                **client_attribution_properties(request, request.user),
             },
         )
 
@@ -108,6 +110,7 @@ def upgrade_impersonation(request):
             "target_user_id": request.user.id,
             "target_user_email": request.user.email,
             "reason": reason,
+            **client_attribution_properties(request, request.user),
         },
     )
 

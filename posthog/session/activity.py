@@ -1,8 +1,8 @@
 import uuid
 import hashlib
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F
@@ -15,8 +15,12 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.geoip import get_geoip_properties
 from posthog.models import User
 from posthog.models.activity_logging.utils import ActivityCredential
+from posthog.ph_client import self_hosted_capture_reaches_posthog
 from posthog.session.models import Session
-from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
+from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent, get_trusted_client_ip
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 # Fixed, arbitrary namespace for deriving a session's public id. We expose `uuid5(namespace, key)`
 # rather than the session key itself so the key — which can revoke a session — is never leaked, while
@@ -44,6 +48,26 @@ def session_activity_credential(request: HttpRequest, impersonated_by_id: int | 
         id=str(session_public_id(session_key)) if session_key else None,
         impersonated_by_id=impersonated_by_id,
     )
+
+
+def client_attribution_properties(request: "HttpRequest | Request", user: User) -> dict[str, str]:
+    """`$ip` and `session_public_id` for an event captured server-side about `user`, so an investigator
+    can tell where the request came from and find the login session to revoke it."""
+    # A self-hosted install captures to PostHog's own project, so its users' addresses must not leave it.
+    if self_hosted_capture_reaches_posthog():
+        return {}
+    request = getattr(request, "_request", request)
+    properties: dict[str, str] = {}
+    # Server-side capture otherwise records this server's egress address as `$ip`. Ingestion keeps an
+    # explicit `$ip` and still drops it for teams that anonymize IPs.
+    if ip := get_trusted_client_ip(request):
+        properties["$ip"] = ip
+    session = getattr(request, "session", None)
+    # Before login() runs, as in the social auth pipeline or a password reset, the session is not the
+    # user's yet, and login() replaces its key. That id would name no session, so leave it out.
+    if session is not None and session.session_key and session.get(SESSION_KEY) == str(user.pk):
+        properties["session_public_id"] = str(session_public_id(session.session_key))
+    return properties
 
 
 def _location_from_ip(ip: Optional[str]) -> Optional[str]:
