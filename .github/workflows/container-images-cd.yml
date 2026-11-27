@@ -245,6 +245,7 @@ jobs:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
+                  sbom: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
@@ -318,6 +319,7 @@ jobs:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
+                  sbom: true
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
