@@ -21,6 +21,7 @@ export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
 const LEFT_OUT = `.TileActions, .${INTERACTIVE_ONLY_CLASS}, .${DESCRIPTION_ICON_CLASS}, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]`
 const NOT_READY = `.${TILE_PLACEHOLDER_CLASS}, [aria-busy="true"]`
 const CAPTURING_CLASS = 'dash-capturing'
+const REPAINTING = 'canvas[data-hog-charts-paint="pending"]'
 const READY_TIMEOUT_MS = 20000
 const POLL_MS = 100
 
@@ -53,9 +54,13 @@ async function capture(root: HTMLElement, type?: `image/${ImageFormat}`, signal?
     await waitUntilReady(root, signal)
     root.classList.add(CAPTURING_CLASS)
     try {
-        // A chart draws at its new height one frame after its tile's header grows.
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-        signal?.throwIfAborted()
+        // A chart sees its new height a frame after its tile's header grows, then marks its canvas pending until it
+        // redraws, so the capture waits for both.
+        const deadline = Date.now() + READY_TIMEOUT_MS
+        do {
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+            signal?.throwIfAborted()
+        } while (root.querySelector(REPAINTING) && Date.now() < deadline)
         return await captureElementAsImage(root, LEFT_OUT, type)
     } finally {
         root.classList.remove(CAPTURING_CLASS)
