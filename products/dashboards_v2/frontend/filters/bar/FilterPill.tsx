@@ -17,7 +17,7 @@ export type FilterPillProps = {
 
 export function FilterPill({ filter, types, value, onChange, onRemove, defaultOpen }: FilterPillProps): JSX.Element {
     const definition = findFilterType(types, filter.type)
-    // A dashed outline marks a filter that has no value yet, so it does not narrow the widgets.
+    // A dashed outline marks a filter that has no value yet, so it does not narrow the panels.
     return (
         <ButtonGroup className={value === undefined ? '[&_button]:border-dashed' : undefined}>
             {definition ? (

@@ -1714,6 +1714,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
+    TAG = "tag"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2309,6 +2310,7 @@ class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
     POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
     POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
+    HIDDEN_SEARCH_SPEND = "hidden_search_spend"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -3217,9 +3219,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
-# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    pass
+    USERGROUPS_READ = "usergroups:read"
+    EMOJI_READ = "emoji:read"
 
 
 class SlashCommandName(StrEnum):

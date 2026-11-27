@@ -31761,6 +31761,7 @@
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_tags",
+                "tag",
                 "llm_datasets",
                 "llm_playground",
                 "llm_prompts",
@@ -31864,6 +31865,9 @@
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
+                },
+                "requiresOrganizationAdmin": {
+                    "type": "boolean"
                 },
                 "sceneKey": {
                     "description": "Match this with the a base scene key or a specific one",
@@ -41136,7 +41140,8 @@
                 "posthog_conversions_not_ready",
                 "posthog_conversion_goals_unusable",
                 "posthog_campaigns_unmatched",
-                "posthog_conversions_failed"
+                "posthog_conversions_failed",
+                "hidden_search_spend"
             ],
             "type": "string"
         },
@@ -60760,6 +60765,10 @@
                 "users:read",
                 "users:read.email"
             ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["usergroups:read", "emoji:read"],
             "type": "string"
         },
         "SlashCommandName": {

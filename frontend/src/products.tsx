@@ -78,6 +78,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/agent-transcript': ['AgentTranscript', 'agentTranscript'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
@@ -169,6 +170,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
+    '/dashboard-v2/:uid': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -388,6 +390,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
+    '/workflows/advent': ['WorkflowsAdventCalendar', 'workflowsAdventCalendar'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -673,6 +676,11 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AgentTranscript: {
+        name: 'Share your agent transcript',
+        organizationBased: true,
+        description: 'Upload the transcript of the conversation where an AI agent set up PostHog.',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -1422,6 +1430,7 @@ export const productConfiguration: Record<string, any> = {
     TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    WorkflowsAdventCalendar: { name: 'Advent calendar', iconType: 'workflows', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1433,6 +1442,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    agentTranscript: (): string => '/agent-transcript',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
@@ -1637,7 +1647,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dashboardV2: (): string => '/dashboard-v2',
+    dashboardV2: (uid?: string): string => (uid ? `/dashboard-v2/${encodeURIComponent(uid)}` : '/dashboard-v2'),
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
@@ -2158,6 +2168,7 @@ export const productUrls = {
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
     workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
+    workflowsAdventCalendar: (): string => '/workflows/advent',
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -2634,6 +2645,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3516,6 +3528,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3640,6 +3653,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
 ]
@@ -3844,6 +3858,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
+    },
+    {
+        path: 'Tags',
+        category: 'Schema',
+        iconType: 'tag',
+        href: urls.tagDefinitions(),
+        flag: FEATURE_FLAGS.TAG_MANAGEMENT,
+        requiresOrganizationAdmin: true,
+        searchKeywords: ['labels', 'merge', 'rename'],
+        sceneKeys: [],
     },
     {
         path: `Transformations`,

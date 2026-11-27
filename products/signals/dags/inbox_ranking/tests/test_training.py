@@ -114,6 +114,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     NN_MODEL_NAME,
     NN_WITH_PRIO_MODEL_NAME,
     ModelFamily,
+    serving_families,
 )
 from products.signals.dags.inbox_ranking.training.heads import ACTION_LABEL_COLUMNS, HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.promotion import (
@@ -2384,6 +2385,26 @@ def test_the_cap_drops_cross_family_entries_before_the_paired_read():
     ]
 
 
+@pytest.mark.parametrize("served", [family.name for family in serving_families()])
+def test_the_default_manifest_scores_every_serving_family(served):
+    # A serving family past the cap trains every day and never gets an online score.
+    decision = compose_manifest(
+        [],
+        served=_serving_metadata(served, "2026-08-15"),
+        prefix="inbox_ranking",
+        now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        recent=[_serving_metadata(served, f"2026-08-{day}") for day in (19, 18, 17, 16)],
+        recent_versions=settings.INBOX_RANKING_SERVING_RECENT_VERSIONS,
+        challengers=[_serving_metadata(family.name, "2026-08-18") for family in serving_families()],
+    )
+    assert decision.manifest is not None
+    roles = [entry.roles[0] for entry in decision.manifest.models]
+    assert roles.count(RECENT_ROLE) == settings.INBOX_RANKING_SERVING_RECENT_VERSIONS
+    assert {entry.model_name for entry in decision.manifest.models if entry.roles == [CHALLENGER_ROLE]} == {
+        family.name for family in serving_families() if family.name != served
+    }
+
+
 def test_a_pinned_model_is_kept_and_capped_after_the_recent_versions():
     families = [
         FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15")),
@@ -2406,8 +2427,8 @@ def test_a_pinned_model_is_kept_and_capped_after_the_recent_versions():
         (RECENT_ROLE, "2026-08-19"),
         (RECENT_ROLE, "2026-08-18"),
         (RECENT_ROLE, "2026-08-17"),
-        (PINNED_ROLE, "2026-08-01"),
-    ]
+        *((PINNED_ROLE, f"2026-08-0{day}") for day in range(1, 5)),
+    ][:MAX_RANKING_MODEL_RESULTS]
 
 
 def test_a_model_published_before_model_kind_existed_reads_as_xgboost():

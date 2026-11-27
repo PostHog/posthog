@@ -6,6 +6,10 @@ import { initKeaTests } from '~/test/init'
 
 import type { PRBrowserItemApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { latestPrMonitoringGuidanceQuestion, selectVisibleReportActivity } from '../components/detail/artefactTypes'
+import { inboxSceneLogic } from '../inboxSceneLogic'
+import type { SignalReportArtefact } from '../types'
+import { prMonitoringWindowExpiredReason } from '../utils/reportPullRequests'
 import { monitoringTabLogic } from './monitoringTabLogic'
 import { pullRequestsLogic } from './pullRequestsLogic'
 
@@ -234,5 +238,123 @@ describe('pullRequestsLogic', () => {
         logic.actions.loadPullRequests()
         await expectLogic(logic).toDispatchActions(['loadPullRequestsFailure'])
         expect(logic.values.listError).toBe(true)
+    })
+
+    it('syncs the open report on guidance submission and hides internal check_authoring activity rows', async () => {
+        localStorage.setItem('products.signals.inbox.pullRequestsLogic.panelOpen', JSON.stringify(false))
+        let reportStatus = 'pending_input'
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/': ({ params }) => [
+                    200,
+                    {
+                        id: String(params.id),
+                        title: 'Monitor PR',
+                        summary: 'Post-merge impact check.',
+                        status: reportStatus,
+                        signal_count: 0,
+                        total_weight: 0,
+                        created_at: '2026-01-01T00:00:00Z',
+                        updated_at: '2026-01-01T00:00:00Z',
+                    },
+                ],
+                '/api/projects/:team_id/signals/config/': () => [200, { enabled: true }],
+                '/api/projects/:team_id/signals/scouts/': () => [200, []],
+            },
+        })
+
+        const scene = inboxSceneLogic()
+        scene.mount()
+        scene.actions.setSelectedReportId('rep-3')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        expect(scene.values.selectedReport?.status).toBe('pending_input')
+
+        logic = pullRequestsLogic()
+        logic.mount()
+        const prUrl = 'https://github.com/example/widget/pull/3'
+        reportStatus = 'in_progress'
+        logic.actions.setDraftNote(prUrl, 'Monitor order_submitted')
+        await expectLogic(logic, () => {
+            logic.actions.monitorPR(prUrl)
+        }).toDispatchActions(['monitorPRDone'])
+        await expectLogic(scene).toFinishAllListeners()
+        expect(scene.values.selectedReport?.status).toBe('in_progress')
+
+        scene.actions.setSelectedReportId('rep-teammate')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.monitorPR(prUrl, 'Monitor order_submitted')
+        }).toDispatchActions(['monitorPRDone'])
+        expect(scene.values.selectedReportId).toBe('rep-3')
+
+        let finishPendingMonitor!: () => void
+        useMocks({
+            post: {
+                [MONITOR_PR_URL]: () =>
+                    new Promise((resolve) => {
+                        finishPendingMonitor = () =>
+                            resolve([
+                                202,
+                                {
+                                    report_id: 'rep-3',
+                                    report_url: 'http://localhost:8000/project/997/inbox/reports/rep-3',
+                                    status: 'in_progress',
+                                    idempotent_replay: false,
+                                },
+                            ])
+                    }),
+            },
+        })
+        logic.actions.monitorPR(prUrl, 'Monitor order_submitted')
+        scene.actions.setSelectedReportId('rep-other')
+        await expectLogic(scene).toDispatchActions(['loadSelectedReportSuccess'])
+        finishPendingMonitor()
+        await expectLogic(logic).toDispatchActions(['monitorPRDone'])
+        expect(scene.values.selectedReportId).toBe('rep-other')
+        scene.unmount()
+
+        const artefacts = [
+            { id: '1', type: 'check_authoring', content: { status: 'failed' }, created_at: '2026-01-01T00:00:00Z' },
+            {
+                id: '2',
+                type: 'note',
+                actor_kind: 'system',
+                content: { note: 'Monitor `order_submitted`?', author: 'PR monitoring' },
+                created_at: '2026-01-01T00:00:01Z',
+            },
+            {
+                id: '3',
+                type: 'note',
+                actor_kind: 'system',
+                content: { note: "You don't have access to this assessment's evidence.", author: 'PR monitoring' },
+                created_at: '2026-01-01T00:00:02Z',
+            },
+        ] as unknown as SignalReportArtefact[]
+        expect(selectVisibleReportActivity(artefacts).map((item) => item.id)).toEqual(['2', '3'])
+        expect(latestPrMonitoringGuidanceQuestion(artefacts.slice(0, 2))).toBe('Monitor `order_submitted`?')
+        expect(latestPrMonitoringGuidanceQuestion(artefacts)).toBeNull()
+
+        const nowMs = Date.parse('2026-06-01T00:00:00Z')
+        expect(
+            prMonitoringWindowExpiredReason(
+                {
+                    pull_requests: [
+                        {
+                            id: 'pr-1',
+                            url: prUrl,
+                            state: 'merged',
+                            merged: true,
+                            review_decision: null,
+                            merged_at: '2026-02-01T00:00:00Z',
+                            attached_by: null,
+                            claim_id: null,
+                            attached_at: '2026-02-01T00:00:00Z',
+                        },
+                    ],
+                },
+                prUrl,
+                nowMs
+            )
+        ).toBe('Pull requests merged more than 90 days ago are outside the monitoring window')
     })
 })

@@ -1,7 +1,8 @@
 """Reshape the Arrow batches a ClickHouse query returns into the types and values Delta Lake can store."""
 
 import typing
-from collections.abc import Collection
+import itertools
+from collections.abc import Collection, Iterator
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -226,13 +227,43 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
 UTF8_REPAIR_MAX_BYTES = 1024 * 1024
 
 
+def _string_arrays(array: pa.Array) -> Iterator[pa.Array]:
+    """The string arrays in a column, at any depth.
+
+    A full validation of other arrays also checks their values. ClickHouse can send a decimal
+    with more digits than its declared precision, and a full validation refuses that value, but
+    the UTF-8 check must not fail a batch for a value that is not a string.
+    """
+    arrow_type = array.type
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type) or pa.types.is_string_view(arrow_type):
+        yield array
+    elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type) or pa.types.is_fixed_size_list(arrow_type):
+        yield from _string_arrays(typing.cast(pa.ListArray, array).values)
+    elif pa.types.is_struct(arrow_type):
+        struct_array = typing.cast(pa.StructArray, array)
+        for index in range(arrow_type.num_fields):
+            yield from _string_arrays(struct_array.field(index))
+    elif pa.types.is_map(arrow_type):
+        map_array = typing.cast(pa.MapArray, array)
+        yield from _string_arrays(map_array.keys)
+        yield from _string_arrays(map_array.items)
+    elif pa.types.is_dictionary(arrow_type):
+        yield from _string_arrays(typing.cast(pa.DictionaryArray, array).dictionary)
+    elif pa.types.is_nested(arrow_type):
+        # A nested type the walk does not open, such as a union, is validated whole so that its
+        # strings are still checked.
+        yield array
+
+
 def _is_valid_utf8(array: pa.Array | pa.RecordBatch) -> bool:
-    try:
-        array.validate(full=True)
-    except pa.ArrowInvalid as error:
-        if "Invalid UTF8 sequence" not in str(error):
-            raise
-        return False
+    columns = array.columns if isinstance(array, pa.RecordBatch) else [array]
+    for strings in itertools.chain.from_iterable(map(_string_arrays, columns)):
+        try:
+            strings.validate(full=True)
+        except pa.ArrowInvalid as error:
+            if "Invalid UTF8 sequence" not in str(error):
+                raise
+            return False
     return True
 
 

@@ -1,24 +1,24 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/document/dashboardSchema'
-import { type ContentWidget, type SavedWidget, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
-import type { ChartConfig } from '../widgets/chart/chartSpec'
-import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
+import type { PanelQuery } from '../dashboard/document/dashboardSchema'
+import { type ContentPanel, type SavedPanel, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
+import type { ChartConfig } from '../panels/chart/chartSpec'
+import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
 
-// TODO(2026-11-25): Delete once the scene loads dashboards from the API.
-// It stands in for a saved dashboard and shows every widget and layout case.
+// TODO(2026-11-25): Delete once the board list can open saved boards.
+// It stands in for a saved dashboard and shows every panel and layout case.
 
-const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
+const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): ContentPanel<ChartConfig> => ({
     type: 'chart',
     title,
     config: { query, viz },
 })
-const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
-const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
-const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
@@ -27,24 +27,24 @@ const traces = (title: string, service: string, viz: ChartConfig['viz']): Conten
         },
         viz
     )
-const stat = (title: string, sql: string, format?: StatOptions['format']): ContentWidget<ChartConfig> =>
+const stat = (title: string, sql: string, format?: StatOptions['format']): ContentPanel<ChartConfig> =>
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
-const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
-const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): SavedWidget => ({ type: 'markdown', config: { text: markdown } })
+const line = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'line' })
+const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'bar' })
+const text = (markdown: string): SavedPanel => ({ type: 'markdown', config: { text: markdown } })
 
-const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
+const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({
     id,
     place: { x, y, w, h },
-    widget,
+    panel,
 })
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
 
 const STAT_ROWS = statSpec.size.h
-const statRow = (prefix: string, y: number, cols: number, stats: ContentWidget<ChartConfig>[]): Tile[] => {
+const statRow = (prefix: string, y: number, cols: number, stats: ContentPanel<ChartConfig>[]): Tile[] => {
     const w = Math.floor(cols / stats.length)
-    return stats.map((widget, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, widget))
+    return stats.map((panel, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, panel))
 }
 
 // The SQL reads the dashboard's time range through `{filters}`.
@@ -188,7 +188,7 @@ const BIG_TILE_COUNT = 120
 export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
-    description: 'Every widget, section and chart option on one dashboard.',
+    description: 'Every panel, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
     allowFilters: true,
     filters: [{ id: 'browser', type: 'property', label: 'Browser', config: { key: '$browser', source: 'event' } }],
@@ -245,7 +245,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-q-multi', 0, 30, 24, 16, {
                         type: 'chart',
                         title: 'Several queries in one chart',
-                        description: 'HogQL, a trends query and PromQL, each named by its legend',
+                        description: 'HogQL, a trends query, PromQL and LogQL, each named by its legend',
                         config: {
                             targets: [
                                 {
@@ -273,6 +273,14 @@ export const kitchenSinkDashboard: Dashboard = {
                                     query: { language: 'promql', query: 'sum(rate(http_requests_total[5m]))' },
                                     legend: 'Requests per second (PromQL)',
                                 },
+                                {
+                                    refId: 'D',
+                                    query: {
+                                        language: 'logql',
+                                        query: 'sum(count_over_time({service_name="posthog-web-django", level="error"}[5m]))',
+                                    },
+                                    legend: 'Error log lines per 5 minutes (LogQL)',
+                                },
                             ],
                             viz: { type: 'line' },
                             time: { from: 'now-6h', to: 'now' },
@@ -296,7 +304,7 @@ export const kitchenSinkDashboard: Dashboard = {
                             '[Show this tab with sample data](/dashboard-v2?tab=tile-states&sample_data=true) or [with real data](/dashboard-v2?tab=tile-states).'
                     )
                 ),
-                section('ts-good', 0, 4, 24, 'Every widget type', [
+                section('ts-good', 0, 4, 24, 'Every panel type', [
                     ...statRow('ts-good-stat', 0, 24, [
                         stat('Number', SQL.signups, 'number'),
                         stat('Currency', SQL.revenue, 'currency'),
@@ -331,8 +339,8 @@ export const kitchenSinkDashboard: Dashboard = {
                     }),
                 ]),
                 section('ts-broken', 0, 82, 24, 'Broken tiles', [
-                    tile('ts-throws', 0, 0, 8, 10, { ...line('Widget throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
-                    tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown widget type', config: {} }),
+                    tile('ts-throws', 0, 0, 8, 10, { ...line('Panel throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
+                    tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown panel type', config: {} }),
                     tile('ts-unknown-viz', 16, 0, 8, 10, { type: 'chart', title: 'Unknown chart type', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'pie' } } }),
                     tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'stat', options: { format: 'banana' } } } }),
                     tile('ts-bad-markdown', 8, 10, 8, 10, { type: 'markdown', title: 'Invalid text config', config: { text: 42 } }),

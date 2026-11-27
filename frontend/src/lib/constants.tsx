@@ -258,6 +258,7 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-analytics
+    AGENT_TRANSCRIPT_REQUEST: 'agent-transcript-request', // owner: #team-growth multivariate=control,test, evaluated on the organization group; both arms ask for the signup agent transcript, test also offers a merch code. Any other value means the organization is not asked
     AI_OBSERVABILITY_NAV_REDESIGN: 'ai-observability-nav-redesign', // owner: #team-ai-observability, gates the regrouped AI observability tabs
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
@@ -569,6 +570,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys
+    TAG_MANAGEMENT: 'tag-management', // owner: #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
@@ -649,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOW_ADD_TO_STATIC_COHORT_ACTION: 'workflow-add-to-static-cohort-action', // owner: #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
+    WORKFLOWS_ADVENT_CALENDAR: 'workflows-advent-calendar', // owner: @silthus #team-workflows, the December advent calendar at /workflows/advent and its entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_CODE_EMAIL_SOURCE_DETECTION: 'workflows-code-email-source-detection', // owner: @silthus #team-workflows, links code emails to their source file on GitHub and offers a picker
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows

@@ -838,6 +838,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.coreEvents()]: [Scene.DataManagement, 'coreEvents'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
+    [urls.tagDefinitions()]: [Scene.DataManagement, 'tagDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
     [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],

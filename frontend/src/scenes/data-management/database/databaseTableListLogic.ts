@@ -67,6 +67,7 @@ export interface databaseTableListLogicValues {
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     dataWarehouseTablesMapById: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     database: Required<DatabaseSchemaQueryResponse> | null
+    databaseConnectionId: string | null
     databaseFieldsComplete: boolean
     databaseLoadError: string | null
     databaseLoading: boolean
@@ -140,6 +141,9 @@ export interface databaseTableListLogicActions {
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
     }
+    setDatabaseConnectionId: (connectionId: string | null) => {
+        connectionId: string | null
+    }
     setDatabaseFieldsComplete: (complete: boolean) => {
         complete: boolean
     }
@@ -155,7 +159,8 @@ export interface databaseTableListLogicMeta {
         filteredTables: (allTables: DatabaseSchemaTable[], searchTerm: string) => DatabaseSchemaTable[]
         allTables: (
             database: Required<DatabaseSchemaQueryResponse> | null,
-            databaseLoading: boolean
+            connectionId: string | null,
+            databaseConnectionId: string | null
         ) => DatabaseSchemaTable[]
         allTablesMap: (allTables: DatabaseSchemaTable[]) => Record<string, DatabaseSchemaTable>
         posthogTables: (allPosthogTables: DatabaseSchemaTable[], connectionId: string | null) => DatabaseSchemaTable[]
@@ -216,6 +221,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         }),
         hydrateTableFieldsFailure: (tableNames: string[]) => ({ tableNames }),
         setDatabaseFieldsComplete: (complete: boolean) => ({ complete }),
+        setDatabaseConnectionId: (connectionId: string | null) => ({ connectionId }),
         // Upgrade a shallow (table names only) schema to a full one. Consumers that read
         // `fields` across many tables at once (search, join modal, expressions) call this.
         ensureAllTableFields: true,
@@ -300,6 +306,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                     }
 
                     actions.setDatabaseFieldsComplete(!shallow)
+                    actions.setDatabaseConnectionId(requestConnectionId ?? null)
                     return database
                 },
             },
@@ -374,6 +381,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as string | null,
             { setConnection: (_, { connectionId }) => connectionId, resetConnectionScope: () => null },
         ],
+        databaseConnectionId: [
+            null as string | null,
+            { setDatabaseConnectionId: (_, { connectionId }) => connectionId },
+        ],
     }),
     selectors({
         allPosthogTables: [
@@ -393,12 +404,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         allTables: [
-            (s) => [s.database, s.databaseLoading],
+            (s) => [s.database, s.connectionId, s.databaseConnectionId],
             (
                 database: Required<DatabaseSchemaQueryResponse> | null,
-                databaseLoading: boolean
+                connectionId: string | null,
+                databaseConnectionId: string | null
             ): DatabaseSchemaTable[] => {
-                if (databaseLoading || !database || !database.tables) {
+                if (databaseConnectionId !== connectionId || !database || !database.tables) {
                     return []
                 }
 

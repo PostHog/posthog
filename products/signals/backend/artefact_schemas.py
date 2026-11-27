@@ -417,7 +417,7 @@ class SourceSuggestion(BaseModel):
 # A scoring pass runs several models over one report (one served, the rest challengers), and every
 # one of them lands in a single row. The cap bounds that row, so a manifest that grew past what a
 # reader could order cannot make every report read expensive.
-MAX_RANKING_MODEL_RESULTS = 5
+MAX_RANKING_MODEL_RESULTS = 6
 # The serving manifest owns the role vocabulary, so `roles` stays free text. This is the one role
 # a reader of these rows acts on: the model whose scores the inbox would order on.
 RANKING_SERVED_ROLE = "served"

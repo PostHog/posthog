@@ -11,6 +11,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    AgentTranscript: () => import('../../products/agent_transcripts/frontend/scenes/AgentTranscriptScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
     AIObservabilityTrace: () => import('../../products/ai_observability/frontend/redesign/trace/TraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
@@ -236,4 +237,5 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/workflows/frontend/Transactional/log/TransactionalEmailLogEntryScene'),
     TransactionalCodeEmail: () => import('../../products/workflows/frontend/Transactional/code/CodeEmailScene'),
     WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
+    WorkflowsAdventCalendar: () => import('../../products/workflows/frontend/AdventCalendar/AdventCalendarScene'),
 }

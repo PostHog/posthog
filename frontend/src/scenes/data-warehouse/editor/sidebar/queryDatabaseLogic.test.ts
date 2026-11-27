@@ -1176,6 +1176,14 @@ describe('queryDatabaseLogic', () => {
     })
 
     describe('direct connection state', () => {
+        const seedConnectionSchema = (
+            database: Parameters<ReturnType<typeof databaseTableListLogic.build>['actions']['loadDatabaseSuccess']>[0]
+        ): void => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.setDatabaseConnectionId(databaseLogic.values.connectionId)
+            databaseLogic.actions.loadDatabaseSuccess(database)
+        }
+
         let logic: ReturnType<typeof queryDatabaseLogic.build>
 
         beforeEach(async () => {
@@ -1219,7 +1227,7 @@ describe('queryDatabaseLogic', () => {
                     })
                 )
             )
-            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+            seedConnectionSchema({ tables, joins: [] } as any)
 
             const category = (): any => logic.values.visibleTreeData.find((item) => item.name === 'public')
             expect(category().children.filter((item: any) => item.record?.type === 'table')).toHaveLength(15)
@@ -1243,12 +1251,12 @@ describe('queryDatabaseLogic', () => {
             logic.actions.clearSearch()
             expect(category().children).toHaveLength(count)
             databaseLogic.actions.setConnection('another-source')
-            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+            seedConnectionSchema({ tables, joins: [] } as any)
             expect(category().children).toHaveLength(count > 15 ? 16 : 15)
         })
 
         it.each([1, 15, 18])('reveals only the necessary tables when locating table %i', (tableNumber) => {
-            databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
+            seedConnectionSchema({
                 tables: Object.fromEntries(
                     Array.from({ length: 18 }, (_, index) => {
                         const name = `public.example_${String(index + 1).padStart(2, '0')}`
@@ -1287,7 +1295,7 @@ describe('queryDatabaseLogic', () => {
         })
 
         it('links an empty direct schema to table configuration', () => {
-            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+            seedConnectionSchema({ tables: {}, joins: [] })
 
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual([
                 'No queryable tables',
@@ -1304,7 +1312,7 @@ describe('queryDatabaseLogic', () => {
         })
 
         it('treats status syntax as literal search text', () => {
-            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            seedConnectionSchema({
                 tables: {
                     'public.accounts': {
                         id: 'accounts',
@@ -1335,7 +1343,7 @@ describe('queryDatabaseLogic', () => {
                     editorModelsStateKey: JSON.stringify([{ name: 'Untitled 1', query: 'SELECT 1' }]),
                 },
             } as any)
-            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            seedConnectionSchema({
                 tables: {
                     'public.accounts': {
                         id: 'accounts',
@@ -1425,7 +1433,7 @@ describe('queryDatabaseLogic', () => {
                 if (schemaFails) {
                     databaseLogic.actions.loadDatabaseFailure('Connection failed.')
                 } else {
-                    databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+                    seedConnectionSchema({ tables: {}, joins: [] })
                 }
 
                 if (search) {
@@ -1453,13 +1461,13 @@ describe('queryDatabaseLogic', () => {
         it('shows an empty native catalog without a source configuration link', () => {
             const databaseLogic = databaseTableListLogic.findMounted()!
             databaseLogic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)
-            databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+            seedConnectionSchema({ tables: {}, joins: [] })
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['No queryable tables'])
         })
 
         it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {
             const databaseLogic = databaseTableListLogic.findMounted()!
-            databaseLogic.actions.loadDatabaseSuccess({
+            seedConnectionSchema({
                 tables: {
                     'public.accounts': {
                         id: 'accounts',

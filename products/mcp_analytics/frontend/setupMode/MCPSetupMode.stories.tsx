@@ -99,10 +99,12 @@ export const Connect: Story = {
 
 export const Connected: Story = {
     args: { connectState: { kind: 'connected' }, serverTools: TOOLS_BEFORE_CALLS },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const ConnectedBeforeToolsList: Story = {
     args: { connectState: { kind: 'connected' }, serverTools: { listed: null, called: [] } },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const FirstCallSuccess: Story = {

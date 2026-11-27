@@ -28,7 +28,7 @@ _DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 200
+MAX_SKILL_FILE_COUNT = 500
 # A digest backfill page holds the full content of every row in it, because a digest cannot be
 # computed without the content. One body or bundled file is allowed to reach MAX_SKILL_BODY_BYTES /
 # MAX_SKILL_FILE_BYTES, so the page is sized against those caps rather than against a row count:
