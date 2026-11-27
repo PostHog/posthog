@@ -893,7 +893,7 @@ class TestAdminConsoleViews(BaseTest):
         assert f'href="{members_url}"' in organization_page
 
         response = self.client.get(
-            "/admin/console/tools/organization-members/", {"organization": self.organization.pk, "search": search}
+            "/admin/console/tools/organization-members/", {"organization": str(self.organization.pk), "search": search}
         )
 
         table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
