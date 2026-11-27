@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
-import { Suspense } from 'react'
+import { ComponentType, Suspense } from 'react'
 
 import { IconTableOfContents } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+
+import { ProductItemCategory } from '~/queries/schema/schema-general'
 
 /**
  * Registry for custom nav icons that need dynamic behavior (e.g., badges, counters).
@@ -30,19 +32,6 @@ function DataCatalogNavBadge({ className }: { className?: string }): JSX.Element
     )
 }
 
-function WorkflowsNavSuffix(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
-        return null
-    }
-    return (
-        <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-success" data-attr="advent-nav-tree" aria-hidden>
-            <path d="M8 1 4.5 5.5h2L3.5 9.5h2.5L3 13.5h10L10 9.5h2.5l-3-4h2Z" fill="currentColor" />
-            <rect x="7" y="13.5" width="2" height="1.5" rx="0.3" className="fill-warning" />
-        </svg>
-    )
-}
-
 /**
  * Map of item types to custom icon components.
  * When an item's `type` matches a key here, the custom component is used instead of iconForType.
@@ -60,13 +49,34 @@ export const customNavCountRegistry = {
     conversations: useSupportUnreadCount,
 } satisfies Record<string, () => number>
 
-const customNavSuffixRegistry: Record<string, React.ComponentType> = {
-    workflows: WorkflowsNavSuffix,
+export type CategorySuffixNav = 'classic' | 'today'
+
+const AdventNavTreeButton = lazyWithRetry(() =>
+    import('products/workflows/frontend/AdventCalendar/entry/AdventNavTreeButton').then((module) => ({
+        default: module.AdventNavTreeButton,
+    }))
+)
+
+const customCategorySuffixRegistry: Partial<
+    Record<string, { flag: FeatureFlagKey; Suffix: ComponentType<{ nav: CategorySuffixNav }> }>
+> = {
+    [ProductItemCategory.MESSAGING]: { flag: FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR, Suffix: AdventNavTreeButton },
 }
 
-export function CustomNavSuffix({ type }: { type?: string }): JSX.Element | null {
-    const Suffix = type ? customNavSuffixRegistry[type] : undefined
-    return Suffix ? <Suffix /> : null
+export function CustomCategorySuffix({
+    category,
+    nav,
+}: {
+    category: string
+    nav: CategorySuffixNav
+}): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const entry = customCategorySuffixRegistry[category]
+    return entry && featureFlags[entry.flag] ? (
+        <Suspense fallback={null}>
+            <entry.Suffix nav={nav} />
+        </Suspense>
+    ) : null
 }
 
 /**
