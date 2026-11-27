@@ -487,7 +487,7 @@ def create_external_data_job_model_activity(
 
         # The repartition activity re-checks this itself; deciding here lets the workflow skip
         # scheduling it at all, which for most syncs is its whole cost.
-        repartition_needed = repartition_activity_has_work(schema)
+        repartition_needed = repartition_activity_has_work(schema, job)
 
         # Answered here, after the job row exists, in the order the separate activity ran it. A
         # transient app-DB failure is retried in place: this activity has one Temporal attempt.
