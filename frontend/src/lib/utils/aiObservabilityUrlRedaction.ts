@@ -1,6 +1,6 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-import { redactStrings } from './redactStrings'
+import { redactStrings } from './metricVariableUrlRedaction'
 
 const REDACTED = 'redacted'
 // The app's pages and its API both name the product, with a hyphen and with an underscore.
