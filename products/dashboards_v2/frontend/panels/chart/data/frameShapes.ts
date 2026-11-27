@@ -25,30 +25,46 @@ function sum(values: unknown[]): number {
     return finite(values).reduce((total, value) => total + value, 0)
 }
 
+// Past this, a chart lays out and draws more slices, rows or steps than any tile can show.
+export const MAX_CATEGORIES = 50
+
+/** The largest `MAX_CATEGORIES` of `series`, kept in their order, since a funnel's order is its steps. */
+function largest(series: Series[]): Series[] {
+    if (series.length <= MAX_CATEGORIES) {
+        return series
+    }
+    const kept = new Set([...series].sort((a, b) => b.data[0] - a.data[0]).slice(0, MAX_CATEGORIES))
+    return series.filter((one) => kept.has(one))
+}
+
 /**
  * One series per category, the shape the part-of-a-whole charts take. Frames with a string field give one category
  * per row. Frames without one, such as time series or totals, give one category per frame, valued by the sum of its
- * numbers.
+ * numbers. Only the largest `MAX_CATEGORIES` are kept.
  */
 export function categoriesFromFrames(frames: DataFrame[]): Series[] {
     if (fieldsOf(frames[0], 'string').length > 0) {
-        return frames.flatMap((frame, index) => {
-            const [labels] = fieldsOf(frame, 'string')
-            const [values] = fieldsOf(frame, 'number')
-            return labels && values
-                ? labels.values.map((label, row) => ({
-                      key: `${index}:${String(label)}#${row}`,
-                      label: String(label),
-                      data: [Number(values.values[row]) || 0],
-                  }))
-                : []
-        })
+        return largest(
+            frames.flatMap((frame, index) => {
+                const [labels] = fieldsOf(frame, 'string')
+                const [values] = fieldsOf(frame, 'number')
+                return labels && values
+                    ? labels.values.map((label, row) => ({
+                          key: `${index}:${String(label)}#${row}`,
+                          label: String(label),
+                          data: [Number(values.values[row]) || 0],
+                      }))
+                    : []
+            })
+        )
     }
     // Summed from the frame, not the time series, because a total has no time to line its numbers up against.
-    return timeSeriesFromFrames(frames).series.map((series, index) => ({
-        ...series,
-        data: [sum(fieldValues(frames[index], 'number'))],
-    }))
+    return largest(
+        timeSeriesFromFrames(frames).series.map((series, index) => ({
+            ...series,
+            data: [sum(fieldValues(frames[index], 'number'))],
+        }))
+    )
 }
 
 export function latestValue(frames: DataFrame[]): number | null {
@@ -56,7 +72,7 @@ export function latestValue(frames: DataFrame[]): number | null {
 }
 
 export function heatmapFromFrames(frames: DataFrame[]): { xLabels: string[]; yLabels: string[]; cells: number[][] } {
-    const { labels, series } = timeSeriesFromFrames(frames)
+    const { labels, series } = timeSeriesFromFrames(frames.slice(0, MAX_CATEGORIES))
     return {
         xLabels: labels,
         yLabels: series.map((one) => one.label),
@@ -160,9 +176,14 @@ export function flowsFromFrames(frames: DataFrame[]): { nodes: SankeyNodeInput[]
     }
 }
 
+// A stack is one query cell, so without these one long string would build a node per segment.
+const MAX_STACK_DEPTH = 256
+const MAX_FLAME_NODES = 10_000
+
 /**
  * A tree from folded stacks: a frame with a string field such as `main;render;paint` and a number field, one stack per
- * row. Without a string field, each frame is one child of a single root, valued by the sum of its numbers.
+ * row. Without a string field, each frame is one child of a single root, valued by the sum of its numbers. Past
+ * `MAX_STACK_DEPTH` frames or `MAX_FLAME_NODES` nodes, a stack's value stays on the deepest node already in the tree.
  */
 export function flameFromFrames(frames: DataFrame[]): FlameNode {
     const [stacks] = fieldsOf(frames[0], 'string')
@@ -170,23 +191,30 @@ export function flameFromFrames(frames: DataFrame[]): FlameNode {
     const root: FlameNode = { id: ROOT, name: ROOT, value: 0, children: [] }
     const rows: [string[], number][] =
         stacks && values
-            ? stacks.values.map((stack, row) => [String(stack).split(';'), Number(values.values[row]) || 0])
+            ? stacks.values.map((stack, row) => [
+                  String(stack).split(';', MAX_STACK_DEPTH),
+                  Number(values.values[row]) || 0,
+              ])
             : categoriesFromFrames(frames).map((one) => [[one.label], one.data[0]])
     const childrenOf = new Map<FlameNode, Map<string, FlameNode>>()
+    let nodes = 1
     for (const [path, value] of rows) {
         root.value += value
         let node = root
         for (const name of path) {
-            const id = `${node.id};${name}`
-            let byId = childrenOf.get(node)
-            if (!byId) {
-                byId = new Map()
-                childrenOf.set(node, byId)
+            let byName = childrenOf.get(node)
+            if (!byName) {
+                byName = new Map()
+                childrenOf.set(node, byName)
             }
-            let child = byId.get(id)
+            let child = byName.get(name)
             if (!child) {
-                child = { id, name, value: 0, children: [] }
-                byId.set(id, child)
+                if (nodes >= MAX_FLAME_NODES) {
+                    break
+                }
+                // A counter, not the ancestor path, so an id stays short however deep its node is.
+                child = { id: `node-${nodes++}`, name, value: 0, children: [] }
+                byName.set(name, child)
                 node.children?.push(child)
             }
             child.value += value

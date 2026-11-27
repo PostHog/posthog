@@ -1,5 +1,6 @@
 import type { DataFrame } from '../../../query/queryTypes'
 import {
+    MAX_CATEGORIES,
     boxPlotFromFrames,
     categoriesFromFrames,
     flameFromFrames,
@@ -65,5 +66,28 @@ describe('frameShapes', () => {
 
         expect(links).toHaveLength(1)
         expect(links[0].source).not.toBe(links[0].target)
+    })
+
+    it('keeps only the largest categories, in their order', () => {
+        const count = MAX_CATEGORIES + 10
+        const labels = Array.from({ length: count }, (_, row) => `c${row}`)
+        const values = labels.map((_, row) => (row === 0 ? 1_000 : row))
+
+        const kept = categoriesFromFrames([rows(labels, values)]).map((one) => one.label)
+
+        expect(kept).toHaveLength(MAX_CATEGORIES)
+        expect(kept[0]).toBe('c0')
+        expect(kept).not.toContain('c1')
+    })
+
+    it('bounds the tree a single long stack builds', () => {
+        const root = flameFromFrames([rows(['a;'.repeat(100_000)], [1])])
+
+        const ids: string[] = []
+        for (let node = root.children?.[0]; node; node = node.children?.[0]) {
+            ids.push(node.id ?? '')
+        }
+        expect(ids.length).toBeLessThanOrEqual(256)
+        expect(Math.max(...ids.map((id) => id.length))).toBeLessThan(20)
     })
 })
