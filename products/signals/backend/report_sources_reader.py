@@ -39,7 +39,7 @@ FROM (
           AND product = %(product)s
           AND document_type = %(document_type)s
           AND rendering = %(rendering)s
-          AND document_id IN (
+          AND document_id GLOBAL IN (
               SELECT DISTINCT document_id
               FROM {REPORT_EMBEDDINGS_TABLE}
               WHERE team_id = %(team_id)s
