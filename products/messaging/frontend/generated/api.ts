@@ -33,6 +33,7 @@ import type {
     MessagingEmailsStatusRetrieveParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
+    MessagingPushesStatusRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
@@ -46,6 +47,7 @@ import type {
     PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
+    PushStatusApi,
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
     SendEmailApi,
@@ -71,6 +73,10 @@ import type {
     TransactionalEmailResultsApi,
     TransactionalEmailStatsApi,
     TransactionalEmailStatsOverTimeApi,
+    TransactionalPushLogListApi,
+    TransactionalPushLogListParams,
+    TransactionalPushLogStatsRetrieveParams,
+    TransactionalPushStatsApi,
     WebhookUrlApi,
     WorkflowEmailDetailApi,
     WorkflowEmailListApi,
@@ -251,6 +257,59 @@ export const messagingPreferencesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setPreferencesApi),
+    })
+}
+
+export const getMessagingPushesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/pushes/${id}/`
+}
+
+/**
+ * Get the status of one transactional push notification by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_push:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The send is recorded a few seconds after it is accepted, so a read right after a send can answer 404. Read again a few seconds later.
+ * @summary Get a transactional push notification's status
+ */
+export const messagingPushesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushStatusApi> => {
+    return apiMutator<PushStatusApi>(getMessagingPushesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingPushesStatusRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPushesStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging/pushes/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging/pushes/status/`
+}
+
+/**
+ * Get the status of one transactional push notification by its `message_id`, or by the `Idempotency-Key` it was sent with when the send's response was lost. Name exactly one of them. It answers like the read by `message_id`, for 30 days after the send, and needs the same `transactional_push:read` scope. A 404 doesn't mean the push wasn't sent: it can take a few seconds to be recorded.
+ * @summary Find a transactional push notification's status
+ */
+export const messagingPushesStatusRetrieve = async (
+    projectId: string,
+    params?: MessagingPushesStatusRetrieveParams,
+    options?: RequestInit
+): Promise<PushStatusApi> => {
+    return apiMutator<PushStatusApi>(getMessagingPushesStatusRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1465,6 +1524,71 @@ export const transactionalEmailLogStatsOverTimeRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getTransactionalPushLogListUrl = (projectId: string, params?: TransactionalPushLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_push_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_push_log/`
+}
+
+/**
+ * List the project's transactional push notification sends, newest first. The log keeps sends for 30 days.
+ * @summary List transactional push notification sends
+ */
+export const transactionalPushLogList = async (
+    projectId: string,
+    params?: TransactionalPushLogListParams,
+    options?: RequestInit
+): Promise<TransactionalPushLogListApi> => {
+    return apiMutator<TransactionalPushLogListApi>(getTransactionalPushLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalPushLogStatsRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalPushLogStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_push_log/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_push_log/stats/`
+}
+
+/**
+ * Count sends per push notification by outcome: sent, not sent and failed.
+ * @summary Get transactional push notification stats
+ */
+export const transactionalPushLogStatsRetrieve = async (
+    projectId: string,
+    params?: TransactionalPushLogStatsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalPushStatsApi> => {
+    return apiMutator<TransactionalPushStatsApi>(getTransactionalPushLogStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getWorkflowEmailLogListUrl = (projectId: string, params: WorkflowEmailLogListParams) => {

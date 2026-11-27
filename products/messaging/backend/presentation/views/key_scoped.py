@@ -50,6 +50,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal
 from products.messaging.backend.presentation.views.topic_preferences import TopicPreferencesViewSet
 from products.messaging.backend.presentation.views.transactional_email_status import MessagingEmailsViewSet
+from products.messaging.backend.presentation.views.transactional_push_status import MessagingPushesViewSet
 
 
 class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
@@ -152,6 +153,10 @@ class KeyScopedMessagingAttachmentsViewSet(MessagingAttachmentsViewSet):
 
 
 class KeyScopedMessagingEmailsViewSet(MessagingEmailsViewSet):
+    team_from_project_secret_api_key = True
+
+
+class KeyScopedMessagingPushesViewSet(MessagingPushesViewSet):
     team_from_project_secret_api_key = True
 
 

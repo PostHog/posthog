@@ -1,0 +1,427 @@
+"""The transactional push log: every send of a project's push notifications, and how many went out.
+
+Each send is one run of the push's workflow. A run that delivered to a device stored a copy of the push and logged that the
+provider accepted it. A finished run with neither did not reach anyone, and the warnings its push step logged say why.
+"""
+
+import re
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
+from uuid import UUID
+
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
+
+from products.messaging.backend.facade.contracts import (
+    PushSendStatus,
+    PushStatusReason,
+    TransactionalPushLogEntry,
+    TransactionalPushStatsRow,
+    TransactionalPushStatus,
+)
+from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.services.transactional_email_status import keyed_run_id
+from products.messaging.backend.services.transactional_push import TRANSACTIONAL_PUSH_RUN_SCOPE
+from products.workflows.backend.facade.contracts import WorkflowViewAccess
+
+# Runs, stored pushes and run logs are all kept this long.
+PUSH_LOG_RETENTION_DAYS = 30
+RETENTION = timedelta(days=PUSH_LOG_RETENTION_DAYS)
+# The send API stamps a run with its own clock, which can run ahead of this one.
+_CLOCK_SKEW = timedelta(minutes=5)
+# A retry moves a run's row to a later time, so the runs query reads this much past the window to keep its last row.
+_RETRY_MARGIN = timedelta(days=1)
+# A send's step logs a line per device platform, so a handful covers every reason.
+_MAX_MESSAGES = 10
+# The step logs its terminal error twice, once more behind "Errored: Error:", and the run records it a third time.
+_ACTION_PREFIX = re.compile(r"^\[Action:[^\]]*\]\s*(?:Errored:\s*(?:Error:\s*)?)?")
+# A finished run's stored push and log lines land a few seconds after the run row, so until then its outcome is unknown.
+_OUTCOME_LAG = timedelta(minutes=1)
+
+# The lines the push step logs when it skips a send or stops on an error, matched in this order. They come from
+# nodejs/src/cdp/services/messaging/push-notification.service.ts and the message step's opt-out and frequency cap
+# checks, so a change to that wording needs a change here.
+_NOT_SENT_REASONS: tuple[tuple[PushStatusReason, re.Pattern[str]], ...] = (
+    (PushStatusReason.NO_PERSON, re.compile(r"^No person found for distinct_id")),
+    (PushStatusReason.OPTED_OUT, re.compile(r"opted out|suppression list")),
+    (PushStatusReason.FREQUENCY_CAPPED, re.compile(r"frequency cap")),
+    # A token Apple or Google no longer accepts was a device that is gone.
+    (PushStatusReason.NO_DEVICE, re.compile(r"^(?:No active (?:FCM|APNS) device token found|FCM: |APNs: )")),
+)
+_FAILED_REASONS: tuple[tuple[PushStatusReason, re.Pattern[str]], ...] = (
+    (
+        PushStatusReason.INTEGRATION_ERROR,
+        re.compile(
+            r"^(?:Push notification integration not found|The push notification integration could not be decrypted"
+            r"|Unsupported push integration kind)"
+        ),
+    ),
+    (PushStatusReason.ERROR, re.compile(r"^Could not look up the person")),
+)
+
+_RUNS = """
+    SELECT
+        invocation_id,
+        min(first_scheduled_at) AS queued_at,
+        argMax(status, version) AS run_status,
+        argMax(error_message, version) AS run_error,
+        argMax(finished_at, version) AS run_finished_at,
+        argMax(distinct_id, version) AS run_distinct_id,
+        argMax(person_id, version) AS run_person_id,
+        any(function_id) AS run_workflow_id,
+        argMax(is_deleted, version) AS run_is_deleted
+    FROM hog_invocation_results
+    WHERE team_id = %(team_id)s
+      AND function_kind = 'hog_flow'
+      AND function_id IN %(workflows)s
+      AND scheduled_at >= toDateTime64(%(start)s, 6)
+      AND scheduled_at < toDateTime64(%(end)s, 6) + toIntervalSecond(%(retry_margin)s)
+      AND first_scheduled_at >= toDateTime64(%(start)s, 6)
+      AND first_scheduled_at < toDateTime64(%(end)s, 6)
+      {search}
+    GROUP BY invocation_id
+"""
+
+# The push step logs this line when a device took the push. Anchored past the step's prefix, because a warning can quote a
+# caller's distinct ID, which could hold the same words.
+_ACCEPTED_LINE = r"^\[Action:[^\]]*\] Push notification accepted by (FCM|APNs) for [1-9]"
+
+# A run counts as sent once any device took the push. The stored copy usually shows it, but storing one can fail after the
+# provider took the push, so the line the step logged counts too.
+_SEND_STATUS = """
+    multiIf(
+        run_status = 'running', 'sending',
+        run_status IN ('failed', 'canceled'), 'failed',
+        invocation_id IN (
+            SELECT invocation_id FROM message_assets
+            WHERE team_id = %(team_id)s
+              AND function_kind = 'hog_flow'
+              AND kind = 'push'
+              AND function_id IN %(workflows)s
+              AND sent_at >= toDateTime64(%(start)s, 6)
+              {search}
+            UNION ALL
+            SELECT instance_id AS invocation_id FROM log_entries
+            WHERE team_id = %(team_id)s
+              AND log_source = 'hog_flow'
+              AND log_source_id IN %(workflows)s
+              AND timestamp >= toDateTime64(%(start)s, 6)
+              AND level = 'info'
+              AND match(message, %(accepted_line)s)
+              {search}
+        ), 'sent',
+        'not_sent'
+    )
+"""
+
+
+@frozen
+class _Period:
+    start: datetime
+    end: datetime
+
+
+def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
+    now = datetime.now(UTC)
+    start = max(date_from or now - timedelta(days=7), now - RETENTION)
+    end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
+    return _Period(start=start, end=end)
+
+
+def _ch_time(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+
+def _execute(team_id: int, query: str, params: dict[str, Any]) -> list[tuple]:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    # The log is read by a person looking at the page.
+    return cast(list, sync_execute(query, {"team_id": team_id, **params}, workload=Workload.ONLINE, team_id=team_id))
+
+
+def _push_templates(team_id: int, access: WorkflowViewAccess | None) -> dict[str, MessageTemplate]:
+    """The project's sendable push notifications that the reader may view, by the workflow behind each."""
+    templates = MessageTemplate.objects.filter(
+        team_id=team_id, type="push", deleted=False, transactional_hog_flow_id__isnull=False
+    )
+    by_workflow = {str(template.transactional_hog_flow_id): template for template in templates}
+    if access is None:
+        return by_workflow
+    return {workflow_id: template for workflow_id, template in by_workflow.items() if access.allows(workflow_id)}
+
+
+def _step_messages(
+    team_id: int, workflow_ids: Sequence[str], run_ids: Sequence[str], start: datetime
+) -> dict[str, list[str]]:
+    if not run_ids:
+        return {}
+    rows = _execute(
+        team_id,
+        """
+        SELECT instance_id, groupArray(%(max_messages)s)(message)
+        FROM (
+            SELECT instance_id, message
+            FROM log_entries
+            WHERE team_id = %(team_id)s
+              AND log_source = 'hog_flow'
+              AND log_source_id IN %(workflows)s
+              AND instance_id IN %(runs)s
+              AND timestamp >= toDateTime64(%(start)s, 6)
+              AND level IN ('warn', 'error')
+              AND startsWith(message, '[Action:')
+            ORDER BY timestamp
+        )
+        GROUP BY instance_id
+        """,
+        {
+            "workflows": list(workflow_ids),
+            "runs": list(run_ids),
+            "start": _ch_time(start - _CLOCK_SKEW),
+            "max_messages": _MAX_MESSAGES,
+        },
+    )
+    return {run_id: [_ACTION_PREFIX.sub("", message) for message in messages] for run_id, messages in rows}
+
+
+def _titles(team_id: int, workflow_ids: Sequence[str], run_ids: Sequence[str], start: datetime) -> dict[str, str]:
+    if not run_ids:
+        return {}
+    rows = _execute(
+        team_id,
+        """
+        SELECT invocation_id, argMax(subject, version)
+        FROM message_assets
+        WHERE team_id = %(team_id)s
+          AND function_kind = 'hog_flow'
+          AND kind = 'push'
+          AND function_id IN %(workflows)s
+          AND invocation_id IN %(runs)s
+          AND sent_at >= toDateTime64(%(start)s, 6)
+        GROUP BY invocation_id
+        """,
+        {"workflows": list(workflow_ids), "runs": list(run_ids), "start": _ch_time(start)},
+    )
+    return dict(rows)
+
+
+def push_status_reason(
+    status: PushSendStatus, run_status: str, step_messages: Sequence[str]
+) -> PushStatusReason | None:
+    """Why a push was not sent or failed, from the warnings and errors its push step logged."""
+    if status in (PushSendStatus.SENDING, PushSendStatus.SENT):
+        return None
+    if status == PushSendStatus.NOT_SENT:
+        return _first_reason(_NOT_SENT_REASONS, step_messages) or PushStatusReason.UNKNOWN
+    if run_status == "canceled":
+        return PushStatusReason.CANCELED
+    # The push step logs Apple's or Google's refusal, so a failure it logged that matches nothing else is theirs.
+    return _first_reason(_FAILED_REASONS, step_messages) or (
+        PushStatusReason.PROVIDER_ERROR if step_messages else PushStatusReason.ERROR
+    )
+
+
+def _first_reason(
+    reasons: Sequence[tuple[PushStatusReason, re.Pattern[str]]], messages: Sequence[str]
+) -> PushStatusReason | None:
+    for reason, pattern in reasons:
+        if any(pattern.search(message) for message in messages):
+            return reason
+    return None
+
+
+def keyed_push_run_id(team_id: int, idempotency_key: str) -> UUID:
+    return keyed_run_id(team_id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotency_key)
+
+
+def get_push_status(team_id: int, run_id: UUID) -> TransactionalPushStatus | None:
+    """The status of one send of a push notification, or None when no send of the project's pushes has this ID."""
+    # A push template deleted after the send still sent it.
+    workflow_ids = [
+        str(workflow_id)
+        for workflow_id in MessageTemplate.objects.filter(
+            team_id=team_id, type="push", transactional_hog_flow_id__isnull=False
+        ).values_list("transactional_hog_flow_id", flat=True)
+    ]
+    if not workflow_ids:
+        return None
+    now = datetime.now(UTC)
+    period = _Period(start=now - RETENTION, end=now + _CLOCK_SKEW)
+    condition = "AND invocation_id = %(run_id)s"
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT queued_at, run_status, send_status, run_finished_at
+        FROM (
+            SELECT *, {_SEND_STATUS.format(search=condition)} AS send_status
+            FROM ({_RUNS.format(search=condition)})
+            WHERE run_is_deleted = 0
+        )
+        """,
+        {
+            "workflows": workflow_ids,
+            "run_id": str(run_id),
+            "start": _ch_time(period.start),
+            "end": _ch_time(period.end),
+            "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+            "accepted_line": _ACCEPTED_LINE,
+        },
+    )
+    if not rows:
+        return None
+    queued_at, run_status, send_status, finished_at = rows[0]
+    status = PushSendStatus(send_status)
+    step_messages = _step_messages(team_id, workflow_ids, [str(run_id)], period.start).get(str(run_id), [])
+    if (
+        (status == PushSendStatus.NOT_SENT or (status == PushSendStatus.FAILED and run_status != "canceled"))
+        and not step_messages
+        and finished_at is not None
+        and finished_at.replace(tzinfo=UTC) > now - _OUTCOME_LAG
+    ):
+        status = PushSendStatus.SENDING
+    return TransactionalPushStatus(
+        run_id=str(run_id),
+        status=status,
+        created_at=queued_at.replace(tzinfo=UTC),
+        reason=push_status_reason(status, run_status, step_messages),
+    )
+
+
+def list_transactional_pushes(
+    team_id: int,
+    *,
+    search: str | None = None,
+    status: PushSendStatus | None = None,
+    workflow_id: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    access: WorkflowViewAccess | None = None,
+) -> tuple[list[TransactionalPushLogEntry], bool]:
+    """A page of the project's push sends, newest first, and whether more follow. `access` limits the sends to the
+    workflows the reader may view, and None reads them all."""
+    templates = _push_templates(team_id, access)
+    workflow_ids = [workflow_id] if workflow_id else list(templates)
+    workflow_ids = [workflow for workflow in workflow_ids if workflow in templates]
+    if not workflow_ids:
+        return [], False
+
+    period = _window(date_from, date_to)
+    params: dict[str, Any] = {
+        "workflows": workflow_ids,
+        "start": _ch_time(period.start),
+        "end": _ch_time(period.end),
+        "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+        "accepted_line": _ACCEPTED_LINE,
+        "limit": limit + 1,
+        "offset": offset,
+    }
+    search_condition = ""
+    asset_condition = ""
+    if search and search.strip():
+        params["search"] = search.strip()
+        search_condition = "AND (distinct_id = %(search)s OR invocation_id = %(search)s)"
+        # A search names a few runs, so the sent lookup reads only theirs instead of every push since the start.
+        asset_condition = (
+            "AND invocation_id IN (SELECT invocation_id FROM hog_invocation_results WHERE team_id = %(team_id)s "
+            "AND function_kind = 'hog_flow' AND function_id IN %(workflows)s "
+            "AND scheduled_at >= toDateTime64(%(start)s, 6) " + search_condition + ")"
+        )
+    status_condition = ""
+    if status:
+        params["status"] = status.value
+        status_condition = "WHERE send_status = %(status)s"
+
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT invocation_id, queued_at, send_status, run_error, run_distinct_id, run_person_id, run_workflow_id
+        FROM (
+            SELECT *, {_SEND_STATUS.format(search=asset_condition)} AS send_status
+            FROM ({_RUNS.format(search=search_condition)})
+            WHERE run_is_deleted = 0
+        )
+        {status_condition}
+        ORDER BY queued_at DESC, invocation_id DESC
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        params,
+    )
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    sent = [row[0] for row in rows if row[2] == PushSendStatus.SENT.value]
+    # A sent push can still have lost a device, for example one whose app was uninstalled.
+    messages = _step_messages(team_id, workflow_ids, [row[0] for row in rows], period.start)
+    titles = _titles(team_id, workflow_ids, sent, period.start)
+
+    entries = []
+    for run_id, queued_at, send_status, run_error, distinct_id, person_id, run_workflow_id in rows:
+        template = templates[run_workflow_id]
+        run_messages = [*messages.get(run_id, []), *([run_error] if run_error else [])]
+        entries.append(
+            TransactionalPushLogEntry(
+                run_id=run_id,
+                created_at=queued_at.replace(tzinfo=UTC),
+                status=PushSendStatus(send_status),
+                messages=tuple(dict.fromkeys(run_messages)),
+                distinct_id=distinct_id,
+                person_id=person_id,
+                workflow_id=run_workflow_id,
+                template_id=str(template.id),
+                template_name=template.name,
+                title=titles.get(run_id, ""),
+            )
+        )
+    return entries, has_more
+
+
+def transactional_push_stats(
+    team_id: int,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    access: WorkflowViewAccess | None = None,
+) -> list[TransactionalPushStatsRow]:
+    """How many sends of each push notification went out, busiest first. Counts the same sends the log lists."""
+    templates = _push_templates(team_id, access)
+    if not templates:
+        return []
+    period = _window(date_from, date_to)
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT
+            run_workflow_id,
+            countIf(send_status = 'sent'),
+            countIf(send_status = 'not_sent'),
+            countIf(send_status = 'failed')
+        FROM (
+            SELECT run_workflow_id, {_SEND_STATUS.format(search="")} AS send_status
+            FROM ({_RUNS.format(search="")})
+            WHERE run_is_deleted = 0
+        )
+        GROUP BY run_workflow_id
+        """,
+        {
+            "workflows": list(templates),
+            "start": _ch_time(period.start),
+            "end": _ch_time(period.end),
+            "retry_margin": int(_RETRY_MARGIN.total_seconds()),
+            "accepted_line": _ACCEPTED_LINE,
+        },
+    )
+    stats = [
+        TransactionalPushStatsRow(
+            template_id=str(templates[workflow_id].id),
+            template_name=templates[workflow_id].name,
+            sent=sent,
+            not_sent=not_sent,
+            failed=failed,
+        )
+        for workflow_id, sent, not_sent, failed in rows
+        if workflow_id in templates
+    ]
+    return sorted(stats, key=lambda row: row.sent + row.not_sent + row.failed, reverse=True)

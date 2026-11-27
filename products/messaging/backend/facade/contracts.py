@@ -553,6 +553,59 @@ class TransactionalEmailStatsRow:
     failed: int
 
 
+class PushSendStatus(LabeledStrEnum):
+    SENDING = "sending", "Sending"
+    SENT = "sent", "Sent"
+    NOT_SENT = "not_sent", "Not sent"
+    FAILED = "failed", "Failed"
+
+
+@frozen
+class TransactionalPushLogEntry:
+    run_id: str
+    created_at: datetime
+    status: PushSendStatus
+    # What the push step logged as a warning or error, oldest first. Says why a push was not sent.
+    messages: tuple[str, ...]
+    distinct_id: str
+    person_id: str
+    workflow_id: str
+    template_id: str | None
+    template_name: str
+    # The title the push went out with. Empty when it was not sent.
+    title: str
+
+
+class PushStatusReason(LabeledStrEnum):
+    NO_PERSON = "no_person", "No person"
+    NO_DEVICE = "no_device", "No device"
+    OPTED_OUT = "opted_out", "Opted out"
+    FREQUENCY_CAPPED = "frequency_capped", "Frequency capped"
+    INTEGRATION_ERROR = "integration_error", "Integration error"
+    PROVIDER_ERROR = "provider_error", "Provider error"
+    CANCELED = "canceled", "Canceled"
+    ERROR = "error", "Error"
+    UNKNOWN = "unknown", "Unknown"
+
+
+@frozen
+class TransactionalPushStatus:
+    run_id: str
+    status: PushSendStatus
+    created_at: datetime
+    # Why a push was not sent or failed. None while it is sending and once it was sent.
+    reason: PushStatusReason | None
+
+
+@frozen
+class TransactionalPushStatsRow:
+    template_id: str
+    template_name: str
+    sent: int
+    not_sent: int
+    failed: int
+
+
 @frozen
 class TransactionalEmailResults:
     recipients: int

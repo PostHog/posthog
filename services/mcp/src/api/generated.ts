@@ -108775,6 +108775,74 @@ export namespace Schemas {
     }
 
     /**
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `not_sent` - Not sent
+     * * `failed` - Failed
+     */
+    export type PushSendStatusEnum = typeof PushSendStatusEnum[keyof typeof PushSendStatusEnum];
+
+
+    export const PushSendStatusEnum = {
+      Sending: 'sending',
+      Sent: 'sent',
+      NotSent: 'not_sent',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `no_person` - No person
+     * * `no_device` - No device
+     * * `opted_out` - Opted out
+     * * `frequency_capped` - Frequency capped
+     * * `integration_error` - Integration error
+     * * `provider_error` - Provider error
+     * * `canceled` - Canceled
+     * * `error` - Error
+     * * `unknown` - Unknown
+     */
+    export type PushStatusReasonEnum = typeof PushStatusReasonEnum[keyof typeof PushStatusReasonEnum];
+
+
+    export const PushStatusReasonEnum = {
+      NoPerson: 'no_person',
+      NoDevice: 'no_device',
+      OptedOut: 'opted_out',
+      FrequencyCapped: 'frequency_capped',
+      IntegrationError: 'integration_error',
+      ProviderError: 'provider_error',
+      Canceled: 'canceled',
+      Error: 'error',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface PushStatus {
+      /** The `message_id` that the send returned. */
+      id: string;
+      /** What happened to the push notification. `sending` means it is still going out, or that it finished in the last minute and PostHog hasn't recorded its outcome yet. `sent` means Apple or Google accepted it for at least one of the person's devices. `not_sent` means none of the person's devices got it, and `reason` says why. `failed` means the send stopped with an error.
+       *
+       * * `sending` - Sending
+       * * `sent` - Sent
+       * * `not_sent` - Not sent
+       * * `failed` - Failed */
+      status: PushSendStatusEnum;
+      /** When PostHog accepted the send. */
+      created_at: string;
+      /** Why a push notification was not sent or failed. A not sent push has `no_person` when no person has the `distinct_id`, `no_device` when the person has no registered device for the template's channels or every device token expired, `opted_out` or `frequency_capped`, or `unknown`. A failed push has `integration_error` when the Firebase or APNs integration is missing or needs reconnecting, `provider_error` when Apple or Google refused it, `canceled`, or `error`. Null while it is sending and once it was sent.
+       *
+       * * `no_person` - No person
+       * * `no_device` - No device
+       * * `opted_out` - Opted out
+       * * `frequency_capped` - Frequency capped
+       * * `integration_error` - Integration error
+       * * `provider_error` - Provider error
+       * * `canceled` - Canceled
+       * * `error` - Error
+       * * `unknown` - Unknown */
+      reason: PushStatusReasonEnum | null;
+    }
+
+    /**
      * * `running` - Import running
      * * `completed` - Import completed
      * * `cancelled` - Import cancelled
@@ -121470,7 +121538,7 @@ export namespace Schemas {
     }
 
     export interface SendTransactionalPushResponse {
-      /** ID of the queued send. Delivery is reported against the template's workflow asynchronously. */
+      /** ID of the queued send. Read whether it reached a device with GET /api/projects/{project_id}/messaging/pushes/{message_id}/. */
       message_id: string;
       /** True when an earlier request with the same `Idempotency-Key` already queued this notification. No new notification was sent, and `message_id` is the earlier send's ID. */
       replayed: boolean;
@@ -131939,6 +132007,62 @@ export namespace Schemas {
       buckets: TransactionalEmailStatsBucket[];
       /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
       previous: TransactionalEmailStatsCounts | null;
+    }
+
+    export interface TransactionalPushLogEntry {
+      /** The ID of this send. */
+      run_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** What happened. `sending` is still running, `sent` reached at least one of the person's devices, `not_sent` reached none, for example because the person has no device or its token expired, and `failed` stopped with an error.
+       *
+       * * `sending` - Sending
+       * * `sent` - Sent
+       * * `not_sent` - Not sent
+       * * `failed` - Failed */
+      status: PushSendStatusEnum;
+      /** The warnings and errors the send logged, oldest first. They say why a push was not sent. */
+      messages: string[];
+      /** The distinct ID the push was sent to. */
+      distinct_id: string;
+      /** The person behind the distinct ID. Empty when none was found. */
+      person_id: string;
+      /** The workflow behind the push notification. */
+      workflow_id: string;
+      /**
+         * The push notification that was sent.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The push notification's name. */
+      template_name: string;
+      /** The title the push went out with. Empty when it was not sent. */
+      title: string;
+    }
+
+    export interface TransactionalPushLogList {
+      /** Sends, newest first. */
+      results: TransactionalPushLogEntry[];
+      /** Whether another page follows. */
+      has_more: boolean;
+    }
+
+    export interface TransactionalPushStatsRow {
+      /** The push notification. */
+      template_id: string;
+      /** The push notification's name. */
+      template_name: string;
+      /** Sends that reached at least one device. */
+      sent: number;
+      /** Sends that reached no device. */
+      not_sent: number;
+      /** Sends that stopped with an error. */
+      failed: number;
+    }
+
+    export interface TransactionalPushStats {
+      /** One row per push notification, busiest first. */
+      results: TransactionalPushStatsRow[];
     }
 
     export interface TranslateRequest {
@@ -152042,6 +152166,18 @@ export namespace Schemas {
     message_id?: string;
     };
 
+    export type MessagingPushesStatusRetrieveParams = {
+    /**
+     * The `Idempotency-Key` the send was made with, when you don't have its `message_id`, for example after a lost response.
+     * @minLength 1
+     */
+    idempotency_key?: string;
+    /**
+     * The `message_id` that the send returned.
+     */
+    message_id?: string;
+    };
+
     export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -156190,6 +156326,67 @@ export namespace Schemas {
     } as const;
 
     export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    };
+
+    export type TransactionalPushLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * The recipient's exact distinct ID, or the ID of one send.
+     */
+    search?: string;
+    /**
+     * Only sends with this outcome.
+     *
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `not_sent` - Not sent
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    status?: TransactionalPushLogListStatus;
+    /**
+     * Only sends of the push notification backed by this workflow.
+     */
+    workflow_id?: string;
+    };
+
+    export type TransactionalPushLogListStatus = typeof TransactionalPushLogListStatus[keyof typeof TransactionalPushLogListStatus];
+
+
+    export const TransactionalPushLogListStatus = {
+      Sending: 'sending',
+      Sent: 'sent',
+      NotSent: 'not_sent',
+      Failed: 'failed',
+    } as const;
+
+    export type TransactionalPushLogStatsRetrieveParams = {
     /**
      * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
      */
