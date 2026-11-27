@@ -32,6 +32,7 @@ import type {
     KnowledgeKeyCreateApi,
     KnowledgeLibraryApi,
     KnowledgeLibraryCreateApi,
+    KnowledgeSearchRequestApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     KnowledgeUsageApi,
@@ -157,6 +158,27 @@ export const businessKnowledgeDocumentsSearchList = async (
     return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeDocumentsSearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/documents/search/`
+}
+
+/**
+ * The same search as the GET form. The query travels in the request body, so it does not appear in request URLs or in the logs that record them.
+ * @summary Search business knowledge with the query in the request body
+ */
+export const businessKnowledgeDocumentsSearchCreate = async (
+    projectId: string,
+    knowledgeSearchRequestApi: KnowledgeSearchRequestApi,
+    options?: RequestInit
+): Promise<KnowledgeSearchResultApi[]> => {
+    return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeSearchRequestApi),
     })
 }
 

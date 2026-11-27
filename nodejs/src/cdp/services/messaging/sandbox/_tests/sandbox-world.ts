@@ -16,6 +16,7 @@ import { RedisPool, Team } from '~/types'
 import { RecipientsManagerService } from '../../../managers/recipients-manager.service'
 import { RateLimiterService } from '../../../rate-limiter/rate-limiter.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../email-suppression.service'
+import { createSandboxSesSender } from '../../ses-transport'
 import { readSandboxAuthorization } from '../sandbox-authorization'
 import { SandboxCaps, claimSandboxCaps } from '../sandbox-caps'
 import {
@@ -26,7 +27,7 @@ import {
 } from '../sandbox-email.service'
 import { checkSandboxRecipient, sandboxRecipientReads } from '../sandbox-recipient-checks'
 import { SandboxSesBucket } from '../sandbox-ses-bucket'
-import { SandboxSesClient, createSandboxSesV2Client } from '../sandbox-ses-client'
+import { SandboxSesClient } from '../sandbox-ses-client'
 import { FakeSesEndpoint } from './fake-ses-endpoint'
 
 const TEST_TABLE_MARK = 'created by the sandbox sender tests'
@@ -170,7 +171,7 @@ export function useSandboxWorld(): SandboxWorld {
     beforeEach(async () => {
         world.ses = new FakeSesEndpoint()
         const endpoint = await world.ses.start()
-        world.sesClient = new SandboxSesClient(createSandboxSesV2Client({ region: 'us-east-1', endpoint }), {
+        world.sesClient = new SandboxSesClient(createSandboxSesSender({ region: 'us-east-1', endpoint }), {
             configurationSet: 'sandbox-config-set',
             tenantName: 'sandbox-tenant',
         })

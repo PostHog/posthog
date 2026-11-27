@@ -91,6 +91,24 @@ class TestPRMonitoringOutputValidation(SimpleTestCase):
                 "baseline_without_period",
                 lambda payload: payload["check"]["config"].update(baseline_value=90),
             ),
+            (
+                "unavailable_without_guidance",
+                lambda payload: payload.update(metric=None, check=None, unavailable=True),
+            ),
+            (
+                "unavailable_blank_guidance",
+                lambda payload: payload.update(metric=None, check=None, unavailable=True, guidance_question="   "),
+            ),
+            (
+                "unavailable_control_char",
+                lambda payload: payload.update(
+                    metric=None, check=None, unavailable=True, guidance_question="Monitor `checkout`\x00?"
+                ),
+            ),
+            (
+                "unavailable_with_metric",
+                lambda payload: payload.update(unavailable=True, guidance_question="Monitor `checkout`?"),
+            ),
         ]
     )
     def test_rejects_invalid_monitoring_check_definitions(self, _name, mutate):
@@ -98,6 +116,20 @@ class TestPRMonitoringOutputValidation(SimpleTestCase):
         mutate(payload)
         with self.assertRaises(ValidationError):
             PRMonitoringOutput.model_validate(payload)
+
+    def test_sanitizes_guidance_question_and_clears_it_for_measured_output(self):
+        secret = "phx_" + "a" * 40
+        unavailable = PRMonitoringOutput(
+            inspected_commit="a" * 40,
+            unavailable=True,
+            guidance_question=f"  Should PostHog watch `order_submitted` ({secret})?  ",
+        )
+        assert unavailable.guidance_question is not None
+        assert secret not in unavailable.guidance_question
+        assert unavailable.guidance_question.startswith("Should PostHog watch `order_submitted`")
+
+        measured = PRMonitoringOutput.model_validate({**_valid_output_payload(), "guidance_question": "Ignored"})
+        assert measured.guidance_question is None
 
     def test_request_serializer_bounds_optional_note(self):
         default_serializer = MonitorPRRequestSerializer(data={"pr_url": PR_URL})
@@ -228,7 +260,11 @@ class TestMonitorPR(APIBaseTest):
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         pr = load_pull_request(self.team.id, PR_URL)
         output = (
-            PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True)
+            PRMonitoringOutput(
+                inspected_commit="a" * 40,
+                unavailable=True,
+                guidance_question="No direct checkout metric exists. Should PostHog monitor `order_submitted`?",
+            )
             if scenario == "unmeasurable"
             else self.output()
         )
@@ -762,14 +798,62 @@ class TestMonitorPR(APIBaseTest):
         assert capped.status_code == 429 and int(capped.headers["Retry-After"]) >= 1
 
     def test_unmeasured_retries_parent_inbox_access_and_daily_project_cap(self):
+        question = "Checkout lacks a direct completion event. Should PostHog monitor `order_submitted` instead?"
         report, inputs = self.request_report()
         pr = load_pull_request(self.team.id, PR_URL)
-        finish_monitoring_research(inputs, PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True), pr)
+        finish_monitoring_research(
+            inputs,
+            PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True, guidance_question=question),
+            pr,
+        )
         report.refresh_from_db()
         assert report.status == SignalReport.Status.PENDING_INPUT
+        assert question not in (report.summary or "")
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        artefacts = self.client.get(artefacts_url).json()["results"]
+        assert any(
+            row["type"] == "note"
+            and row["actor_kind"] == "system"
+            and row["content"] == {"note": question, "author": "PR monitoring"}
+            for row in artefacts
+        )
+        teammate = User.objects.create_and_join(self.organization, email="viewer@example.com", password="test")
+        teammate_client = APIClient()
+        teammate_client.force_login(teammate)
+        assert question not in (
+            teammate_client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["summary"] or ""
+        )
+        assert all(
+            question not in json_row["content"].get("note", "")
+            for json_row in teammate_client.get(artefacts_url).json()["results"]
+            if json_row["type"] == "note"
+        )
+        inbox_only_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="inbox-only",
+            user=self.user,
+            secure_value=hash_key_value(inbox_only_key),
+            scopes=["inbox:read"],
+            scoped_teams=[self.team.id],
+        )
+        unscoped_client = APIClient()
+        assert all(
+            question not in json_row["content"].get("note", "")
+            for json_row in unscoped_client.get(artefacts_url, HTTP_AUTHORIZATION=f"Bearer {inbox_only_key}").json()[
+                "results"
+            ]
+            if json_row["type"] == "note"
+        )
 
-        restarted, retry_inputs = self.request_report(expected_status=202)
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/",
+            {"title": "Custom checkout monitor", "summary": "Custom team context."},
+        )
+        assert patch_res.status_code == 200
+        restarted, retry_inputs = self.request_report(expected_status=202, note="Monitor order_submitted")
         assert restarted.id == report.id
+        assert retry_inputs.note == "Monitor order_submitted"
+        assert restarted.title == "Custom checkout monitor" and restarted.summary == "Custom team context."
         SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.POTENTIAL)
         restored, restored_inputs = self.request_report(expected_status=202)
         assert restored.id == report.id and restored_inputs.attempt_key != retry_inputs.attempt_key

@@ -58,7 +58,8 @@ class PineconeSource(ResumableSource[PineconeSourceConfig, PineconeResumeConfig]
             name=ExternalDataSourceType.PINECONE,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Pinecone",
-            caption="Import index, namespace, collection, backup, restore job, and assistant metadata from one Pinecone project. "
+            caption="Import index, namespace, collection, backup, backup schedule, restore job, conversion job, and assistant metadata "
+            "from one Pinecone project. "
             "Use a project API key with permission to read the resources you select.",
             docsUrl="https://posthog.com/docs/cdp/sources/pinecone",
             iconPath="/static/services/pinecone.png",

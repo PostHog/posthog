@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Callable, Collection, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
@@ -1675,10 +1675,7 @@ class UserAccessControl:
         return self.object_ids_matching(resources, lambda ac: ac.access_level == NO_ACCESS_LEVEL)
 
     def filter_and_annotate_file_system_queryset(
-        self,
-        queryset: QuerySet["FileSystem"],
-        extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None,
-        resolved_types: Collection[str] = (),
+        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
     ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
@@ -1760,8 +1757,6 @@ class UserAccessControl:
             if refs:
                 denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
 
-        if resolved_types:
-            denied &= ~Q(type__in=resolved_types)
         queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset

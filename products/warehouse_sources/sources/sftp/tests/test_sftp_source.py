@@ -1,5 +1,8 @@
 import io
 import stat
+import socket
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, cast
 
 import pytest
@@ -9,6 +12,7 @@ from products.warehouse_sources.sources.sdk import DELIMITER_ERROR, FILE_PATH_CO
 from products.warehouse_sources.sources.sftp._config import SFTPAuthTypeConfig, SFTPCombineFilesConfig, SFTPSourceConfig
 from products.warehouse_sources.sources.sftp.sftp import (
     AUTH_FAILED_ERROR,
+    CONNECTION_FAILED_ERROR,
     DIRECTORY_ERROR,
     SFTPAuth,
     SFTPCredentialsError,
@@ -20,6 +24,7 @@ FILE_MODE = stat.S_IFREG | 0o644
 
 CONNECTION_TARGET = "products.warehouse_sources.sources.sftp.source.sftp_connection"
 TRANSPORT_CONNECTION_TARGET = "products.warehouse_sources.sources.sftp.sftp.sftp_connection"
+MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 class FakeAttributes:
@@ -94,6 +99,20 @@ def make_inputs(schema_name: str = "orders") -> SourceInputs:
         logger=MagicMock(),
         reset_pipeline=False,
     )
+
+
+def addrinfo(ip: str) -> list[tuple[Any, ...]]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+
+@contextmanager
+def cloud_host_check(**getaddrinfo: Any) -> Iterator[None]:
+    with (
+        patch(f"{MIXINS_MODULE}.is_cloud", return_value=True),
+        patch(f"{MIXINS_MODULE}.get_instance_region", return_value="US"),
+        patch(f"{MIXINS_MODULE}.socket.getaddrinfo", **getaddrinfo),
+    ):
+        yield
 
 
 def patched_connection(client: FakeClient, target: str = CONNECTION_TARGET) -> Any:
@@ -301,16 +320,27 @@ class TestHostRechecks:
 
     @pytest.mark.parametrize("method", ["get_schemas", "source_for_pipeline"])
     def test_rejects_an_unsafe_host_before_connecting(self, method: str) -> None:
-        with patch.object(SFTPSource, "is_database_host_valid", return_value=(False, "internal IP")):
-            with (
-                patch(CONNECTION_TARGET) as connection,
-                patch("products.warehouse_sources.sources.sftp.source.sftp_source") as source_fn,
-            ):
-                with pytest.raises(SFTPCredentialsError, match="internal IP"):
-                    if method == "get_schemas":
-                        self.source.get_schemas(make_config(), team_id=1)
-                    else:
-                        self.source.source_for_pipeline(make_config(), make_inputs())
+        with (
+            cloud_host_check(return_value=addrinfo("10.0.0.5")),
+            patch("socket.create_connection") as create_connection,
+        ):
+            with pytest.raises(SFTPCredentialsError, match=CONNECTION_FAILED_ERROR):
+                if method == "get_schemas":
+                    self.source.get_schemas(make_config(), team_id=1)
+                else:
+                    self.source.source_for_pipeline(make_config(), make_inputs())
 
-        connection.assert_not_called()
-        source_fn.assert_not_called()
+        create_connection.assert_not_called()
+
+    def test_dials_the_address_the_host_check_approved(self) -> None:
+        rebinding_answers = [addrinfo("93.184.216.34"), addrinfo("10.0.0.5")]
+
+        with (
+            cloud_host_check(side_effect=rebinding_answers),
+            patch("socket.create_connection", return_value=MagicMock()) as create_connection,
+            patch("paramiko.Transport", return_value=MagicMock()),
+            patch("paramiko.SFTPClient.from_transport", return_value=MagicMock()),
+        ):
+            self.source.get_schemas(make_config(), team_id=1)
+
+        assert create_connection.call_args.args[0] == ("93.184.216.34", 22)

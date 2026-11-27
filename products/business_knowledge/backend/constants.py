@@ -210,6 +210,9 @@ BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 # `search_knowledge` also clamps its anchor count to the max.
 BK_SEARCH_DEFAULT_LIMIT = 10
 BK_SEARCH_MAX_LIMIT = 20
+# The whole query goes to the embedding worker and into the full-text search, so the cap bounds the
+# work one request can ask for. A query in a POST body has no URL length limit to bound it.
+BK_SEARCH_MAX_QUERY_CHARS = 2000
 # A library-scoped semantic query filters ClickHouse by document id. The query
 # already carries a 1,536-float embedding (~30 KB). Past this many ids the IN
 # list is dropped and the Postgres rejoin does the filter instead.

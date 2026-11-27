@@ -304,6 +304,9 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_skipped"] = True
         properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
 
+    if result.get("input_truncated"):
+        properties["$ai_evaluation_input_truncated"] = True
+
     # Keyed on a model rather than on the skip flag: a skip that reached the provider was billed,
     # and a skip that never called one carries no model, so it still gets no attribution.
     if evaluation_type == "llm_judge" and result.get("model"):

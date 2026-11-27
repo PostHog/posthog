@@ -1,17 +1,11 @@
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { AEOPromptEngineStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { POSITION_DESCRIPTION, positionLabel } from './promptReport'
-
-const rateCell = (rate: number | null): JSX.Element =>
-    rate === null ? (
-        <span className="text-muted-foreground">-</span>
-    ) : (
-        <span className="tabular-nums">{percentage(rate, 0)}</span>
-    )
 
 // The fields the prompt set overview and a single prompt's stats both carry per engine.
 type EngineRow = Pick<
@@ -38,13 +32,13 @@ export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] 
                 title: 'Visibility',
                 key: 'mention_rate',
                 align: 'right',
-                render: (_, { mention_rate }) => rateCell(mention_rate),
+                render: (_, { mention_rate }) => <ContentAutopilotRateBar rate={mention_rate} />,
             },
             {
                 title: 'Cited',
                 key: 'citation_rate',
                 align: 'right',
-                render: (_, { citation_rate }) => rateCell(citation_rate),
+                render: (_, { citation_rate }) => <ContentAutopilotRateBar rate={citation_rate} />,
             },
             {
                 title: 'Position',

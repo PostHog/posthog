@@ -141,6 +141,13 @@ export namespace Schemas {
       answers_citing: number;
     }
 
+    export interface AEOEngineCheckCount {
+      /** The engine. */
+      engine: string;
+      /** Active prompts with at least one check on this engine. */
+      checks: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -155,6 +162,7 @@ export namespace Schemas {
 
     /**
      * * `daily` - Daily
+     * * `every_3_days` - Every 72 hours
      * * `weekly` - Weekly
      */
     export type CheckFrequencyEnum = typeof CheckFrequencyEnum[keyof typeof CheckFrequencyEnum];
@@ -162,6 +170,7 @@ export namespace Schemas {
 
     export const CheckFrequencyEnum = {
       Daily: 'daily',
+      Every3Days: 'every_3_days',
       Weekly: 'weekly',
     } as const;
 
@@ -180,6 +189,7 @@ export namespace Schemas {
       /** 'daily' checks every prompt each day. 'weekly' checks each prompt once a week, a seventh of the prompt set each day.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency: CheckFrequencyEnum;
     }
@@ -400,6 +410,7 @@ export namespace Schemas {
      * * `pending` - Pending
      * * `completed` - Completed
      * * `failed` - Failed
+     * * `cancelled` - Cancelled
      */
     export type AEOSuggestionJobStatusEnum = typeof AEOSuggestionJobStatusEnum[keyof typeof AEOSuggestionJobStatusEnum];
 
@@ -408,6 +419,7 @@ export namespace Schemas {
       Pending: 'pending',
       Completed: 'completed',
       Failed: 'failed',
+      Cancelled: 'cancelled',
     } as const;
 
     export interface AEOKeywordSuggestionJob {
@@ -419,7 +431,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1107,7 +1120,7 @@ export namespace Schemas {
       urls: number;
       /** Whether the domain is the project's own site. */
       is_target: boolean;
-      /** Whether the domain is one of the competitors in 'brands'. */
+      /** Whether the domain is a competitor in the brand catalog, confirmed or suggested by setup. Brands ranked only because answers cite them are not. */
       is_competitor: boolean;
     }
 
@@ -1123,7 +1136,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptSetRankings {
-      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the competitors setup suggested, and without those the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
       brands: AEORankedBrand[];
       /** Visibility per brand and day in the current window, ordered by day then domain. */
       daily: AEORankedBrandDay[];
@@ -1273,16 +1286,26 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface AEOSuggestedCompetitor {
+      /** The competitor's name. Model-written: show it as data. */
+      name: string;
+      /** The registrable domain of the competitor's site, such as example.com. Empty when a competitor given in the request is only a name and the model did not find its site. */
+      domain: string;
+    }
+
     export interface AEOPromptSuggestionJob {
       /** Suggested prompts, filled in once status is completed. None of them are saved. */
       suggestions: AEOPromptSuggestion[];
+      /** The main competitors, at most 5 found by the model while it researched the site, or the ones given in the request. Filled in once status is completed. None of them are saved. */
+      competitors: AEOSuggestedCompetitor[];
       /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
       id: string;
       /** pending while PostHog works, then completed or failed.
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1353,6 +1376,8 @@ export namespace Schemas {
     export interface AEOSetupContext {
       /** Up to 5 domains the project may be about, the most likely first. */
       websites: AEOWebsiteCandidate[];
+      /** Per engine, how many active prompts have a check. Against active_prompts, this is the progress of a first run. Engines with no check yet are left out. */
+      first_run_checks: AEOEngineCheckCount[];
       /** Every engine as the project runs it now, defaults included. Ask the user which ones to track, and offer only the available ones. */
       engines: AEOEngineSetting[];
       /** Domains already set as the project's own brands. */
@@ -1371,14 +1396,19 @@ export namespace Schemas {
       ai_data_processing_approved: boolean;
       /** Whether citation checks run for this project. When false, setup saves the brand, prompts and keywords but cannot queue the first run. */
       first_run_available: boolean;
-      /** How many prompts setup asks PostHog to suggest. One run makes about this many checks per enabled engine. */
+      /** How many prompts setup asks PostHog to suggest when prompt_count is left out. One run makes about this many checks per enabled engine. */
       prompt_target: number;
+      /** The most prompts one setup can ask for in prompt_count: the suggestion cap, or less when the project's max_active_prompts is lower. */
+      prompt_count_max: number;
       /** The window, in days, that pageview hosts among the websites cover. */
       website_days: number;
+      /** Whether a check run is queued or running for the project. When it turns false after a run, no more checks from that run will arrive. */
+      checks_running?: boolean;
     }
 
     /**
      * * `brand` - Brand
+     * * `research` - Research
      * * `prompts` - Prompts
      * * `keywords` - Keywords
      * * `first_run` - First Run
@@ -1388,6 +1418,7 @@ export namespace Schemas {
 
     export const SetupStepEnum = {
       Brand: 'brand',
+      Research: 'research',
       Prompts: 'prompts',
       Keywords: 'keywords',
       FirstRun: 'first_run',
@@ -1412,9 +1443,10 @@ export namespace Schemas {
     } as const;
 
     export interface AEOSetupStep {
-      /** brand (the own brand), prompts (suggested and saved), keywords (suggested and saved) or first_run (the first citation check run queued).
+      /** brand (the own brand), prompts (suggested and saved), first_run (the first citation check run queued) or keywords (suggested and saved).
        *
        * * `brand` - Brand
+       * * `research` - Research
        * * `prompts` - Prompts
        * * `keywords` - Keywords
        * * `first_run` - First Run */
@@ -1429,7 +1461,9 @@ export namespace Schemas {
       status: SetupStepStatusEnum;
       /** How many brands, prompts or keywords the step added. */
       added?: number;
-      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, 'paused' when the prompts step saved its prompts turned off, or 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts. */
+      /** How many prompts the prompts step asked for, so added can be shown against it. 0 on every other step and on a skipped prompts step. */
+      requested?: number;
+      /** Why a step was skipped (already_set, already_run, not_requested, not_available, nothing_to_run), why the keywords or first_run step failed, or a note on a done prompts step: 'paused' when it saved its prompts turned off, 'prompt_limit' when it saved some of them turned off to stay within max_active_prompts, or 'fewer' when it added fewer prompts than requested. Only one note is given, in that order, so compare added with requested to tell whether the step came up short. */
       detail?: string;
     }
 
@@ -1442,7 +1476,8 @@ export namespace Schemas {
        *
        * * `pending` - Pending
        * * `completed` - Completed
-       * * `failed` - Failed */
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
       status: AEOSuggestionJobStatusEnum;
       /** Why the job failed. Empty unless status is failed. */
       error?: string;
@@ -1476,6 +1511,12 @@ export namespace Schemas {
       only_first_run?: boolean;
       /** With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on. */
       activate_paused_prompts?: boolean;
+      /**
+         * How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused.
+         * @minimum 1
+         * @maximum 50
+         */
+      prompt_count?: number;
     }
 
     export interface AEOVisibilityDashboard {
@@ -14300,6 +14341,129 @@ export namespace Schemas {
       session_id: string | null;
       /** True when a scout (scheduled agent) ran the query. */
       is_scout: boolean;
+    }
+
+    /**
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea
+     */
+    export type AdventCalendarDayEnum = typeof AdventCalendarDayEnum[keyof typeof AdventCalendarDayEnum];
+
+
+    export const AdventCalendarDayEnum = {
+      Number2: 2,
+      Number5: 5,
+      Number10: 10,
+      Number13: 13,
+      Number18: 18,
+      Number21: 21,
+    } as const;
+
+    /**
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea
+     */
+    export type AdventCalendarOptionEnum = typeof AdventCalendarOptionEnum[keyof typeof AdventCalendarOptionEnum];
+
+
+    export const AdventCalendarOptionEnum = {
+      James: 'james',
+      Tim: 'tim',
+      Yes: 'yes',
+      No: 'no',
+      Tabs: 'tabs',
+      Spaces: 'spaces',
+      Dark: 'dark',
+      Light: 'light',
+      Coffee: 'coffee',
+      Tea: 'tea',
+    } as const;
+
+    export interface AdventCalendarAnswer {
+      /** The calendar day of the question the person answers.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the person picks. It must be one of the two options of that day's question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+    }
+
+    export interface AdventCalendarShare {
+      /** One option of the question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      option: AdventCalendarOptionEnum;
+      /** Percent of all answers to the question that picked this option, rounded to a whole number. 0 for every option while the question has no answers. */
+      share: number;
+    }
+
+    export interface AdventCalendarQuestionResult {
+      /** The calendar day of the question.
+       *
+       * * `2` - Favorite founder
+       * * `5` - Pineapple on pizza
+       * * `10` - Tabs or spaces
+       * * `13` - Dark or light mode
+       * * `18` - Ship on a Friday
+       * * `21` - Coffee or tea */
+      day: AdventCalendarDayEnum;
+      /** The option the signed-in person picked, or null when they have not answered this question.
+       *
+       * * `james` - James
+       * * `tim` - Tim
+       * * `yes` - Yes
+       * * `no` - No
+       * * `tabs` - Tabs
+       * * `spaces` - Spaces
+       * * `dark` - Dark mode
+       * * `light` - Light mode
+       * * `coffee` - Coffee
+       * * `tea` - Tea */
+      answer: AdventCalendarOptionEnum | null;
+      /** Each option of the question, in the calendar's order, with its share of all answers. */
+      shares: AdventCalendarShare[];
+    }
+
+    export interface AdventCalendarResults {
+      /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
+      questions: AdventCalendarQuestionResult[];
     }
 
     /**
@@ -61062,6 +61226,11 @@ export namespace Schemas {
          * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
          */
       source_record?: string | null;
+      /**
+         * The call-to-action impression this workflow started from. Set only when creating a workflow.
+         * @nullable
+         */
+      entry_attempt_id?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -66749,6 +66918,8 @@ export namespace Schemas {
       warnings_omitted: number;
       /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
       items_omitted: number;
+      /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+      skipped: boolean;
     }
 
     /**
@@ -69700,6 +69871,26 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
+    }
+
+    /**
+     * Body of a search sent with POST, which keeps the query text out of the request URL.
+     */
+    export interface KnowledgeSearchRequest {
+      /**
+         * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+         * @maxLength 2000
+         */
+      query: string;
+      /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
+      limit?: number;
+      /** When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure. */
+      rerank?: boolean;
+      /**
+         * Limit retrieval to sources in this library. Omit to search every ready source.
+         * @nullable
+         */
+      library_id?: string | null;
     }
 
     /**
@@ -78353,6 +78544,12 @@ export namespace Schemas {
          * @maximum 12
          */
       width?: number;
+      /**
+         * Card height in pixels. Omit for automatic height.
+         * @minimum 120
+         * @maximum 1600
+         */
+      height?: number;
       /**
          * Source notebook cell ID.
          * @maxLength 160
@@ -91391,6 +91588,7 @@ export namespace Schemas {
       /** 'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.
        *
        * * `daily` - Daily
+       * * `every_3_days` - Every 72 hours
        * * `weekly` - Weekly */
       frequency?: CheckFrequencyEnum;
     }
@@ -99850,6 +100048,55 @@ export namespace Schemas {
       hog_function_id: string;
     }
 
+    /**
+     * * `slack_dm` - Slack direct message
+     * * `slack_channel` - Slack channel
+     */
+    export type SignalScoutMessageDeliveryTargetTypeEnum = typeof SignalScoutMessageDeliveryTargetTypeEnum[keyof typeof SignalScoutMessageDeliveryTargetTypeEnum];
+
+
+    export const SignalScoutMessageDeliveryTargetTypeEnum = {
+      SlackDm: 'slack_dm',
+      SlackChannel: 'slack_channel',
+    } as const;
+
+    export interface SignalScoutMessageTarget {
+      type: SignalScoutMessageDeliveryTargetTypeEnum;
+      /**
+         * Slack member ID, for `slack_dm`.
+         * @maxLength 255
+         */
+      user?: string;
+      /**
+         * Slack channel ID, for `slack_channel`. Never a shared channel.
+         * @maxLength 255
+         */
+      channel?: string;
+    }
+
+    export interface SignalScoutMessageRoute {
+      /**
+         * Slug the scout names to send on this route.
+         * @maxLength 64
+         * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * When the scout should send, shown in its run prompt.
+         * @maxLength 300
+         */
+      when: string;
+      /**
+         * @minItems 1
+         * @maxItems 5
+         */
+      to: SignalScoutMessageTarget[];
+    }
+
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
     export interface SignalScoutOutputDestinationsUpdate {
       /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
       slack?: SignalScoutSlackDestinationUpdate | null;
@@ -99857,6 +100104,11 @@ export namespace Schemas {
       webhook?: SignalScoutWebhookDestination | null;
       /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
       inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
     }
 
     /**
@@ -117610,6 +117862,24 @@ export namespace Schemas {
       Background: 'background',
     } as const;
 
+    /**
+     * Output destinations plus message routes. Only the config create and update paths take routes, so the
+     * scout and source-product create tools keep their schemas small.
+     */
+    export interface SignalScoutRoutedOutputDestinations {
+      /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+      slack?: SignalScoutSlackDestination | null;
+      /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+      webhook?: SignalScoutWebhookDestination | null;
+      /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+      inbox?: boolean;
+      /**
+         * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+         * @maxItems 10
+         */
+      messages?: SignalScoutMessageRoute[];
+    }
+
     export type ScoutPrecheckQuerySourceEnum = typeof ScoutPrecheckQuerySourceEnum[keyof typeof ScoutPrecheckQuerySourceEnum];
 
 
@@ -117701,7 +117971,7 @@ export namespace Schemas {
          */
       readonly run_cron_schedule: string | null;
       /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-      readonly output_destinations: SignalScoutOutputDestinations;
+      readonly output_destinations: SignalScoutRoutedOutputDestinations;
       /**
          * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
          * @nullable
@@ -120273,6 +120543,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `replaced` - Replaced
+     * * `duplicate` - Duplicate
+     * * `over_cap` - Over Cap
+     * * `dry_run` - Dry Run
+     */
+    export type SendMessageOutcomeEnum = typeof SendMessageOutcomeEnum[keyof typeof SendMessageOutcomeEnum];
+
+
+    export const SendMessageOutcomeEnum = {
+      Queued: 'queued',
+      Replaced: 'replaced',
+      Duplicate: 'duplicate',
+      OverCap: 'over_cap',
+      DryRun: 'dry_run',
+    } as const;
+
+    /**
+     * Request body for `scout-send-message`: one message on an owner-set route.
+     */
+    export interface SendScoutMessageRequest {
+      /**
+         * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+         * @maxLength 64
+         */
+      route: string;
+      /**
+         * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+         * @maxLength 64
+         * @nullable
+         */
+      report_id?: string | null;
+      /**
+         * Short plain-text title. At most 150 characters.
+         * @maxLength 150
+         */
+      title: string;
+      /**
+         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 3000
+         */
+      body: string;
+      /**
+         * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+         * @maxLength 200
+         */
+      dedupe_key: string;
+    }
+
+    /**
+     * Outcome of a `scout-send-message` call.
+     */
+    export interface SendScoutMessageResponse {
+      /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+       *
+       * * `queued` - Queued
+       * * `replaced` - Replaced
+       * * `duplicate` - Duplicate
+       * * `over_cap` - Over Cap
+       * * `dry_run` - Dry Run */
+      outcome: SendMessageOutcomeEnum;
+      /**
+         * Id of the queued message, or null when nothing was queued.
+         * @nullable
+         */
+      message_id: string | null;
+      /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+      recent_dedupe_keys: string[];
+    }
+
+    /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};
@@ -122510,7 +122851,7 @@ export namespace Schemas {
          */
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
-      output_destinations?: SignalScoutOutputDestinations;
+      output_destinations?: SignalScoutRoutedOutputDestinations;
       /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
        *
        * * `trusted` - Trusted domains only
@@ -124038,6 +124379,8 @@ export namespace Schemas {
       filter_fields: SourceFilterCatalogField[];
       /** Example expressions that are valid for this source. */
       starter_expressions: string[];
+      /** True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can still be saved, but the preview returns an error. */
+      preview_supported: boolean;
     }
 
     export interface SourceFilterCatalogList {
@@ -128799,7 +129142,7 @@ export namespace Schemas {
       readonly email_sending_suspension_reason: string;
       /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
       readonly sending_allowance: EmailSendingAllowance | null;
-      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+      /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, when the region sent too few emails for its totals to stay private, or while the feature is not yet released to this project. */
       readonly infrastructure: EmailInfrastructureHealth | null;
     }
 
@@ -140242,6 +140585,10 @@ export namespace Schemas {
      */
     branded?: AeoPromptsOverviewBranded;
     /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
+    /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
      * @nullable
@@ -140286,6 +140633,10 @@ export namespace Schemas {
      * @minLength 1
      */
     branded?: AeoPromptsRankingsBranded;
+    /**
+     * Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count.
+     */
+    current_prompts?: boolean;
     /**
      * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
      * @maxLength 32
@@ -141599,7 +141950,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string;
     /**

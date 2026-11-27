@@ -113,6 +113,39 @@ const SuggestionRow = ({ suggestion }: { suggestion: AEOPromptSuggestionApi }): 
 }
 
 // The API takes at most 20 entries of 200 characters each.
+const SuggestedCompetitors = (): JSX.Element | null => {
+    const { job, selectedCompetitors } = useValues(contentAutopilotPromptSuggestionsLogic)
+    const { toggleCompetitor } = useActions(contentAutopilotPromptSuggestionsLogic)
+    const competitors = (job?.competitors ?? []).filter(({ domain }) => !!domain)
+    if (competitors.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2 rounded-md border p-3" data-attr="content-autopilot-suggest-competitors">
+            <div>
+                <Text size="sm" weight="semibold" render={<span className="m-0" />}>
+                    Competitors
+                </Text>
+                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                    Rankings compares you against the ones you keep ticked. You can change them later in settings.
+                </Text>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {competitors.map(({ name, domain }) => (
+                    <label key={domain} className="flex cursor-pointer items-center gap-2">
+                        <Checkbox
+                            checked={selectedCompetitors.includes(domain)}
+                            onCheckedChange={() => toggleCompetitor(domain)}
+                            data-attr="content-autopilot-suggest-competitor"
+                        />
+                        <Text size="sm" render={<span className="m-0" />}>{`${name} (${domain})`}</Text>
+                    </label>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 const cappedList = (values: string[]): string[] =>
     values
         .slice(0, aeoPromptsSuggestBodyCompetitorsMax)
@@ -176,7 +209,7 @@ const SuggestForm = (): JSX.Element => {
                     onChange={(event) => setForm({ description: event.target.value })}
                     maxLength={aeoPromptsSuggestBodyDescriptionMax}
                     rows={2}
-                    placeholder="Open source product analytics for engineers at startups"
+                    placeholder="For example: scheduling software for dental clinics"
                 />
                 <FieldDescription>Optional. Read from the site when empty.</FieldDescription>
             </Field>
@@ -250,6 +283,7 @@ const SuggestReview = (): JSX.Element => {
                     <SuggestionRow key={suggestion.prompt} suggestion={suggestion} />
                 ))}
             </div>
+            <SuggestedCompetitors />
         </div>
     )
 }
@@ -264,7 +298,9 @@ export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
         contentAutopilotPromptSuggestionsLogic
     )
     // A job saved from an earlier visit is fetched again on mount, so it shows as loading rather than the empty form.
-    const view: SuggestView = editingInputs ? 'form' : job ? job.status : jobRef ? 'loading' : 'form'
+    // A cancelled job left nothing to review, so it opens the form again.
+    const view: SuggestView =
+        editingInputs || job?.status === 'cancelled' ? 'form' : job ? job.status : jobRef ? 'loading' : 'form'
     const domain = jobRef?.domain || siteDomain(form.domain) || 'your site'
     const noSiteReason = !siteDomain(form.domain) ? 'Enter your site' : undefined
     const noSuggestions = view === 'completed' && (job?.suggestions.length ?? 0) === 0

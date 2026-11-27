@@ -25,7 +25,7 @@ Spec: <https://api.close.com/api/openapi.json> (version 1.0.0).
   see below.
 - All paths require a trailing slash to avoid a redirect.
 
-## Advanced Filtering (`POST /data/search/`) — Leads and Contacts
+## Advanced Filtering (`POST /data/search/`) — Leads, Contacts, sequence subscriptions, custom objects
 
 Advanced Filtering is the only read path that exposes `date_created`/`date_updated` filters for
 leads and contacts. It is cursor-paginated, but the cursor has limits of its own: it expires after
@@ -38,8 +38,13 @@ step over a run of rows sharing one exact timestamp, where the keyset filter can
 
 Notes:
 
-- Only `lead` and `contact` are documented as searchable object types, and they are also the only
-  two that need this — everything else already filters server-side.
+- Leads and Contacts need this because their list endpoints have no date filter.
+- Sequence subscriptions and custom objects need it because their list endpoints need a parent
+  id: `GET /sequence_subscription/` needs `sequence_id`, `contact_id` or `lead_id`, and
+  `GET /custom_object/` needs `lead_id`. The Close docs point to Advanced Filtering to read every
+  custom object. Both object types sort and filter on `date_created`/`date_updated`, the same
+  names their rows carry, so the keyset walk reads its cursor from the rows.
+- Sequence subscriptions have no custom fields, so their search sends no `custom` selector.
 - Search returns bare IDs unless each field is named in `_fields`, so `settings.py` carries an
   explicit field list per object type. A single `custom` selector is added at request time to
   return every custom field as a flat `custom.cf_*` key. Naming each custom field instead grows
@@ -71,12 +76,23 @@ Only endpoints with a genuine server-side timestamp filter get `supports_increme
 | Organizations     | `/organization/{id}/`          | n/a        | none                                                | no          | full refresh                  |
 | Custom fields     | `/custom_field/{object_type}/` | yes        | none                                                | no          | full refresh                  |
 | Shared cust. flds | `/custom_field/shared/`        | no         | none                                                | no          | full refresh                  |
+| Sequences         | `/sequence/`                   | yes        | none                                                | no          | full refresh                  |
+| Sequence subs.    | `/data/search/`                | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
+| Cust. obj. types  | `/custom_object_type/`         | no         | none                                                | no          | full refresh                  |
+| Custom objects    | `/data/search/`                | keyset     | `date_created`, `date_updated` (Advanced Filtering) | sort        | date_created (+ date_updated) |
+| Groups            | `/group/`                      | no         | none                                                | no          | full refresh                  |
+| Roles             | `/role/`                       | no         | none                                                | no          | full refresh                  |
 
 Notes:
 
 - The plain `GET /lead/` and `GET /contact/` list endpoints expose **no** `date_*` filter param
   (only `_skip`/`_limit`/`_fields`, plus `lead_id` on contacts). Both resources go through
   Advanced Filtering instead, which is also how Airbyte reaches a `date_updated` cursor for leads.
+- `/group/`, `/role/` and `/custom_object_type/` document no `_skip`/`_limit` params and return every
+  row in one response, so they use the single-page paginator. The `/group/` list omits `members`.
+- Comments and comment threads are not synced. `GET /comment/` needs a `thread_id` or `object_id`
+  (one request per thread), `GET /comment_thread/` caps `_skip` at 10,000, and on Advanced Filtering
+  both sort on `date_created`/`date_updated` while their rows carry `created_at`/`updated_at`.
 - Organizations has no list endpoint. `/me/` returns the organizations the API key belongs to, and
   each one is then read from `/organization/{id}/`. The default response already carries
   `memberships` with `user_*` fields, so no `_expand` is needed.

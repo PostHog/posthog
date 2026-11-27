@@ -11,10 +11,8 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-const VICTORIA_METRICS_IMAGE =
-    'victoriametrics/victoria-metrics:v1.136.0@sha256:593b533bfbea439f2fd8aed306294cb6a5b362e7932681ebb476cc6aaef70841'
-const VMALERT_IMAGE =
-    'victoriametrics/vmalert:v1.136.0@sha256:e756ea8839f295b4e789a739c3ac80d70404e11b918973506a6182aacca2b11e'
+import { VICTORIA_METRICS_IMAGE, VMALERT_IMAGE } from './images'
+
 const READY_WITHIN_MS = 90_000
 const DOCKER_RUN_MS = 300_000
 const READY_EVERY_MS = 250
