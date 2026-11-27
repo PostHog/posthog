@@ -22,6 +22,9 @@ function ClickLink({ link, links }: { link: string | null; links: EmailClickLink
     if (links === 'loading') {
         return <LemonSkeleton className="h-4 w-40" />
     }
+    if (links === 'failed') {
+        return <span className="text-sm text-secondary">Link not loaded</span>
+    }
     return <span className="text-sm text-secondary">Link not recorded</span>
 }
 
