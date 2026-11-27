@@ -83,6 +83,7 @@ export function EmailDocumentEditor(): JSX.Element {
         documentEditorInitialDoc,
         convertedEmailDocument,
         templatingEngine,
+        activeContentTab,
     } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -405,10 +406,13 @@ export function EmailDocumentEditor(): JSX.Element {
                     if (event.key === 'Enter' && target.tagName === 'INPUT') {
                         event.preventDefault()
                     }
-                    // The fullscreen editor closes on Escape at the window. An open menu or dialog takes it first.
+                    // The fullscreen editor closes on Escape at the window. An open menu, dialog or feedback note takes it first.
                     if (
                         event.key === 'Escape' &&
-                        (suggestionsOpenRef.current || target.closest?.('.ReactModal__Overlay, .Popover'))
+                        (suggestionsOpenRef.current ||
+                            target.closest?.(
+                                '.ReactModal__Overlay, .Popover, [data-attr="email-editor-feedback-feedback"]'
+                            ))
                     ) {
                         event.stopPropagation()
                     }
@@ -466,7 +470,8 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                <EmailEditorFeedback />
+                {/* The editor stays mounted behind the Plain text tab, where the banner would count as shown */}
+                {activeContentTab === 'visual' ? <EmailEditorFeedback /> : null}
                 {mode === 'html' ? (
                     <EmailHtmlView />
                 ) : mode === 'preview' ? (
