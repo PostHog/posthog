@@ -70,6 +70,7 @@ describe('featureFlagLogic', () => {
             pageFlags: Record<string, boolean>
             flagsAnswers: FlagsAnswer[]
             afterLoad?: (sdk: PostHog) => void
+            mountAfterLoad?: boolean
         }
 
         function openPage({ pageFlags, flagsAnswers }: PageVisit): PostHog {
@@ -197,6 +198,16 @@ describe('featureFlagLogic', () => {
                 undefined,
             ],
             [
+                'a successful load that arrives before the app mounts wins over the page decision',
+                [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
+                {
+                    pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
+                    flagsAnswers: [{ [OTHER_FLAG]: true }],
+                    mountAfterLoad: true,
+                },
+                undefined,
+            ],
+            [
                 'a successful load still wins after a later refresh fails',
                 [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
                 {
@@ -213,11 +224,17 @@ describe('featureFlagLogic', () => {
             const sdk = openPage(today)
             jest.mocked(posthog.onFeatureFlags).mockImplementation((callback) => sdk.onFeatureFlags(callback))
             jest.mocked(posthog.get_property).mockImplementation((key) => sdk.get_property(key))
+            if (today.mountAfterLoad) {
+                sdk.reloadFeatureFlags()
+                await jest.advanceTimersByTimeAsync(100)
+            }
             initKeaTests()
             const logic = featureFlagLogic()
             logic.mount()
-            sdk.reloadFeatureFlags()
-            await jest.advanceTimersByTimeAsync(100)
+            if (!today.mountAfterLoad) {
+                sdk.reloadFeatureFlags()
+                await jest.advanceTimersByTimeAsync(100)
+            }
             today.afterLoad?.(sdk)
             await jest.advanceTimersByTimeAsync(100)
 

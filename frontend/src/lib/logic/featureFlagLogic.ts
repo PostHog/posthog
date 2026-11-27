@@ -193,11 +193,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // starts from the server decision again.
         posthogAiAccessRevoked = false
         let flagsLoadedOnThisPage = false
+        let flagsFailedOnThisPage = false
         posthog.onFeatureFlags((flags, variants, context) => {
-            if (context?.errorsLoading === false) {
-                flagsLoadedOnThisPage = true
-            }
-            if (flagsLoadedOnThisPage) {
+            flagsLoadedOnThisPage ||= context?.errorsLoading === false
+            flagsFailedOnThisPage ||= context?.errorsLoading === true
+            if (flagsLoadedOnThisPage || !flagsFailedOnThisPage) {
                 actions.setFeatureFlags(flags, variants)
                 return
             }
