@@ -28,7 +28,9 @@ export function AdventTicketFlight({ from, to, onLand }: AdventTicketFlightProps
     return (
         <span className="AdventTicketFlight" style={style} onAnimationEnd={land} data-attr="advent-ticket-flight">
             <span className="AdventTicketFlight__arc">
-                <AdventTicketIcon className="h-7 w-12" />
+                <span className="AdventTicketFlight__fall">
+                    <AdventTicketIcon className="h-7 w-12" />
+                </span>
             </span>
         </span>
     )

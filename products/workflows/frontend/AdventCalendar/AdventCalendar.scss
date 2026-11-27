@@ -199,11 +199,28 @@
 
 .AdventTicketFlight__arc {
     display: block;
-    animation: AdventTicketFlight__y 820ms linear both;
+    animation: AdventTicketFlight__rise 820ms cubic-bezier(0.2, 0.6, 0.4, 1) both;
+}
+
+.AdventTicketFlight__fall {
+    position: relative;
+    display: block;
+    animation: AdventTicketFlight__fall 820ms cubic-bezier(0.6, 0, 0.8, 0.4) both;
+
+    &::before {
+        position: absolute;
+        top: -13px;
+        left: -22px;
+        width: 44px;
+        height: 26px;
+        content: '';
+        background: color-mix(in oklab, var(--advent-gold) 48%, transparent);
+        border-radius: 3px;
+        box-shadow: 0 0 16px var(--advent-gold);
+    }
 
     .AdventTicketIcon {
         display: block;
-        filter: drop-shadow(0 0 8px var(--advent-gold));
         transform: translate(-50%, -50%);
     }
 }
@@ -218,19 +235,25 @@
     }
 }
 
-@keyframes AdventTicketFlight__y {
+@keyframes AdventTicketFlight__rise {
     0% {
         transform: translateY(var(--advent-fly-dy)) scale(1);
-        animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1);
     }
 
-    40% {
+    40%,
+    100% {
         transform: translateY(var(--advent-fly-peak)) scale(0.9);
-        animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
+    }
+}
+
+@keyframes AdventTicketFlight__fall {
+    0%,
+    40% {
+        transform: translateY(0) scale(1);
     }
 
     100% {
-        transform: translateY(0) scale(0.5);
+        transform: translateY(calc(var(--advent-fly-peak) / -0.9)) scale(calc(0.5 / 0.9));
     }
 }
 
@@ -257,7 +280,8 @@
     }
 
     .AdventTicketFlight,
-    .AdventTicketFlight__arc {
+    .AdventTicketFlight__arc,
+    .AdventTicketFlight__fall {
         animation-duration: 1ms;
     }
 }
