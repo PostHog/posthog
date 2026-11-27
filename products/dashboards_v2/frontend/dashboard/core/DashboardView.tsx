@@ -278,6 +278,7 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
                                         >
                                             {/* The header, filters and tabs stay outside, so a broken tab still lets a person switch tabs or undo. */}
                                             <ErrorBoundary
+                                                key={activeTab.id}
                                                 resetKey={state.dashboard}
                                                 tag="dashboards-v2-grid"
                                                 fallback={<DashboardFailed history={history} />}
