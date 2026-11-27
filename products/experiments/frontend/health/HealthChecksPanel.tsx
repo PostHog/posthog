@@ -170,6 +170,7 @@ export function HealthChecksPanel({
                         <HealthFindingDetail
                             finding={selection.finding}
                             check={checks.find(({ key }) => key === selection.finding.check) ?? null}
+                            splitCheck={checks.find(({ key }) => key === 'split_changed_mid_run')}
                             units={units}
                             exposures={exposures}
                             checkedAt={selection.finding.check ? checkedAt(selection.finding.check) : null}

@@ -10,7 +10,9 @@ import uuid
 import base64
 import hashlib
 import threading
+import dataclasses
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -20,6 +22,12 @@ from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION, Detecto
 KEY_PREFIX = "anomaly_models"
 # A blob holds the artifacts of at most `MAX_LIMITS.max_series` series, so the cache stays small.
 _MAX_CACHED_BLOBS = 256
+
+
+# Schema version to the function that upgrades an artifact of that version to the next version. The upgraded
+# artifact must score as the old one did. A blob that reaches `ARTIFACT_SCHEMA_VERSION` through these loads, and
+# any other blob is unavailable, so its insight trains.
+ARTIFACT_UPGRADES: dict[int, Callable[[DetectorArtifact], DetectorArtifact]] = {}
 
 
 class ArtifactUnavailableError(Exception):
@@ -101,9 +109,10 @@ def load_artifacts(key: str, sha256: str) -> dict[str, DetectorArtifact]:
         raise ArtifactUnavailableError(f"No artifact blob at {key!r}")
     if hashlib.sha256(blob).hexdigest() != sha256:
         raise ArtifactUnavailableError(f"The artifact blob at {key!r} does not match its hash")
-    artifacts = deserialize(blob)
-    if not all(_readable(artifact) for artifact in artifacts.values()):
-        raise ArtifactUnavailableError(f"The artifact blob at {key!r} has an older schema version")
+    upgraded = {series: _upgraded(artifact) for series, artifact in deserialize(blob).items()}
+    artifacts = {series: artifact for series, artifact in upgraded.items() if artifact is not None}
+    if len(artifacts) < len(upgraded):
+        raise ArtifactUnavailableError(f"The artifact blob at {key!r} has a schema version with no upgrade")
     with _cache_lock:
         _cache[key] = (sha256, artifacts)
         while len(_cache) > _MAX_CACHED_BLOBS:
@@ -111,8 +120,18 @@ def load_artifacts(key: str, sha256: str) -> dict[str, DetectorArtifact]:
     return artifacts
 
 
-def _readable(artifact: DetectorArtifact) -> bool:
-    return artifact.schema_version == ARTIFACT_SCHEMA_VERSION and all(_readable(child) for child in artifact.children)
+def _upgraded(artifact: DetectorArtifact) -> DetectorArtifact | None:
+    """The artifact at `ARTIFACT_SCHEMA_VERSION`, or None when no chain of upgrades reaches it."""
+    children = [_upgraded(child) for child in artifact.children]
+    if any(child is None for child in children):
+        return None
+    artifact = dataclasses.replace(artifact, children=tuple(child for child in children if child is not None))
+    for version in range(artifact.schema_version, ARTIFACT_SCHEMA_VERSION):
+        upgrade = ARTIFACT_UPGRADES.get(version)
+        if upgrade is None:
+            return None
+        artifact = upgrade(artifact)
+    return artifact if artifact.schema_version == ARTIFACT_SCHEMA_VERSION else None
 
 
 def delete_artifacts(key: str) -> None:

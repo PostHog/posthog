@@ -14,6 +14,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -43,6 +44,8 @@ import { BatchExportQueryTimezoneSelector } from './BatchExportQueryTimezoneSele
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
+
+const NEW_EVENTS_TABLE_BLOG_URL = 'https://posthog.com/blog/changing-event-storage#what-changes-for-batch-exports'
 
 export function BatchExportConfiguration(): JSX.Element {
     const {
@@ -79,7 +82,24 @@ export function BatchExportConfiguration(): JSX.Element {
 
     return (
         <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
-            <SourceDestinationsBanner />
+            {selectedModel === BatchExportModelEnumApi.Events ? (
+                <LemonBanner
+                    type="info"
+                    dismissKey="batch-export-new-events-table-migration"
+                    action={{
+                        children: 'Read more',
+                        to: NEW_EVENTS_TABLE_BLOG_URL,
+                        targetBlank: true,
+                        'data-attr': 'batch-export-new-events-table-banner',
+                    }}
+                >
+                    All batch exports will be migrated to the new events table starting on December 2. Some properties
+                    will be exported with a different type or format. You can switch this export over before then with
+                    the Events table setting below.
+                </LemonBanner>
+            ) : (
+                <SourceDestinationsBanner />
+            )}
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2 *:max-w-160">
@@ -395,6 +415,32 @@ export function BatchExportConfiguration(): JSX.Element {
                                         />
                                     </LemonField>
                                 </div>
+                                <LemonField
+                                    name="use_new_events_schema"
+                                    label="Events table"
+                                    help={
+                                        <>
+                                            Some properties are exported with a different type or format from the new
+                                            events table. All exports will be migrated starting on December 2. You can
+                                            switch this export over before then. This switch has no effect once the
+                                            migration is complete.{' '}
+                                            <Link to={NEW_EVENTS_TABLE_BLOG_URL} target="_blank">
+                                                Read more about the change
+                                            </Link>
+                                        </>
+                                    }
+                                >
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            label="Export from the new events table"
+                                            onChange={onChange}
+                                            checked={!!value}
+                                            fullWidth
+                                            bordered
+                                            data-attr="batch-export-use-new-events-schema"
+                                        />
+                                    )}
+                                </LemonField>
                             </>
                         ) : null}
                     </div>

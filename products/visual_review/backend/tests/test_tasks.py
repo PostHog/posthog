@@ -28,7 +28,14 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, debt_digest, github_api, ledger_advance, runs
+from products.visual_review.backend.logic import (
+    artifact_store,
+    ci_status,
+    debt_digest,
+    github_api,
+    ledger_advance,
+    runs,
+)
 from products.visual_review.backend.logic.baseline_record import METADATA_KEY, BaselineRecord
 from products.visual_review.backend.models import Repo, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.storage import ArtifactStorage
@@ -141,6 +148,30 @@ class TestProcessRunDiffs:
         run = api.get_run(create_result.run_id)
         assert run.status == RunStatus.COMPLETED
         assert run.completed_at is not None
+
+    def test_a_redelivered_task_leaves_a_completed_run_alone(self, repo):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash1")],
+            ),
+            team_id=repo.team_id,
+        )
+        process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        # The worker can stop after the run is saved as completed and before its status is posted.
+        with (
+            patch("products.visual_review.backend.diffing.process_diffs") as process,
+            patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED) as send_status,
+        ):
+            process_run_diffs(repo.team_id, str(create_result.run_id))
+
+        assert process.called is False
+        assert api.get_run(create_result.run_id).status == RunStatus.COMPLETED
+        assert send_status.called
 
     def test_process_run_diffs_handles_error(self, repo):
         create_result = api.create_run(

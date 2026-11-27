@@ -52,9 +52,9 @@ APOLLO_ENDPOINTS: dict[str, ApolloEndpointConfig] = {
         name="accounts",
         path="/accounts/search",
         data_key="accounts",
+        # Full refresh only: account rows carry no updated_at, so they have no cursor to sync on.
         sort_by_field="account_updated_at",
         partition_key="created_at",
-        incremental_fields=list(_UPDATED_AT_INCREMENTAL_FIELDS),
     ),
     "opportunities": ApolloEndpointConfig(
         name="opportunities",

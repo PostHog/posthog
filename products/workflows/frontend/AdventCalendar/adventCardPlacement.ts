@@ -10,10 +10,11 @@ export interface AdventCardPlacement {
 }
 
 export function adventCardPlacement(
-    face: { left: number; size: number },
+    door: { left: number; size: number },
     stageWidth: number,
     row: number
 ): AdventCardPlacement {
+    const face = { ...door, left: Math.min(Math.max(door.left, 0), stageWidth - door.size) }
     const roomRight = stageWidth - ADVENT_CARD_EDGE_GAP - (face.left - ADVENT_CARD_INSET)
     const roomLeft = face.left + face.size + ADVENT_CARD_INSET - ADVENT_CARD_EDGE_GAP
     const fitsRight = roomRight >= ADVENT_CARD_WIDTH

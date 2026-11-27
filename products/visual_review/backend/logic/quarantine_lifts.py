@@ -18,9 +18,9 @@ from django.utils import timezone
 import structlog
 
 from ..db import WRITER_DB
-from ..facade.enums import ActorType, QuarantineLiftState, ReviewState, RunPurpose, RunStatus, SnapshotResult
+from ..facade.enums import ActorType, QuarantineLiftState, RunPurpose, RunStatus, SnapshotResult
 from ..models import QuarantinedIdentifier, QuarantineLiftRequest, Run, RunSnapshot
-from . import errors, github_api, run_queries
+from . import errors, github_api, review_decisions, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -51,13 +51,14 @@ def _active_quarantine(run: Run, identifier: str, now: datetime) -> QuarantinedI
     )
 
 
-def _expected_hash(snapshot: RunSnapshot) -> str:
+def _expected_hash(snapshot: RunSnapshot, accepted: bool) -> str:
     """The picture the default branch must render for the lift to apply.
 
     An unchanged snapshot counts only when it rendered its baseline byte for byte: `unchanged`
     also covers tolerated variants and diffs under the threshold, which are other pictures. A
-    changed or new picture counts only once a reviewer approved it, because finalize commits the
-    approved hash as the baseline entry.
+    changed or new picture counts only once a reviewer accepted it, because finalize commits the
+    accepted hash as the baseline entry. `accepted` is the effective decision on the pair, which in
+    ledger mode can come from an earlier run of the pull request.
     """
     if snapshot.result == SnapshotResult.UNCHANGED and snapshot.baseline_hash:
         if snapshot.current_hash != snapshot.baseline_hash:
@@ -66,12 +67,8 @@ def _expected_hash(snapshot: RunSnapshot) -> str:
                 "Request the lift from a run that renders the baseline exactly."
             )
         return snapshot.baseline_hash
-    if (
-        snapshot.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
-        and snapshot.review_state == ReviewState.APPROVED
-        and snapshot.approved_hash
-    ):
-        return snapshot.approved_hash
+    if snapshot.result in (SnapshotResult.CHANGED, SnapshotResult.NEW) and accepted and snapshot.current_hash:
+        return snapshot.current_hash
     raise ValueError(
         "Approve the new picture first. A lift needs a picture the baseline will hold, "
         "and requesting a lift never approves one."
@@ -101,7 +98,8 @@ def request_lift_on_merge(
     quarantine = _active_quarantine(run, snapshot.identifier, timezone.now())
     if quarantine is None:
         raise ValueError("This snapshot has no active quarantine to lift.")
-    expected_hash = _expected_hash(snapshot)
+    key = review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
+    expected_hash = _expected_hash(snapshot, review_decisions.pull_request_decisions(run).effective(key).accepted)
 
     with transaction.atomic(using=WRITER_DB):
         # Lock the quarantine row before reading the pending request, in the same order as `_apply`.

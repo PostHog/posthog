@@ -11,7 +11,7 @@
 # - node-base: shared Node.js base with pnpm already provisioned
 # - product-manifests: collect the package.json of each products/* workspace package
 # - frontend-build: build the frontend (static assets)
-# - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
+# - frontend-dist: the frontend/dist that ships, which CI replaces once it uploaded the sourcemaps
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - cli-catalog-build: build the API tool catalog that hog downloads from /api/cli/catalog.json
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
@@ -87,83 +87,17 @@ RUN bin/turbo --filter=@posthog/frontend build
 #
 # ---------------------------------------------------------
 #
-# Isolated stage for sourcemap upload - keeps secrets and external network calls
-# out of the main build cache. This stage produces no artifacts for the final image.
+# The frontend/dist that ships, and products.json. This build uploads nothing and keeps the .map files.
+# CI exports this stage with `--target frontend-dist --output type=local` and uploads the sourcemaps
+# from the job, where its credentials never enter a build (see
+# .github/scripts/upload-frontend-sourcemaps.sh). hog deletes each map it uploaded and the reference to
+# it, and CI passes that tree back as a build context named frontend-dist, which replaces this stage.
+# Later stages read the frontend only from this stage, so with that context the image build never runs
+# frontend-build, for any platform.
 #
-FROM node:26.13.1-bookworm-slim AS sourcemap-upload
-WORKDIR /code
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-
-ARG COMMIT_HASH
-
+FROM scratch AS frontend-dist
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-
-# Upload sourcemaps to error tracking, recording whether it GENUINELY succeeded so the later strip
-# only deletes the .map files when an uploaded copy exists. The build never fails on a sourcemap
-# problem (missing secret, CLI download / network / auth failure): in that case the status is
-# "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
-# which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
-#
-# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
-# one URL for as long as their code is unchanged, so they must not carry the per-release id that the
-# first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
-# resolves no release and injects only the chunk id, which it derives from the file's own content.
-#
-# The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
-# the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
-# To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
-#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.18.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
-# The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
-# GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
-# directory to fall back on: without these the release is created with no link back to the code it
-# was built from, and the CLI skips the metadata silently because --release-name/--release-version
-# already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before. In the CD workflow the release usually exists already, created
-# with the same metadata before the build, and this stage only looks it up by name and version.
-ARG GITHUB_ACTIONS
-ARG GITHUB_SHA
-ARG GITHUB_REF_NAME
-ARG GITHUB_REPOSITORY
-ARG GITHUB_SERVER_URL
-ENV GITHUB_ACTIONS=$GITHUB_ACTIONS \
-    GITHUB_SHA=$GITHUB_SHA \
-    GITHUB_REF_NAME=$GITHUB_REF_NAME \
-    GITHUB_REPOSITORY=$GITHUB_REPOSITORY \
-    GITHUB_SERVER_URL=$GITHUB_SERVER_URL
-RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if ( \
-        [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
-        apt-get update && \
-        apt-get install -y --no-install-recommends ca-certificates curl && \
-        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
-            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
-        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
-        sh /tmp/posthog-cli-installer.sh && \
-        export PATH="/root/.posthog:$PATH" && \
-        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-        export POSTHOG_CLI_ENV_ID=2 && \
-        STABLE_CHUNKS='**/*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js' && \
-        posthog-cli sourcemap process \
-            --directory /code/frontend/dist \
-            --exclude "$STABLE_CHUNKS" \
-            --public-path-prefix /static \
-            --release-mode event \
-            --release-name posthog \
-            --release-version "${COMMIT_HASH:-unknown}" && \
-        env -u GITHUB_ACTIONS posthog-cli sourcemap process \
-            --directory /code/frontend/dist \
-            --include "$STABLE_CHUNKS" \
-            --public-path-prefix /static \
-            --release-mode event \
-    ); then \
-        echo uploaded > /tmp/.sourcemaps-status; \
-    else \
-        echo "WARNING: sourcemaps not uploaded (no secret or upload failed); .map files will be retained in the image" >&2; \
-        echo retained > /tmp/.sourcemaps-status; \
-    fi && \
-    touch /tmp/.sourcemaps-processed
+COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 
 #
@@ -283,10 +217,10 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 
-# Copy the sourcemap-processed frontend assets and also the products.json file. The CLI injects
-# chunk IDs into JS before uploading maps, so the runtime JS must come from the same processed tree.
-COPY --from=sourcemap-upload /code/frontend/dist /code/frontend/dist
-COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
+# Copy the frontend assets and also the products.json file. hog injects chunk IDs into the JS before it
+# uploads the maps, so the runtime JS must come from the same processed tree.
+COPY --from=frontend-dist /code/frontend/dist /code/frontend/dist
+COPY --from=frontend-dist /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
@@ -295,18 +229,12 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 # so they never import every source module, and a source module that fails to import fails the build.
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
 
-# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
-# isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
-# upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
-# lost. Done here (not in the final stage) so the bytes never enter the COPYed layers.
-COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
-RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
-        echo "sourcemaps uploaded — stripping .map files from the image"; \
-        find /code/staticfiles /code/frontend/dist \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete; \
-    else \
-        echo "sourcemaps NOT uploaded — retaining .map files in the image"; \
-    fi
-
+# No sourcemap ships as a static file. Error tracking reads the maps that CI uploads, and Python
+# packages such as Django REST framework bring maps that nothing uploads. When CI could not upload,
+# /code/frontend/dist keeps the only copy of the frontend maps, so this deletes only the collected
+# duplicates and their compressed variants. This runs here, not in the final stage, so that the bytes
+# never enter the COPYed layers.
+RUN find /code/staticfiles \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete
 
 
 #
@@ -428,14 +356,11 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 
 # frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
 # fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
-# where the JS sourcemaps have already been stripped.
+# so it is the tree collectstatic read.
 COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
-# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
-COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
-
-# Copy products.json from the frontend-build stage
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
+# Copy products.json from the frontend-dist stage
+COPY --from=frontend-dist --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/

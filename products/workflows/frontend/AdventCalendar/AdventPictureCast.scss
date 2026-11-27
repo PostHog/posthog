@@ -1,0 +1,222 @@
+.AdventPicture--cast {
+    z-index: 3;
+    pointer-events: none;
+}
+
+.AdventPicture__spot {
+    position: absolute;
+    width: 0;
+    height: 0;
+}
+
+.AdventPicture__hog {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    display: block;
+    width: var(--advent-hog-size);
+    height: var(--advent-hog-size);
+    padding: 0;
+    margin-left: calc(var(--advent-hog-size) / -2);
+    background: none;
+    border: 0;
+    transform-origin: 50% 100%;
+    animation: AdventPicture__land 560ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+.AdventPicture__hog--button {
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.AdventPicture__shadow {
+    position: absolute;
+    right: 12%;
+    bottom: -3%;
+    left: 12%;
+    height: 12%;
+    background: color-mix(in oklab, var(--advent-ink) 30%, transparent);
+    border-radius: 50%;
+}
+
+.AdventPicture__pick {
+    position: absolute;
+    top: 0.2cqw;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.25cqw 0.7cqw 0.3cqw;
+    line-height: 1.15;
+    color: var(--advent-ink);
+    white-space: nowrap;
+    background: var(--advent-paper);
+    border: 0.1cqw solid var(--advent-gold);
+    border-radius: 0.6cqw;
+    box-shadow: 0 0.15cqw 0.4cqw color-mix(in oklab, var(--advent-ink) 30%, transparent);
+    transform: translateX(-50%);
+}
+
+.AdventPicture__pick-topic {
+    font-size: max(0.8cqw, 9px);
+    opacity: 0.75;
+}
+
+.AdventPicture__pick-answer {
+    font-size: max(1.05cqw, 11px);
+    font-weight: 700;
+}
+
+.AdventPicture__reveal {
+    position: absolute;
+    z-index: 1000;
+    display: block;
+    transform: translate(-50%, -50%) scale(var(--advent-reveal-scale));
+}
+
+.AdventReveal__lid--shaking {
+    animation: AdventReveal__shake 1300ms ease-in both;
+}
+
+.AdventReveal__lid--off {
+    pointer-events: none;
+    animation: AdventReveal__lid-off 420ms ease-in both;
+}
+
+.AdventReveal__pop {
+    animation: AdventReveal__pop 620ms cubic-bezier(0.2, 0.9, 0.3, 1.4) 120ms both;
+}
+
+.AdventSparkle {
+    position: absolute;
+    width: var(--advent-sparkle-size);
+    height: var(--advent-sparkle-size);
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+    background: var(--advent-sparkle-color);
+    animation: AdventSparkle__fly 1200ms ease-out var(--advent-sparkle-delay) both;
+}
+
+.AdventSparkle--chip {
+    height: calc(var(--advent-sparkle-size) * 0.5);
+    clip-path: none;
+    border-radius: 1px;
+    animation: AdventSparkle__fall 1500ms cubic-bezier(0.15, 0.7, 0.4, 1) var(--advent-sparkle-delay) both;
+}
+
+@keyframes AdventReveal__shake {
+    0% {
+        transform: rotate(0) scale(1);
+    }
+
+    12% {
+        transform: rotate(-2deg);
+    }
+
+    24% {
+        transform: rotate(2deg);
+    }
+
+    36% {
+        transform: rotate(-4deg) scale(1.02);
+    }
+
+    48% {
+        transform: rotate(4deg) scale(1.02);
+    }
+
+    60% {
+        transform: rotate(-6deg) scale(1.05);
+    }
+
+    72% {
+        transform: rotate(6deg) scale(1.05);
+    }
+
+    84% {
+        transform: rotate(-9deg) scale(1.08);
+    }
+
+    100% {
+        transform: rotate(0) scale(1.12);
+    }
+}
+
+@keyframes AdventReveal__lid-off {
+    from {
+        opacity: 1;
+        transform: scale(1.12);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(1.7) rotate(10deg);
+    }
+}
+
+@keyframes AdventReveal__pop {
+    from {
+        opacity: 0;
+        transform: scale(0.3);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes AdventSparkle__fly {
+    0% {
+        opacity: 0;
+        transform: translate(0, 0) scale(0.2);
+    }
+
+    40% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(var(--advent-sparkle-x), var(--advent-sparkle-y)) scale(1);
+    }
+}
+
+@keyframes AdventSparkle__fall {
+    0% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0);
+    }
+
+    70% {
+        opacity: 1;
+        transform: translate(var(--advent-sparkle-x), var(--advent-sparkle-y)) rotate(var(--advent-sparkle-turn));
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(var(--advent-sparkle-x), calc(var(--advent-sparkle-y) + 60px))
+            rotate(var(--advent-sparkle-turn));
+    }
+}
+
+@keyframes AdventPicture__land {
+    0% {
+        opacity: 0;
+        transform: translateY(-30%) scale(0.9, 1.1);
+    }
+
+    55% {
+        opacity: 1;
+        transform: translateY(0) scale(1.14, 0.84);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AdventPicture__hog {
+        animation: none;
+    }
+}

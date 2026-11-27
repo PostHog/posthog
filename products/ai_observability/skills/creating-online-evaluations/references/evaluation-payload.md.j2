@@ -3,6 +3,16 @@
 Full field reference for `posthog:llma-evaluation-create`. The `evaluation_config` and `output_config`
 schemas below are rendered from the backend Pydantic models at build time, so they can't drift.
 
+## Contents
+
+- Top-level fields
+- `target` and `target_config`
+- `evaluation_config` by type
+- `output_config`
+- `model_configuration` (llm_judge only)
+- `conditions`
+- Full examples
+
 ## Top-level fields
 
 | Field                 | Required       | Notes                                                                                 |

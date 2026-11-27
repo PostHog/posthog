@@ -1,5 +1,6 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
+_DB_DOCS_URL = "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/database-visibility-api"
 _DOCS_URL = "https://docs.appdynamics.com/appd/24.x/latest/en/extend-appdynamics/appdynamics-apis/apm-apis"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -203,7 +204,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "database_servers": {
         "description": "Database servers monitored by Database Visibility, the inventory behind the database backends that applications call.",
-        "docs_url": "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/database-visibility-api",
+        "docs_url": _DB_DOCS_URL,
         "columns": {
             "id": "Unique identifier of the monitored database server within the controller.",
             "name": "Name of the database collector monitoring the server.",
@@ -212,6 +213,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "port": "Port the collector connects to the database server on.",
             "enabled": "Whether the collector is currently collecting from the server.",
             "licensesUsed": "Licenses the collector consumes. Always -1 on controller 21.2 and later, which licenses Database Visibility per infrastructure unit instead.",
+        },
+    },
+    "metric_data_v2": {
+        "description": "Metric time series from the v2 metric data method for the configured metric paths, flattened to one row per metric per minute.",
+        "docs_url": "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/metric-and-snapshot-api",
+        "columns": {
+            "application_id": "Identifier of the application the metric belongs to.",
+            "metricId": "Unique identifier of the metric within the controller.",
+            "metricName": "Short name of the metric (e.g. BTM|Application Summary|Average Response Time (ms)).",
+            "metricPath": "Full metric browser path of the metric.",
+            "frequency": "Granularity of the data point (ONE_MIN for 24-hour ranges in the last 8 days).",
+            "startTimeInMillis": "Epoch-ms timestamp of the start of the interval the value covers.",
+            "value": "Value of the metric over the interval: an average, a sum or the latest value, by the metric's rollup type.",
+            "min": "Minimum observed value over the interval. Not set for count-based or sum-based metrics.",
+            "max": "Maximum observed value over the interval. Not set for count-based or sum-based metrics.",
+            "current": "Value for the current minute, used when the metric's rollup type is current.",
+            "sum": "Total accumulated value of the metric over the interval.",
+            "count": "Number of times the agent collected the metric over the interval.",
+            "occurrences": "Number of data samples the controller used to calculate the standard deviation.",
+            "standardDeviation": "Intermediate value the controller calculates during rollup for the standard deviation.",
+            "useRange": "Used internally by the controller to process the metric.",
+        },
+    },
+    "database_health_rule_violations": {
+        "description": "Health rule violations on database servers monitored by Database Visibility, synced by their start time.",
+        "docs_url": _DB_DOCS_URL,
+        "columns": {
+            "server_id": "Identifier of the database server the violation occurred on.",
+            "id": "Unique identifier of the health rule violation within the controller.",
+            "startTimeInMillis": "Epoch-ms timestamp when the violation started.",
+        },
+    },
+    "controller_audit_history": {
+        "description": "Controller audit log of user logins and configuration changes, the same records as the controller's audit.log file.",
+        "docs_url": "https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis/controller-audit-history-api",
+        "columns": {
+            "audit_id": "Hash of the whole audit record, used as its identifier because the API returns none.",
+            "timeStamp": "Epoch-ms timestamp of the audited activity.",
+            "auditDateTime": "ISO 8601 timestamp of the audited activity.",
+            "accountName": "Controller account the activity happened in.",
+            "securityProviderType": "Security provider that authenticated the user (e.g. INTERNAL, LDAP, SAML).",
+            "userName": "User who performed the activity.",
+            "action": "Audited action (e.g. LOGIN, OBJECT_CREATED, OBJECT_UPDATE, OBJECT_DELETED, APP_CONFIGURATION).",
+            "objectType": "Type of the object the action changed (e.g. APPLICATION, BUSINESS_TRANSACTION).",
+            "objectName": "Name of the object the action changed.",
+            "objectId": "Identifier of the object the action changed.",
+            "applicationName": "Application the activity relates to.",
         },
     },
 }

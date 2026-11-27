@@ -132,6 +132,9 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("icontains", {"url": "DOCS", "urlMatchType": "icontains"}, DOCS),
             ("not_icontains", {"url": "docs", "urlMatchType": "not_icontains"}, PRICING),
             ("missing_match_type_means_icontains", {"url": "DOCS"}, DOCS),
+            ("legacy_contains_means_icontains", {"url": "DOCS", "urlMatchType": "contains"}, DOCS),
+            ("unknown_match_type_means_icontains", {"url": "DOCS", "urlMatchType": "CONTAINS"}, DOCS),
+            ("non_string_match_type_means_icontains", {"url": "DOCS", "urlMatchType": {"op": "contains"}}, DOCS),
             ("missing_url_means_any_page", {}, DOCS),
             ("no_conditions_means_any_page", None, DOCS),
             ("older_than_the_window", {"url": "legacy"}, None),
@@ -281,6 +284,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("saved_targeting", "", PRICING),
             ("unsaved_targeting", "&url=docs", DOCS),
             ("unsaved_targeting_with_match_type", "&url=/docs/.%2B&url_match_type=regex", DOCS),
+            ("unsaved_targeting_with_legacy_contains", "&url=DOCS&url_match_type=contains", DOCS),
             ("unsaved_targeting_of_every_page", "&url=", DOCS),
         ]
     )

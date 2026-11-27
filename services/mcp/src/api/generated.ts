@@ -9713,7 +9713,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
 
     /**
-     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
      */
     export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
 
@@ -9722,7 +9722,9 @@ export namespace Schemas {
       empty_id?: number | null;
       /** Exposed entities with no row of the metric query that counted, by variant. */
       exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
-      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+      unknown_variant_rows?: number | null;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
       unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
     }
 
@@ -14411,6 +14413,34 @@ export namespace Schemas {
       option: AdventCalendarOptionEnum;
     }
 
+    export interface AdventCalendarDoorOpen {
+      /** The calendar day of the door. */
+      day: number;
+      /** When the server stored the person's first open of this door. Opening it again keeps this time. */
+      opened_at: string;
+    }
+
+    export interface AdventCalendarDoorOpenRequest {
+      /**
+         * The calendar day of the door, 1 to 24.
+         * @minimum 1
+         * @maximum 24
+         */
+      day: number;
+      /**
+         * The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 characters.
+         * @maxLength 64
+         * @pattern ^[a-z0-9-]+$
+         */
+      hoggy: string;
+      /**
+         * The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on.
+         * @minimum -720
+         * @maximum 840
+         */
+      utc_offset_minutes: number;
+    }
+
     export interface AdventCalendarShare {
       /** One option of the question.
        *
@@ -17503,15 +17533,36 @@ export namespace Schemas {
     }
 
     export interface ApproveSnapshotInput {
-      /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
+      /**
+         * The snapshot identifier, such as a Storybook story id plus theme.
+         * @maxLength 512
+         */
       identifier: string;
-      /** The content hash of the new baseline image to record for this identifier. */
-      new_hash: string;
+      /**
+         * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+         * @maxLength 128
+         * @nullable
+         */
+      new_hash?: string | null;
+      /**
+         * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+         * @maxLength 128
+         * @nullable
+         */
+      old_hash?: string | null;
     }
 
     export interface ApproveRunRequestInput {
-      /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+      /** Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the per-snapshot "Accept change" action). It does not change the baseline or pass the gate: the finalize endpoint does that. */
       snapshots: ApproveSnapshotInput[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+      /** Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent through MCP can never accept over a rejection. */
+      override_rejection?: boolean;
     }
 
     export type AppsignalIssueSignalExtraKind = typeof AppsignalIssueSignalExtraKind[keyof typeof AppsignalIssueSignalExtraKind] | null;
@@ -17534,6 +17585,30 @@ export namespace Schemas {
       alert_state?: string | null;
       metric_name?: string | null;
     }
+
+    /**
+     * * `one_hit_wonder` - The One-Hit Wonder
+     * * `swiss_army_knife` - The Swiss Army Knife
+     * * `night_owl` - The Night Owl
+     * * `weekend_warrior` - The Weekend Warrior
+     * * `speed_demon` - The Speed Demon
+     * * `rocket` - The Rocket
+     * * `superhero` - The Superhero
+     * * `all_rounder` - The All-Rounder
+     */
+    export type ArchetypeEnum = typeof ArchetypeEnum[keyof typeof ArchetypeEnum];
+
+
+    export const ArchetypeEnum = {
+      OneHitWonder: 'one_hit_wonder',
+      SwissArmyKnife: 'swiss_army_knife',
+      NightOwl: 'night_owl',
+      WeekendWarrior: 'weekend_warrior',
+      SpeedDemon: 'speed_demon',
+      Rocket: 'rocket',
+      Superhero: 'superhero',
+      AllRounder: 'all_rounder',
+    } as const;
 
     export interface ArchiveExperiment {
       /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
@@ -19858,6 +19933,8 @@ export namespace Schemas {
      * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AwsS3DestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -20072,6 +20149,8 @@ export namespace Schemas {
      * `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AzureBlobDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Azure Blob Storage container name. */
       container_name: string;
       /** Object key prefix applied to every exported file. */
@@ -20683,6 +20762,8 @@ export namespace Schemas {
      * `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface DatabricksDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Databricks SQL warehouse HTTP path. */
       http_path: string;
       /** Unity Catalog name. */
@@ -20713,6 +20794,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface BigQueryDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** BigQuery dataset ID to write to. */
       dataset_id: string;
       /** BigQuery table ID inside the dataset. */
@@ -20736,6 +20819,8 @@ export namespace Schemas {
      * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** PostgreSQL database name to connect to. */
       database: string;
       /** PostgreSQL schema name containing the destination table. */
@@ -20763,6 +20848,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface S3CompatibleDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -20809,6 +20896,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface SnowflakeDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Snowflake database to write to. */
       database: string;
       /** Snowflake compute warehouse to use. */
@@ -20879,6 +20968,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Redshift database name to connect to. */
       database: string;
       /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
@@ -24429,6 +24520,50 @@ export namespace Schemas {
       /** Status of the broadcast, such as draft or active. */
       status: string;
     }
+
+    /**
+     * * `slack_message` - Slack message
+     */
+    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
+
+
+    export const BroadcastRequestDeliveryKindEnum = {
+      SlackMessage: 'slack_message',
+    } as const;
+
+    /**
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     */
+    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
+
+
+    export const BroadcastRequestSourceEnum = {
+      Github: 'github',
+      Slack: 'slack',
+      Api: 'api',
+    } as const;
+
+    /**
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed
+     */
+    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
+
+
+    export const BroadcastRequestStatusEnum = {
+      Pending: 'pending',
+      Open: 'open',
+      Approved: 'approved',
+      StamphogApproved: 'stamphog_approved',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
 
     /**
      * * `breaking_master` - Breaking Master
@@ -29603,6 +29738,23 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
     }
 
+    export interface ClearRunRequestInput {
+      /**
+         * Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.
+         * @maxItems 500
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+      /** Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection. */
+      override_rejection?: boolean;
+    }
+
     export interface CliAuthorize {
       /**
          * Most the token can spend, in USD, within the bounds `usage` reports. Omit for the default.
@@ -30147,6 +30299,57 @@ export namespace Schemas {
       readonly has_installation: boolean;
     }
 
+    export interface CodeReviewApprovalBroadcastRequestDelivery {
+      /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
+       *
+       * * `slack_message` - Slack message */
+      readonly kind: BroadcastRequestDeliveryKindEnum;
+      /**
+         * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    export interface CodeReviewApprovalBroadcastRequest {
+      /** ID of the Broadcast request. */
+      readonly id: string;
+      /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
+       *
+       * * `pending` - Waiting for Stamphog
+       * * `open` - Waiting for a person
+       * * `approved` - Approved by a person
+       * * `stamphog_approved` - Approved by Stamphog
+       * * `merged` - Merged
+       * * `closed` - Closed */
+      readonly status: BroadcastRequestStatusEnum;
+      /** The pull request head the request follows. A push moves it. */
+      readonly head_sha: string;
+      /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
+       *
+       * * `github` - Pull request comment
+       * * `slack` - Slack
+       * * `api` - API */
+      readonly requested_via: BroadcastRequestSourceEnum;
+      /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
+      readonly note: string;
+      /** Slack display names of the people who said they will look, in the order they said it. */
+      readonly looking: readonly string[];
+      /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
+      readonly approved_by_login: string;
+      /** Where the request was posted. Empty until auto-approval does not approve. */
+      readonly deliveries: readonly CodeReviewApprovalBroadcastRequestDelivery[];
+      /**
+         * How many broadcast messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+         * @nullable
+         */
+      readonly requester_card_count: number | null;
+      /** When somebody asked for people to review. */
+      readonly created_at: string;
+      /** When the request last changed. */
+      readonly updated_at: string;
+    }
+
     /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
@@ -30323,6 +30526,8 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
       readonly routing: CodeReviewApprovalPullRequestRouting | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -30375,8 +30580,14 @@ export namespace Schemas {
       readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      readonly broadcast_enabled: boolean;
+      /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
+      readonly broadcast_slack_channel_id: string;
+      /** Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
+      readonly broadcast_slack_channel_name: string;
       /**
-         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -30427,6 +30638,18 @@ export namespace Schemas {
       routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface CodeReviewApprovalRoutingFile {
@@ -40229,6 +40452,180 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `web` - Visual Review page
+     * * `api` - API key
+     * * `mcp` - Agent through MCP
+     */
+    export type DecisionChannelEnum = typeof DecisionChannelEnum[keyof typeof DecisionChannelEnum];
+
+
+    export const DecisionChannelEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
+    export interface DecisionRefusal {
+      /** The refused snapshot. Empty when the whole call was refused. */
+      identifier: string;
+      /** Why it was refused, such as `hash_mismatch` or `decided_by_person`. */
+      code: string;
+      /** What went wrong and what to do next. */
+      detail: string;
+      /**
+         * The `seq` of the newest decision on the snapshot, when the refusal is about it.
+         * @nullable
+         */
+      current_seq: number | null;
+    }
+
+    export interface DecisionError {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+      /** Every refused snapshot. The call is all or nothing, so nothing was written. */
+      snapshots: DecisionRefusal[];
+    }
+
+    export interface RunProgress {
+      /** Changed, new and removed snapshots that gate the run, plus rejected quarantined ones. */
+      total: number;
+      /** Accepted, on this run or on an earlier run of the pull request. */
+      approved: number;
+      /** Accepted on an earlier commit of the pull request, and still counting because the pictures match. */
+      approved_on_earlier_commits: number;
+      /** Accepted by an agent through MCP. */
+      approved_via_mcp: number;
+      /** Rejected. Each one blocks finalize. */
+      rejected: number;
+      /** Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize accepts by itself. */
+      needs_review: number;
+      /** Tolerated as rendering noise. */
+      tolerated: number;
+    }
+
+    export interface HeadRun {
+      /** UUID of the run of the pull request whose verdict gates it. */
+      id: string;
+      /** The commit of that run. */
+      commit_sha: string;
+      /** The run's processing status. */
+      status: string;
+      /** Whether that run is finalized. */
+      approved: boolean;
+    }
+
+    /**
+     * * `review` - review
+     * * `observe` - observe
+     */
+    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
+
+
+    export const RunPurposeEnum = {
+      Review: 'review',
+      Observe: 'observe',
+    } as const;
+
+    /**
+     * * `ci_job` - ci_job
+     * * `commit_status` - commit_status
+     */
+    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
+
+
+    export const RunGateEnum = {
+      CiJob: 'ci_job',
+      CommitStatus: 'commit_status',
+    } as const;
+
+    export interface RunSummary {
+      total: number;
+      changed: number;
+      new: number;
+      removed: number;
+      unchanged: number;
+      unresolved?: number;
+      tolerated_matched?: number;
+    }
+
+    export type RunMetadata = { [key: string]: unknown };
+
+    export interface Run {
+      approved_by?: UserBasicInfo | null;
+      /** How far the review of this run got. Only on the single-run read, null in lists. */
+      progress?: RunProgress | null;
+      /** The newest run of the pull request, which finalize needs. Only on the single-run read, null in lists. */
+      head_run?: HeadRun | null;
+      /** Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. Only on the single-run read, false in lists. */
+      can_finalize?: boolean;
+      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+       *
+       * * `review` - review
+       * * `observe` - observe */
+      readonly purpose: RunPurposeEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
+      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
+       *
+       * * `ci_job` - ci_job
+       * * `commit_status` - commit_status */
+      readonly gate: RunGateEnum;
+      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
+      readonly stale_approval_count: number;
+      id: string;
+      repo_id: string;
+      status: string;
+      run_type: string;
+      commit_sha: string;
+      branch: string;
+      /** @nullable */
+      pr_number: number | null;
+      approved: boolean;
+      /** @nullable */
+      approved_at: string | null;
+      summary: RunSummary;
+      /** @nullable */
+      error_message: string | null;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+      is_stale?: boolean;
+      /** @nullable */
+      superseded_by_id?: string | null;
+      metadata?: RunMetadata;
+    }
+
+    export interface DecisionResult {
+      /** The run the call was made on. */
+      run: Run;
+      /** The newest run of the pull request. A decision counts there when the pictures are the same. */
+      head_run: HeadRun;
+      /** How far the review of the newest run got after this call. */
+      progress: RunProgress;
+      /** Identifiers whose newest decision already was the one requested, so nothing was written for them and the first decider stays. */
+      already_decided: string[];
+    }
+
+    /**
+     * * `approved` - approved
+     * * `rejected` - rejected
+     * * `cleared` - cleared
+     */
+    export type DecisionStateEnum = typeof DecisionStateEnum[keyof typeof DecisionStateEnum];
+
+
+    export const DecisionStateEnum = {
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Cleared: 'cleared',
+    } as const;
+
+    /**
      * * `follow` - Let each repository decide
      * * `flash` - On everywhere
      * * `off` - Off everywhere
@@ -42405,6 +42802,49 @@ export namespace Schemas {
     }
 
     /**
+     * * `before` - before
+     * * `after` - after
+     * * `both` - both
+     */
+    export type EarlierDecisionChangeEnum = typeof EarlierDecisionChangeEnum[keyof typeof EarlierDecisionChangeEnum];
+
+
+    export const EarlierDecisionChangeEnum = {
+      Before: 'before',
+      After: 'after',
+      Both: 'both',
+    } as const;
+
+    export interface EarlierSnapshotDecision {
+      /** What the earlier decision was.
+       *
+       * * `approved` - approved
+       * * `rejected` - rejected
+       * * `cleared` - cleared */
+      state: DecisionStateEnum;
+      /** Who made the earlier decision. */
+      by: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** When the earlier decision was made. */
+      at: string;
+      /** Why the earlier picture was rejected. Empty for other decisions. */
+      reason: string;
+      /** The commit the earlier decision was made on. */
+      commit_sha: string;
+      /** Which picture changed since: `before` (the baseline, because the default branch or a pull request below changed it), `after` (the pull request's own picture), or `both`.
+       *
+       * * `before` - before
+       * * `after` - after
+       * * `both` - both */
+      changed: EarlierDecisionChangeEnum;
+    }
+
+    /**
      * Feature flag payload for this early access feature
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
@@ -42958,10 +43398,10 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[] | null;
       /**
-         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
-         * @maxItems 3
+         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were.
+         * @maxItems 10
          * @nullable
-         * @items.maxLength 200
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[] | null;
       /**
@@ -43041,6 +43481,7 @@ export namespace Schemas {
     /**
      * * `title` - title
      * * `summary` - summary
+     * * `suggested_prompts` - suggested_prompts
      */
     export type ReportQualityHintFieldEnum = typeof ReportQualityHintFieldEnum[keyof typeof ReportQualityHintFieldEnum];
 
@@ -43048,6 +43489,7 @@ export namespace Schemas {
     export const ReportQualityHintFieldEnum = {
       Title: 'title',
       Summary: 'summary',
+      SuggestedPrompts: 'suggested_prompts',
     } as const;
 
     export interface ReportQualityHint {
@@ -43061,7 +43503,8 @@ export namespace Schemas {
       /** The field the check matched.
        *
        * * `title` - title
-       * * `summary` - summary */
+       * * `summary` - summary
+       * * `suggested_prompts` - suggested_prompts */
       field: ReportQualityHintFieldEnum;
       /** What the check found and what to do next time. */
       message: string;
@@ -43121,7 +43564,7 @@ export namespace Schemas {
       decision_fields_set: string[];
       /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
       warnings: EditReportWarning[];
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
@@ -44157,9 +44600,9 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[];
       /**
-         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-         * @maxItems 3
-         * @items.maxLength 200
+         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.
+         * @maxItems 10
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[];
       /**
@@ -44215,7 +44658,7 @@ export namespace Schemas {
       remediation: string | null;
       /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
       idempotent_replay: boolean;
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
     }
 
@@ -50931,6 +51374,7 @@ export namespace Schemas {
      * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -50967,6 +51411,7 @@ export namespace Schemas {
       ResultReady: 'result_ready',
       FlagShared: 'flag_shared',
       StaleExperiment: 'stale_experiment',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -51043,6 +51488,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
      * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
 
@@ -51077,6 +51523,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -51117,7 +51564,8 @@ export namespace Schemas {
        * * `metrics_not_matured` - Metrics Not Matured
        * * `result_ready` - Result Ready
        * * `flag_shared` - Flag Shared
-       * * `stale_experiment` - Stale Experiment */
+       * * `stale_experiment` - Stale Experiment
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -51178,7 +51626,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       check: ExperimentHealthCheckKeyEnum;
     }
 
@@ -51269,6 +51718,9 @@ export namespace Schemas {
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -51344,6 +51796,9 @@ export namespace Schemas {
       AssignedOutsideCount: 'assigned_outside_count',
       OtherDraftExperimentCount: 'other_draft_experiment_count',
       FiltersTestAccounts: 'filters_test_accounts',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     /**
@@ -51440,7 +51895,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -51518,7 +51976,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -51577,7 +52038,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
@@ -52023,6 +52485,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -52040,6 +52503,9 @@ export namespace Schemas {
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
       UnservedExposedCount: 'unserved_exposed_count',
       UnservedExposedPercentage: 'unserved_exposed_percentage',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     export interface ExperimentExposureHealthRuleMinimum {
@@ -52125,6 +52591,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -57943,91 +58410,60 @@ export namespace Schemas {
       VerificationComplete: 'verification_complete',
     } as const;
 
-    /**
-     * * `review` - review
-     * * `observe` - observe
-     */
-    export type RunPurposeEnum = typeof RunPurposeEnum[keyof typeof RunPurposeEnum];
-
-
-    export const RunPurposeEnum = {
-      Review: 'review',
-      Observe: 'observe',
-    } as const;
-
-    /**
-     * * `ci_job` - ci_job
-     * * `commit_status` - commit_status
-     */
-    export type RunGateEnum = typeof RunGateEnum[keyof typeof RunGateEnum];
-
-
-    export const RunGateEnum = {
-      CiJob: 'ci_job',
-      CommitStatus: 'commit_status',
-    } as const;
-
-    export interface RunSummary {
-      total: number;
-      changed: number;
-      new: number;
-      removed: number;
-      unchanged: number;
-      unresolved?: number;
-      tolerated_matched?: number;
+    export interface FinalizeApprover {
+      /** Who accepted. */
+      user: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** How many of the run's changes this person accepted this way. */
+      count: number;
+      /** The commits of the pull request the accepts were made on. */
+      commit_shas: string[];
     }
 
-    export type RunMetadata = { [key: string]: unknown };
+    export interface RejectedSnapshotDetail {
+      /** Who rejected it. */
+      by: UserBasicInfo | null;
+      identifier: string;
+      reason: string;
+    }
 
-    export interface Run {
-      approved_by?: UserBasicInfo | null;
-      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
-       *
-       * * `review` - review
-       * * `observe` - observe */
-      readonly purpose: RunPurposeEnum;
-      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
-       *
-       * * `exact` - exact
-       * * `similar` - similar */
-      readonly search_match_type: SearchMatchTypeEnum | null;
-      /** What gates the merge for this run, fixed when the run is created. `ci_job`: the CI job that completes the run fails while snapshots are unresolved. `commit_status`: the commit status Visual Review posts is the required check, and the CI job passes on unresolved snapshots.
-       *
-       * * `ci_job` - ci_job
-       * * `commit_status` - commit_status */
-      readonly gate: RunGateEnum;
-      /** How many open approvals this run rests on have a baseline that changed after the approval, because another pull request merged a different picture for the same snapshot. A run that would pass gets a failing commit status while this is above 0. Update the branch and review the new run. Only for current `commit_status` pull request runs, and only on the single-run read: 0 elsewhere and in lists. */
-      readonly stale_approval_count: number;
-      id: string;
-      repo_id: string;
-      status: string;
-      run_type: string;
-      commit_sha: string;
-      branch: string;
-      /** @nullable */
-      pr_number: number | null;
-      approved: boolean;
-      /** @nullable */
-      approved_at: string | null;
-      summary: RunSummary;
-      /** @nullable */
-      error_message: string | null;
-      created_at: string;
-      /** @nullable */
-      completed_at: string | null;
-      is_stale?: boolean;
-      /** @nullable */
-      superseded_by_id?: string | null;
-      metadata?: RunMetadata;
+    /**
+     * Every 409 of finalize. `code` says which one, and only its own fields are present.
+     */
+    export interface FinalizeConflict {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+      /** With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
+      rejected?: RejectedSnapshotDetail[];
+      /** With `not_fully_resolved`: every snapshot that still needs a decision. */
+      needs_review?: string[];
+      /**
+         * With `stale_run`: the pull request's newest run, which is the one to finalize, when known.
+         * @nullable
+         */
+      head_run_id?: string | null;
+      /** With `stale_run`: the commit of that newest run, when known. */
+      head_commit_sha?: string;
     }
 
     export interface FinalizeResult {
+      /** The review of the finalized run. */
+      progress?: RunProgress | null;
+      /** Who accepted the run's changes, by person and channel, most accepts first. */
+      approvers: FinalizeApprover[];
       run: Run;
       baseline_content: string;
     }
 
     export interface FinalizeRunRequestInput {
-      /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
+      /** Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review. */
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
       commit_to_github?: boolean;
@@ -69852,7 +70288,7 @@ export namespace Schemas {
       id: string;
       /** Library name. Unique in this project, ignoring case. */
       name: string;
-      /** True for the library new learned sources join. There is at most one. */
+      /** True when new sources learned from support tickets join this library. Several libraries can have it. */
       is_default: boolean;
       /** How many sources are in this library. */
       source_count: number;
@@ -74946,6 +75382,163 @@ export namespace Schemas {
       error_type?: MCPToolResponseErrorType;
       /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
       error_code?: string | null;
+    }
+
+    export interface MCPWrappedIntroCard {
+      /** First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then. */
+      readonly tracked_since: string;
+      /** MCP servers that each sent at least 1% of the project's tool calls. */
+      readonly server_count: number;
+    }
+
+    export interface MCPWrappedMonth {
+      /** Month as YYYY-MM. */
+      readonly month: string;
+      /** Tool calls in the month. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedToolCallsCard {
+      /** Tool calls in the period. */
+      readonly total_calls: number;
+      /** Calls per month from the tracked-since month on, oldest first. */
+      readonly months: readonly MCPWrappedMonth[];
+      /**
+         * The last month's calls over the first full month's, set only when it is 1.5 or more.
+         * @nullable
+         */
+      readonly growth_multiple: number | null;
+    }
+
+    export interface MCPWrappedToolCount {
+      /** Tool name. */
+      readonly tool: string;
+      /** Tool calls in the period. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedTopToolsCard {
+      /** Up to five tools, busiest first. */
+      readonly tools: readonly MCPWrappedToolCount[];
+    }
+
+    export interface MCPWrappedShare {
+      /** Name of the app, AI lab or model family, or "Other". */
+      readonly name: string;
+      /** Share of the calls the bar covers, from 0 to 1. */
+      readonly share: number;
+    }
+
+    export interface MCPWrappedSharesCard {
+      /** Largest first, with the remainder as a final Other entry. */
+      readonly shares: readonly MCPWrappedShare[];
+    }
+
+    export interface MCPWrappedRushHourCard {
+      /** Busiest ISO weekday, 1 is Monday. */
+      readonly weekday: number;
+      /** Busiest hour, 0 to 23, in timezone. */
+      readonly hour: number;
+      /** The project's timezone, which weekday and hour use. */
+      readonly timezone: string;
+      /** Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour. */
+      readonly heat: readonly number[];
+      /** Under 15% of calls fell on weekends. */
+      readonly quiet_weekends: boolean;
+      /** Over half of the calls fell between 10 pm and 6 am. */
+      readonly night_shift: boolean;
+    }
+
+    export interface MCPWrappedToolErrorRate {
+      /** Tool name. */
+      readonly tool: string;
+      /** Share of the tool's calls that errored, 0 to 1. */
+      readonly error_rate: number;
+      /** The tool's calls this year. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedReliabilityCard {
+      /** Share of calls without an error, 0 to 1. */
+      readonly success_rate: number;
+      /** The tool with the lowest error rate among tools with 100+ calls, more calls winning a tie, when 3 or more qualify. */
+      readonly most_reliable_tool: MCPWrappedToolErrorRate | null;
+      /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify and its rate is above the most reliable tool's. */
+      readonly struggling_tool: MCPWrappedToolErrorRate | null;
+    }
+
+    export interface MCPWrappedToolLatency {
+      /** Tool name. */
+      readonly tool: string;
+      /** 95th percentile response time in ms. */
+      readonly p95_duration_ms: number;
+    }
+
+    export interface MCPWrappedSpeedCard {
+      /** 95th percentile response time across all calls, in ms. */
+      readonly p95_duration_ms: number;
+      /** The quickest of the five busiest tools. */
+      readonly quickest_busy_tool: MCPWrappedToolLatency | null;
+      /** The slowest tool with 100+ calls. */
+      readonly slowest_tool: MCPWrappedToolLatency | null;
+    }
+
+    export interface MCPWrappedArchetypeCard {
+      /** The server's personality, from the first rule it meets.
+       *
+       * * `one_hit_wonder` - The One-Hit Wonder
+       * * `swiss_army_knife` - The Swiss Army Knife
+       * * `night_owl` - The Night Owl
+       * * `weekend_warrior` - The Weekend Warrior
+       * * `speed_demon` - The Speed Demon
+       * * `rocket` - The Rocket
+       * * `superhero` - The Superhero
+       * * `all_rounder` - The All-Rounder */
+      readonly archetype: ArchetypeEnum;
+      /**
+         * The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.
+         * @nullable
+         */
+      readonly evidence: number | null;
+    }
+
+    export interface MCPWrappedCards {
+      /** Opening card. */
+      readonly intro: MCPWrappedIntroCard;
+      /** Total and monthly tool calls. */
+      readonly tool_calls: MCPWrappedToolCallsCard;
+      /** The busiest tools. */
+      readonly top_tools: MCPWrappedTopToolsCard;
+      /** Share of calls by app. Null when too many calls have no client. */
+      readonly apps: MCPWrappedSharesCard | null;
+      /** Share of calls by AI lab, as agents report it. Null when too few calls carry a model. */
+      readonly labs: MCPWrappedSharesCard | null;
+      /** Share of calls by model family, as agents report it. Null when too few calls carry a model. */
+      readonly models: MCPWrappedSharesCard | null;
+      /** Busiest weekday and hour. Null under 1,000 calls. */
+      readonly rush_hour: MCPWrappedRushHourCard | null;
+      /** Calls without an error. */
+      readonly reliability: MCPWrappedReliabilityCard;
+      /** Response times. Null when most calls have no duration. */
+      readonly speed: MCPWrappedSpeedCard | null;
+      /** The server's personality. */
+      readonly archetype: MCPWrappedArchetypeCard;
+    }
+
+    export interface MCPWrapped {
+      /** Year the wrap covers, Jan 1 to Dec 1. */
+      readonly year: number;
+      /** When the wrap was computed. */
+      readonly generated_at: string;
+      /** When the wrap stops showing, 14 days after it was computed. */
+      readonly expires_at: string;
+      /** Values for each story card. */
+      readonly cards: MCPWrappedCards;
+    }
+
+    export interface MCPWrappedResponse {
+      /** The project's wrap, or null when none is ready and fresh. */
+      readonly wrapped: MCPWrapped | null;
     }
 
     export interface MakeTransactional {
@@ -85216,6 +85809,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly approval_dismissed_at: string | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. It belongs to the pull request, so every run of the pull request shows it. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -87173,6 +87768,35 @@ export namespace Schemas {
       results: SnapshotHistoryEntry[];
     }
 
+    export interface SnapshotDecision {
+      /** `approved`: accepted. `rejected`: rejected, which blocks finalize. `cleared`: a decision was undone, so the snapshot needs review again.
+       *
+       * * `approved` - approved
+       * * `rejected` - rejected
+       * * `cleared` - cleared */
+      state: DecisionStateEnum;
+      /** Who made the decision. */
+      by: UserBasicInfo | null;
+      /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+       *
+       * * `web` - Visual Review page
+       * * `api` - API key
+       * * `mcp` - Agent through MCP */
+      via: DecisionChannelEnum;
+      /** When the decision was made. */
+      at: string;
+      /** Why the snapshot was rejected. Empty for other decisions. */
+      reason: string;
+      /** The run of the pull request the decision was made on. */
+      run_id: string;
+      /** The commit of that run. */
+      commit_sha: string;
+      /** Whether the decision was made on an earlier commit of the pull request and still counts here. */
+      from_earlier_commit: boolean;
+      /** Order of the decision within the pull request. Pass the highest `seq` you read as `expected_seq` when you decide, so a decision made after your read is not replaced unseen. */
+      seq: number;
+    }
+
     export type SnapshotMetadata = { [key: string]: unknown };
 
     export interface Snapshot {
@@ -87184,6 +87808,12 @@ export namespace Schemas {
       row_shift?: RowShift | null;
       /** Whether a quarantine covered this snapshot when the run was last gated, so its diff did not block the pull request. It keeps that value after the quarantine ends or a new one starts. */
       is_quarantined?: boolean;
+      /** Where the snapshot stands in review on this run: `pending`, `approved` (accepted), `rejected` or `tolerated`, and empty for an unchanged snapshot. In ledger mode a decision made on another run of the pull request counts here while the pictures are the same. */
+      review_state: string;
+      /** The newest decision on the exact before and after pictures this snapshot shows, on any run of the pull request. Null when nobody decided on this pair. */
+      decision?: SnapshotDecision | null;
+      /** Set only when `decision` is null: the newest decision on another picture of this snapshot, which no longer applies because a picture changed. Judge the new picture like any change. */
+      earlier_decision?: EarlierSnapshotDecision | null;
       id: string;
       run_id: string;
       identifier: string;
@@ -87193,7 +87823,6 @@ export namespace Schemas {
       diff_percentage: number | null;
       /** @nullable */
       diff_pixel_count: number | null;
-      review_state: string;
       /** @nullable */
       reviewed_at: string | null;
       approved_hash: string;
@@ -92563,6 +93192,18 @@ export namespace Schemas {
       routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface PatchedCohort {
@@ -96260,6 +96901,8 @@ export namespace Schemas {
       source_ids?: string[];
       /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
       repos?: string[];
+      /** Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it. */
+      is_default?: boolean;
     }
 
     /**
@@ -112675,6 +113318,43 @@ export namespace Schemas {
       Redshift: 'Redshift',
     } as const;
 
+    export interface RejectSnapshotInput {
+      /**
+         * The snapshot identifier, such as a Storybook story id plus theme.
+         * @maxLength 512
+         */
+      identifier: string;
+      /**
+         * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+         * @maxLength 128
+         * @nullable
+         */
+      new_hash?: string | null;
+      /**
+         * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+         * @maxLength 128
+         * @nullable
+         */
+      old_hash?: string | null;
+      /**
+         * What is wrong with the new picture, so the author can fix it. Shown on the pull request.
+         * @minLength 1
+         * @maxLength 500
+         */
+      reason: string;
+    }
+
+    export interface RejectRunRequestInput {
+      /** Snapshots to reject, each with `identifier`, `new_hash` and `reason`. */
+      snapshots: RejectSnapshotInput[];
+      /**
+         * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+         * @minimum 0
+         * @nullable
+         */
+      expected_seq?: number | null;
+    }
+
     /**
      * Marks this actor as a group.
      */
@@ -116614,6 +117294,13 @@ export namespace Schemas {
          * @minimum 1
          */
       pr_number: number;
+      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+      allow_broadcast?: boolean;
+      /**
+         * A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.
+         * @maxLength 200
+         */
+      note?: string;
     }
 
     /**
@@ -116636,6 +117323,8 @@ export namespace Schemas {
       readonly run: ReviewRun;
       /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
       readonly created: boolean;
+      /** The request for people to review that this request made or found active. Null unless allow_broadcast was true. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
     }
 
     export interface ReviewResolutionConfig {
@@ -120566,13 +121255,13 @@ export namespace Schemas {
          */
       report_id?: string | null;
       /**
-         * Short plain-text title. At most 150 characters.
-         * @maxLength 150
+         * Short plain-text title. At most 80 characters.
+         * @maxLength 80
          */
       title: string;
       /**
-         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-         * @maxLength 3000
+         * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 500
          */
       body: string;
       /**
@@ -123854,6 +124543,8 @@ export namespace Schemas {
     export interface SlackScoutChannelSource {
       /** Id of the Slack data warehouse source. */
       id: string;
+      /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+      label: string;
       /** Channels the source syncs, ordered by name. */
       channels: SlackScoutChannel[];
     }
@@ -124268,6 +124959,8 @@ export namespace Schemas {
       deprecatedVersions: SourceVersionDeprecation[];
       /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
       cdcEngine?: CDCEngine | null;
+      /** Whether the source can sync tables with xmin replication. Each table still needs a primary key and a physical `xmin` column, which the schema API checks per table. */
+      supportsXmin?: boolean;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
@@ -156539,10 +157232,30 @@ export namespace Schemas {
      */
     quarantined_only?: boolean;
     /**
+     * Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.
+     *
+     * * `pending` - pending
+     * * `approved` - approved
+     * * `tolerated` - tolerated
+     * * `rejected` - rejected
+     * @minLength 1
+     */
+    review_state?: VisualReviewRunsSnapshotsListReviewState;
+    /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
     snapshot_id?: string;
     };
+
+    export type VisualReviewRunsSnapshotsListReviewState = typeof VisualReviewRunsSnapshotsListReviewState[keyof typeof VisualReviewRunsSnapshotsListReviewState];
+
+
+    export const VisualReviewRunsSnapshotsListReviewState = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Tolerated: 'tolerated',
+      Rejected: 'rejected',
+    } as const;
 
     export type VisualReviewRunsToleratedHashesListParams = {
     /**

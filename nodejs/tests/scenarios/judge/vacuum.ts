@@ -3,8 +3,8 @@ import { z } from 'zod'
 import { Duration, durationMs } from '../duration'
 import { VACUUM_PROBE_EVERY_MS } from '../probe/vacuum-cadence'
 import type { VacuumRead, VacuumSample } from '../probe/vacuum-probe'
-import { WORKER_OF, p99Of, pickupsBetween } from './bars'
 import type { MeasureEvidence, MeasurementDefinition } from './measurements'
+import { WORKER_OF, p99Of, pickupsBetween } from './pickups'
 
 type Read = VacuumSample & { at: number }
 
@@ -257,7 +257,7 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       evidence,
                       params,
                       (window) => {
-                          const pickups = pickupsBetween(evidence.samples, [role], window, { straddle: false })
+                          const pickups = pickupsBetween(evidence.samples, [role], window, { straddlesEnd: false })
                           if ('unread' in pickups) {
                               return unmeasured(pickups.unread)
                           }

@@ -5,14 +5,16 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ExternalDataSchemaStatus } from '~/types'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingSourceStatus, SourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { StatusIcon } from '../settings/StatusIcon'
+import { IntegrationFilterSource, QuillIntegrationFilter } from './QuillIntegrationFilter'
 
 export function IntegrationFilter(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -20,6 +22,7 @@ export function IntegrationFilter(): JSX.Element {
         useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const includeOrganic = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const organicSources = includeOrganic
@@ -90,9 +93,38 @@ export function IntegrationFilter(): JSX.Element {
         return `${selectedIds.length} integrations${suffix}`
     }
 
+    // We don't show the status icon for Completed sources because it would be too many statuses
+    const statusToShow = (source: IntegrationFilterSource): { status: SourceStatus; message: string } | null =>
+        source.status &&
+        source.statusMessage &&
+        source.status !== (ExternalDataSchemaStatus.Completed || MarketingSourceStatus.Success)
+            ? { status: source.status, message: source.statusMessage }
+            : null
+
     // Don't show the filter if there are no available sources
     if (availableSources.length === 0) {
         return <></>
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillIntegrationFilter
+                open={showPopover}
+                onOpenChange={setShowPopover}
+                label={displayValue()}
+                groups={groups.filter((group) => group.sources.length > 0)}
+                selectedIds={selectedIds}
+                isAllSelected={isAllSelected}
+                isSomeSelected={isSomeSelected}
+                includeNonIntegrated={includeNonIntegrated}
+                showNonIntegrated={!isPerformanceTab}
+                formatSourceLabel={formatSourceLabel}
+                statusToShow={statusToShow}
+                onToggleAll={handleToggleAll}
+                onToggleSource={handleToggleSource}
+                onToggleNonIntegrated={handleToggleNonIntegrated}
+            />
+        )
     }
 
     return (
@@ -120,32 +152,30 @@ export function IntegrationFilter(): JSX.Element {
                                 {group.title && (
                                     <div className="px-2 py-1 text-xs font-semibold text-secondary">{group.title}</div>
                                 )}
-                                {group.sources.map((source) => (
-                                    <LemonButton
-                                        key={source.id}
-                                        fullWidth
-                                        size="small"
-                                        onClick={() => handleToggleSource(source.id)}
-                                        className="justify-start"
-                                    >
-                                        <span className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={selectedIds.includes(source.id)}
-                                                className="pointer-events-none"
-                                            />
-                                            <SourceIcon type={source.name} size="xsmall" disableTooltip />
-                                            <span className="flex-1">{formatSourceLabel(source)}</span>
-                                            {/* We don't show the status icon for Completed sources because it would be too many statuses */}
-                                            {source.status &&
-                                                source.statusMessage &&
-                                                source.status !==
-                                                    (ExternalDataSchemaStatus.Completed ||
-                                                        MarketingSourceStatus.Success) && (
-                                                    <StatusIcon status={source.status} message={source.statusMessage} />
+                                {group.sources.map((source) => {
+                                    const status = statusToShow(source)
+                                    return (
+                                        <LemonButton
+                                            key={source.id}
+                                            fullWidth
+                                            size="small"
+                                            onClick={() => handleToggleSource(source.id)}
+                                            className="justify-start"
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={selectedIds.includes(source.id)}
+                                                    className="pointer-events-none"
+                                                />
+                                                <SourceIcon type={source.name} size="xsmall" disableTooltip />
+                                                <span className="flex-1">{formatSourceLabel(source)}</span>
+                                                {status && (
+                                                    <StatusIcon status={status.status} message={status.message} />
                                                 )}
-                                        </span>
-                                    </LemonButton>
-                                ))}
+                                            </span>
+                                        </LemonButton>
+                                    )
+                                })}
                             </div>
                         ))}
                     {!isPerformanceTab && (

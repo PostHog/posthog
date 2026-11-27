@@ -1317,13 +1317,15 @@ async def _rewrite_into_temp(
             if stopping:
                 await stop(paused=pause_now)
         await commit()
-    except BaseException:
+    except BaseException as error:
         if writer is not None:
             try:
                 paths = await run_io(writer.abort)
                 await _delete_uncommitted(temp_uri, storage_options, paths)
             except BaseException:
                 await logger.awarning("repartition: could not clean up uncommitted files", exc_info=True)
+        if isinstance(error, UnsupportedSourceTableError):
+            raise RepartitionUnpartitionableError(str(error)) from error
         raise
     finally:
         try:

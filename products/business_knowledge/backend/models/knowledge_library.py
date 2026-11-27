@@ -20,7 +20,7 @@ class KnowledgeLibrary(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     name = models.CharField(max_length=255)
-    # Set only when learning files a new source. A person can rename the row. Deleting it unlinks members.
+    # New learned sources join every library that has this set. A person can rename the row. Deleting it unlinks members.
     is_default = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -29,11 +29,6 @@ class KnowledgeLibrary(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_business_knowledge_knowledgelibrary"
         constraints = [
             models.UniqueConstraint("team", Lower("name"), name="bk_library_team_name_ci"),
-            models.UniqueConstraint(
-                fields=["team"],
-                condition=models.Q(is_default=True),
-                name="bk_library_one_default",
-            ),
         ]
 
     def __str__(self) -> str:

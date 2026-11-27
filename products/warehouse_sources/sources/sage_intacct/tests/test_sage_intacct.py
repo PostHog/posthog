@@ -37,6 +37,9 @@ def record(key: str) -> ScriptedResponse:
         ("Bills", "accounts-payable/bill"),
         ("GLAccounts", "general-ledger/account"),
         ("JournalEntries", "general-ledger/journal-entry"),
+        ("Locations", "company-config/location"),
+        ("Departments", "company-config/department"),
+        ("GLBudgets", "general-ledger/budget"),
     ],
 )
 def test_query_pages_hydrate_records_and_commit_checkpoint(schema: str, object_name: str) -> None:
@@ -92,6 +95,7 @@ def query_page(rows: list[dict[str, Any]], next_start: int | None) -> ScriptedRe
         ("InvoiceLines", "accounts-receivable/invoice-line"),
         ("BillLines", "accounts-payable/bill-line"),
         ("ARPayments", "accounts-receivable/payment"),
+        ("APPayments", "accounts-payable/payment"),
     ],
 )
 def test_high_volume_tables_read_model_fields_from_query_without_detail_requests(schema: str, object_name: str) -> None:

@@ -228,6 +228,7 @@ describe('integration routes that turn on after boot', () => {
             },
         } as unknown as IntegrationVerifier,
         service: {} as IntegrationDeps['service'],
+        mirror: {} as IntegrationDeps['mirror'],
     }
 
     it('answers 404 until the getter returns routes, then serves them without a restart', async () => {
