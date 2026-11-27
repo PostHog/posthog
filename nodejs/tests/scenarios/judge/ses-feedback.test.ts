@@ -103,14 +103,20 @@ describe('SES feedback per ramp step', () => {
         expect(rowsOf(hundred)).toMatchObject({ 'ses_feedback_ms.p50_1x': 50, 'ses_feedback_ms.p99_1x': 99 })
     })
 
-    it('names every count unmeasured on a run where no SES feedback post went out', () => {
-        const measured = measure([{ name: 'ses_feedback_posts', params: {} }], evidence([]))
+    it.each<[string, Partial<MeasureEvidence>, string]>([
+        ['no SES feedback post went out', {}, 'no SES feedback post went out in this run'],
+        [
+            'every SES feedback post was still in flight at the final read',
+            { feedbackInFlight: 2 },
+            'every SES feedback post was still in flight at the final read',
+        ],
+    ])('names every count unmeasured on a run where %s', (_story, judged, reason) => {
+        const measured = measure([{ name: 'ses_feedback_posts', params: {} }], evidence([], judged))
 
         expect(measured.length).toBeGreaterThan(0)
         expect(
             measured.filter(
-                ({ value, censored, unmeasured }) =>
-                    value !== null || censored !== true || unmeasured !== 'no SES feedback post went out in this run'
+                ({ value, censored, unmeasured }) => value !== null || censored !== true || unmeasured !== reason
             )
         ).toEqual([])
     })
@@ -143,12 +149,49 @@ describe('SES feedback per ramp step', () => {
                 key,
                 value: key === 'p50_1x' ? 30 : 60,
                 censored: true,
-                unmeasured: '1 SES feedback post in this step got no status, so its latency leaves it out',
+                unmeasured:
+                    '1 SES feedback post in this step got no status or no whole answer, so its latency leaves it out',
             })),
             ...[
                 ['p50_2x', 5],
                 ['p99_2x', 7],
             ].map(([key, value]) => ({ key, value, censored: undefined, unmeasured: undefined })),
+        ])
+    })
+
+    it('counts a rejection whose body could not be read and leaves its latency out', () => {
+        const unread = posted('run-1', 2000, 5000, 429)
+        unread.detail.feedback!.bodyUnread = true
+
+        const measured = measure(BOTH, evidence([posted('run-1', 1000, 30), unread]))
+
+        expect(
+            measured
+                .filter(({ key }) => key?.endsWith('_1x'))
+                .map(({ name, key, value, censored, unmeasured }) => ({
+                    row: `${name}.${key}`,
+                    value,
+                    censored,
+                    unmeasured,
+                }))
+        ).toEqual([
+            ...['p50_1x', 'p99_1x'].map((key) => ({
+                row: `ses_feedback_ms.${key}`,
+                value: 30,
+                censored: true,
+                unmeasured:
+                    '1 SES feedback post in this step got no status or no whole answer, so its latency leaves it out',
+            })),
+            ...[
+                ['posted_1x', 2],
+                ['errors_1x', 0],
+                ['rejected_1x', 1],
+            ].map(([key, value]) => ({
+                row: `ses_feedback_posts.${key}`,
+                value,
+                censored: undefined,
+                unmeasured: undefined,
+            })),
         ])
     })
 

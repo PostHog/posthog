@@ -170,7 +170,7 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
-type FeedbackPost = { durationMs: number; status: number }
+type FeedbackPost = { durationMs: number; status: number; timed: boolean }
 
 function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence): [Step, FeedbackPost[]][] {
     const units = new Set(journal.map(({ unitId }) => unitId))
@@ -185,7 +185,11 @@ function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence):
         const postedAt = Date.parse(detail.feedback.postedAt)
         const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= postedAt)
         if (step !== undefined) {
-            byStep.get(step)!.push({ durationMs: detail.feedback.durationMs, status })
+            byStep.get(step)!.push({
+                durationMs: detail.feedback.durationMs,
+                status,
+                timed: status !== 0 && detail.feedback.bodyUnread !== true,
+            })
         }
     }
     return [...byStep]
@@ -204,12 +208,12 @@ const truthUnread = (evidence: MeasureEvidence, unread: string): Measured[] => [
 ]
 
 const unansweredOf = (posts: FeedbackPost[]): { censored?: true; unmeasured?: string } => {
-    const unanswered = posts.filter(({ status }) => status === 0).length
+    const unanswered = posts.filter(({ timed }) => !timed).length
     return unanswered === 0
         ? {}
         : {
               censored: true,
-              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no status, so its latency leaves ${unanswered === 1 ? 'it' : 'them'} out`,
+              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no status or no whole answer, so its latency leaves ${unanswered === 1 ? 'it' : 'them'} out`,
           }
 }
 
@@ -222,7 +226,7 @@ export const sesFeedbackMs: MeasurementDefinition = {
             ? truthUnread(evidence, evidence.unread)
             : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => {
                   const answered = posts
-                      .filter(({ status }) => status !== 0)
+                      .filter(({ timed }) => timed)
                       .map(({ durationMs }) => durationMs)
                       .sort((a, b) => a - b)
                   return (
@@ -254,6 +258,10 @@ export const sesFeedbackPosts: MeasurementDefinition = {
         }
         const byStep = feedbackPostsByStep(evidence)
         const nonePosted = byStep.every(([, posts]) => posts.length === 0)
+        const noneUnmeasured =
+            evidence.feedbackInFlight === undefined
+                ? 'no SES feedback post went out in this run'
+                : 'every SES feedback post was still in flight at the final read'
         return byStep.flatMap(([{ scale }, posts]) =>
             [
                 { key: `posted_${scale}x`, value: posts.length },
@@ -267,9 +275,7 @@ export const sesFeedbackPosts: MeasurementDefinition = {
                 },
             ].map(({ key, value }) => ({
                 key,
-                ...(nonePosted
-                    ? { value: null, censored: true as const, unmeasured: 'no SES feedback post went out in this run' }
-                    : { value }),
+                ...(nonePosted ? { value: null, censored: true as const, unmeasured: noneUnmeasured } : { value }),
                 ...feedbackCompleteness(evidence),
             }))
         )

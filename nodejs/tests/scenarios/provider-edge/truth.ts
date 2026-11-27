@@ -29,6 +29,7 @@ export type TruthRecord = {
             sesMessageId: string
             postedAt: string
             durationMs: number
+            bodyUnread?: true
             bouncedRecipients?: string[]
         }
     }
