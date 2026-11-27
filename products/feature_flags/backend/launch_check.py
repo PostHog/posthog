@@ -124,15 +124,16 @@ class _Side:
             and not self.gives_false_ahead_of(self.person_catch_all)
         )
 
-    def reach_state(self) -> tuple[bool, ...]:
+    def openness(self) -> tuple[bool, ...]:
         return (
             self.is_on,
             self.person_catch_all is not None,
             self.group_catch_all is not None,
-            self.has_holdout,
-            self.has_enrollment,
-            self.runtime_restricted,
-            self.gives_false_ahead_of(self.person_catch_all),
+            not self.has_holdout,
+            not self.has_enrollment,
+            not self.runtime_restricted,
+            not self.gives_false_ahead_of(self.person_catch_all),
+            not self.gives_false_ahead_of(self.group_catch_all),
         )
 
     def is_staged(self) -> bool:
@@ -147,7 +148,7 @@ def _is_candidate(old: _Side, new: _Side) -> bool:
         new.is_on
         and (new.person_catch_all is not None or new.group_catch_all is not None)
         and not old.reaches_everyone()
-        and old.reach_state() != new.reach_state()
+        and any(opened and not was_open for opened, was_open in zip(new.openness(), old.openness()))
     )
 
 

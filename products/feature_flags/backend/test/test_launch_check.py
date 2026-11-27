@@ -177,6 +177,12 @@ class TestCheckLaunch(TestCase):
                 _qualified(ReleasePath.CONDITIONS),
             ),
             (
+                "early_exit_turned_off_on_group_flag",
+                _flag(_condition(50), _condition(100), aggregation=0, early_exit=True),
+                _flag(_condition(50), _condition(100), aggregation=0),
+                _not_qualified(LaunchReason.GROUP, ReleasePath.CONDITIONS),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),
@@ -228,6 +234,11 @@ class TestCheckLaunch(TestCase):
                 "holdout_groups_dropped_from_full_flag",
                 _flag(_condition(100), extra={"holdout_groups": [_condition(10)]}),
                 _flag(_condition(100)),
+            ),
+            (
+                "full_group_flag_moved_to_server_runtime",
+                _flag(_condition(100), aggregation=0),
+                _flag(_condition(100), aggregation=0, runtime="server"),
             ),
             (
                 "variant_split_change_on_full_flag",
