@@ -93,7 +93,7 @@ from posthog.models.project import Project
 from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -1815,15 +1815,21 @@ class TestAdminConsoleLogInAsUser(BaseTest):
         [
             ("blank_reason", {}, {"reason": " "}, False, 400),
             ("staff_target", {"is_staff": True}, {"reason": "For ticket 42"}, False, 404),
+            ("service_account", {"type": UserType.SERVICE_ACCOUNT}, {"reason": "For ticket 42"}, False, 404),
             ("target_turned_it_off", {"allow_impersonation": False}, {"reason": "For ticket 42"}, False, 404),
             # CAN_LOGIN_AS still refuses when the panel offers the operation by mistake.
             ("staff_target_offered_by_mistake", {"is_staff": True}, {"reason": "For ticket 42"}, True, 302),
         ]
     )
     def test_refused_log_in_leaves_the_staff_session_alone(
-        self, _name: str, target_state: dict[str, bool], data: dict[str, str], offered: bool, expected_status: int
+        self, _name: str, target_state: dict[str, bool | str], data: dict[str, str], offered: bool, expected_status: int
     ) -> None:
         User.objects.filter(pk=self.target.pk).update(**target_state)
+
+        if target_state.get("type") == UserType.SERVICE_ACCOUNT:
+            page = self.client.get(f"/admin/console/users/{self.target.pk}/")
+            self.assertContains(page, "Service accounts cannot use browser sessions")
+            self.assertNotContains(page, f'href="{self.url}"')
 
         with patch.object(Impersonation, "refusal", return_value=None) if offered else nullcontext():
             response = self.client.post(self.url, data)

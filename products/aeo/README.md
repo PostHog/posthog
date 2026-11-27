@@ -28,6 +28,7 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
 | `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
+| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).               |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
@@ -123,7 +124,7 @@ A project with no setting for an engine gets its default, so only the engines so
 
 - The web-search engines (Claude, OpenAI, Perplexity, Exa) default to on and daily. An engine the deployment cannot run (no gateway, no Exa key, or the Perplexity gate off) never runs, whatever its setting says.
 - `claude-no-search` and `openai-no-search` send the same model the prompt without its web search tool, so the answer comes from training data alone. They default to off. They are their own engines, so they get their own column wherever engines are split.
-- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
+- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. An engine set to every 72 hours does the same over a 3-day period, so about a third of the set runs each day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
 - A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
 - The overview, rankings, gaps, opportunities, the "needs improvement" filter and the prompt page KPIs read web-search checks only. A prompt's per-engine stats, check history and the prompts table show every engine, no-search ones included.
 

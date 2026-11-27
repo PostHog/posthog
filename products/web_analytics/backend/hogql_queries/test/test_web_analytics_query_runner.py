@@ -25,7 +25,9 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    WebAnalyticsQueryModifiers,
     WebOverviewQuery,
+    WebPageDirectoryQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -44,7 +46,10 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
 from products.web_analytics.backend.warming.read_history import shape_read_hours
+
+_DIMENSIONAL_RANGE = DateRange(date_from="2023-12-08", date_to="2023-12-15")
 
 
 @snapshot_clickhouse_queries
@@ -187,6 +192,41 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert user_run.get_cache_key() != bypass_run.get_cache_key()
         assert user_run.single_flight_variant() != bypass_run.single_flight_variant()
+
+    @parameterized.expand(
+        [
+            ("overview", WebOverviewQueryRunner, WebOverviewQuery(dateRange=_DIMENSIONAL_RANGE, properties=[])),
+            (
+                "stats_table",
+                WebStatsTableQueryRunner,
+                WebStatsTableQuery(dateRange=_DIMENSIONAL_RANGE, properties=[], breakdownBy=WebStatsBreakdown.PAGE),
+            ),
+            (
+                "page_directory",
+                WebPageDirectoryQueryRunner,
+                WebPageDirectoryQuery(
+                    dateRange=_DIMENSIONAL_RANGE,
+                    properties=[],
+                    webQueryModifiers=WebAnalyticsQueryModifiers(useDimensionalTables=True),
+                ),
+            ),
+        ]
+    )
+    def test_dimensional_read_kill_switch_changes_the_cache_key(self, _name, runner_class, query) -> None:
+        def cache_key(reads_disabled: bool) -> str:
+            with (
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_dimensional_read.dimensional_team_ids",
+                    return_value=[self.team.pk],
+                ),
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+                    return_value=reads_disabled,
+                ),
+            ):
+                return runner_class(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(reads_disabled=False) != cache_key(reads_disabled=True)
 
     @parameterized.expand([("toggle_on", True, True), ("toggle_off", False, False)])
     def test_precompute_toggle_shares_cache_only_when_on(self, _name: str, toggle: bool, shares_key: bool) -> None:

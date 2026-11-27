@@ -30,7 +30,8 @@
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
         "products/**/frontend/generated/**",
-        "hog/test/parity/bundles/**"
+        "hog/test/parity/bundles/**",
+        "hog/evals/fixtures/**"
     ],
     "rules": {
         "no-constant-condition": "off",
