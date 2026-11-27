@@ -6948,20 +6948,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "tags": {
-                  "chain": null,
-                  "description": null,
-                  "fields": [
-                      "definition_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "definition_tags",
-                  "type": "lazy_table"
-              },
               "description": {
                   "chain": [
                       "metadata",
@@ -7073,6 +7059,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
+              },
+              "tags": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.event_definitions",
@@ -14041,20 +14041,6 @@
                   "table": null,
                   "type": "integer"
               },
-              "tags": {
-                  "chain": null,
-                  "description": null,
-                  "fields": [
-                      "definition_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "definition_tags",
-                  "type": "lazy_table"
-              },
               "description": {
                   "chain": [
                       "metadata",
@@ -14152,6 +14138,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
+              },
+              "tags": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.property_definitions",
@@ -24378,20 +24378,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "tags": {
-                  "chain": null,
-                  "description": null,
-                  "fields": [
-                      "definition_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "definition_tags",
-                  "type": "lazy_table"
-              },
               "description": {
                   "chain": [
                       "metadata",
@@ -24503,6 +24489,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
+              },
+              "tags": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.event_definitions",
@@ -31471,20 +31471,6 @@
                   "table": null,
                   "type": "integer"
               },
-              "tags": {
-                  "chain": null,
-                  "description": null,
-                  "fields": [
-                      "definition_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "definition_tags",
-                  "type": "lazy_table"
-              },
               "description": {
                   "chain": [
                       "metadata",
@@ -31582,6 +31568,20 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "field_traverser"
+              },
+              "tags": {
+                  "chain": null,
+                  "description": null,
+                  "fields": [
+                      "definition_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "definition_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.property_definitions",
