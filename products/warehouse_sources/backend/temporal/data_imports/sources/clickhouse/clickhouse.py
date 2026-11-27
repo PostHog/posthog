@@ -1633,14 +1633,14 @@ _UNSIGNED_TO_SIGNED_WIDER: dict[pa.DataType, pa.DataType] = {
 }
 
 
-def _widen_unsigned_integers(table: pa.Table) -> pa.Table:
-    source = table.schema
+def _widen_unsigned_integers(batch: pa.RecordBatch) -> pa.RecordBatch:
+    source = batch.schema
     target = source
     for index, field in enumerate(source):
         wider = _UNSIGNED_TO_SIGNED_WIDER.get(field.type)
         if wider is not None:
             target = target.set(index, field.with_type(wider))
-    return table if target is source else table.cast(target)
+    return batch if target is source else batch.cast(target)
 
 
 def _native_column_to_arrow(
@@ -1975,17 +1975,19 @@ def clickhouse_source(
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue
+                        # Widen before buffering, so the byte target counts the widened size.
+                        chunk = _widen_unsigned_integers(chunk)
                         pending.append(chunk)
                         pending_rows += chunk.num_rows
                         pending_bytes += chunk.nbytes
                         if pending_rows >= YIELD_TARGET_ROWS or pending_bytes >= YIELD_TARGET_BYTES:
-                            yield _widen_unsigned_integers(pa.Table.from_batches(pending))
+                            yield pa.Table.from_batches(pending)
                             pending = []
                             pending_rows = 0
                             pending_bytes = 0
 
                 if pending:
-                    yield _widen_unsigned_integers(pa.Table.from_batches(pending))
+                    yield pa.Table.from_batches(pending)
             finally:
                 stream_client.close()
 

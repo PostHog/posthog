@@ -1240,11 +1240,11 @@ class TestGetRowsBatching:
             ),
         ]
 
-        yielded = self._run_get_rows(blocks)
+        with patch.object(ch_module, "YIELD_TARGET_ROWS", 2):
+            yielded = self._run_get_rows(blocks)
 
-        assert len(yielded) == 1
-        assert yielded[0].schema.field("n").type == expected_type
-        assert yielded[0].column("n").to_pylist() == [1, None, big]
+        assert [table.schema.field("n").type for table in yielded] == [expected_type, expected_type]
+        assert [table.column("n").to_pylist() for table in yielded] == [[1, None], [big]]
 
     def test_skips_empty_blocks(self):
         blocks = [self._block(0), self._block(50), self._block(0)]
