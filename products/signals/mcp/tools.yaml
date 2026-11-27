@@ -2024,8 +2024,9 @@ tools:
             example `pr-12345`. You never name a recipient: the route decides who receives the message. Nothing is
             posted during the run; the message is sent when the run ends, and a second call with the same route and key
             replaces it. The result `outcome` is `queued`, `replaced`, `duplicate` (the route and key were sent in the
-            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout sent its 5 messages for the
-            last 24 hours; do not retry), or `dry_run`.
+            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout reached its safety cap for
+            the last 24 hours; do not retry), or `dry_run`. Most runs send nothing: send only what the reader would want
+            to be interrupted for, and keep the title and body to a few sentences.
         feature_flag: scout-send-message
         feature_flag_behavior: enable
     scout-trial-archive:

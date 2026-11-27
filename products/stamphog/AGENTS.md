@@ -97,6 +97,15 @@ supersession, run creation) must be pinned via `.using(router.db_for_write(Model
 reader silently skips retractions, resurrects disabled channels, or strands queued runs. If you
 add a read-then-act path, pin it; this class of bug has been found on five separate paths.
 
+## Broadcast requests
+
+A broadcast request's Slack message never shows a verdict or a finding that GitHub does not show.
+It reads a run's outcome only when `verdict_posted_at` is set, or `may_publish()` allows a failure, so a silent run's withheld verdict stays hidden.
+Every read that decides what the message shows, or whether to post it, is writer-pinned.
+A broadcast ask reviews a head whose newest run is a delivered engine WAIT again at most `_BROADCAST_REVISITS_PER_HEAD` times, so repeated asks cannot start an unbounded series of LLM reviews.
+A stamphog approval ends a request only while GitHub still shows it, because a maintainer dismissing it by hand updates nothing in the product DB.
+A request from a pull request link posted in the Broadcast channel (`requested_via=slack_link`) starts no review and waits for none. A run that has not decided reads as OPEN, so the only stamphog outcome that changes the request is an approval.
+
 ## Sandbox credentials and egress
 
 - The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
@@ -321,9 +330,10 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
-  fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
-  would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`, `broadcast_enabled`,
+  `broadcast_slack_channel_id`, `broadcast_slack_channel_name`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected review mode, label or Broadcast
+  channel would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
   were configured under a verified binding. Such a row is also kept out of the digest candidates:
   a blank installation can fetch no routing file, and every candidate is read, so leaving it in let

@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiConfig, PaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
@@ -9,7 +11,7 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
-import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+import { warehouseTablesDestroy, warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
 import { externalDataSourcesSyncStateRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
@@ -18,6 +20,7 @@ import { sourceManagementLogic } from '../sourceManagementLogic'
 jest.mock('lib/api')
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseTablesList: jest.fn(),
+    warehouseTablesDestroy: jest.fn(),
 }))
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataSourcesSyncStateRetrieve: jest.fn(),
@@ -200,6 +203,31 @@ describe('sourceManagementLogic', () => {
         // A transient list failure resolves to an empty page, so reloading after a failed delete
         // would blank a list of sources that still exist.
         expect(logic.values.dataWarehouseSourcesLoading).toBe(false)
+    })
+
+    it.each([
+        ['every delete succeeds', {}, []],
+        ['one delete fails', { 't-2': 403 }, [[expect.stringContaining("Couldn't delete 1 of 3")]]],
+        ['one table is already gone', { 't-2': 404 }, []],
+    ])('deletes every selected self-managed table and reloads the list when %s', async (_, failures, errorToasts) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        jest.spyOn(ApiConfig, 'getCurrentTeamId').mockReturnValue(101)
+        jest.spyOn(ApiConfig, 'getCurrentProjectId').mockReturnValue(100)
+        const failureStatuses: Record<string, number> = failures
+        ;(warehouseTablesDestroy as jest.Mock).mockImplementation((_teamId: string, id: string) =>
+            id in failureStatuses ? Promise.reject(new ApiError(undefined, failureStatuses[id])) : Promise.resolve()
+        )
+        logic.mount()
+
+        logic.actions.deleteSelfManagedTables(['t-1', 't-2', 't-3'])
+        await expectLogic(logic).toDispatchActions(['refreshDatabaseSchema'])
+
+        expect((warehouseTablesDestroy as jest.Mock).mock.calls).toEqual([
+            ['101', 't-1'],
+            ['101', 't-2'],
+            ['101', 't-3'],
+        ])
+        expect(toastError.mock.calls).toEqual(errorToasts)
     })
 
     it('does not supersede an in-flight shallow schema load when mounted', async () => {

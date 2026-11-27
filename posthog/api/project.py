@@ -53,6 +53,7 @@ from posthog.api.team.settings_validation import (
     validate_team_workflows_config,
 )
 from posthog.api.team.team_config import (
+    FEATURE_FLAG_POLICY_CONFIG_HELP_TEXT,
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamCustomerAnalyticsConfigSerializer,
@@ -646,7 +647,9 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
-    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(  # Compat with TeamSerializer
+        required=False, help_text=FEATURE_FLAG_POLICY_CONFIG_HELP_TEXT
+    )
     conversations_settings = ConversationsSettingsField(
         required=False,
         allow_null=True,

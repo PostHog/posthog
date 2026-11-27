@@ -7708,6 +7708,7 @@ dependencies = [
  "itoa",
  "lifecycle",
  "metrics",
+ "metrics-exporter-prometheus",
  "rand 0.8.8",
  "rdkafka",
  "redis",

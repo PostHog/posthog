@@ -107,7 +107,7 @@ export const BusinessKnowledgeLibrariesRetrieveParams = () => zod.object({
 
 /**
  * Send only the fields you want to change. `source_ids` replaces every source in the library. `repos` replaces this environment's repositories and leaves repositories that only another environment allows.
- * @summary Rename a library or replace its sources and repositories
+ * @summary Rename a library, replace its sources and repositories, or choose whether learned sources join it
  */
 export const BusinessKnowledgeLibrariesPartialUpdateParams = () => zod.object({
     id: zod.string(),
@@ -137,6 +137,12 @@ export const BusinessKnowledgeLibrariesPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             "Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay."
+        ),
+    is_default: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it.'
         ),
 })
 

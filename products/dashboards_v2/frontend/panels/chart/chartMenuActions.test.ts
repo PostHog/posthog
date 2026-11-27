@@ -1,5 +1,5 @@
-import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
+import { type ContentPanel } from '../core/panelSchema'
 import { chartMenuActions } from './chartMenuActions'
 import type { ChartConfig } from './chartSpec'
 import { barSpec } from './viz/bar/barSpec'

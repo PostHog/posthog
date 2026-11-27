@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import QuerySet
@@ -16,9 +17,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids, request_subject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
@@ -39,6 +44,7 @@ from .serializers import (
     MCPSessionSerializer,
     MCPSessionToolCallsQuerySerializer,
     MCPToolCallSerializer,
+    MCPWrappedResponseSerializer,
 )
 
 
@@ -459,3 +465,55 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: MCPCustomHarness) -> None:
         super().perform_destroy(instance)
         api.invalidate_custom_harness_rules(self.team)
+
+
+class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPWrappedResponseSerializer
+    scope_object = "mcp_analytics"
+    scope_object_read_actions = ["current"]
+    scope_object_write_actions: list[str] = []
+    posthog_feature_flag = contracts.MCP_ANALYTICS_WRAPPED_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
+    pagination_class = None
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # The wrap is read through the facade; this satisfies GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @cached_property
+    def data_team(self) -> Team:
+        """The team that owns the wrap: the parent project when the URL names one of its environments."""
+        return self.team.parent_team or self.team
+
+    def _can_read_data_team(self, request: Request) -> bool:
+        # The view's own checks ran on the URL's team, whose access rules are its own. A child environment's
+        # grant must not open data its parent denies, so the parent's project and `mcp_analytics` rules apply too.
+        if self.data_team.id == self.team.id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and self.data_team.id not in scoped_team_ids:
+            return False
+        subject = request_subject(request)
+        return all(
+            authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+            for resource in (
+                Resource.project(self.data_team.pk),
+                Resource(type=ResourceType.MCP_ANALYTICS, project_id=self.data_team.pk),
+            )
+        )
+
+    @extend_schema(
+        operation_id="mcp_analytics_wrapped_retrieve",
+        description=(
+            "Return the project's MCP Wrapped: a yearly story of its MCP tool calls. The wrap is returned for 14 days "
+            "after it is computed, and `wrapped` is null outside that window or when the project has none."
+        ),
+        responses={200: MCPWrappedResponseSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="current")
+    def current(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        wrapped = (
+            api.get_fresh_wrapped(self.team, cast(User, request.user)) if self._can_read_data_team(request) else None
+        )
+        serializer = self.get_serializer({"wrapped": wrapped})
+        return Response(serializer.data)

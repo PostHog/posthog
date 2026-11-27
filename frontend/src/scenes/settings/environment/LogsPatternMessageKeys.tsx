@@ -15,6 +15,7 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import { QuillSortableChipInput } from 'lib/components/QuillSortableChipInput/QuillSortableChipInput'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -23,8 +24,6 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
-
-import { QuillSortableChipInput } from './QuillSortableChipInput'
 
 export function LogsPatternMessageKeys(): JSX.Element {
     const {
