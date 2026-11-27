@@ -1685,6 +1685,36 @@ const inboxSourceFilterPreview = (): ToolBase<
     },
 })
 
+const InboxSourceIssueFilterPreviewSchema = () => {
+    const SignalsSourceConfigsIssueFilterPreviewCreateBody =
+        orvalSchemas.SignalsSourceConfigsIssueFilterPreviewCreateBody()
+    return SignalsSourceConfigsIssueFilterPreviewCreateBody
+}
+
+const inboxSourceIssueFilterPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceIssueFilterPreviewSchema>,
+    Schemas.IssueFilterPreviewResponse
+> => ({
+    name: 'inbox-source-issue-filter-preview',
+    schema: InboxSourceIssueFilterPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceIssueFilterPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.issue_filters !== undefined) {
+            body['issue_filters'] = params.issue_filters
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        const result = await context.api.request<Schemas.IssueFilterPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/issue_filter_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSteeringInstructionsGetSchema = () => z.object({})
 
 const inboxSteeringInstructionsGet = (): ToolBase<
@@ -4452,6 +4482,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
     'inbox-source-filter-preview': inboxSourceFilterPreview,
+    'inbox-source-issue-filter-preview': inboxSourceIssueFilterPreview,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,

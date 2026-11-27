@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 99 enabled ops
+ * PostHog API - MCP 100 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -6665,6 +6665,114 @@ export const SignalsSourceConfigsFilterPreviewCreateBody = () => zod.object({
         .nullish()
         .describe(
             "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
+        ),
+})
+
+/**
+ * Replay a candidate issue filter against the last seven days of error tracking signals. Returns counts, samples, and the outcomes of reports fed by excluded signals. Saves nothing and calls no AI.
+ * @summary Preview an error tracking inbox filter
+ */
+export const SignalsSourceConfigsIssueFilterPreviewCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsSourceConfigsIssueFilterPreviewCreateBodyIssueFiltersOnePropertiesItemOperatorDefault = `exact`
+export const signalsSourceConfigsIssueFilterPreviewCreateBodyIssueFiltersOnePropertiesItemTypeDefault = `event`
+
+export const SignalsSourceConfigsIssueFilterPreviewCreateBody = () => zod.object({
+    issue_filters: zod
+        .union([
+            zod.object({
+                properties: zod
+                    .array(
+                        zod.object({
+                            key: zod.string(),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
+                            operator: zod
+                                .union([
+                                    zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'starts_with',
+                                        'not_starts_with',
+                                        'ends_with',
+                                        'not_ends_with',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'is_cleaned_path_not_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    zod.null(),
+                                ])
+                                .default(
+                                    signalsSourceConfigsIssueFilterPreviewCreateBodyIssueFiltersOnePropertiesItemOperatorDefault
+                                ),
+                            type: zod
+                                .literal('event')
+                                .default(
+                                    signalsSourceConfigsIssueFilterPreviewCreateBodyIssueFiltersOnePropertiesItemTypeDefault
+                                )
+                                .describe('Event properties'),
+                            value: zod
+                                .union([
+                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                    zod.string(),
+                                    zod.number(),
+                                    zod.boolean(),
+                                    zod.null(),
+                                ])
+                                .optional(),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        'Event property predicates. Each takes a key, operator and value. Omit value for is_set and is_not_set.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .describe('Candidate config.issue_filters. An empty object admits every transition.'),
+    source_type: zod
+        .enum(['issue_created', 'issue_reopened', 'issue_spiking'])
+        .describe(
+            '\* `issue_created` - New issues\n\* `issue_reopened` - Reopened issues\n\* `issue_spiking` - Spiking issues'
+        )
+        .optional()
+        .describe(
+            'Preview one transition type. Omit to preview all three.\n\n\* `issue_created` - New issues\n\* `issue_reopened` - Reopened issues\n\* `issue_spiking` - Spiking issues'
         ),
 })
 

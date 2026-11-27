@@ -56,6 +56,7 @@ products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
 products/data_quality/backend/tests/test_staged_audit.py
 products/error_tracking/backend/hogql_queries
+products/error_tracking/backend/temporal/lifecycle/test/test_side_effects.py
 products/error_tracking/backend/tests/test_issue_summaries.py
 products/error_tracking/backend/tests/test_issue_tag_rule_sweep.py
 products/error_tracking/backend/tests/test_issue_tagger_rerun.py

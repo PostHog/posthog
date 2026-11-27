@@ -29792,6 +29792,47 @@
             "validators": []
         }
     },
+    "inbox-source-issue-filter-preview": {
+        "name": "inbox-source-issue-filter-preview",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/source_configs/issue_filter_preview/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "issue_filters",
+                    "key": "issue_filters"
+                },
+                {
+                    "param": "source_type",
+                    "key": "source_type"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "inbox-steering-instructions-get": {
         "name": "inbox-steering-instructions-get",
         "kind": "http",

@@ -70,6 +70,30 @@ def _filter_property_keys(filters: Mapping[str, Any], event: str) -> set[str]:
     return {leaf["key"] for leaf in leaves if isinstance(leaf, dict) and isinstance(leaf.get("key"), str)}
 
 
+def lifecycle_filter_properties(inputs: AlertDeliveryWorkflowInputs) -> dict[str, object]:
+    # The producers always emit these keys, null included, and on the CDP plane a null
+    # lifecycle value shadows the exception's own property; mirror that so both planes agree.
+    lifecycle_properties: dict[str, object] = {
+        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
+        "name": inputs.issue_name,
+        "description": inputs.issue_description,
+        "issue_description": inputs.issue_description,
+        "first_seen": inputs.first_seen,
+        "severity": inputs.severity,
+    }
+    optional_properties = {
+        # Spiking events carry no status at all, so absence must stay absence.
+        "status": inputs.status,
+        # Older in-flight payloads predate lifecycle_timestamp; the exception time
+        # is the right value for created/reopened and the previous one for spiking.
+        "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
+        "fingerprint": inputs.fingerprint,
+        "assignee": inputs.assignee,
+    }
+    lifecycle_properties.update({key: value for key, value in optional_properties.items() if value is not None})
+    return lifecycle_properties
+
+
 def evaluate_lifecycle_filters(
     filters: Mapping[str, Any],
     inputs: AlertDeliveryWorkflowInputs,
@@ -93,26 +117,7 @@ def evaluate_lifecycle_filters(
         logger.warning("error_tracking_lifecycle_filters_missing_bytecode", **log_context)
         return LifecycleFilterOutcome.FILTER_ERROR
 
-    # The producers always emit these keys, null included, and on the CDP plane a null
-    # lifecycle value shadows the exception's own property; mirror that so both planes agree.
-    lifecycle_properties: dict[str, object] = {
-        **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
-        "name": inputs.issue_name,
-        "description": inputs.issue_description,
-        "issue_description": inputs.issue_description,
-        "first_seen": inputs.first_seen,
-        "severity": inputs.severity,
-    }
-    optional_properties = {
-        # Spiking events carry no status at all, so absence must stay absence.
-        "status": inputs.status,
-        # Older in-flight payloads predate lifecycle_timestamp; the exception time
-        # is the right value for created/reopened and the previous one for spiking.
-        "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
-        "fingerprint": inputs.fingerprint,
-        "assignee": inputs.assignee,
-    }
-    lifecycle_properties.update({key: value for key, value in optional_properties.items() if value is not None})
+    lifecycle_properties = lifecycle_filter_properties(inputs)
     if exception_properties is None:
         # Conservative on purpose: one OR'd branch that needs the exception makes the
         # whole filter undecidable, even if a sibling branch would match on its own.

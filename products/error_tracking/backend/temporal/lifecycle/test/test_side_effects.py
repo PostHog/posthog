@@ -453,3 +453,49 @@ async def test_issue_filter_gates_the_signal(
             source_id=inputs.issue_id,
             reason=drop_reason,
         )
+
+
+@pytest.mark.django_db
+def test_preview_replays_the_live_transition_filter(team):
+    from dataclasses import replace
+    from uuid import uuid4
+
+    from posthog.test.base import _create_event, flush_persons_and_events
+
+    from django.utils import timezone
+
+    from products.error_tracking.backend.facade.alerts import compile_signal_source_filters, replay_signal_filters
+    from products.error_tracking.backend.temporal.lifecycle.filter_preview import remember_filter_inputs
+    from products.error_tracking.backend.temporal.lifecycle.side_effects import (
+        alert_delivery_inputs,
+        issue_filter_outcome,
+    )
+
+    compiled = compile_signal_source_filters(team.pk, {"properties": [PRODUCTION, HIGH_SEVERITY]})
+    expected = {}
+    for environment in ("production", "staging"):
+        stamp = timezone.now()
+        inputs = replace(_inputs(), team_id=team.pk, event_uuid=str(uuid4()), event_timestamp=stamp.isoformat())
+        signal_id = str(uuid4())
+        properties = {"environment": environment, "severity": "low"}
+        filter_inputs = alert_delivery_inputs(
+            inputs, event="$error_tracking_issue_reopened", exception_timestamp=inputs.event_timestamp
+        )
+        expected[signal_id] = (
+            issue_filter_outcome(filter_inputs, compiled, properties, source_type="issue_reopened"),
+            {"environment": environment, "severity": "high"},
+        )
+        remember_filter_inputs(signal_id, filter_inputs, properties)
+        _create_event(
+            team=team,
+            distinct_id=inputs.issue_id,
+            event="$exception",
+            event_uuid=inputs.event_uuid,
+            timestamp=stamp,
+            properties=properties,
+        )
+    flush_persons_and_events()
+    assert replay_signal_filters(team, list(expected), compiled) == expected
+    assert {verdict.value for verdict, _ in expected.values()} == {"match", "excluded_by_filter"}
+    with patch("products.error_tracking.backend.temporal.lifecycle.filter_preview._read_exceptions", return_value={}):
+        assert replay_signal_filters(team, list(expected), compiled) == {}

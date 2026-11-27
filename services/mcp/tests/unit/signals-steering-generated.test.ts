@@ -4,6 +4,27 @@ import { GENERATED_TOOLS } from '@/tools/generated/signals'
 import type { Context } from '@/tools/types'
 
 describe('Self-driving steering tools', () => {
+    it('previews an unsaved issue filter in the current project', async () => {
+        const response = { status: 'ok', results: [] }
+        const request = vi.fn().mockResolvedValue(response)
+        const projectId = 'example-project'
+        const context = {
+            api: { request },
+            stateManager: { getProjectId: async () => projectId },
+        } as unknown as Context
+        const tool = GENERATED_TOOLS['inbox-source-issue-filter-preview']!()
+        const input = {
+            issue_filters: { properties: [{ key: 'severity', operator: 'exact', type: 'event', value: ['high'] }] },
+            source_type: 'issue_reopened',
+        }
+        expect(await tool.handler(context, tool.schema.parse(input))).toEqual(response)
+        expect(request).toHaveBeenCalledWith({
+            method: 'POST',
+            path: `/api/projects/${projectId}/signals/source_configs/issue_filter_preview/`,
+            body: input,
+        })
+    })
+
     it('passes atomic source config key edits through without stripping source-specific keys', async () => {
         const request = vi.fn().mockResolvedValue({ id: 'source-example', config: {} })
         const context = {

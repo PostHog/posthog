@@ -1084,7 +1084,8 @@ tools:
             object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The
             full resulting configuration is validated before saving. Check candidate `hogql_filter` expressions with
             `inbox-source-filter-preview`. Check both alert name pattern lists together with
-            `inbox-source-alert-pattern-preview` before saving either list.
+            `inbox-source-alert-pattern-preview` before saving either list. Preview `issue_filters` with
+            `inbox-source-issue-filter-preview` before updating an error tracking row.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
@@ -1148,6 +1149,19 @@ tools:
         enabled: false
         disabled_reason: The filter editor checks expressions as people type. Agents check an expression with
             inbox-source-filter-preview, which returns the same error fields.
+    inbox-source-issue-filter-preview:
+        operation: signals_source_configs_issue_filter_preview_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview an error tracking inbox filter
+        description: >
+            Try candidate issue_filters before changing an error tracking source. Review passing and excluded
+            transitions from the last seven days, sample property values, and the historical spend and PR outcomes
+            of reports the excluded signals fed. Check unavailable_count before drawing conclusions about coverage.
+            A shared report can receive other signals, so its spend is not a savings estimate. Saves nothing and calls no AI.
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true

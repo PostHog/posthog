@@ -4,6 +4,7 @@ from products.signals.backend.queries.inbox_usage_query_runner import InboxUsage
 from products.signals.backend.spend import (
     complete_task_spend as complete_task_spend,
     register_report_task_spend as register_report_task_spend,
+    signal_id_for as signal_id_for,
 )
 from products.signals.backend.spend_reporting import SpendReporting
 
