@@ -32,6 +32,15 @@ The required variables depend on the selected suite and runtime:
 | Codex runtime       | `LLM_GATEWAY_OPENAI_API_KEY` in addition to the variables above |
 | Modal provider      | `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or `~/.modal.toml`   |
 
+The harness reads the provider keys under the `LLM_GATEWAY_` names in the table and hands them to the gateway.
+A machine set up for the AI gateway usually holds the same keys as `AI_GATEWAY_ANTHROPIC_API_KEY` and `AI_GATEWAY_OPENAI_API_KEY`, which preflight does not read.
+Map them for the run instead of storing a second copy:
+
+```bash
+export LLM_GATEWAY_ANTHROPIC_API_KEY="$AI_GATEWAY_ANTHROPIC_API_KEY"
+export LLM_GATEWAY_OPENAI_API_KEY="$AI_GATEWAY_OPENAI_API_KEY"
+```
+
 Autoevals judges additionally need `OPENAI_API_KEY`. They use a direct OpenAI client, honoring `OPENAI_BASE_URL` when explicitly configured. Braintrust is used locally and needs no API key.
 
 The local-development sandbox JWT key ships in `.env.example` and is normally copied into `.env` as part of repository setup.
@@ -39,7 +48,14 @@ Use that key only for local development, never for production.
 Preflight reports every missing variable before it starts the database or any services.
 
 Sandboxed suites also need a clone of [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) and `go` on `PATH`, because the harness builds and starts the gateway from that clone.
-The default path is `~/Development/ai-gateway`; set `AI_GATEWAY_REPO` for a clone anywhere else.
+Clone it wherever suits the machine and point `AI_GATEWAY_REPO` at it:
+
+```bash
+git clone git@github.com:PostHog/ai-gateway.git ~/ai-gateway
+export AI_GATEWAY_REPO=~/ai-gateway
+```
+
+Without `AI_GATEWAY_REPO` the harness looks in `~/Development/ai-gateway`, a directory that a devbox or a fresh machine does not have.
 Keep the clone on a recent `main`.
 The harness and the gateway change together, so an old clone or a feature branch can refuse every model request or fail its ledger migration.
 The [AI gateway section of the harness README](../../../../products/posthog_ai/eval_harness/README.md#ai-gateway) covers its database and test credits.
