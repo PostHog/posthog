@@ -737,7 +737,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
 
     @cached_property
     def _writable_source_kinds(self) -> list[str]:
-        return [kind for kind in self._source_kinds_with("editor", "write") if kind not in READ_ONLY_SOURCE_KINDS]
+        return self._source_kinds_with("editor", "write")
 
     @cached_property
     def _reader(self) -> PlatformAlertReader:
