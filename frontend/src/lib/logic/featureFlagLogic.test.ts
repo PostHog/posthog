@@ -1,11 +1,16 @@
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
 import { initKeaTests } from '~/test/init'
 import type { AppContext } from '~/types'
 
-import { areClientFeatureFlagsHonored, featureFlagLogic, getPersistedFeatureFlags } from './featureFlagLogic'
+import {
+    areClientFeatureFlagsHonored,
+    featureFlagLogic,
+    getPersistedFeatureFlags,
+    peekFeatureFlag,
+} from './featureFlagLogic'
 
 describe('featureFlagLogic', () => {
     describe('areClientFeatureFlagsHonored', () => {
@@ -53,6 +58,62 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]).toBe(expected)
         })
+    })
+
+    describe('flags from posthog-js', () => {
+        const FLAG = 'flag-created-after-the-last-visit'
+
+        afterEach(() => {
+            delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+            jest.mocked(posthog.onFeatureFlags).mockImplementation(() => () => {})
+            jest.mocked(posthog.get_property).mockReset()
+        })
+
+        it.each([
+            ['a failed load keeps a flag the page decided on', true, { [FLAG]: true }, {}, {}, true],
+            [
+                'a failed load turns off a stored flag the page decided off',
+                true,
+                { [FLAG]: false },
+                { [FLAG]: true },
+                {},
+                undefined,
+            ],
+            ['a failed load keeps a stored flag the page left undecided', true, {}, { [FLAG]: true }, {}, true],
+            [
+                'a failed load keeps an early access opt-out',
+                true,
+                { [FLAG]: true },
+                {},
+                { $stored_person_properties: { [`$feature_enrollment/${FLAG}`]: false } },
+                undefined,
+            ],
+            [
+                'a failed load keeps a local override',
+                true,
+                { [FLAG]: true },
+                {},
+                { $override_feature_flags: { [FLAG]: false } },
+                undefined,
+            ],
+            ['a successful load ignores the page decision', false, { [FLAG]: true }, {}, {}, undefined],
+        ])(
+            '%s',
+            (_name, errorsLoading, pageFlags, loadedVariants, storedProperties: Record<string, unknown>, expected) => {
+                window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { featureFlags: pageFlags }
+                jest.mocked(posthog.get_property).mockImplementation((key) => storedProperties[key])
+                jest.mocked(posthog.onFeatureFlags).mockImplementation((callback) => {
+                    callback(Object.keys(loadedVariants), loadedVariants, { errorsLoading })
+                    return () => {}
+                })
+                initKeaTests()
+
+                const logic = featureFlagLogic()
+                logic.mount()
+
+                expect(peekFeatureFlag(logic.values.featureFlags, FLAG as FeatureFlagKey)).toBe(expected)
+            }
+        )
     })
 
     describe('receivedFeatureFlags', () => {
