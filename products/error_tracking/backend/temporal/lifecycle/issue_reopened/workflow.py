@@ -144,8 +144,7 @@ class ErrorTrackingIssueReopenedWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: IssueReopenedWorkflowInputs) -> IssueReopenedWorkflowResult:
-        # Not in the shared side effects, because the issue-created workflow runs them for an auto-merge,
-        # which is no ingestion reopen. Patched, because executions in flight replay the old sequence.
+        # Kept out of the shared side effects, which auto-merges also run. Patched for executions in flight.
         activity_log = (
             asyncio.create_task(record_reopen_in_activity_log(inputs))
             if workflow.patched(ACTIVITY_LOG_ON_REOPEN_PATCH)

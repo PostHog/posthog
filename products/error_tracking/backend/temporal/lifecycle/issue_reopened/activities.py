@@ -21,8 +21,7 @@ INGESTION_REOPEN_TRIGGER_JOB_TYPE = "error_tracking_ingestion"
 
 
 def reopened_event_properties(inputs: IssueReopenedWorkflowInputs) -> dict[str, object]:
-    # The release keys are null when no release reopened the issue, because a null lifecycle property hides an
-    # exception property of the same name, which any client with the project token could set.
+    # Null release keys hide exception properties of the same name, which any client with the project token can set.
     release = inputs.reopened_by_release
     return {
         "reopen_reason": inputs.reopen_reason.value,
@@ -71,8 +70,7 @@ def record_ingestion_reopen(inputs: IssueReopenedWorkflowInputs) -> None:
             item_id=inputs.issue_id,
             scope="ErrorTrackingIssue",
             activity="updated",
-            # Write inside the transaction, so that the existence check above and this insert hold
-            # the same lock. A failed write raises, and the activity retries it.
+            # Inside the transaction, so the existence check and this insert share the issue lock.
             strict=True,
             detail=Detail(
                 name=issue.name,

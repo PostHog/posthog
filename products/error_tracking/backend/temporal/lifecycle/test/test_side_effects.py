@@ -384,7 +384,6 @@ def test_reopened_internal_event_says_why_the_issue_reopened(
     properties = sent_events[0].properties
     release_keys = {key for key in properties if key.startswith("reopen")}
     assert {key: properties[key] for key in release_keys} == expected_properties
-    # Alert and Inbox filters forward and restore exactly these keys.
     assert release_keys == set(REOPEN_EXTRA_KEYS)
 
 
@@ -416,7 +415,6 @@ def test_reopened_alert_names_the_release(version: str | None, expected_reply: s
         for element in block["elements"]
     ]
     assert (expected_reply.removeprefix("🔄 ") in root_context) == (release is not None)
-    # Alert and Inbox filters read these extras, so they must carry what the internal event carries.
     assert alert.extra is not None
     assert alert.extra.get("reopen_reason") == expected_reason
     assert alert.extra.get("reopened_by_release_id") == (str(release.id) if release else None)

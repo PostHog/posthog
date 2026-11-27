@@ -850,7 +850,6 @@ class TestAlertFilterEvaluation(AlertTestMixin):
             {"properties": [{"key": "reopened_by_release_version", "operator": "is_set", "type": "event"}]},
             triggers=["issue_reopened"],
         )
-        # Any client with the project token can send an exception that carries this property.
         self._patch_exception_properties({"reopened_by_release_version": "9.9.9"})
 
         delivered = deliver_alert_notifications(
