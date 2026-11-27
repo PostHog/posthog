@@ -33,6 +33,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
@@ -1416,6 +1417,13 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.pending_email == "beta.gamma@example.com"
         assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
+
+    def test_email_change_to_a_refused_address_reports_it(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.patch("/api/users/@me/", {"email": "refused@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "email_verification_code_undeliverable"
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):
@@ -3653,6 +3661,15 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert not self.other_user.is_email_verified
 
     # Email verification request
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_request_reports_an_address_workflows_refuses(self, mock_scoped_capture):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/users/request_email_verification/", {"uuid": self.other_user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
+        mock_scoped_capture.assert_not_called()
 
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):

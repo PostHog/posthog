@@ -3,7 +3,13 @@ import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConf
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
-import { ONBOARDING_SOURCE_PRODUCTS, newInboxSetupDraft, reconcileInboxSetupDraft, setupSources } from './inboxSetup'
+import {
+    ONBOARDING_SOURCE_PRODUCTS,
+    newInboxSetupDraft,
+    reconcileInboxSetupDraft,
+    setupSources,
+    withGuidedSetupActivationMode,
+} from './inboxSetup'
 import { inboxSetupDefaultScouts, inboxSetupScoutChoices } from './inboxSetupScouts'
 
 describe('Inbox setup defaults', () => {
@@ -155,6 +161,30 @@ describe('Inbox setup defaults', () => {
         )
         expect(replayChoices).toContain('signals-scout-session-replay')
         expect(replayChoices).not.toContain('signals-scout-replay-vision')
+    })
+
+    it.each([
+        {
+            name: 'a draft without GitHub takes github_optional',
+            saved: {},
+            githubIsOptional: true,
+            expected: { activation_mode: 'github_optional', setup_mode: 'guided' },
+        },
+        {
+            name: 'a draft drops its saved mode once GitHub is connected',
+            saved: { activation_mode: 'github_optional' },
+            githubIsOptional: false,
+            expected: { setup_mode: 'guided' },
+        },
+        {
+            name: 'a draft saved without a setup mode becomes guided when it takes github_optional',
+            saved: { setup_mode: undefined },
+            githubIsOptional: true,
+            expected: { activation_mode: 'github_optional', setup_mode: 'guided' },
+        },
+    ] as const)('in the guided steps, $name', ({ saved, githubIsOptional, expected }) => {
+        const draft = withGuidedSetupActivationMode({ ...newInboxSetupDraft([], []), ...saved }, githubIsOptional, true)
+        expect({ activation_mode: draft.activation_mode, setup_mode: draft.setup_mode }).toEqual(expected)
     })
 
     it.each([

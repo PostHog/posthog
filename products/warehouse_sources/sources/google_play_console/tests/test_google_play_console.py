@@ -526,8 +526,16 @@ def test_unknown_app_stops_the_sync_with_package_name_copy(schema_name: str) -> 
     assert not error_message_matches(error, source.get_retryable_errors())
 
 
-@pytest.mark.parametrize("status", [500, 502, 503])
-def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
+@pytest.mark.parametrize(
+    "status, expected_copy",
+    [
+        (429, "limiting requests"),
+        (500, "on Google's side"),
+        (502, "on Google's side"),
+        (503, "on Google's side"),
+    ],
+)
+def test_metric_set_transient_error_stays_retryable_with_vendor_copy(status: int, expected_copy: str) -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(
             "crash_rate",
@@ -548,7 +556,7 @@ def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status:
         for pattern, message in source.get_retry_exhausted_errors().items()
         if error_message_matches(error, [pattern])
     ]
-    assert messages and "on Google's side" in messages[0]
+    assert messages and expected_copy in messages[0]
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:

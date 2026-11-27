@@ -5,12 +5,14 @@ CUSTOMER_RESOURCE_NAME = "Customer"
 DISPUTE_RESOURCE_NAME = "Dispute"
 INVOICE_ITEM_RESOURCE_NAME = "InvoiceItem"
 INVOICE_RESOURCE_NAME = "Invoice"
+INVOICE_LINE_ITEM_RESOURCE_NAME = "InvoiceLineItem"
 PAYOUT_RESOURCE_NAME = "Payout"
 PRICE_RESOURCE_NAME = "Price"
 PRODUCT_RESOURCE_NAME = "Product"
 REFUND_RESOURCE_NAME = "Refund"
 SUBSCRIPTION_RESOURCE_NAME = "Subscription"
 CREDIT_NOTE_RESOURCE_NAME = "CreditNote"
+CREDIT_NOTE_LINE_ITEM_RESOURCE_NAME = "CreditNoteLineItem"
 CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME = "CustomerBalanceTransaction"
 CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
 CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME = "CustomerPaymentMethodHistory"
@@ -92,7 +94,6 @@ PAYMENT_METHOD_HISTORY_MAPPING_KEY = "payment_method:history"
 # the same events through the PAYMENT_METHOD_HISTORY_MAPPING_KEY fan-out in the webhook template
 # (see `StripeSource.webhook_mapping_key`).
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
-    ACCOUNT_RESOURCE_NAME: "account",
     CHARGE_RESOURCE_NAME: "charge",
     CUSTOMER_RESOURCE_NAME: "customer",
     DISPUTE_RESOURCE_NAME: "dispute",
@@ -132,7 +133,6 @@ RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
 }
 
 RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
-    ACCOUNT_RESOURCE_NAME: "account",
     CHARGE_RESOURCE_NAME: "charge",
     CUSTOMER_RESOURCE_NAME: "customer",
     DISPUTE_RESOURCE_NAME: "dispute",
@@ -184,6 +184,10 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     # Deliberately absent, because Stripe emits no event carrying these objects. Verified against
     # the `enabled_events` literal in the pinned SDK, which is the same list `_all_known_webhook_events`
     # filters. They stay API-sweep-only:
+    #   Account              - `account.*` events for connected accounts go only to Connect endpoints,
+    #       and the endpoint we create is not one, so it would only receive the platform's own account
+    #   InvoiceLineItem, CreditNoteLineItem - no events carry a line item on its own; line changes
+    #       arrive inside the parent's `invoice.*` / `credit_note.*` events
     #   BalanceTransaction   - no `balance_transaction.*` events exist; `transfer.*` events carry a
     #       `transfer` object, so a webhook-mode BalanceTransaction table would never receive a row
     #   SubscriptionItem     - changes ride along on `customer.subscription.*` as nested `items`

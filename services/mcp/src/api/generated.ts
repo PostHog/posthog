@@ -69933,7 +69933,7 @@ export namespace Schemas {
       id: string;
       /** Library name. Unique in this project, ignoring case. */
       name: string;
-      /** True for the library new learned sources join. There is at most one. */
+      /** True when new sources learned from support tickets join this library. Several libraries can have it. */
       is_default: boolean;
       /** How many sources are in this library. */
       source_count: number;
@@ -96498,6 +96498,8 @@ export namespace Schemas {
       source_ids?: string[];
       /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
       repos?: string[];
+      /** Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it. */
+      is_default?: boolean;
     }
 
     /**
@@ -124506,6 +124508,8 @@ export namespace Schemas {
       deprecatedVersions: SourceVersionDeprecation[];
       /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
       cdcEngine?: CDCEngine | null;
+      /** Whether the source can sync tables with xmin replication. Each table still needs a primary key and a physical `xmin` column, which the schema API checks per table. */
+      supportsXmin?: boolean;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
