@@ -471,6 +471,54 @@ class TestTicketAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("default_replaces", ["bug"], {"tags": ["urgent"]}, ["urgent"]),
+            ("set_replaces", ["bug"], {"tags": ["urgent"], "tags_mode": "set"}, ["urgent"]),
+            ("add_keeps_existing", ["bug"], {"tags": ["urgent"], "tags_mode": "add"}, ["bug", "urgent"]),
+            (
+                "remove_deletes_only_named",
+                ["bug", "urgent", "billing"],
+                {"tags": ["bug", "billing"], "tags_mode": "remove"},
+                ["urgent"],
+            ),
+        ]
+    )
+    def test_update_tags_mode(self, mock_on_commit, _name, existing_tags, payload, expected_tags):
+        for name in existing_tags:
+            self.ticket.tagged_items.create(tag=Tag.objects.create(name=name, team_id=self.team.id))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(response.json()["tags"]), expected_tags)
+        self.assertEqual(sorted(self.ticket.tagged_items.values_list("tag__name", flat=True)), expected_tags)
+
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"], "tags_mode": "add"}, ["bug", "urgent"]),
+            ("remove", {"tags": ["urgent"], "tags_mode": "remove"}, ["bug"]),
+        ]
+    )
+    def test_update_tags_add_and_remove_ignore_the_tags_loaded_with_the_ticket(
+        self, mock_on_commit, _name, payload, expected_tags
+    ):
+        self.ticket.tagged_items.create(tag=Tag.objects.create(name="bug", team_id=self.team.id))
+        self.ticket.tagged_items.create(tag=Tag.objects.create(name="urgent", team_id=self.team.id))
+        # Another request tagged the ticket after this one loaded it, so the loaded tags are stale.
+        # add and remove must not write from them, or they delete that request's tag.
+        self.ticket.prefetched_tags = []
+
+        serializer = TicketUpdateRequestSerializer(self.ticket, data=payload, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        self.assertEqual(sorted(self.ticket.tagged_items.values_list("tag__name", flat=True)), expected_tags)
+
+    @parameterized.expand(
+        [
             (f"status={Status.NEW}", Status.NEW, "status", Status.NEW, {"status": Status.RESOLVED}),
             (f"priority={Priority.HIGH}", Priority.HIGH, "priority", Priority.HIGH, {"priority": Priority.LOW}),
             (

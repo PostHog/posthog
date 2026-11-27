@@ -96,11 +96,16 @@
             "type": "string"
         },
         "tags": {
-            "description": "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags.",
+            "description": "Tag names to apply to the ticket. By default the list replaces the ticket's current tags; see tags_mode. A request can add up to 100 new tags.",
             "items": {
                 "type": "string"
             },
             "type": "array"
+        },
+        "tags_mode": {
+            "description": "How tags apply: 'set' replaces the ticket's current tags, 'add' keeps them and adds these, 'remove' deletes only these. Defaults to 'set'.\n\n* `add` - add\n* `remove` - remove\n* `set` - set",
+            "enum": ["add", "remove", "set"],
+            "type": "string"
         }
     },
     "required": ["id"],

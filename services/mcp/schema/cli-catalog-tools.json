@@ -12733,6 +12733,10 @@
                 {
                     "param": "tags",
                     "key": "tags"
+                },
+                {
+                    "param": "tags_mode",
+                    "key": "tags_mode"
                 }
             ],
             "injectBody": {},
