@@ -59,10 +59,15 @@ const notebook = {
 }
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
-let saved: Omit<typeof notebook, 'app_draft' | 'app_published'> & {
+type NotebookFixture = Omit<typeof notebook, 'app_draft' | 'app_published'> & {
     app_draft: typeof layout | null
     app_published: typeof layout | null
-} = structuredClone(notebook)
+}
+let saved = structuredClone(notebook)
+let launchNotebook: NotebookFixture | null = null
+function currentNotebook(): NotebookFixture {
+    return launchNotebook ?? saved
+}
 let failNextQuery = false
 let failNextDraftSave = false
 
@@ -71,6 +76,7 @@ const meta: Meta = {
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
         saved = structuredClone(notebook)
+        launchNotebook = null
         failNextQuery = false
         failNextDraftSave = false
         runNumber = 0
@@ -100,7 +106,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/health_issues/summary': { results: [] },
                 '/api/oauth/connected-apps': [],
                 '/api/organizations/:id/product_push_campaign/active': () => [204, null],
-                '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, saved],
+                '/api/projects/:team_id/notebooks/app-builder-demo': () => [200, currentNotebook()],
                 '/api/projects/:team_id/notebooks/app-builder-demo/app_release': () => [
                     200,
                     {
@@ -155,8 +161,9 @@ const meta: Meta = {
                         failNextDraftSave = false
                         return [409, { detail: 'The notebook changed. Try saving the draft again.' }]
                     }
-                    saved = { ...saved, ...body, app_revision: saved.app_revision + 1 }
-                    return [200, saved]
+                    const fixture = currentNotebook()
+                    Object.assign(fixture, body, { app_revision: fixture.app_revision + 1 })
+                    return [200, fixture]
                 },
             },
             post: {
@@ -192,7 +199,10 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/notebooks/app-builder-demo/runs': async ({ request }) => {
                     const body = (await request.json()) as { variables: NotebookVariable[] }
-                    saved = { ...saved, variables: body.variables, content: buildContent(body.variables) }
+                    Object.assign(currentNotebook(), {
+                        variables: body.variables,
+                        content: buildContent(body.variables),
+                    })
                     results = appBuilderDemoResults(body.variables)
                     runNumber++
                     return [
@@ -203,12 +213,12 @@ const meta: Meta = {
                 '/api/projects/:team_id/file_system/home_folder': { id: 'home-folder', path: 'Home' },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/markdown_save': async ({ request }) => {
                     const body = (await request.json()) as { content: typeof notebook.content }
-                    saved = {
-                        ...saved,
+                    const fixture = currentNotebook()
+                    Object.assign(fixture, {
                         content: body.content,
-                        version: saved.version + 1,
-                    }
-                    return [200, saved]
+                        version: fixture.version + 1,
+                    })
+                    return [200, fixture]
                 },
             },
         }),
@@ -230,8 +240,8 @@ export const Builder: Story = {
         const saveButton = canvasElement.querySelector('[data-attr="notebook-app-save"]')!
         await waitFor(() => expect(saveButton).toBeEnabled())
         fireEvent.click(saveButton)
-        await waitFor(() => expect(saved.app_draft?.blocks.at(-1)?.text).toContain('Review notes'))
-        expect(saved.app_published?.blocks).toHaveLength(layout.blocks.length)
+        await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
+        expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)
     },
 }
 
@@ -360,7 +370,7 @@ const launchEvents = ['checkout opened', 'order placed']
 export const LaunchReview: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID) },
     beforeEach: () => {
-        saved = { ...structuredClone(notebook), app_draft: null, app_published: null }
+        launchNotebook = { ...structuredClone(notebook), app_draft: null, app_published: null }
     },
     decorators: [
         mswDecorator({
@@ -465,15 +475,15 @@ export const LaunchReview: Story = {
             await waitFor(() => expect(option).not.toBeInTheDocument())
             expect(dialog.getByRole('button', { name: field })).toHaveTextContent(value)
         }
-        expect(saved.app_draft).toBeNull()
+        expect(launchNotebook?.app_draft).toBeNull()
         failNextDraftSave = true
         await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
         expect(await dialog.findByText('The notebook changed. Try saving the draft again.')).toBeVisible()
         expect(dialog.getByRole('button', { name: 'Feature flag' })).toHaveTextContent(demoFlag.key)
-        expect(saved.app_draft).toBeNull()
+        expect(launchNotebook?.app_draft).toBeNull()
         await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
-        await waitFor(() => expect(saved.app_draft?.blocks).toHaveLength(3))
-        expect(saved.app_published).toBeNull()
+        await waitFor(() => expect(launchNotebook?.app_draft?.blocks).toHaveLength(3))
+        expect(launchNotebook?.app_published).toBeNull()
         await waitFor(() => expect(canvas.getByRole('button', { name: 'View drop-off recordings' })).toBeVisible(), {
             timeout: 60000,
         })

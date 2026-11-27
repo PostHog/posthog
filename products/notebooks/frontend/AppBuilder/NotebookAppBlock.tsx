@@ -153,38 +153,33 @@ export function NotebookAppBlock({
                     </div>
                 </div>
             )}
+            {block.display !== 'source' && <FunnelRecordingsButton cell={cell} />}
             {block.display === 'source' || block.display === 'both' ? (
                 <pre className="p-3 rounded bg-surface-secondary overflow-auto text-xs">
                     <code>{source}</code>
                 </pre>
             ) : null}
-            {block.display !== 'source' && (
-                <>
-                    <FunnelRecordingsButton cell={cell} />
-                    {renderOutput?.(cell) ?? (
-                        <ComponentPanelContext.Provider
-                            value={{
-                                componentPanels: { filters: false, results: true },
-                                showEditPanel: false,
-                                showViewPanel: true,
-                                outputOnly: true,
-                            }}
-                        >
-                            <MarkdownNotebook
-                                value={appCellMarkdown(cell)}
-                                onChange={
-                                    canInteract && onCellOutput
-                                        ? (markdown) => onCellOutput(cell.id, markdown)
-                                        : undefined
-                                }
-                                registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                                mode="view"
-                                className="NotebookAppBuilder__cell"
-                            />
-                        </ComponentPanelContext.Provider>
-                    )}
-                </>
-            )}
+            {block.display !== 'source' &&
+                (renderOutput?.(cell) ?? (
+                    <ComponentPanelContext.Provider
+                        value={{
+                            componentPanels: { filters: false, results: true },
+                            showEditPanel: false,
+                            showViewPanel: true,
+                            outputOnly: true,
+                        }}
+                    >
+                        <MarkdownNotebook
+                            value={appCellMarkdown(cell)}
+                            onChange={
+                                canInteract && onCellOutput ? (markdown) => onCellOutput(cell.id, markdown) : undefined
+                            }
+                            registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                            mode="view"
+                            className="NotebookAppBuilder__cell"
+                        />
+                    </ComponentPanelContext.Provider>
+                ))}
         </div>
     )
 }

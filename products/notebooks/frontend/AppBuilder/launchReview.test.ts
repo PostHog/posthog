@@ -29,6 +29,18 @@ it.each([
                             operator: PropertyOperator.Exact,
                             value: ['web'],
                         },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$feature/example-checkout',
+                            operator: PropertyOperator.Exact,
+                            value: ['control'],
+                        },
+                        {
+                            type: PropertyFilterType.Person,
+                            key: '$feature/example-checkout',
+                            operator: PropertyOperator.Exact,
+                            value: ['enrolled'],
+                        },
                     ],
                 },
                 { kind: NodeKind.EventsNode, event: 'checkout completed' },
@@ -45,7 +57,14 @@ it.each([
     expect(notebookFunnel(cells[1])).toMatchObject({
         dateRange: expectedRange,
         series: [
-            { event: 'checkout opened', properties: [expect.objectContaining({ key: 'platform' }), flagProperty] },
+            {
+                event: 'checkout opened',
+                properties: [
+                    expect.objectContaining({ key: 'platform' }),
+                    expect.objectContaining({ type: PropertyFilterType.Person, value: ['enrolled'] }),
+                    flagProperty,
+                ],
+            },
             { event: 'checkout completed' },
         ],
     })

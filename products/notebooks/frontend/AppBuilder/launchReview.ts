@@ -78,9 +78,15 @@ export function buildLaunchReview(
         ...funnel,
         dateRange,
         response: undefined,
-        series: funnel.series.map((step, i) =>
-            i === 0 ? { ...step, properties: [...(step.properties ?? []), flagProperty] } : step
-        ),
+        series: funnel.series.map((step, i) => {
+            if (i !== 0) {
+                return step
+            }
+            const properties = (step.properties ?? []).filter(
+                (property) => property.type !== flagProperty.type || property.key !== flagProperty.key
+            )
+            return { ...step, properties: [...properties, flagProperty] }
+        }),
     }
     addCell('Query', 'Adoption funnel', {
         query: toNotebookPropValue({ kind: NodeKind.InsightVizNode, source: scopedFunnel }),
