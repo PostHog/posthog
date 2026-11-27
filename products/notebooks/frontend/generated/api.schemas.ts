@@ -982,6 +982,11 @@ export interface AppEmbedRequestApi {
      * @maxLength 256
      */
     tenant_value: string
+    /**
+     * The displayed release to embed. Required when creating an embed.
+     * @minimum 1
+     */
+    revision?: number
     /** Revoke embeds for this origin, tenant column and value across all releases. */
     revoke?: boolean
 }

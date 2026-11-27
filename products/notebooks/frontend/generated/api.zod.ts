@@ -1244,6 +1244,11 @@ export const NotebooksAppEmbedsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(notebooksAppEmbedsCreateBodyTenantValueMax)
         .describe('Exact tenant value bound to the snapshot.'),
+    revision: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('The displayed release to embed. Required when creating an embed.'),
     revoke: zod
         .boolean()
         .default(notebooksAppEmbedsCreateBodyRevokeDefault)

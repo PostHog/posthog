@@ -1,8 +1,9 @@
+from dataclasses import asdict
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
@@ -10,6 +11,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, Throttled
 
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change
 from posthog.token_bucket import BucketDecision, Budget, consume
@@ -18,7 +20,7 @@ from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.app_viewer import native_app_output_ids
 from products.notebooks.backend.facade.contracts import ActiveAppViewGrant, AppOutput, AppOutputTab, AppViewGrantResult
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease, NotebookAppViewGrant
+from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant
 from products.notebooks.backend.sql_v2_state import build_dependency_edges, extract_cells
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
@@ -47,7 +49,6 @@ def active_view_grants(
 
 def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
     NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
-    NotebookAppEmbed.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
 
 
 @transaction.atomic
@@ -68,11 +69,13 @@ def change_app_view_grant(
     )
     if revoke:
         grants = NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook=notebook)
-        grants = (
-            grants.filter(recipient__uuid=recipient_uuid)
-            if recipient_uuid
-            else grants.filter(recipient__email__iexact=email)
-        )
+        if recipient_uuid:
+            grants = grants.filter(recipient__uuid=recipient_uuid)
+        else:
+            recipients = EmailLookupHandler.users_matching_email(email)
+            if recipients.count() > 1:
+                raise serializers.ValidationError("Choose the member from the active recipients.")
+            grants = grants.filter(recipient__in=recipients)
         removed = list(grants.values_list("recipient__email", "release__revision"))
         if not removed:
             raise NotFound("No app-only access was found for this member.")
@@ -96,9 +99,10 @@ def change_app_view_grant(
         )
         return AppViewGrantResult(url=None, expires_at=None)
 
-    recipient = User.objects.filter(email__iexact=email, is_active=True).first()
-    if recipient is None or not notebook.team.all_users_with_access(user_uuids=[str(recipient.uuid)]).exists():
+    candidates = list(EmailLookupHandler.users_matching_email(email, User.objects.filter(is_active=True))[:2])
+    if len(candidates) != 1 or not notebook.team.all_users_with_access(user_uuids=[str(candidates[0].uuid)]).exists():
         raise serializers.ValidationError({"email": "Choose a member with access to this project."})
+    recipient = candidates[0]
     release = (
         NotebookAppRelease.objects.for_team(notebook.team_id)
         .filter(notebook=notebook)
@@ -182,9 +186,19 @@ def output_columns(props: dict[str, Any], columns: list[str]) -> list[str]:
     return displayed
 
 
-def app_output_tabs(
-    release: NotebookAppRelease, *, tenant_column: str | None = None, tenant_value: str | None = None
-) -> list[AppOutputTab]:
+def pinned_sql_result(release: NotebookAppRelease, node_id: str, run_id: str | None) -> dict[str, Any] | None:
+    data = release.sql_rows or {}
+    schema = data.get(f"schema:{run_id}")
+    rows = data.get(run_id)
+    if not isinstance(schema, dict) or schema.get("node_id") != node_id or not isinstance(rows, list):
+        return None
+    columns = schema.get("columns")
+    if not isinstance(columns, list) or not all(isinstance(column, str) for column in columns):
+        return None
+    return {**schema, "first_page": rows}
+
+
+def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
     allowed = native_app_output_ids(cells)
@@ -203,32 +217,24 @@ def app_output_tabs(
             continue
         if block["kind"] != "cell" or block.get("display") == "source":
             continue
-        props = sql_cells.get(block.get("node_id"), {})
-        result = props.get("result")
-        if not isinstance(result, dict) or not isinstance(result.get("columns"), list):
+        node_id = block.get("node_id")
+        props = sql_cells.get(node_id)
+        if not props:
+            continue
+        result = pinned_sql_result(release, node_id, props.get("runId"))
+        if result is None:
+            tab["blocks"].append(
+                {"title": block.get("title"), "text": "Republish this app to share a verified SQL result."}
+            )
             continue
         columns = result["columns"]
-        retained = (release.sql_rows or {}).get(props.get("runId"))
-        rows = retained if isinstance(retained, list) else result.get("first_page") or []
-        if not isinstance(rows, list) or not all(isinstance(column, str) for column in columns):
-            continue
+        rows = result["first_page"]
         row_count = result.get("row_count")
-        partial = (isinstance(row_count, int) and len(rows) < row_count) or (
-            retained is None and bool(result.get("has_more") or result.get("previewOnly"))
-        )
-        displayed = output_columns(props, columns)
-        if tenant_column is not None:
-            if partial:
-                raise serializers.ValidationError(
-                    "Save and republish the complete SQL results before creating an embed."
-                )
-            if columns.count(tenant_column) != 1:
-                raise serializers.ValidationError(
-                    {"tenant_column": "Every displayed SQL output must include this tenant column exactly once."}
-                )
-            idx = columns.index(tenant_column)
-            rows = [row for row in rows if isinstance(row, list) and len(row) > idx and row[idx] == tenant_value]
-            displayed = [col for col in displayed if col != tenant_column]
+        partial = isinstance(row_count, int) and len(rows) < row_count
+        displayed = output_columns({**props, "result": result}, columns)
+        if props.get("outputTab") != "results" and (props.get("vizQuery") or {}).get("display") == "BoldNumber":
+            displayed = output_columns({**props, "outputTab": "results"}, columns)[:1]
+            rows = rows[:1]
         if displayed:
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(
@@ -266,13 +272,16 @@ def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppO
     budget = consume(f"notebooks:app-view:{team_id}:{recipient_id}", Budget(burst=15, per_hour=240))
     if isinstance(budget, BucketDecision) and not budget.allowed:
         raise Throttled(wait=budget.retry_after)
-    cache_key = f"notebook-app-output:v1:{team_id}:{release.pk}"
-    tabs = cache.get(cache_key)
-    if tabs is None:
+    cache = caches["notebook_app_outputs"]
+    cache_key = f"notebook-app-output:v2:{team_id}:{release.pk}"
+    cached = cache.get(cache_key)
+    if cached is None:
         if not cache.add(cache_key + ":building", True, timeout=20):
             raise Throttled(wait=2, detail="This release is loading. Try again shortly.")
         tabs = app_output_tabs(release)
-        cache.set(cache_key, tabs, timeout=300)
+        cache.set(cache_key, [asdict(tab) for tab in tabs], timeout=300)
+    else:
+        tabs = [AppOutputTab(**tab) for tab in cached]
     return AppOutput(
         title=release.layout.get("title") or release.title,
         description=release.layout.get("description"),

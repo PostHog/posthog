@@ -180,7 +180,7 @@ export function NotebookAppAccess({
                 ) : null}
             </LemonModal>
             <Suspense fallback={null}>
-                <NotebookAppEmbed project={project} shortId={shortId} />
+                <NotebookAppEmbed project={project} shortId={shortId} revision={revision} />
             </Suspense>
         </>
     )

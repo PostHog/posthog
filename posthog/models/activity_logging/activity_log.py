@@ -1350,6 +1350,7 @@ def load_activity(
     limit: int = 10,
     page: int = 1,
     user: Union["User", AnonymousUser, None] = None,
+    exclude_change_field: str | None = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1359,6 +1360,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if exclude_change_field:
+        activity_query = activity_query.exclude(detail__changes__contains=[{"field": exclude_change_field}])
 
     if user is not None:
         activity_query = apply_activity_visibility_restrictions(activity_query, user)

@@ -15,6 +15,7 @@
         nav a { color: #3d362c; border-radius: .4rem; padding: .35rem .7rem; }
         nav a[aria-current] { background: #302e29; color: white; }
         section { background: white; border: 1px solid #dedbd2; border-radius: .6rem; padding: .5rem 1.4rem 1.2rem; margin-bottom: 1rem; overflow-x: auto; }
+        summary { cursor: pointer; font-weight: 600; padding: .6rem 0; }
         table { border-collapse: collapse; width: 100%; font-size: .9rem; }
         th, td { text-align: left; border-bottom: 1px solid #dedbd2; padding: .5rem; }
         .prose { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -26,18 +27,22 @@
             <h1>{{ title }}</h1>
             {% if description %}<p>{{ description }}</p>{% endif %}
             <small>Published {{ published_at|date:"DATETIME_FORMAT" }}</small>
-            <nav aria-label="App tabs">{% for tab in tabs %}<a href="?tab={{ forloop.counter0 }}"
+            {% block app_tabs %}
+                <nav aria-label="App tabs">{% for tab in tabs %}<a href="?tab={{ forloop.counter0 }}"
    {% if active == forloop.counter0 %} aria-current="page"{% endif %}>{{ tab.title }}</a>{% endfor %}</nav>
-            {% for block in blocks %}
-                <section>
-                    {% if block.title %}<h2>{{ block.title }}</h2>{% endif %}
-                    {% if block.text %}<p class="prose">{{ block.text }}</p>{% endif %}
-                    {% if block.columns %}
-                        {% if block.partial %}<p>Only part of the saved result is available.</p>{% endif %}
-                        <table><thead><tr>{% for column in block.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
-                            <tbody>{% for row in block.rows %}<tr>{% for value in row %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}</tr>{% empty %}<tr><td>No results</td></tr>{% endfor %}</tbody></table>
-                    {% endif %}
-                </section>{% empty %}<p>This tab has no published output.</p>{% endfor %}
+                {% partialdef app_output_blocks inline %}
+                    {% for block in blocks %}
+                        <section>
+                            {% if block.title %}<h2>{{ block.title }}</h2>{% endif %}
+                            {% if block.text %}<p class="prose">{{ block.text }}</p>{% endif %}
+                            {% if block.columns %}
+                                {% if block.partial %}<p>Only part of the saved result is available.</p>{% endif %}
+                                <table><thead><tr>{% for column in block.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+                                    <tbody>{% for row in block.rows %}<tr>{% for value in row %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}</tr>{% empty %}<tr><td>No results</td></tr>{% endfor %}</tbody></table>
+                            {% endif %}
+                        </section>{% empty %}<p>This tab has no published output.</p>{% endfor %}
+                {% endpartialdef %}
+            {% endblock %}
         </main>
     </body>
 </html>

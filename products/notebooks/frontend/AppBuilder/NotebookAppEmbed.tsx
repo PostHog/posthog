@@ -9,7 +9,15 @@ import { urls } from 'scenes/urls'
 
 import { notebooksAppEmbedsCreate } from '../generated/api'
 
-export function NotebookAppEmbed({ project, shortId }: { project: string; shortId: string }): JSX.Element {
+export function NotebookAppEmbed({
+    project,
+    shortId,
+    revision,
+}: {
+    project: string
+    shortId: string
+    revision: number
+}): JSX.Element {
     const [open, setOpen] = useState(false)
     const [origin, setOrigin] = useState('')
     const [column, setColumn] = useState('')
@@ -28,6 +36,7 @@ export function NotebookAppEmbed({ project, shortId }: { project: string; shortI
                 tenant_column: column.trim(),
                 tenant_value: tenant,
                 revoke,
+                revision,
             })
             if (result.url) {
                 const frame = document.createElement('iframe')

@@ -9,16 +9,21 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from rest_framework import serializers
+from rest_framework.exceptions import Throttled
 
 from posthog.models import Team, User
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.utils import get_trusted_client_ip
 
-from products.notebooks.backend.facade.app_embeds import read_embed_audience, redeem_signed_embed
+from products.notebooks.backend.facade.app_embeds import (
+    EmbedCapacityUnavailable,
+    read_embed_audience,
+    redeem_signed_embed,
+)
 from products.notebooks.backend.presentation.app_serializers import notebook_app_builder_enabled
 
 PUBLIC_IP_BUDGET = Budget(burst=120, per_hour=1200)
-PUBLIC_EMBED_BUDGET = Budget(burst=300, per_hour=6000)
+CLIENT_EMBED_BUDGET = Budget(burst=30, per_hour=300)
 
 
 def public_embed_rate_limit(key: str, budget: Budget) -> HttpResponse | None:
@@ -39,6 +44,9 @@ class AppEmbedRequestSerializer(serializers.Serializer):
     )
     tenant_value = serializers.CharField(
         max_length=256, trim_whitespace=False, help_text="Exact tenant value bound to the snapshot."
+    )
+    revision = serializers.IntegerField(
+        min_value=1, required=False, help_text="The displayed release to embed. Required when creating an embed."
     )
     revoke = serializers.BooleanField(
         default=False, help_text="Revoke embeds for this origin, tenant column and value across all releases."
@@ -77,15 +85,14 @@ class AppEmbedRequestSerializer(serializers.Serializer):
 def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> HttpResponse:
     from django.template.response import TemplateResponse
 
-    if limited := public_embed_rate_limit(
-        f"notebooks:embed:ip:{get_trusted_client_ip(request) or 'unknown'}", PUBLIC_IP_BUDGET
-    ):
+    client_ip = get_trusted_client_ip(request) or "unknown"
+    if limited := public_embed_rate_limit(f"notebooks:embed:ip:{client_ip}", PUBLIC_IP_BUDGET):
         return limited
     team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
     audience = read_embed_audience(team_id, embed_id)
     if audience is None:
         raise Http404()
-    if limited := public_embed_rate_limit(f"notebooks:embed:view:{embed_id}", PUBLIC_EMBED_BUDGET):
+    if limited := public_embed_rate_limit(f"notebooks:embed:client:{embed_id}:{client_ip}", CLIENT_EMBED_BUDGET):
         return limited
     issuer = get_object_or_404(User, pk=audience.issued_by_id)
     if not notebook_app_builder_enabled(issuer, team):
@@ -93,7 +100,10 @@ def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> Ht
     if request.method == "POST":
         if request.headers.get("Sec-Fetch-Dest") != "iframe":
             raise Http404()
-        output = redeem_signed_embed(team_id, embed_id, request.POST.get("token", ""))
+        try:
+            output = redeem_signed_embed(team_id, embed_id, request.POST.get("token", ""))
+        except (Throttled, EmbedCapacityUnavailable) as exc:
+            return HttpResponse(status=exc.status_code, headers={"Retry-After": str(getattr(exc, "wait", None) or 5)})
         if output is None:
             raise Http404()
         response = TemplateResponse(

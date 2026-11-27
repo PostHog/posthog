@@ -1,37 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta name="referrer" content="no-referrer">
-        <title>{{ title }}</title>
-        <style nonce="{{ request.csp_nonce }}">
-        body { margin: 0; background: #f6f5ef; color: #262521; font: 16px/1.5 system-ui,sans-serif; }
-        main { max-width: 68rem; margin: auto; padding: 3rem 1.25rem; }
-        h1 { font-size: clamp(1.8rem, 5vw, 3rem); line-height: 1.1; margin: .4rem 0; }
-        h2 { font-size: 1.15rem; }
-        small { color: #625e55; }
-        nav { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.75rem 0 1rem; }
-        nav a { color: #3d362c; border-radius: .4rem; padding: .35rem .7rem; }
-        nav a[aria-current] { background: #302e29; color: white; }
-        section { background: white; border: 1px solid #dedbd2; border-radius: .6rem; padding: .5rem 1.4rem 1.2rem; margin-bottom: 1rem; overflow-x: auto; }
-        summary { cursor: pointer; font-weight: 600; padding: .6rem 0; }
-        table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-        th, td { text-align: left; border-bottom: 1px solid #dedbd2; padding: .5rem; }
-        .prose { white-space: pre-wrap; overflow-wrap: anywhere; }
-        </style>
-    </head>
-    <body>
-        <main>
-            <small>Published app · Revision {{ revision }}</small>
-            <h1>{{ title }}</h1>
-            {% if description %}<p>{{ description }}</p>{% endif %}
-            <small>Published {{ published_at|date:"DATETIME_FORMAT" }}</small>
-            {% for tab in tabs %}
-                <details{% if forloop.first %} open{% endif %}><summary>{{ tab.title }}</summary>
-                    {% include 'notebooks/app_output_blocks.html' with blocks=tab.blocks %}
-                </details>
-            {% endfor %}
-        </main>
-    </body>
-</html>
+{% extends 'notebooks/app_output.html' %}
+{% block app_tabs %}
+    {% for tab in tabs %}
+        <details{% if forloop.first %} open{% endif %}><summary>{{ tab.title }}</summary>
+            {% include 'notebooks/app_output.html#app_output_blocks' with blocks=tab.blocks %}
+        </details>
+    {% endfor %}
+{% endblock %}
