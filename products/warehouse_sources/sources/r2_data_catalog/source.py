@@ -148,7 +148,6 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
         try:
             return CatalogClient(config.account_id, config.bucket_name, config.api_token, config.catalog_uri)
         except ValueError as error:
-            # A bad field never fixes itself, so the sync must not retry it.
             raise R2DataCatalogError(str(error)) from error
 
     def validate_credentials(
@@ -163,7 +162,6 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
         except R2DataCatalogError as error:
             return False, str(error)
         try:
-            # The config call checks the warehouse, the namespace list checks the token's catalog read access.
             client.check_access()
             if schema_name is not None:
                 resolve_table(client, schema_name)
@@ -188,7 +186,6 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
         try:
             if names is None:
                 return [self._schema(table, with_counts) for table in load_tables(client, client.list_all_tables())]
-            # Named tables load directly, so a table past the discovery cap is still found.
             schemas: list[SourceSchema] = []
             for name in dict.fromkeys(names):
                 try:

@@ -236,7 +236,6 @@ class StorageCredentials:
 class DataFile:
     path: str
     record_count: int
-    # Iceberg single-value bound of each column, keyed by field id.
     upper_bounds: dict[int, bytes]
     # Values of identity-partitioned columns, keyed by field id. Iceberg may leave these columns out of the file.
     identity_values: dict[int, Any] = dataclasses.field(default_factory=dict)
@@ -673,7 +672,6 @@ def _bounds(raw: Any) -> dict[int, bytes]:
 @frozen
 class ReadPlan:
     data_files: list[DataFile]
-    # Deleted row positions of each data file, sorted and unique, from the table's position delete files.
     deleted_positions: dict[str, np.ndarray]
 
 
@@ -740,7 +738,6 @@ def plan_read(
         with reader.open_file(path, safe_point=safe_point) as handle:
             table = pq.read_table(handle, columns=["file_path", "pos"])
         for target, positions in _group_deleted_positions(table).items():
-            # Deletes for files the plan doesn't read cost memory and change nothing.
             if target in live_files:
                 deleted.setdefault(target, []).append(positions)
         if safe_point is not None:
@@ -795,7 +792,6 @@ def _align_array(array: pa.Array, iceberg_type: Any) -> pa.Array:
         target = arrow_type(iceberg_type)
         if pa.types.is_null(target) or array.type == target:
             return array
-        # Files written before a type promotion (int to long, float to double) hold the old type.
         return array.cast(target)
     kind = iceberg_type.get("type")
     if kind == "struct" and pa.types.is_struct(array.type):
@@ -924,7 +920,6 @@ def filter_rows(
     table: pa.Table, first_position: int, deleted: np.ndarray | None, row_filter: IncrementalFilter | None
 ) -> pa.Table:
     if deleted is not None and len(deleted):
-        # `deleted` is sorted, so a binary search finds this batch's deletes without a set lookup per row.
         low, high = np.searchsorted(deleted, [first_position, first_position + table.num_rows])
         if high > low:
             keep = np.ones(table.num_rows, dtype=bool)
@@ -941,7 +936,6 @@ class ReadStart:
     snapshot: dict[str, Any] | None
     file_index: int = 0
     rows_done: int = 0
-    # The saved cursor names a snapshot that expired, so the read starts again from the current snapshot.
     restarted: bool = False
 
 

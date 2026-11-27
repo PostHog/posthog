@@ -109,7 +109,6 @@ def _parquet(table: pa.Table) -> bytes:
 
 
 def _old_file(ids: list[int]) -> bytes:
-    # Written before `title` became `name` and before `score` existed.
     schema = pa.schema(
         [
             _field("id", pa.int64(), 1),
@@ -289,16 +288,13 @@ def test_full_refresh_reads_files_in_path_order_by_field_id_and_drops_deleted_ro
     assert _ids(result) == [1, 3, 4, 5, 6]
     rows = _rows(result)
     first, last = rows[0], rows[-1]
-    # `title` in the old file is field 2, which the current schema calls `name`.
     assert first["name"] == "row 1"
     assert first["score"] is None
     assert last["score"] == 6.0
     assert result.response is not None
     assert result.response.primary_keys == ["id"]
     assert result.response.sort_mode is None
-    # The removed entry (status 2) is never downloaded.
     assert "/lake/data/gone.parquet" not in _storage_paths(result)
-    # The table loads directly by its name, with no walk over the catalog's namespaces.
     assert not any(r.path.endswith("/namespaces") for r in result.requests)
 
     catalog_requests = [r for r in result.requests if not r.origin.endswith(STORAGE_HOST)]
@@ -658,7 +654,6 @@ def test_catalog_uri_override_replaces_the_default_catalog() -> None:
     ("names", "lists_namespaces"),
     [
         (None, True),
-        # Named tables load directly, so a table past the discovery cap is still found.
         (["analytics.events", "analytics.missing"], True),
         (["analytics.events"], False),
     ],
@@ -687,7 +682,6 @@ def test_discovery_stops_walking_namespaces_at_the_cap(monkeypatch: pytest.Monke
         schemas = R2DataCatalogSource().get_schemas(config, team_id=1)
 
     assert [schema.name for schema in schemas] == ["analytics.events"]
-    # The second page of namespaces is never requested.
     assert not any(r.param("pageToken") for r in network.requests_log)
 
 
@@ -695,7 +689,6 @@ def test_discovery_stops_walking_namespaces_at_the_cap(monkeypatch: pytest.Monke
     ("summary", "expected"),
     [
         ({"total-records": "5"}, 5),
-        # Position deletes are counted apart from the data files and removed at read time.
         ({"total-records": "5", "total-position-deletes": "2"}, 3),
         ({"total-records": "5", "total-equality-deletes": "1"}, None),
         ({}, None),

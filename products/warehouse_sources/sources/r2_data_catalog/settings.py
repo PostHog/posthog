@@ -7,7 +7,6 @@ DEFAULT_CATALOG_HOST = "catalog.cloudflarestorage.com"
 
 # (connect, read) seconds for one catalog or storage request.
 REQUEST_TIMEOUT = (10, 120)
-# Bytes of a Parquet file that stay in memory before the download spills to a temporary file.
 SPOOL_MEMORY_BYTES = 64 * 1024 * 1024
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 BATCH_ROWS = 5_000
@@ -24,14 +23,12 @@ MAX_DISCOVERED_NAMESPACES = 1_000
 DISCOVERY_CONCURRENCY = 8
 MAX_NAMESPACE_DEPTH = 8
 
-# Vended credentials without an expiry are renewed after this many seconds.
 DEFAULT_CREDENTIAL_LIFETIME_SECONDS = 30 * 60
 CREDENTIAL_REFRESH_MARGIN_SECONDS = 5 * 60
 
 ACCESS_DELEGATION_HEADER = "X-Iceberg-Access-Delegation"
 VENDED_CREDENTIALS = "vended-credentials"
 
-# Iceberg primitive types that work as an incremental cursor, and how the UI shows them.
 INCREMENTAL_TYPES: dict[str, IncrementalFieldType] = {
     "int": IncrementalFieldType.Integer,
     "long": IncrementalFieldType.Integer,
