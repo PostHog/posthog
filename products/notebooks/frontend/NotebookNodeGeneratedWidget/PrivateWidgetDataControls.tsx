@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { readableErrorMessage } from 'lib/api-error'
 
 import type { WidgetFrameApi } from '../generated/api.schemas'
+import { WidgetArtifactFrame, type WidgetArtifactFrameProps } from './WidgetArtifactFrame'
 import type { WidgetFrameSession } from './widgetFrameSession'
 
 interface PrivateWidgetFrames {
@@ -15,6 +16,26 @@ interface PrivateWidgetFrames {
     error?: string
     generation: number
     status?: string
+}
+
+export function PrivateWidgetArtifactFrame({
+    privatePage,
+    mapFrame,
+    onReadFrame,
+    ...props
+}: WidgetArtifactFrameProps & {
+    privatePage: PrivateWidgetFrames['page']
+    mapFrame: (frame: WidgetFrameApi, slot: string) => Promise<WidgetFrameApi>
+}): JSX.Element {
+    return (
+        <WidgetArtifactFrame
+            {...props}
+            onReadFrame={async (slot, offset, limit, runId, signal) => {
+                const page = privatePage(slot, offset, limit) ?? (await onReadFrame(slot, offset, limit, runId, signal))
+                return mapFrame(page, slot)
+            }}
+        />
+    )
 }
 
 export function usePrivateWidgetFrames(

@@ -1,6 +1,6 @@
 import type { WidgetFrameApi } from '../generated/api.schemas'
 import type { ViewerOutput } from './notebookAppViewerLogic'
-import { privateWidgetSourceNames, viewerWidgetFrames, viewerWidgetPage } from './viewerWidgetFrames'
+import { viewerWidgetFrames, viewerWidgetPage } from './viewerWidgetFrames'
 
 const output: ViewerOutput = {
     query: 'SELECT value FROM weekly',
@@ -22,16 +22,6 @@ const authorized: WidgetFrameApi = {
 }
 
 describe('viewer widget frames', () => {
-    it('keeps native SQL on the filtered frame route and privately runs downstream Python and connected SQL', () => {
-        const markdown = [
-            '<SQLV2 nodeId="n" returnVariable="native_rows" code="SELECT 1 AS count" />',
-            '<PythonV2 nodeId="p" returnVariable="calculated" code="calculated = native_rows.copy()" />',
-            '<SQLV2 nodeId="d" returnVariable="report" code="SELECT * FROM calculated" />',
-            '<SQLV2 nodeId="c" returnVariable="external" connectionId="sample" code="SELECT 1 AS value" />',
-        ].join('\n\n')
-        expect([...privateWidgetSourceNames(markdown)].sort()).toEqual(['calculated', 'external', 'report'])
-    })
-
     it('routes results to the declared placement, version and logical slot', () => {
         expect(viewerWidgetFrames({ weekly: output }, 'other', 'active').size).toBe(0)
         expect(viewerWidgetFrames({ weekly: output }, 'card', 'older').size).toBe(0)

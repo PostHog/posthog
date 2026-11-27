@@ -29,8 +29,11 @@ import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
-import { PrivateWidgetDataControls, usePrivateWidgetFrames } from './PrivateWidgetDataControls'
-import { WidgetArtifactFrame } from './WidgetArtifactFrame'
+import {
+    PrivateWidgetArtifactFrame,
+    PrivateWidgetDataControls,
+    usePrivateWidgetFrames,
+} from './PrivateWidgetDataControls'
 import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
@@ -147,12 +150,6 @@ function ExpandedWidget({
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
     const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
-    const privateFrames = usePrivateWidgetFrames(selectedVersionId, frameSession.privateInputs)
-    const privateNames = activeFrameNames.filter((slot) => {
-        const mapped = status?.input_bindings?.[slot]?.source
-        const declared = status?.input_contract?.find((input) => input.slot === slot)?.sourceName
-        return frameSession.privateInputs?.sourceNames.has(mapped || declared || slot)
-    })
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -165,6 +162,13 @@ function ExpandedWidget({
         selectedVersionId === status?.current_version_id
             ? (status?.security_review ?? null)
             : (selectedVersion?.security_review ?? null)
+
+    const privateFrames = usePrivateWidgetFrames(selectedVersionId, frameSession.privateInputs)
+    const privateNames = activeFrameNames.filter((slot) => {
+        const mapped = status?.input_bindings?.[slot]?.source
+        const declared = status?.input_contract?.find((input) => input.slot === slot)?.sourceName
+        return frameSession.privateInputs?.sourceNames.has(mapped || declared || slot)
+    })
 
     useEffect(() => {
         setMenuItems([
@@ -357,15 +361,17 @@ function ExpandedWidget({
                                 Loading widget…
                             </div>
                         ) : null}
-                        <WidgetArtifactFrame
+                        <PrivateWidgetArtifactFrame
                             key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}-${privateFrames.generation}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
-                                const frame =
-                                    privateFrames.page(name, offset, limit) ??
-                                    (await frameSession.read(name, offset, limit, (pageOffset, pageLimit) =>
+                                const frame = await frameSession.read(
+                                    name,
+                                    offset,
+                                    limit,
+                                    (pageOffset, pageLimit, pinnedRunId) =>
                                         loadWidgetFrame(
                                             String(currentTeamId),
                                             notebookShortId,
@@ -374,11 +380,15 @@ function ExpandedWidget({
                                             name,
                                             pageOffset,
                                             pageLimit,
-                                            runId,
+                                            pinnedRunId ?? runId,
                                             signal
                                         )
-                                    ))
-                                return applyReusableWidgetBinding(
+                                )
+                                return frame
+                            }}
+                            privatePage={privateFrames.page}
+                            mapFrame={(frame, name) =>
+                                applyReusableWidgetBinding(
                                     frame,
                                     name,
                                     getReusableWidgetInputBinding(status?.input_bindings ?? {}, name),
@@ -386,7 +396,7 @@ function ExpandedWidget({
                                         .find((input) => input.slot === name)
                                         ?.columns?.map((column) => column.name) ?? []
                                 )
-                            }}
+                            }
                             onArtifactUnavailable={markArtifactUnavailable}
                             onError={(message) =>
                                 setRuntimeError(

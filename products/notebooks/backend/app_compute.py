@@ -36,8 +36,9 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
 
+from products.notebooks.backend.app_draft import draft_app_release
 from products.notebooks.backend.app_releases import read_release
-from products.notebooks.backend.app_viewer import draft_app_release, viewer_variables
+from products.notebooks.backend.app_viewer import viewer_variables
 from products.notebooks.backend.facade.contracts import AppRelease
 from products.notebooks.backend.kernel_runtime import (
     APP_VIEWER_KERNEL_PREFIX,

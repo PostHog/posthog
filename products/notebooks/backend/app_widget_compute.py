@@ -20,7 +20,7 @@ from products.notebooks.backend.markdown_conversion import build_markdown_notebo
 from products.notebooks.backend.models import Notebook, NotebookWidgetInstance
 from products.notebooks.backend.sql_v2_state import extract_cells, get_dataframe_owners
 from products.notebooks.backend.sql_v2_variables import NotebookVariableValue
-from products.notebooks.backend.widgets import bounded_widget_rows, widget_node_ids, widget_source_name
+from products.notebooks.backend.widgets import widget_frame_from_rows, widget_node_ids, widget_source_name
 
 
 def run_widget_cells(
@@ -85,17 +85,10 @@ def _widget_frame(
         )
     ):
         raise ValidationError("The dataframe columns changed. Update the widget input to use this result.")
-    frame = bounded_widget_rows(
-        name=slot,
-        run_id=uuid4(),
-        columns=schema,
-        candidates=rows,
-        total_row_count=len(rows),
-        offset=0,
-    )
+    frame = widget_frame_from_rows(source_node_id=node_id, name=slot, run_id=uuid4(), columns=schema, rows=rows)
     if frame["truncated"]:
         raise ValidationError("The widget dataframe is too large. Narrow the inputs or aggregate the source data.")
-    return json.loads(json.dumps({**frame, "sourceNodeId": node_id}, default=str))
+    return json.loads(json.dumps(frame, default=str))
 
 
 def _widget_sources(
