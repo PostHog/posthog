@@ -8,7 +8,9 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
+import { LearnedLibrariesSetting } from './LearnedLibrariesSetting'
 import { LearnFromPastTicketsSetting } from './LearnFromPastTicketsSetting'
+import { QuillLearnedLibrariesSetting } from './QuillLearnedLibrariesSetting'
 import { QuillRetryText } from './QuillRetryText'
 
 export function LearnFromSupportSetting(): JSX.Element {
@@ -60,6 +62,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                         </Button>
                     ) : null}
                 </div>
+                <QuillLearnedLibrariesSetting />
                 <LearnFromPastTicketsSetting />
             </div>
         )
@@ -84,6 +87,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                     </Link>
                 ) : null}
             </div>
+            <LearnedLibrariesSetting />
             <LearnFromPastTicketsSetting />
         </div>
     )
