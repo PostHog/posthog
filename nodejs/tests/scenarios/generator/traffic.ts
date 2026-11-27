@@ -12,6 +12,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
+import { mayHaveQueued } from '../judge/invariants'
 import type { FollowUpAnswer, IntakeAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 import type { SesFeedback } from './ses-feedback'
@@ -257,9 +258,7 @@ export const bounceFollowup: TrafficKind = {
 
 const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
-// cdp-api answers 503 only once its claim lookup and the broker's ack deadline ran out, which the 3 s default request
-// timeout would cut off, turning a refusal it retries into a transport error it does not.
-const INTAKE_ANSWER_TIMEOUT_MS = 10_000
+export const INTAKE_ANSWER_TIMEOUT_MS = 10_000
 
 export const REAL_CLOCK: SendClock = {
     now: () => performance.now(),
@@ -268,10 +267,16 @@ export const REAL_CLOCK: SendClock = {
     },
 }
 
-const withRetries = (answer: IntakeAnswer, retries: number, attemptsMs: number[]): JournalEntry['answer'] => ({
+const withRetries = (
+    answer: IntakeAnswer,
+    retries: number,
+    attemptsMs: number[],
+    unconfirmedAttempt: boolean
+): JournalEntry['answer'] => ({
     ...answer,
     ...(retries === 0 ? {} : { retries }),
     ...(attemptsMs.length === 0 ? {} : { attemptsMs }),
+    ...(unconfirmedAttempt && !answer.accepted ? { unconfirmedAttempt: true as const } : {}),
 })
 
 function sendTransactional(
@@ -291,6 +296,7 @@ async function sendWithRetries(
     const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const deadline = clock.now() + deadlineMs
     const attemptsMs: number[] = []
+    let unconfirmedAttempt = false
     for (let retry = 0; ; retry += 1) {
         const postedAt = clock.now()
         const answer = await post()
@@ -299,13 +305,14 @@ async function sendWithRetries(
         }
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
-            return withRetries(answer, retry, attemptsMs)
+            return withRetries(answer, retry, attemptsMs, unconfirmedAttempt)
         }
         await clock.wait(waitMs, signal)
         signal.throwIfAborted()
         if (clock.now() > deadline) {
-            return withRetries(answer, retry, attemptsMs)
+            return withRetries(answer, retry, attemptsMs, unconfirmedAttempt)
         }
+        unconfirmedAttempt ||= mayHaveQueued(answer)
     }
 }
 

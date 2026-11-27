@@ -361,14 +361,15 @@ type Bounds = { min: number; max: number }
 
 const NONE: Bounds = { min: 0, max: 0 }
 
-function boundsOf({ kind, answer, followUp, expect }: JournalEntry, actionId: string, horizonAt: number): Bounds {
+export const mayHaveQueued = (answer: IntakeAnswer): boolean =>
+    !answer.accepted && ('transportError' in answer || answer.outcome === 'intake_unavailable')
+
+function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, horizonAt: number): Bounds {
     if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt) {
         return NONE
     }
     if (!answer.accepted) {
-        // The webhook route answers 5xx when the broker gave no ack before its deadline, and a late ack still lands the run.
-        const unconfirmed = 'transportError' in answer || (kind === 'webhook' && answer.status >= 500)
-        return unconfirmed ? { min: 0, max: 1 } : NONE
+        return mayHaveQueued(answer) || answer.unconfirmedAttempt ? { min: 0, max: 1 } : NONE
     }
     const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
     return { min: flows, max: flows }
