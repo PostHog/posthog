@@ -23,7 +23,12 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
 )
-from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
+from posthog.rate_limit import (
+    AEOPromptSuggestionsBurstRateThrottle,
+    AEOPromptSuggestionsSustainedRateThrottle,
+    AEOTopicRelabelBurstRateThrottle,
+    AEOTopicRelabelSustainedRateThrottle,
+)
 
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
@@ -1825,7 +1830,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         },
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], url_path="topics/rename")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/rename",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
     def topics_rename(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         with topic_errors():
@@ -1844,7 +1854,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         },
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], url_path="topics/merge")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/merge",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
     def topics_merge(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         data = request.validated_data
         with topic_errors():
@@ -1863,7 +1878,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         },
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["post"], url_path="topics/remove")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="topics/remove",
+        throttle_classes=[AEOTopicRelabelBurstRateThrottle, AEOTopicRelabelSustainedRateThrottle],
+    )
     def topics_remove(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         with topic_errors():
             change = remove_prompt_topic(self.team_id, request.validated_data["topic"])

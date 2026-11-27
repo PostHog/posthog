@@ -23,7 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
+from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOTopicRelabelBurstRateThrottle
 
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.check_brands import enrich_check_brands
@@ -457,16 +457,39 @@ class TestAEOPromptAPI(APIBaseTest):
             ("merge_into_a_missing_topic", "topics/merge/", {"topic": "Pricing", "into_topic": "Support"}, 404),
             ("remove_a_missing_topic", "topics/remove/", {"topic": "Support"}, 404),
             ("remove_no_topic", "topics/remove/", {"topic": ""}, 400),
+            # Renaming a topic to its own name would rewrite every past check and change nothing.
+            ("rename_to_the_same_name", "topics/rename/", {"topic": "Plans", "new_topic": "Plans"}, 400),
+            # A rename relabels archived prompts too, so a name only archived prompts hold is taken.
+            ("rename_onto_an_archived_topic", "topics/rename/", {"topic": "Plans", "new_topic": "BILLING"}, 409),
         ]
     )
     def test_refused_topic_edits_change_nothing(self, _name: str, path: str, body: dict, expected: int) -> None:
         self._topic_fixture()
+        archived = self._import_prompts([{"prompt": "e?", "topic": "Billing"}])["e?"]
+        self.client.delete(f"{self.url}{archived}/")
         before = self._topics_now()
 
         response = self.client.post(f"{self.url}{path}", body, format="json")
 
         assert response.status_code == expected, response.json()
         assert self._topics_now() == before
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_topic_relabels_are_throttled_for_the_whole_project(self, _rate_limit_enabled: MagicMock) -> None:
+        self._topic_fixture()
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        # Each relabel rewrites the topic's past checks, so even a session in the browser has a budget.
+        with patch.object(AEOTopicRelabelBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.post(
+                    f"{self.url}topics/rename/", {"topic": old, "new_topic": new}, format="json"
+                ).status_code
+                for old, new in [("Plans", "Cost"), ("Cost", "Plans"), ("Plans", "Cost")]
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
 
     def test_bulk_set_topic_changes_only_the_chosen_prompts(self) -> None:
         ids = self._topic_fixture()

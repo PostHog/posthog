@@ -7,6 +7,10 @@ Setting a topic on chosen prompts changes only those prompts, and their past che
 with, the same as an edit of one prompt.
 
 No topic edit adds a prompt version. A version records the prompt's text, and the topic is not part of it.
+
+Every edit first locks the project's config row, the same row an import that turns prompts on locks, so two
+edits never read a topic name the other one is about to change. Prompt rows are then locked in `prompt_hash`
+order, the order an import locks them in, so an edit and an import never deadlock.
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from django.db.models import Min
 from django.db.models.functions import Collate
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     PromptNotFoundError,
@@ -27,7 +33,7 @@ from products.aeo.backend.facade.contracts import (
     PromptTopicNotFoundError,
     PromptUpdateError,
 )
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOTeamConfig
 from products.aeo.backend.seeding import normalize_prompt
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -40,8 +46,12 @@ def rename_topic(team_id: int, topic: str, new_topic: str) -> PromptTopicChange:
     """A new name that differs only in letter case is allowed, so a rename can fix the spelling of a topic.
     Raises PromptTopicNotFoundError, and PromptTopicConflictError when another topic already has the name."""
     old, new = _named(topic), _named(new_topic)
+    if old == new:
+        raise PromptTopicError("Enter a different name.")
     with transaction.atomic():
-        if old.lower() != new.lower() and _current_label(team_id, new) is not None:
+        _lock_topics(team_id)
+        # Archived prompts count, because a rename also relabels them and their checks.
+        if old.lower() != new.lower() and _topic_exists(team_id, new):
             raise PromptTopicConflictError(f'A topic named "{new}" already exists. Merge the topics instead.')
         return _relabel(team_id, old, new)
 
@@ -53,6 +63,7 @@ def merge_topics(team_id: int, topic: str, into_topic: str) -> PromptTopicChange
     if source.lower() == target.lower():
         raise PromptTopicError("Choose a different topic to merge into.")
     with transaction.atomic():
+        _lock_topics(team_id)
         label = _current_label(team_id, target)
         if label is None:
             raise PromptTopicNotFoundError(f'No prompt has the topic "{target}".')
@@ -62,6 +73,7 @@ def merge_topics(team_id: int, topic: str, into_topic: str) -> PromptTopicChange
 def remove_topic(team_id: int, topic: str) -> PromptTopicChange:
     """The prompts of `topic` are left with no topic. Raises PromptTopicNotFoundError."""
     with transaction.atomic():
+        _lock_topics(team_id)
         return _relabel(team_id, _named(topic), "")
 
 
@@ -72,8 +84,12 @@ def set_topic(team_id: int, prompt_ids: list[uuid.UUID], topic: str) -> PromptTo
     wanted = set(prompt_ids)
     new = clean_topic(topic)
     with transaction.atomic():
+        _lock_topics(team_id)
         prompts = AEOPrompt.objects.for_team(team_id).filter(id__in=wanted)
-        archived = [row.archived_at is not None for row in prompts.select_for_update().only("archived_at")]
+        archived = [
+            row.archived_at is not None
+            for row in prompts.select_for_update().order_by("prompt_hash").only("archived_at", "prompt_hash")
+        ]
         if len(archived) != len(wanted):
             raise PromptNotFoundError("Some of the prompts aren't in this project.")
         if any(archived):
@@ -92,6 +108,15 @@ def _named(topic: str) -> str:
     return cleaned
 
 
+def _lock_topics(team_id: int) -> None:
+    canonical = resolve_effective_team_id(team_id)
+    AEOTeamConfig.objects.for_team(canonical).select_for_update().get_or_create(team_id=canonical)
+
+
+def _topic_exists(team_id: int, topic: str) -> bool:
+    return AEOPrompt.objects.for_team(team_id).filter(topic__iexact=topic).exists()
+
+
 def _current_label(team_id: int, topic: str) -> str | None:
     """How a topic is spelled on the prompts that are not archived, or None when none has it. Collated the
     same way as the topic list, so both pick the same spelling of a topic with mixed letter case."""
@@ -103,10 +128,18 @@ def _current_label(team_id: int, topic: str) -> str | None:
 
 
 def _relabel(team_id: int, old: str, new: str) -> PromptTopicChange:
-    prompts = AEOPrompt.objects.for_team(team_id).filter(topic__iexact=old).update(topic=new, updated_at=timezone.now())
-    if prompts == 0:
+    matching = AEOPrompt.objects.for_team(team_id).filter(topic__iexact=old)
+    ids = list(matching.select_for_update().order_by("prompt_hash").values_list("id", flat=True))
+    if not ids:
         raise PromptTopicNotFoundError(f'No prompt has the topic "{old}".')
-    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_topic__iexact=old).update(prompt_topic=new)
+    prompts = AEOPrompt.objects.for_team(team_id).filter(id__in=ids).update(topic=new, updated_at=timezone.now())
+    # Rows that already read `new` are left alone, so a check is rewritten only when its label changes.
+    checks = (
+        AEOCitationCheck.objects.for_team(team_id)
+        .filter(prompt_topic__iexact=old)
+        .exclude(prompt_topic=new)
+        .update(prompt_topic=new)
+    )
     # A bulk update sends no post_save signal, so the stored results need the bump here.
     bump_data_version_on_commit(team_id)
     return PromptTopicChange(prompts=prompts, checks=checks)
