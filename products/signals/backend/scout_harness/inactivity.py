@@ -77,6 +77,7 @@ from products.signals.backend.models import (
     scout_lists_reports_in_inbox,
 )
 from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
+from products.signals.backend.scout_harness.message_routes import get_message_routes, scout_send_message_enabled
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -231,12 +232,14 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
     if name not in assessment.judgeable:
         return
 
-    # A Slack-routed scout's output is consumed in Slack, and a scout kept out of the inbox is read
-    # elsewhere too, so no evidence flows back and the `ignored` verdict cannot be trusted for it.
+    # A Slack-routed scout's output is consumed in Slack, a scout with message routes is read through
+    # its messages, and a scout kept out of the inbox is read elsewhere too, so no evidence flows back and the `ignored` verdict cannot be trusted for it.
     # Its silence still warns below.
-    consumed_outside_inbox = get_scout_slack_destination(
-        config.output_destinations
-    ) is not None or not scout_lists_reports_in_inbox(config.output_destinations)
+    consumed_outside_inbox = (
+        get_scout_slack_destination(config.output_destinations) is not None
+        or not scout_lists_reports_in_inbox(config.output_destinations)
+        or _consumed_through_messages(config)
+    )
     if name in assessment.judged_on_reports and not consumed_outside_inbox:
         _apply_ignored_verdict(config, outcome, now, had_output=name in assessment.emitted, sweep_warned=sweep_warned)
         return
@@ -284,6 +287,12 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
                 skill_name=config.skill_name,
                 reason=config.pause_reason,
             )
+
+
+def _consumed_through_messages(config: SignalScoutConfig) -> bool:
+    # Stored routes do nothing while the flag is off, so they only count while it is on. The flag is
+    # read for configs that hold routes, which keeps the sweep's per-config cost where it was.
+    return bool(get_message_routes(config.output_destinations)) and scout_send_message_enabled(config.team)
 
 
 def _apply_ignored_verdict(

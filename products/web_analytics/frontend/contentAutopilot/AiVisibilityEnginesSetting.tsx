@@ -1,18 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import type { AEOEngineSettingApi, CheckFrequencyEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type { AEOEngineSettingApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { aiVisibilityEnginesLogic } from './aiVisibilityEnginesLogic'
 import { AiVisibilityEnginesTable } from './AiVisibilityEnginesTable'
+import { FREQUENCY_OPTIONS } from './engineFrequency'
 import { unavailableEngineReason } from './utils'
 
-const FREQUENCY_OPTIONS: { value: CheckFrequencyEnumApi; label: string }[] = [
-    { value: 'daily', label: 'Every day' },
-    { value: 'weekly', label: 'Once a week' },
-]
 const FREQUENCY_TOOLTIP =
-    'Once a week checks a seventh of your prompts each day, so every prompt gets one check a week.'
+    'Every 72 hours checks a third of your prompts each day, and weekly a seventh, so every prompt gets one check per period.'
 const NO_SEARCH_NOTE =
     'Answers from what the model already knows, without searching the web. It never cites pages, so compare its mention rate.'
 

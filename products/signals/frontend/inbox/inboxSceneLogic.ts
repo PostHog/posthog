@@ -699,7 +699,7 @@ export interface inboxSceneLogicMeta {
             selectedScoutSkillName: string | null,
             scoutConfigs: SignalScoutConfig[] | null
         ) => SignalScoutConfig | null
-        todayHomePane: (featureFlags: FeatureFlagsSet) => boolean
+        todayHomePane: (featureFlags: FeatureFlagsSet, activePane: TodayRailPane) => boolean
         settingsInInbox: (todayHomePane: boolean, activeTab: InboxTabKey, selectedReportId: string | null) => boolean
         titleName: (scoutsInAutomate: boolean, settingsInInbox: boolean) => string
         breadcrumbs: (
@@ -1017,9 +1017,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             ): SignalScoutConfig | null =>
                 scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName) ?? null,
         ],
+        // Only while the inbox is open from the Home pane, which links each inbox page itself. Opened from the
+        // Products pane, the tabs stay so the rest of Self-driving stays reachable.
         todayHomePane: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet) => isTodayHomePaneEnabled(featureFlags),
+            (s) => [s.featureFlags, s.activePane],
+            (featureFlags: FeatureFlagsSet, activePane: TodayRailPane): boolean =>
+                isTodayHomePaneEnabled(featureFlags) && activePane === 'home',
         ],
         /** The Home pane has no Settings row or tab, so settings reads as a page inside the inbox. */
         settingsInInbox: [
