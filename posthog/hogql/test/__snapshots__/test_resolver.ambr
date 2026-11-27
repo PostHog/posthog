@@ -22,6 +22,7 @@
                     name: "$group_0"
                     table_type: {
                       table: {
+                        asterisk_traversers: [],
                         description: "Every analytics event captured for the project. The central fact table for product analytics.",
                         events_retention_field: "timestamp",
                         fields: {
@@ -390,6 +391,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -469,6 +471,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -548,6 +551,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -627,6 +631,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -706,6 +711,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -785,6 +791,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -864,6 +871,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -943,6 +951,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
@@ -1768,6 +1777,7 @@
                                   ],
                                   hidden: False,
                                   join_table: {
+                                    asterisk_traversers: [],
                                     description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                     fields: {
                                       distinct_id: {
@@ -1857,6 +1867,7 @@
                           ],
                           hidden: False,
                           join_table: {
+                            asterisk_traversers: [],
                             description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                             fields: {
                               distinct_id: {
@@ -2320,6 +2331,7 @@
             name: "uuid"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -2768,6 +2780,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
@@ -2860,6 +2873,7 @@
                       ],
                       hidden: False,
                       join_table: {
+                        asterisk_traversers: [],
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
@@ -3201,6 +3215,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3299,6 +3314,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3397,6 +3413,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3495,6 +3512,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3593,6 +3611,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3691,6 +3710,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3789,6 +3809,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -3887,6 +3908,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -4035,6 +4057,7 @@
               alias: "e"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Aggregated metadata for session recordings (counts, URLs, console/activity stats); one row per session. Holds metadata only, not the recording snapshots. Join to events/persons via `session_id`/`distinct_id`.",
                   fields: {
                     active_milliseconds: {
@@ -4642,6 +4665,7 @@
                     alias: "s"
                     table_type: {
                       table: {
+                        asterisk_traversers: [],
                         description: "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. Join from events via `events.$session_id = sessions.session_id`.",
                         fields: {
                           $autocapture_count: {
@@ -5325,6 +5349,7 @@
                         name: "$group_0"
                         table_type: {
                           table: {
+                            asterisk_traversers: [],
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
                             events_retention_field: "timestamp",
                             fields: {
@@ -5693,6 +5718,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -5772,6 +5798,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -5851,6 +5878,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -5930,6 +5958,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6009,6 +6038,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6088,6 +6118,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6167,6 +6198,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6246,6 +6278,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6378,6 +6411,7 @@
                         name: "$group_0"
                         table_type: {
                           table: {
+                            asterisk_traversers: [],
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
                             events_retention_field: "timestamp",
                             fields: {
@@ -6746,6 +6780,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6825,6 +6860,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6904,6 +6940,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -6983,6 +7020,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -7062,6 +7100,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -7141,6 +7180,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -7220,6 +7260,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -7299,6 +7340,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
@@ -8127,6 +8169,7 @@
                                     ],
                                     hidden: False,
                                     join_table: {
+                                      asterisk_traversers: [],
                                       description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                       fields: {
                                         distinct_id: {
@@ -8216,6 +8259,7 @@
                             ],
                             hidden: False,
                             join_table: {
+                              asterisk_traversers: [],
                               description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                               fields: {
                                 distinct_id: {
@@ -8781,6 +8825,7 @@
                                         ],
                                         hidden: False,
                                         join_table: {
+                                          asterisk_traversers: [],
                                           description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                           fields: {
                                             distinct_id: {
@@ -8870,6 +8915,7 @@
                                 ],
                                 hidden: False,
                                 join_table: {
+                                  asterisk_traversers: [],
                                   description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                   fields: {
                                     distinct_id: {
@@ -9568,6 +9614,7 @@
             name: "uuid"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -10012,6 +10059,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
@@ -10104,6 +10152,7 @@
                       ],
                       hidden: False,
                       join_table: {
+                        asterisk_traversers: [],
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
@@ -10445,6 +10494,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -10543,6 +10593,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -10641,6 +10692,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -10739,6 +10791,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -10837,6 +10890,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -10935,6 +10989,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -11033,6 +11088,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -11131,6 +11187,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -11278,6 +11335,7 @@
               alias: "e"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
                   events_retention_field: "timestamp",
                   fields: {
@@ -11723,6 +11781,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
@@ -11815,6 +11874,7 @@
                       ],
                       hidden: False,
                       join_table: {
+                        asterisk_traversers: [],
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
@@ -12156,6 +12216,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12254,6 +12315,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12352,6 +12414,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12450,6 +12513,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12548,6 +12612,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12646,6 +12711,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12744,6 +12810,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12842,6 +12909,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
@@ -12990,6 +13058,7 @@
                 name: "timestamp"
                 table_type: {
                   table: {
+                    asterisk_traversers: [],
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
                     events_retention_field: "timestamp",
                     fields: {
@@ -13297,6 +13366,7 @@
                 alias: "e"
                 table_type: {
                   table: {
+                    asterisk_traversers: [],
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
                     events_retention_field: "timestamp",
                     fields: {
@@ -13569,6 +13639,7 @@
                 alias: "p"
                 table_type: {
                   table: {
+                    asterisk_traversers: [],
                     description: "Deduplicated people in the project, with their latest properties. One row per person.",
                     fields: {
                       $virt_initial_channel_type: {
@@ -13955,6 +14026,7 @@
             name: "event"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -14298,6 +14370,7 @@
               alias: "e"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
                   events_retention_field: "timestamp",
                   fields: {
@@ -14645,6 +14718,7 @@
                 alias: "e"
                 table_type: {
                   table: {
+                    asterisk_traversers: [],
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
                     events_retention_field: "timestamp",
                     fields: {
@@ -15032,6 +15106,7 @@
                         name: "event"
                         table_type: {
                           table: {
+                            asterisk_traversers: [],
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
                             events_retention_field: "timestamp",
                             fields: {
@@ -15425,6 +15500,7 @@
             name: "event"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -15705,6 +15781,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                     fields: {
                       distinct_id: {
@@ -15791,6 +15868,7 @@
               alias: "e"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
                   events_retention_field: "timestamp",
                   fields: {
@@ -16073,6 +16151,7 @@
                   ],
                   hidden: False,
                   join_table: {
+                    asterisk_traversers: [],
                     description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                     fields: {
                       distinct_id: {
@@ -16158,6 +16237,7 @@
             name: "event"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -16423,6 +16503,7 @@
                 ],
                 hidden: False,
                 join_table: {
+                  asterisk_traversers: [],
                   description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                   fields: {
                     distinct_id: {
@@ -16508,6 +16589,7 @@
               alias: "e"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
                   events_retention_field: "timestamp",
                   fields: {
@@ -16775,6 +16857,7 @@
                 ],
                 hidden: False,
                 join_table: {
+                  asterisk_traversers: [],
                   description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                   fields: {
                     distinct_id: {
@@ -16859,6 +16942,7 @@
             name: "distinct_id"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                 fields: {
                   distinct_id: {
@@ -16973,6 +17057,7 @@
               name: "event"
               table_type: {
                 table: {
+                  asterisk_traversers: [],
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
                   events_retention_field: "timestamp",
                   fields: {
@@ -17277,6 +17362,7 @@
                   name: "event"
                   table_type: {
                     table: {
+                      asterisk_traversers: [],
                       description: "Every analytics event captured for the project. The central fact table for product analytics.",
                       events_retention_field: "timestamp",
                       fields: {
@@ -17603,6 +17689,7 @@
             name: "event"
             table_type: {
               table: {
+                asterisk_traversers: [],
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
                 events_retention_field: "timestamp",
                 fields: {
@@ -17876,6 +17963,7 @@
                               ],
                               hidden: False,
                               join_table: {
+                                asterisk_traversers: [],
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
@@ -17968,6 +18056,7 @@
                       ],
                       hidden: False,
                       join_table: {
+                        asterisk_traversers: [],
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
