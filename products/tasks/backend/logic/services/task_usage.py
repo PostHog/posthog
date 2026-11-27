@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -21,6 +22,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.tasks.backend.logic.services.compute_quota import ai_credits_compute_origins
 from products.tasks.backend.logic.services.sandbox_pricing import (
     COMPUTE_RATE_CARDS,
     calculate_sandbox_compute_cost,
@@ -241,11 +243,15 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
     if calculated_at <= pricing_start:
         return Decimal(0)
 
-    sessions = SandboxSession.objects.for_team(team_id).filter(
-        task_run__task_id=task_id,
-        client_provenance__in=TaskClientProvenance.values,
-        user_attributed_at__isnull=False,
-        origin_product=Task.OriginProduct.USER_CREATED,
+    # The same sessions the usage report bills: PostHog Desktop's into `posthog_code` credits,
+    # and the origins AI_CREDITS_COMPUTE_BILLED_ORIGINS lists into `ai_credits`, whatever their client.
+    billed = Q(client_provenance__in=TaskClientProvenance.values, origin_product=Task.OriginProduct.USER_CREATED)
+    if ai_origins := ai_credits_compute_origins():
+        billed |= Q(origin_product__in=ai_origins)
+    sessions = (
+        SandboxSession.objects.for_team(team_id)
+        .filter(task_run__task_id=task_id, user_attributed_at__isnull=False)
+        .filter(billed)
     )
     return sum(
         (
