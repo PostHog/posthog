@@ -217,7 +217,7 @@ describe('measurements', () => {
         expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([{ name, key: ROLE, value, unit }])
     })
 
-    it.each<[string, MeasureEvidence['attachmentBudgets'], Omit<Measurement, 'name' | 'unit'>[]]>([
+    it.each<[string, MeasureEvidence['attachmentBudgets'], Omit<Measurement, 'unit'>[]]>([
         [
             "budgets that differ by replica, so each replica's reserved bytes count against its own",
             [
