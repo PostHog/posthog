@@ -9,7 +9,6 @@ import type { AccessControlSettingsEntry } from './types'
 
 export interface AccessDetailSubjectInfo {
     subjectId: string
-    /** How the subject is called in copy. */
     subjectNoun: 'role' | 'member'
     /** One gate for every control, so the whole detail greys out together. */
     cannotEditReason: string | undefined

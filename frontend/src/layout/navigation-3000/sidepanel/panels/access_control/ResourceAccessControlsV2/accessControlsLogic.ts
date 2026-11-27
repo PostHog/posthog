@@ -578,7 +578,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
         setShowAllProducts: (show: boolean) => ({ show }),
-        /** One member's or role's own project access rule, from the detail panel. */
         setSubjectProjectAccess: (
             scopeType: AccessDetailSubjectScope,
             subjectId: string,
@@ -588,7 +587,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             subjectId,
             level,
         }),
-        /** One member's or role's own rule for a product, from the detail panel. */
         setSubjectResourceAccess: (
             scopeType: AccessDetailSubjectScope,
             subjectId: string,

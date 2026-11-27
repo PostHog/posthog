@@ -358,7 +358,6 @@ describe('accessControlsLogic', () => {
         })
 
         afterEach(async () => {
-            // The saves run in the connected logics' loaders, so let those settle before the logic goes away
             await expectLogic(
                 accessControlLogic({ resource: 'project', resource_id: '997', title: '', description: '' })
             ).toFinishAllListeners()

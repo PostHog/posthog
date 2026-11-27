@@ -216,7 +216,6 @@ function inheritedReason(reason: InheritedReason, fallbackTo: string): string {
  * What applies to a resource when the subject has no rule of their own. The entry resolves it
  * server-side, down to the built-in default when no rule exists anywhere.
  */
-/** The levels a product rule can take, with the ones outside its minimum and maximum disabled. */
 export function productLevelOptions(
     availableLevels: AccessControlLevel[],
     rule: { minimum?: AccessControlLevel | null; maximum?: AccessControlLevel | null } | undefined,
@@ -261,7 +260,6 @@ export function subjectDisabledReason(
     return undefined
 }
 
-/** A role's members by name, sorted, for the role's delete confirmation. */
 export function roleMemberNames(members: RoleMemberType[]): string {
     return members
         .map((m) => fullNameOrEmail(m.user))
@@ -271,15 +269,11 @@ export function roleMemberNames(members: RoleMemberType[]): string {
 
 export interface AccessDeepLink {
     tab: AccessControlsTab | null
-    /** Narrows the roles tab to this role. */
     roleId: string | null
-    /** Opens this member's access detail. */
     memberId: string | null
-    /** The search params that are not part of the deep link. */
     rest: Record<string, any>
 }
 
-/** The access settings deep link in these search params, or null when they hold none. */
 export function parseAccessDeepLink(searchParams: Record<string, any>): AccessDeepLink | null {
     const { access_tab, access_role_id, access_member_id, ...rest } = searchParams
     if (access_tab === undefined && access_role_id === undefined && access_member_id === undefined) {
