@@ -1,5 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { SourceSetupPanel } from './SourceSetupPanel'
@@ -29,6 +31,8 @@ export function SourceOnboardingScan({
     rescanLoading,
     rescanDisabledReason,
 }: SourceOnboardingScanProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     return (
         <SourceSetupPanel
             state={
@@ -48,14 +52,25 @@ export function SourceOnboardingScan({
             rescanLoading={rescanLoading}
             rescanDisabledReason={rescanDisabledReason}
             footer={
-                <>
-                    <LemonButton onClick={onManual} data-attr="marketing-onboarding-add-manually">
-                        Skip and add manually
-                    </LemonButton>
-                    <LemonButton type="secondary" onClick={onContinue} data-attr="marketing-onboarding-continue">
-                        Continue to dashboard
-                    </LemonButton>
-                </>
+                todayRailNav ? (
+                    <>
+                        <Button onClick={onManual} data-attr="marketing-onboarding-add-manually">
+                            Skip and add manually
+                        </Button>
+                        <Button variant="outline" onClick={onContinue} data-attr="marketing-onboarding-continue">
+                            Continue to dashboard
+                        </Button>
+                    </>
+                ) : (
+                    <>
+                        <LemonButton onClick={onManual} data-attr="marketing-onboarding-add-manually">
+                            Skip and add manually
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={onContinue} data-attr="marketing-onboarding-continue">
+                            Continue to dashboard
+                        </LemonButton>
+                    </>
+                )
             }
         />
     )

@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
+import { CustomNavSuffix } from '../../ProjectTree/customIconRegistry'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { findProductShortcut } from '../../ProjectTree/utils'
 import { sidebarProductMeta } from '../../sidebarProductMeta'
@@ -100,6 +101,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                         <NavProductIcon item={item} />
                     </span>
                     <span className="flex-1 truncate">{label}</span>
+                    <CustomNavSuffix type={item.type} />
                 </Link>
                 {isHome ? (
                     <LemonButton

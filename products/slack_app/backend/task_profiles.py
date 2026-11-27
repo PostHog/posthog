@@ -65,7 +65,21 @@ REPO_SELECTION = replace(
     mcp_scopes="read_only",
 )
 
-PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION)
+# Reads Slack through the person's Slack MCP and answers once, so it needs no open web. It stays listed like `slack`,
+# because the person turned the daily focus on, so the run is theirs and can mount their Slack MCP; the runs show in
+# their task list. GitHub and PR access stay the `slack` origin's: the tasks platform decides them by origin.
+DAILY_FOCUS = replace(
+    SLACK,
+    key="slack.daily_focus",
+    max_live_per_user=1,
+    # Infrastructure hosts only, the Slack MCP proxy among them, so a message in a thread cannot have the agent upload
+    # what it read to an outside host.
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,)),
+    mcp_scopes="read_only",
+    inactivity_minutes=5,
+)
+
+PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION, DAILY_FOCUS)
 
 
 def register() -> None:

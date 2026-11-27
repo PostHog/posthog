@@ -1,10 +1,17 @@
 // Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
+import Redis from 'ioredis'
 import path from 'path'
+import { Pool } from 'pg'
+import { v7 as uuidv7 } from 'uuid'
 
+import { CyclotronV2Manager } from '../src/cdp/services/cyclotron-v2/manager'
+import { SES_GLOBAL_BUCKET_KEY } from '../src/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { CYCLOTRON_QUEUE_ROLES, EMAIL_QUEUES } from '../src/cdp/types'
 import { defaultConfig } from '../src/common/config/config'
 import { StallingValkeyProxy } from '../src/common/redis/_tests/stalling-valkey-proxy'
 import { PluginServer } from '../src/server'
 import { PluginServerMode } from '../src/types'
+import { assertTestDatabaseName } from './helpers/database-guard'
 import { waitForExpect } from './helpers/expectations'
 import { ServiceProcess, getFreePort } from './helpers/service-process'
 import { resetTestDatabase } from './helpers/sql'
@@ -54,6 +61,68 @@ describe('server', () => {
         await pluginsServer.start()
         expect(process.exit).not.toHaveBeenCalledWith(1)
     })
+
+    const emailStartups = EMAIL_QUEUES.flatMap(
+        (queue) =>
+            [
+                [queue, 'plain', { SES_RATE_LIMITER_VALKEY_HOST: '' }, 0],
+                [
+                    queue,
+                    'rate-limited',
+                    { SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1', SES_RATE_LIMITER_VALKEY_PORT: 6390 },
+                    1,
+                ],
+            ] as const
+    )
+
+    it.each(emailStartups)(
+        'starts a worker that claims jobs on the %s queue with %s start-up',
+        async (queue, _startup, sesLimiter, sesBuckets) => {
+            const dbUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+            const manager = new CyclotronV2Manager({
+                pool: { dbUrl },
+                depthLimit: 1_000_000,
+                depthCheckIntervalMs: 0,
+                ...CYCLOTRON_QUEUE_ROLES,
+            })
+            const pool = new Pool({ connectionString: dbUrl })
+            const valkey = new Redis(6390, '127.0.0.1')
+            let id: string | undefined
+            try {
+                const { rows: databases } = await pool.query('SELECT current_database() AS name')
+                assertTestDatabaseName(databases[0].name, 'Cyclotron node Postgres')
+                await manager.connect()
+                ;[id] = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: queue, functionId: uuidv7(), scheduled: new Date(), state: null },
+                ])
+                await valkey.del(SES_GLOBAL_BUCKET_KEY)
+                pluginsServer = new PluginServer({
+                    LOG_LEVEL: 'warn',
+                    PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email,
+                    PERSONHOG_ENABLED: true,
+                    PERSONHOG_ADDR: 'localhost:50052',
+                    ...sesLimiter,
+                })
+                await pluginsServer.start()
+
+                await waitForExpect(async () => {
+                    const { rows } = await pool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+                    expect(rows).toEqual([{ status: expect.stringMatching(/^(completed|failed)$/) }])
+                }, 15_000)
+                expect(await valkey.exists(SES_GLOBAL_BUCKET_KEY)).toBe(sesBuckets)
+            } finally {
+                try {
+                    if (id) {
+                        await pool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                    }
+                } finally {
+                    valkey.disconnect()
+                    await pool.end()
+                    await manager.disconnect()
+                }
+            }
+        }
+    )
 
     it('keeps batch resolver healthy for the configured audience budget plus processing headroom', async () => {
         pluginsServer = new PluginServer({

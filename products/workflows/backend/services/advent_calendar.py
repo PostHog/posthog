@@ -5,9 +5,14 @@ from django.db.models import Count, Q
 
 from posthog.models.user import User
 
-from products.workflows.backend.facade.contracts import AdventCalendarQuestionResult, AdventCalendarShare
+from products.workflows.backend.facade.contracts import (
+    AdventCalendarDoorOpenResult,
+    AdventCalendarQuestionResult,
+    AdventCalendarShare,
+)
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
 from products.workflows.backend.models.advent_calendar_answer import AdventCalendarAnswer
+from products.workflows.backend.models.advent_calendar_door_open import AdventCalendarDoorOpen
 
 ADVENT_CALENDAR_QUESTIONS: Mapping[AdventCalendarDay, tuple[AdventCalendarOption, ...]] = {
     AdventCalendarDay.FAVORITE_FOUNDER: (AdventCalendarOption.JAMES, AdventCalendarOption.TIM),
@@ -26,6 +31,18 @@ def answer_advent_calendar(
         if User.objects.select_for_update(no_key=True).filter(pk=user_id).exists():
             AdventCalendarAnswer.objects.get_or_create(user_id=user_id, day=day, defaults={"option": option})
     return advent_calendar_results(user_id)
+
+
+def open_advent_calendar_door(
+    user_id: int, day: int, hoggy: str, utc_offset_minutes: int
+) -> AdventCalendarDoorOpenResult | None:
+    with transaction.atomic():
+        if not User.objects.select_for_update(no_key=True).filter(pk=user_id).exists():
+            return None
+        door_open, _ = AdventCalendarDoorOpen.objects.get_or_create(
+            user_id=user_id, day=day, defaults={"hoggy": hoggy, "utc_offset_minutes": utc_offset_minutes}
+        )
+    return AdventCalendarDoorOpenResult(day=door_open.day, opened_at=door_open.opened_at)
 
 
 def advent_calendar_results(user_id: int) -> list[AdventCalendarQuestionResult]:

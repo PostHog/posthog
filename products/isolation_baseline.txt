@@ -39,7 +39,6 @@ demo
 early_access_features
 endpoints
 event_definitions
-experiments
 exports
 feature_flags
 field_notes

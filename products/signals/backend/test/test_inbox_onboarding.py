@@ -227,14 +227,23 @@ class TestInboxOnboarding(APIBaseTest):
             (True, False, 200, False),
             (True, False, 200, True),
             (True, False, 403, True, False),
+            (True, False, 200, False, True, True),
         ]
     )
     def test_pilot_activation_requires_eligibility_and_keeps_implementation_off(
-        self, eligible: bool, automatic: bool, status: int, child_environment: bool, parent_task_editor: bool = True
+        self,
+        eligible: bool,
+        automatic: bool,
+        status: int,
+        child_environment: bool,
+        parent_task_editor: bool = True,
+        guided: bool = False,
     ) -> None:
         self.draft.update(
             activation_mode="github_optional", automatic_implementation=automatic, suggestions=[self.suggestion]
         )
+        if guided:
+            self.draft.update(setup_mode="guided", suggestions=[])
         SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
         activation_team = self.team
         if child_environment:
@@ -270,10 +279,10 @@ class TestInboxOnboarding(APIBaseTest):
             assert config.autostart_enabled is False
             assert SignalTeamConfig.objects.get(team=self.team).autostart_enabled is False
             assert config.onboarding["completed_at"]
-            assert config.onboarding["jobs"] == {"scout": "pending", "recommendations": "pending"}
+            jobs = {"scout": "pending", "recommendations": "skipped" if guided else "pending"}
+            assert config.onboarding["jobs"] == jobs
             assert {call.args for call in launch.call_args_list} == {
-                (activation_team.id, "scout"),
-                (activation_team.id, "recommendations"),
+                (activation_team.id, job) for job, job_status in jobs.items() if job_status == "pending"
             }
         else:
             assert not config.onboarding.get("completed_at")

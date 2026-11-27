@@ -73,6 +73,8 @@ export interface ResolvedState {
     splitWrites: boolean
     viaMcpStore?: boolean | undefined
     toolFeatureFlags: EvaluatedFlags | undefined
+    guidanceFlagPayloads?: Record<string, unknown>
+    reportFlagExposure?: (flagKey: string) => void
     interviewRecruitmentConfig?: InterviewRecruitmentConfig
     intentPrompt?: string
     interviewRecruitmentUnavailableReason?: InterviewRecruitmentUnavailableReason
@@ -287,7 +289,7 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await timed('analytics_context', () => reqCtx.safelyGetAnalyticsContext(context))
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
-        const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
+        const [{ flags: allFlags, payloads, reportExposure }, _apiKey, distinctId] = await Promise.all([
             timed('flags', () =>
                 usesProjectSecretKey
                     ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
@@ -451,6 +453,10 @@ export class RequestStateResolver {
             splitWrites,
             viaMcpStore: props.viaMcpStore,
             toolFeatureFlags,
+            guidanceFlagPayloads: Object.fromEntries(
+                GUIDANCE_RULE_FLAGS.filter((flag) => flag in payloads).map((flag) => [flag, payloads[flag]])
+            ),
+            reportFlagExposure: _apiKey?.is_impersonated || props.suppressAnalytics ? undefined : reportExposure,
             interviewRecruitmentConfig,
             intentPrompt,
             interviewRecruitmentUnavailableReason,

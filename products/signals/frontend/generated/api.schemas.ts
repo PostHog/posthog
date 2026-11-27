@@ -3997,9 +3997,9 @@ export interface EmitReportRequestApi {
      */
     metrics?: ReportMetricWriteApi[]
     /**
-     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-     * @maxItems 3
-     * @items.maxLength 200
+     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.
+     * @maxItems 10
+     * @items.maxLength 2000
      */
     suggested_prompts?: string[]
     /**
@@ -4040,6 +4040,7 @@ export const ReportQualityHintSeverityEnumApi = {
 /**
  * * `title` - title
  * * `summary` - summary
+ * * `suggested_prompts` - suggested_prompts
  */
 export type ReportQualityHintFieldEnumApi =
     (typeof ReportQualityHintFieldEnumApi)[keyof typeof ReportQualityHintFieldEnumApi]
@@ -4047,6 +4048,7 @@ export type ReportQualityHintFieldEnumApi =
 export const ReportQualityHintFieldEnumApi = {
     Title: 'title',
     Summary: 'summary',
+    SuggestedPrompts: 'suggested_prompts',
 } as const
 
 export interface ReportQualityHintApi {
@@ -4060,7 +4062,8 @@ export interface ReportQualityHintApi {
     /** The field the check matched.
      *
      * * `title` - title
-     * * `summary` - summary */
+     * * `summary` - summary
+     * * `suggested_prompts` - suggested_prompts */
     field: ReportQualityHintFieldEnumApi
     /** What the check found and what to do next time. */
     message: string
@@ -4096,7 +4099,7 @@ export interface EmitReportResponseApi {
     remediation: string | null
     /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
     idempotent_replay: boolean
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
 }
 
@@ -12415,10 +12418,10 @@ export interface EditReportRequestApi {
      */
     metrics?: ReportMetricWriteApi[] | null
     /**
-     * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
-     * @maxItems 3
+     * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were.
+     * @maxItems 10
      * @nullable
-     * @items.maxLength 200
+     * @items.maxLength 2000
      */
     suggested_prompts?: string[] | null
     /**
@@ -12537,7 +12540,7 @@ export interface EditReportResponseApi {
     decision_fields_set: string[]
     /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
     warnings: EditReportWarningApi[]
-    /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+    /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
     quality_hints: ReportQualityHintApi[]
     /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
     corroboration_collapsed: boolean
@@ -13036,13 +13039,13 @@ export interface SendScoutMessageRequestApi {
      */
     report_id?: string | null
     /**
-     * Short plain-text title. At most 150 characters.
-     * @maxLength 150
+     * Short plain-text title. At most 80 characters.
+     * @maxLength 80
      */
     title: string
     /**
-     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-     * @maxLength 3000
+     * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 500
      */
     body: string
     /**
