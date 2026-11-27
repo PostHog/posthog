@@ -3,18 +3,13 @@ import { z } from 'zod'
 import { GENERATED_TOOLS } from '@/tools/generated/billing'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-/**
- * Deprecation aliases for the billing tools that read /api/billing/, which takes the organization from the user's
- * current project. Each old name forwards its arguments to the time-series tool that reads the same series from
- * /api/organizations/:organization_id/billing/, and annotates the response so agents learn the new name. Remove this
- * file, its TOOL_MAP registration and the matching `tool-definitions.json` entries once callers have moved.
- */
+// The old names read /api/billing/, which follows the user's current project. Remove this file, its TOOL_MAP entry
+// and its `tool-definitions.json` entries once callers have moved to the time-series tools.
 const REPLACEMENTS: Record<string, string> = {
     'billing-usage-get': 'billing-usage-timeseries-get',
     'billing-spend-get': 'billing-spend-timeseries-get',
 }
 
-// The old tools paged with page_size and after. The time-series tools take the same values as limit and cursor.
 const LEGACY_PAGINATION = {
     page_size: z
         .number()
@@ -62,7 +57,6 @@ function makeAlias(oldName: string, newName: string): () => ToolBase<ZodObjectAn
     }
 }
 
-/** Old billing tool name → alias factory, spread into TOOL_MAP. */
 export const BILLING_DEPRECATED_ALIASES: Record<string, () => ToolBase<ZodObjectAny>> = Object.fromEntries(
     Object.entries(REPLACEMENTS).map(([oldName, newName]) => [oldName, makeAlias(oldName, newName)])
 )
