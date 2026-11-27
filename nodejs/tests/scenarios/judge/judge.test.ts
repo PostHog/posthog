@@ -35,6 +35,7 @@ describe('judge', () => {
     let truthLoses: number | undefined
     let duringProbe: (() => Promise<unknown>) | undefined
     let duringFinalPage: (() => Promise<unknown>) | undefined
+    let duringPage: (() => Promise<unknown>) | undefined
     let duringHead: (() => Promise<unknown> | void) | undefined
     let drainsFeedback: boolean
     let polls: number
@@ -63,6 +64,8 @@ describe('judge', () => {
                 after: async (cursor, read) => {
                     if (read?.final) {
                         await duringFinalPage?.()
+                    } else {
+                        await duringPage?.()
                     }
                     if (truthFails === undefined) {
                         return edgeTruth(edge.url)
@@ -118,6 +121,7 @@ describe('judge', () => {
         truthLoses = undefined
         duringProbe = undefined
         duringFinalPage = undefined
+        duringPage = undefined
         duringHead = undefined
         drainsFeedback = false
         polls = 0
@@ -1315,32 +1319,21 @@ describe('judge', () => {
         })
     )
 
-    it('converges with the SES feedback of a send that landed while the judge read its head', () =>
-        withHeldWebhook(true, async (release) => {
-            const late = 'run-a-2'
+    it('waits out the SES feedback of a send that landed while the judge read its truth', () =>
+        withHeldWebhook(true, async () => {
             judge.record(offered())
-            judge.record({ ...offered(), unitId: late })
-            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
-            let heads = 0
-            duringHead = async () => {
-                heads += 1
-                if (heads === 1) {
-                    await deliver(late, 'email', 'flow-1', [], `invocation-${late}`, 'scenario-tracked')
-                    release()
+            let pages = 0
+            duringPage = async () => {
+                pages += 1
+                if (pages === 1) {
+                    await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
                 }
             }
 
-            expect(await judge.converge(5000, NEVER_ABORTED)).toMatchObject({ converged: true })
-            expect(
-                judge
-                    .evidence()
-                    .truth.map(({ kind, unitId }) => [kind, unitId])
-                    .sort()
-            ).toEqual([
-                ['ses.feedback', UNIT],
-                ['ses.feedback', late],
-                ['ses.send', UNIT],
-                ['ses.send', late],
+            expect(await judge.converge(10_000, NEVER_ABORTED)).toMatchObject({ converged: true })
+            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([
+                ['ses.send', 200],
+                ['ses.feedback', 0],
             ])
         }))
 
