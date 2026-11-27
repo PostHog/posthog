@@ -139,13 +139,14 @@ describe('AdventFlowStage', () => {
     })
 
     it.each([
-        ['Tab from Close', '[data-attr="advent-door-card-close"]', false, 3],
-        ['Shift+Tab from its face', '.AdventCard__face', true, 2],
-    ])('leaves a pinned card on %s and closes the card', (_, from, shiftKey, landsOn) => {
-        seed([1, 2], { 2: 'tim' })
+        ['Tab from Close', 2, '[data-attr="advent-door-card-close"]', false, 3],
+        ['Shift+Tab from its face', 2, '.AdventCard__face', true, 2],
+        ["Tab from the last door's link", 24, '[data-attr="advent-tip-link"]', false, 24],
+    ])('leaves a pinned card on %s and closes the card', (_, pinned, from, shiftKey, landsOn) => {
+        seed([1, 2, 24], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
-        act(() => fireEvent.click(door(2) as HTMLElement))
+        act(() => fireEvent.click(door(pinned) as HTMLElement))
         act(() => card()?.querySelector<HTMLElement>(from)?.focus())
         act(() => void fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey }))
         waitForTheCardToClose()

@@ -67,9 +67,9 @@ export function useAdventCardFocus(
             )
             const pinned = doors.findIndex((door) => door.matches(doorOfNode(pinnedNodeId)))
             const next = pinned >= 0 ? doors[pinned + (event.shiftKey ? 0 : 1)] : undefined
+            onTabOut()
             if (next) {
                 event.preventDefault()
-                onTabOut()
                 next.focus()
             }
         }
