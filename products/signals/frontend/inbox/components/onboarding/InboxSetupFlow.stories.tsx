@@ -68,6 +68,17 @@ function projectMocks(
     })
 }
 
+// LemonButton wraps a button that has a disabled reason in a tooltip, so React mounts a new button element when the
+// reason clears. Look the button up again on every check, because a button found while it was disabled leaves the
+// document and never becomes enabled.
+async function findEnabledButton(canvas: ReturnType<typeof within>, label: string): Promise<HTMLButtonElement> {
+    return await waitFor(() => {
+        const button = canvas.getByText(label).closest('button')
+        expect(button).toHaveAttribute('aria-disabled', 'false')
+        return button!
+    })
+}
+
 const meta: Meta<typeof InboxSetupFlow> = {
     title: 'Scenes-App/Inbox/Focused setup',
     component: InboxSetupFlow,
@@ -492,8 +503,7 @@ export const GithubOptional: Story = {
 export const GithubOptionalReview: Story = {
     name: 'Review without GitHub in the GitHub-optional pilot',
     play: async ({ canvas }) => {
-        const activate = (await canvas.findByText('Activate without GitHub')).closest('button')
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await findEnabledButton(canvas, 'Activate without GitHub')
     },
     decorators: [
         mswDecorator({
@@ -512,9 +522,7 @@ export const GithubOptionalSkipConfirmation: Story = {
     ...GithubOptionalReview,
     name: 'Confirming activation without GitHub in the GitHub-optional pilot',
     play: async ({ canvas, userEvent }) => {
-        const activate = (await canvas.findByText('Activate without GitHub')).closest('button')!
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
-        await userEvent.click(activate)
+        await userEvent.click(await findEnabledButton(canvas, 'Activate without GitHub'))
         const page = within(document.body)
         // The dialog is in the document one frame before it turns visible.
         await waitFor(() => expect(page.getByText('Activate without GitHub?')).toBeVisible())
@@ -549,8 +557,7 @@ export const QuickConnected: Story = {
     name: 'Quick setup with GitHub connected',
     play: async ({ canvas }) => {
         // Nothing is prefetched for the welcome screen, so the button is enabled as soon as the project loads.
-        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await findEnabledButton(canvas, 'Activate Self-driving')
         await expect(canvas.getByText('Start manually')).toBeVisible()
     },
     decorators: [
@@ -641,9 +648,7 @@ export const QuickActivationFailed: Story = {
         quickActivationCompleted = false
     },
     play: async ({ canvas, userEvent }) => {
-        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')!
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
-        await userEvent.click(activate)
+        await userEvent.click(await findEnabledButton(canvas, 'Activate Self-driving'))
         const message = await canvas.findByText('Activation interrupted')
         await waitFor(() => {
             expect(inboxSetupLogic.values.saving).toBe(false)
