@@ -22,7 +22,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_ta
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter, has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.validation.rules import expanded_series_count
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
@@ -186,7 +186,12 @@ def query_hash(query: TrendsQuery, timezone: ZoneInfo, limits: ScoringLimits = D
     # The fetch size changes with every visit. `daysOfWeek` stays, because it changes the buckets.
     (dumped.get("dateRange") or {}).pop("date_from", None)
     # Bucket starts step in wall-clock time, so a timezone change needs new artifacts.
-    return _short_hash({"query": dumped, "timezone": timezone.key})
+    identity: dict[str, Any] = {"query": dumped, "timezone": timezone.key}
+    if _formulas(query) and has_breakdown_filter(query.breakdownFilter):
+        # Trends once ranked the breakdown values of each series alone and filled a value that a series cut with zeros,
+        # so the formula read 0. Trends now ranks once over all series. This marker retrains the models fit on zeros.
+        identity["breakdown_ranking"] = "shared"
+    return _short_hash(identity)
 
 
 def series_key(insight_id: int, series_definition: dict[str, Any], breakdown_value: str | None) -> str:
@@ -212,6 +217,9 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
         # The chart has its own runner and shows hours of the week, not a time series.
         raise UnsupportedInsightError("Calendar heatmaps are not scored")
+    if len(trends.series) > 1 and _formulas(trends) and _has_histogram_breakdown(trends.breakdownFilter):
+        # Each series bins its own value range, so the formula reads zeros for the bins that another series lacks.
+        raise UnsupportedInsightError("Formulas over histogram breakdowns are not scored")
     interval_scoring(profile, scoring_interval(trends))
     return trends
 
@@ -811,6 +819,14 @@ def _formulas(query: TrendsQuery) -> list[str]:
     if trends_filter.formulas:
         return list(trends_filter.formulas)
     return [trends_filter.formula] if trends_filter.formula else []
+
+
+def _has_histogram_breakdown(breakdown_filter: BreakdownFilter | None) -> bool:
+    if breakdown_filter is None:
+        return False
+    if has_multi_breakdown(breakdown_filter):
+        return any(breakdown.histogram_bin_count is not None for breakdown in breakdown_filter.breakdowns or [])
+    return has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_histogram_bin_count is not None
 
 
 def _series_node_definition(node: Any) -> dict[str, Any]:

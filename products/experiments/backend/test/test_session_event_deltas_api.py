@@ -20,16 +20,12 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_event_deltas
+from products.experiments.backend.facade.contracts import EXPERIMENT_BEHAVIOR_COMPARISON_FLAG
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.replay_linkage import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
-from products.experiments.backend.session_event_deltas import (
-    EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
-    _EnrollmentMinute,
-    _plan_compared_enrollment,
-    _TimeRange,
-)
+from products.experiments.backend.session_event_deltas import _EnrollmentMinute, _plan_compared_enrollment, _TimeRange
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest

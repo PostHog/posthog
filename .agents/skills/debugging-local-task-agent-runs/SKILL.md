@@ -1,6 +1,6 @@
 ---
 name: debugging-local-task-agent-runs
-description: 'Debug the output of local PostHog task runs — the wizard cloud-run path that executes inside a Docker sandbox under the local Temporal `process-task` workflow (the wizard that integrates PostHog, then the coding agent that commits and opens the PR). Use when a local run looks stuck, failed, or silent, or when you need to read the wizard or agent logs. Covers the `.env.local` keys + `ai_features` intent required for cloud runs locally, finding the task UUID (docker ps, temporal CLI, Temporal UI at localhost:8081), tailing live logs inside the sandbox container (`/tmp/posthog-wizard.log`, `/tmp/agent-server.log`), and reading the durable per-run console log from object storage after the sandbox is torn down. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, LLM_GATEWAY, cloud_run, posthog-wizard.log.'
+description: 'Debug the output of local PostHog task runs: the wizard cloud-run path that executes inside a Docker sandbox under the local Temporal `process-task` workflow (the wizard that integrates PostHog, then the coding agent that commits and opens the PR). Use when a local run looks stuck, failed, or silent, or when you need to read the wizard or agent logs. Covers the `.env.local` keys and the `ai_gateway` capability required for cloud runs locally, finding the task UUID (docker ps, temporal CLI, Temporal UI at localhost:8081), tailing live logs inside the sandbox container (`/tmp/posthog-wizard.log`, `/tmp/agent-server.log`), and reading the durable per-run console log from object storage after the sandbox is torn down. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, AI_GATEWAY, cloud_run, posthog-wizard.log.'
 ---
 
 # Debugging local task/agent runs
@@ -20,17 +20,19 @@ Cloud runs only work locally if **all** of these are set in `.env.local` (values
 | ------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `SANDBOX_PROVIDER`              | `"docker"` — route sandboxes to local Docker instead of Modal                                          |
 | `SANDBOX_MCP_URL`               | `"http://host.docker.internal:8787/mcp"` — MCP server the agent uses                                   |
-| `SANDBOX_LLM_GATEWAY_URL`       | `"http://host.docker.internal:3308"` — local LLM gateway the agent routes model calls through          |
+| `SANDBOX_AI_GATEWAY_URL`        | `"http://host.docker.internal:8080"`: local Go AI gateway the agent routes model calls through         |
+| `SANDBOX_AI_GATEWAY_WORKER_URL` | `"http://localhost:8080"`: the same gateway as the Tasks worker reaches it, for token minting          |
+| `SANDBOX_AI_GATEWAY_PRODUCTS`   | comma-separated `ai_product` values to route; must list the run's product or the run fails to start    |
+| `SANDBOX_AI_GATEWAY_MINT_KEY`   | the dev `phs_` key that `bin/setup-gateway-e2e` mints (`DEV_GATEWAY_PHS`); the worker mints run tokens |
 | `SANDBOX_JWT_PRIVATE_KEY`       | signs the scoped sandbox tokens                                                                        |
 | `GITHUB_APP_CLIENT_ID`          | your local GitHub App (clone + PR)                                                                     |
 | `GITHUB_APP_CLIENT_SECRET`      | ""                                                                                                     |
 | `GITHUB_APP_SLUG`               | ""                                                                                                     |
 | `GITHUB_APP_PRIVATE_KEY`        | ""                                                                                                     |
-| `LLM_GATEWAY_ANTHROPIC_API_KEY` | real Anthropic key the **local gateway** proxies to (read via the gateway's `LLM_GATEWAY_` env prefix) |
 
 Two non-env requirements, or the keys above are inert:
 
-- **The LLM gateway must actually be running on `:3308`.** It's gated behind the `llm_gateway` capability — enable the **`ai_features`** intent (`hogli dev:setup`) so the `llm-gateway` proc starts. `SANDBOX_LLM_GATEWAY_URL` pointing at a dead port just yields `ConnectionRefused` from the agent.
+- **The Go AI gateway must actually be running on `:8080`.** Enable the `ai_gateway` capability so the `ai-gateway` proc runs `bin/start-ai-gateway`. It needs a sibling clone of `PostHog/ai-gateway` (default `~/Development/ai-gateway`) and its own provider keys. `SANDBOX_AI_GATEWAY_URL` pointing at a dead port yields `ConnectionRefused` from the agent.
 - **The wizard OAuth app must exist** — `bin/ensure-local-setup` provisions it and sets `WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`; without it the `cloud_run` endpoint returns 404 "not available".
 
 After editing `.env.local`, **restart the stack** — env is read at process start, not hot-reloaded.
@@ -109,6 +111,7 @@ Notes on what you'll (not) see here:
 ## Common failure signatures
 
 - **`Could not determine cloud region from access token`** — the wizard hit cloud auth instead of your local instance. Local needs the wizard pointed at the local base URL; see `run_wizard._build_wizard_command` (`--base-url`, DEBUG-gated).
-- **`Unable to connect to API (ConnectionRefused)`** from the agent — `LLM_GATEWAY_URL=UNSET` or the gateway isn't on `:3308`. Check `SANDBOX_LLM_GATEWAY_URL` + the `ai_features` intent (gateway proc).
-- **Auth/4xx from the gateway** — the gateway is reachable but has no upstream provider key (`LLM_GATEWAY_ANTHROPIC_API_KEY`) or the token lacks `llm_gateway:read`.
+- **`Unable to connect to API (ConnectionRefused)`** from the agent: the Go gateway isn't on `:8080`. Check `SANDBOX_AI_GATEWAY_URL` and the `ai-gateway` proc.
+- **Run fails with `gateway_token_unavailable`**: the worker minted no token. `SANDBOX_AI_GATEWAY_MINT_KEY` or `SANDBOX_AI_GATEWAY_PRODUCTS` is unset, the run's product is not listed, or the mint was refused. Re-run `bin/setup-gateway-e2e` if the dev `phs_` key or ledger is missing.
+- **Auth/4xx from the gateway**: the gateway is reachable but has no upstream provider key, its ledger is unfunded, or the token lacks `llm_gateway:read`.
 - **Workflow "running" but nothing happening** — it's in the wait loop (CI follow-up / inactivity). The workflow's Temporal **Current Details** field names what it's waiting on.

@@ -133,6 +133,15 @@ function copyPublicAssets(): void {
         copyFileSync(join(emojibaseSrc, file), join(emojibaseDest, file))
     }
     console.info('✅ Copied emojibase data to dist/emoji/en')
+
+    // uiSoundsLogic plays these from /static/button-sounds. build.mjs copies the same files for production.
+    const buttonSoundsSrc = resolve('.', 'node_modules', 'button-sounds', 'assets')
+    const buttonSoundsDest = resolve('.', 'dist', 'button-sounds')
+    mkdirSync(buttonSoundsDest, { recursive: true })
+    for (const file of ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']) {
+        copyFileSync(join(buttonSoundsSrc, file), join(buttonSoundsDest, file))
+    }
+    console.info('✅ Copied button sounds to dist/button-sounds')
 }
 
 export function publicAssetsPlugin(): Plugin {

@@ -1,116 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
-import { Button } from '@posthog/quill-primitives'
-
-import { useChartTheme } from 'lib/charts/hooks'
-import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
-import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { teamLogic } from 'scenes/teamLogic'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 
 import { McpDateFilter } from './components/McpDateFilter'
-import { McpIntervalFilter } from './components/McpIntervalFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
-import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
-
-function FilterBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare, dateRangeLabel, interval, intervalOptions } =
-        useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories, setPinnedInterval } = useActions(mcpAnalyticsToolQualityLogic)
-
-    const hasScope = selectedCategories.length > 0
-    const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
-
-    return (
-        <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px] max-w-[420px] flex-1">
-                <TagsCombobox
-                    options={availableCategories}
-                    value={selectedCategories}
-                    onChange={setSelectedCategories}
-                    placeholder="All categories"
-                    allowCustomValues={false}
-                    dataAttr="mcp-tool-quality-category-scope"
-                />
-            </div>
-            <McpIntervalFilter
-                interval={interval}
-                options={intervalOptions}
-                onChange={setPinnedInterval}
-                dataAttr="mcp-tool-quality-interval-filter"
-            />
-            {hasScope && sharePct !== null ? (
-                <Tooltip
-                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls were in the selected categories (${dateRangeLabel})`}
-                >
-                    <div className="text-sm text-muted">
-                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage ({dateRangeLabel})
-                    </div>
-                </Tooltip>
-            ) : null}
-        </div>
-    )
-}
-
-function ChartsScopeHeader(): JSX.Element {
-    const { selectedTool, dateFilter, pinnedInterval } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
-
-    if (!selectedTool) {
-        return (
-            <div className="text-sm text-secondary">
-                Trends across all tools in scope. Select a tool in the table below to drill down.
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex items-center gap-2">
-            <span className="shrink-0 text-sm text-secondary">Trends for</span>
-            <span className="max-w-[28rem] truncate font-mono text-sm font-semibold" title={selectedTool}>
-                {selectedTool}
-            </span>
-            <Button
-                variant="outline"
-                size="sm"
-                render={<LinkPrimitive to={mcpToolReportUrl(selectedTool, dateFilter, pinnedInterval)} />}
-                data-attr="mcp-tool-quality-full-report"
-            >
-                Full tool report
-            </Button>
-            <Button
-                variant="link-muted"
-                size="icon-sm"
-                onClick={() => setSelectedTool(null)}
-                title="Show all tools"
-                data-attr="mcp-tool-quality-clear-tool"
-            >
-                <IconX />
-            </Button>
-        </div>
-    )
-}
+import { ToolQualityTiles } from './tool-quality/ToolQualityTiles'
+import { ToolReportDrawer } from './tool-quality/ToolReportDrawer'
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
     const {
-        dailyChartData,
         dailyStatsLoading,
-        interval,
-        incompleteTail,
         dateFilter,
-        availableCategoriesLoading,
-        categoryCountsLoading,
         toolRowsPageLoading,
-        chartViews,
-        latencyBoxes,
+        searchTerm,
+        selectedTool,
+        selectedToolPosition,
+        previousTool,
+        nextTool,
+        pinnedInterval,
     } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setDateFilter, reloadAll, setChartView } = useActions(mcpAnalyticsToolQualityLogic)
-    const { timezone } = useValues(teamLogic)
-
-    const theme = useChartTheme()
+    const { setDateFilter, reloadAll, setSearchTerm, setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     return (
         <div className="flex flex-col gap-4">
@@ -118,35 +29,38 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
                 pageKey="mcp-tool-quality"
                 dataAttrPrefix="mcp-tool-quality"
                 onRefresh={reloadAll}
-                refreshing={
-                    dailyStatsLoading || availableCategoriesLoading || categoryCountsLoading || toolRowsPageLoading
-                }
+                refreshing={dailyStatsLoading || toolRowsPageLoading}
+                hasPageFilters={!!searchTerm}
+                onClearPageFilters={() => setSearchTerm('')}
             >
+                <AnalyticsSearchInput
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    label="Search tools"
+                    placeholder="Search tools"
+                    dataAttr="mcp-tool-quality-search"
+                    className="max-w-64 min-w-32 flex-[1_1_8rem]"
+                />
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
                     dateTo={dateFilter.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                    onChange={setDateFilter}
                     dataAttr="mcp-tool-quality-date-filter"
                 />
             </McpSharedFilters>
-            <div data-quill>
-                <FilterBar />
-            </div>
             <div className="flex flex-col gap-4" data-quill>
-                <ChartsScopeHeader />
-                <ToolQualityCharts
-                    data={dailyChartData}
-                    loading={dailyStatsLoading}
-                    theme={theme}
-                    timezone={timezone}
-                    interval={interval}
-                    incompleteTail={incompleteTail}
-                    views={chartViews}
-                    latencyBoxes={latencyBoxes}
-                    onViewChange={setChartView}
-                />
+                <ToolQualityTiles />
                 <ToolQualityTable />
             </div>
+            <ToolReportDrawer
+                tool={selectedTool}
+                position={selectedToolPosition}
+                previousTool={previousTool}
+                nextTool={nextTool}
+                onOpen={setSelectedTool}
+                fullPageHref={selectedTool ? mcpToolReportUrl(selectedTool, dateFilter, pinnedInterval) : ''}
+                dataAttr="mcp-tool-quality-drawer"
+            />
         </div>
     )
 }

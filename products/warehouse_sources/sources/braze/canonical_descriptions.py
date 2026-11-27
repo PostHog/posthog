@@ -196,4 +196,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "steps": "Canvas steps, each with its name, type, API identifier and next-step paths, JSON-encoded.",
         },
     },
+    "products": {
+        "description": "The list of product IDs recorded in purchases in the Braze workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/purchases/get_list_product_id/",
+        "columns": {
+            "product_id": "Name of the product.",
+        },
+    },
+    "purchase_revenue": {
+        "description": "A daily series of the total money spent across all apps in the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/purchases/get_revenue_series/",
+        "columns": {
+            "time": "Date the revenue covers, as an ISO 8601 date.",
+            "revenue": "Total money spent on this date.",
+        },
+    },
+    "purchase_quantity": {
+        "description": "A daily series of the number of items purchased across all apps in the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/purchases/get_number_of_purchases/",
+        "columns": {
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "purchase_quantity": "Number of items purchased on this date.",
+        },
+    },
+    "session_analytics": {
+        "description": "A daily series of the number of sessions across all apps in the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/sessions/get_sessions_analytics/",
+        "columns": {
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "sessions": "Number of sessions on this date.",
+        },
+    },
+    "email_unsubscribes": {
+        "description": "Email addresses that unsubscribed, with the time of their latest unsubscribe.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/email/get_query_unsubscribed_email_addresses/",
+        "columns": {
+            "email": "The email address that unsubscribed.",
+            "unsubscribed_at": "Time at which the address unsubscribed, in ISO 8601.",
+        },
+    },
+    "email_hard_bounces": {
+        "description": "Email addresses that hard bounced your email messages.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/email/get_list_hard_bounces/",
+        "columns": {
+            "email": "The email address that hard bounced.",
+            "hard_bounced_at": "Time at which the address hard bounced, in ISO 8601 UTC.",
+        },
+    },
 }

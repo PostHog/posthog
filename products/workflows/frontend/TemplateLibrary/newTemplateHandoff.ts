@@ -2,20 +2,24 @@ import api from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { urls } from 'scenes/urls'
 
+import { cutTemplateSearch } from './messageTemplatesLogic'
+
 // pinned: MCP tool name from products/workflows/mcp/email_templates.yaml
 const CREATE_TEMPLATE_TOOL = 'workflows-create-email-template'
 
 /**
  * Fallback for a completed create whose output carries no record: the template is found by exact name,
- * newest `created_at` first. The list endpoint has no search param; it returns the newest templates first,
- * so the first page holds the one just made. No name means no guess.
+ * newest `created_at` first. The search narrows the list to names that contain it. No name means no guess.
  */
 export async function findCreatedTemplateId(name: unknown): Promise<string | null> {
     const search = typeof name === 'string' && name.trim() ? name.trim() : undefined
     if (!search) {
         return null
     }
-    const { results } = await api.messaging.getTemplates()
+    const { results } = await api.messaging.getTemplates({
+        search: cutTemplateSearch(search),
+        basic: true,
+    })
     const match = results
         .filter((template) => template.name === search)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]

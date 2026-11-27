@@ -160,9 +160,10 @@ Every query in this skill follows them.
 | Any other event                             | That event                                                        | `` `$feature/<flag-key>` ``                                   |
 | An action                                   | Every event that the action matches: read the action's definition | `` `$feature/<flag-key>` ``                                   |
 
-The default event depends on two conditions.
-It is `$experiment_exposure` when the experiment started on or after 2026-09-01 (UTC) **and** the project is in the rollout of that event.
+The default event depends on the experiment's start date.
+On PostHog Cloud it is `$experiment_exposure` when the experiment started on or after 2026-09-01 (UTC).
 Otherwise it is `$feature_flag_called`.
+A self-hosted instance stays on `$feature_flag_called` unless its operator sets a cutoff.
 `resolved_exposure_event` already holds the answer: read it, do not derive it.
 
 When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
@@ -178,8 +179,9 @@ The copy is switched on per project, apart from the setting that makes an experi
 When `resolved_exposure_event` is `$experiment_exposure`, the query window is on or after 2026-09-01 (UTC), that event has no rows for the flag, and `$feature_flag_called` has variant responses in the same window, the copy is not written for the project.
 That is not a fault of the SDK or of the application: say so, and point the user to PostHog support.
 
-<!-- Source for maintainers (may rot): resolve_default_exposure_event and EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
-products/experiments/backend/hogql_queries/exposure_query_logic.py; build_variant_property in
+<!-- Source for maintainers (may rot): resolve_default_exposure_event in
+products/experiments/backend/hogql_queries/exposure_query_logic.py; EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
+posthog/settings/experiments.py; build_variant_property in
 experiment_exposure_query_builder.py; isMultivariateFeatureFlagCalledEvent in
 nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts. -->
 

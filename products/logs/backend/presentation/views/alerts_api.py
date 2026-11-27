@@ -7,7 +7,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, Max, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -475,14 +475,20 @@ class PlatformCopyDictField(serializers.DictField):
         return {}
 
 
-def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
-    # Scheduled checks run without a user, so only the team's default rules apply to them.
+def pipeline_logs_hidden(*, team_id: int, user: object, filters: dict) -> bool:
     services = set(filters.get("serviceNames") or [])
     if services and not services & PIPELINE_LOG_SERVICE_NAMES:
-        return
-    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
-        team_id=team_id, user=user if isinstance(user, User) else None
-    ):
+        return False
+    return bool(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=team_id, user=user if isinstance(user, User) else None
+        )
+    )
+
+
+def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
+    # Scheduled checks ignore property rules, so this is what keeps restricted members off pipeline logs.
+    if pipeline_logs_hidden(team_id=team_id, user=user, filters=filters):
         raise PermissionDenied(
             "Your property access permissions do not allow alerts on pipeline logs. "
             "Pick the services this alert watches, without PostHog pipeline services."
@@ -494,9 +500,6 @@ _TIMING_AND_NAME_FIELDS = frozenset(
         "name",
         "enabled",
         "snooze_until",
-        "threshold_count",
-        "threshold_operator",
-        "window_minutes",
         "check_interval_minutes",
         "evaluation_periods",
         "datapoints_to_alarm",
@@ -1000,7 +1003,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         )
 
     def _changes_reads_or_recipients(self, attrs: dict) -> bool:
-        """Whether an update changes what the alert reads or who it tells, beyond a rename or its timing."""
         if self.instance is None:
             return True
         runtime = None
@@ -1030,16 +1032,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
-        # Only a rename, a snooze or a change to when the alert fires leaves what it reads and who it tells as
-        # they were. The edit form sends unchanged settings back on every save, so compare values, not keys.
+        # The threshold counts as reading, because moving it and watching the state shows the hidden counts.
         starts_reading = (
             self.instance is None
             or (effective_enabled and not self.instance.enabled)
             or self._changes_reads_or_recipients(attrs)
         )
-        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if starts_reading:
             self._require_pipeline_log_access(filters)
+            if self.instance is not None:
+                self._require_pipeline_log_access(self.instance.filters or {})
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -1152,6 +1154,17 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
                 close_reason = IncidentCloseReason.CONFIG_CHANGED
+            if _any_field_changed(instance, validated_data, {"filters"}) and (
+                enabled_change is not None or snooze_data is not _SENTINEL
+            ):
+                # Alert history hides earlier counts from restricted members from the last filter change on.
+                LogsAlertEvent.objects.create(
+                    alert=instance,
+                    kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+                    threshold_breached=False,
+                    state_before=instance.state,
+                    state_after=instance.state,
+                )
             # The edge check inside decides whether a close goes out, so a new branch above that forgets
             # its reason still closes the incident.
             close_incident_on_commit(
@@ -1710,6 +1723,19 @@ class _EventWindow(Sequence[LogsAlertEvent]):
         return self.newest[index]
 
 
+def _last_config_change_at(alert: LogsAlertConfiguration) -> datetime | None:
+    """Raises `PlatformHistoryUnavailable` when ClickHouse fails."""
+    kinds = {LogsAlertEvent.Kind.THRESHOLD_CHANGE}
+    edits = [LogsAlertEvent.objects.filter(alert_id=alert.id, kind__in=kinds).aggregate(at=Max("created_at"))["at"]]
+    if alert.platform_owned:
+        changes = _read_platform_history(
+            lambda: platform_control_rows(team_id=alert.team_id, alert_id=alert.id, kinds=kinds, limit=1)
+        )
+        if changes is not None:
+            edits.extend(row.created_at for row in changes.rows)
+    return max((at for at in edits if at is not None), default=None)
+
+
 def _with_platform_history(
     alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
 ) -> QuerySet[LogsAlertEvent] | _EventWindow:
@@ -2262,13 +2288,22 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
         history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
+        # The checks count every log, so a member who cannot see pipeline logs gets the state changes without
+        # the counts. A check from before the last change to its settings may have read pipeline logs.
+        (shown,) = _shown_from_copies([alert])
+        hide_counts = pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
+        hide_before = (
+            _last_config_change_at(alert)
+            if not hide_counts and pipeline_logs_hidden(team_id=alert.team_id, user=request.user, filters={})
+            else None
+        )
         page = self.paginate_queryset(history)
-        if page is not None:
-            serializer = LogsAlertEventSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = LogsAlertEventSerializer(history, many=True)
-        return Response(serializer.data)
+        rows = list(history if page is None else page)
+        data = LogsAlertEventSerializer(rows, many=True).data
+        for row, event in zip(rows, data):
+            if hide_counts or (hide_before is not None and row.created_at < hide_before):
+                event["result_count"] = None
+        return Response(data) if page is None else self.get_paginated_response(data)
 
     @extend_schema(
         request=None,

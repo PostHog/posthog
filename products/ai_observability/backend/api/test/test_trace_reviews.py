@@ -1,10 +1,12 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, ScoreDefinitionVersion
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
@@ -526,3 +528,30 @@ class TestTraceReviewsApi(APIBaseTest):
         recreate_response = self.client.post(self._endpoint(), {"trace_id": "trace_soft_delete"}, format="json")
         self.assertEqual(recreate_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(TraceReview.objects.filter(team=self.team, trace_id="trace_soft_delete").count(), 2)
+
+    @parameterized.expand(
+        [("new_scorer", False, status.HTTP_400_BAD_REQUEST), ("stored_scorer", True, status.HTTP_200_OK)]
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_scoring_needs_viewer_access_to_the_scorer(self, _name: str, stored: bool, expected_status: int) -> None:
+        definition = self._create_definition()
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", resource_id=str(definition.id), access_level="none"
+        )
+        body = {
+            "trace_id": "trace_scored",
+            "scores": [{"definition_id": str(definition.id), "categorical_values": ["good"]}],
+        }
+        if stored:
+            created = self.client.post(self._endpoint(), body, format="json")
+            self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.json())
+        self.client.force_login(self._create_user("member@example.com"))
+
+        if stored:
+            response = self.client.patch(f"{self._endpoint()}{created.json()['id']}/", body, format="json")
+        else:
+            response = self.client.post(self._endpoint(), body, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())

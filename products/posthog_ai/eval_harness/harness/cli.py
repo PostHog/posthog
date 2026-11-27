@@ -53,9 +53,9 @@ DEFAULT_CASE_TIMEOUT_SECONDS = 60 * 15
 OFFLINE_CASE_TIMEOUT_SECONDS = 60 * 60
 
 DEFAULT_TEAM_SETUP_CONCURRENCY = 1
-MANAGED_TEAM_SETUP_CONCURRENCY = 4
-"""Per-case team setups allowed at once. Managed Coder and CI environments can
-absorb parallel ClickHouse copies; ordinary local machines stay conservative."""
+CI_TEAM_SETUP_CONCURRENCY = 4
+CODER_TEAM_SETUP_CONCURRENCY = 2
+CODER_MODAL_SANDBOXES = 12
 
 DEFAULT_ONE_SHOT_CONCURRENCY = 8
 """Concurrently running one-shot cases across all suites — bounds LLM API and
@@ -95,6 +95,7 @@ class HarnessOptions:
     comparison_models: tuple[ModelTarget, ...] = ()
     comparison_dir: Path | None = None
     results_file: Path | None = None
+    prewarm_teams: int | None = None
     check_only: bool = False
     skill_snapshot_report: Path | None = None
     skill_snapshot_output_dir: Path | None = None
@@ -116,9 +117,15 @@ def _default_case_timeout() -> int:
 MULTI_TURN_CASE_TIMEOUT_MULTIPLIER = 3
 
 
+def _on_coder() -> bool:
+    return os.getenv("CODER") is not None or bool(os.getenv("CODER_WORKSPACE_ID"))
+
+
 def _default_team_setup_concurrency() -> int:
-    if os.getenv("CODER") is not None or os.getenv("CI") is not None:
-        return MANAGED_TEAM_SETUP_CONCURRENCY
+    if _on_coder():
+        return CODER_TEAM_SETUP_CONCURRENCY
+    if os.getenv("CI") is not None:
+        return CI_TEAM_SETUP_CONCURRENCY
     return DEFAULT_TEAM_SETUP_CONCURRENCY
 
 
@@ -193,8 +200,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"Concurrently live sandboxes across all suites "
-            f"(default: {DockerProviderStrategy.default_max_sandboxes} for docker, unbounded for modal)."
+            f"(default: {DockerProviderStrategy.default_max_sandboxes} for docker, {CODER_MODAL_SANDBOXES} for modal on Coder, otherwise unbounded for modal)."
         ),
+    )
+    parser.add_argument(
+        "--prewarm-teams",
+        type=int,
+        nargs="?",
+        const=12,
+        metavar="COUNT",
+        help="Prepare a reserve of fresh Hedgebox teams and exit (default: 12).",
+    )
+    parser.add_argument(
+        "--team-setup-concurrency",
+        type=int,
+        default=None,
+        help="Concurrent team clones and case seeders (default: 2 on Coder, 4 on CI, otherwise 1).",
     )
     parser.add_argument(
         "--keep-sandbox-containers",
@@ -295,6 +316,12 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.prewarm_teams is not None:
+        if args.prewarm_teams < 1:
+            parser.error("--prewarm-teams requires a positive count")
+        if args.selectors or args.compare or args.compare_model or args.list_only or args.check_only:
+            parser.error("Run --prewarm-teams separately from suite selection, comparison, --list, or --check")
+
     comparison_models: list[ModelTarget] = []
     for value in args.compare_model:
         target = _parse_model_target(value)
@@ -340,6 +367,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--service-tier", args.service_tier is not None),
             ("--surface", args.surface is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
+            ("--team-setup-concurrency", args.team_setup_concurrency is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
             ("--rebuild-sandbox-image", args.rebuild_sandbox_image),
             ("--skill-snapshot-report", args.skill_snapshot_report is not None),
@@ -355,6 +383,8 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
 
     if args.max_sandboxes is not None and args.max_sandboxes < 1:
         parser.error("--max-sandboxes must be at least 1")
+    if args.team_setup_concurrency is not None and args.team_setup_concurrency < 1:
+        parser.error("--team-setup-concurrency must be at least 1")
     if args.keep_sandbox_containers and provider != "docker":
         parser.error("--keep-sandbox-containers only applies to --provider docker")
     if args.rebuild_sandbox_image and provider != "docker":
@@ -381,10 +411,13 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         if provider == "docker"
         else ModalProviderStrategy.default_max_sandboxes
     )
+    if provider == "modal" and _on_coder():
+        default_slots = CODER_MODAL_SANDBOXES
     max_sandboxes = args.max_sandboxes or default_slots or UNBOUNDED_SANDBOXES
 
     return HarnessOptions(
         selectors=tuple(args.selectors),
+        prewarm_teams=args.prewarm_teams,
         provider=provider,
         case_filter=args.case_filter,
         agent_model=agent_model,
@@ -392,7 +425,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         skill_delivery=skill_delivery,
         reasoning_effort=args.reasoning_effort,
         max_sandboxes=max_sandboxes,
-        team_setup_concurrency=_default_team_setup_concurrency(),
+        team_setup_concurrency=args.team_setup_concurrency or _default_team_setup_concurrency(),
         keep_sandbox_containers=args.keep_sandbox_containers,
         rebuild_sandbox_image=args.rebuild_sandbox_image,
         create_db=args.create_db,

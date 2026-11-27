@@ -743,7 +743,7 @@ def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert [p.pr_number for p in summary.prs] == [1]
@@ -767,7 +767,7 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
 
     client = _recording_llm_client(answers)
 
-    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is True
@@ -788,9 +788,7 @@ def test_the_digest_call_names_its_product_team_and_source() -> None:
     prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
     client = _recording_llm_client([json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]})])
 
-    with patch(
-        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client
-    ) as build:
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client) as build:
         summary = summarize_merged_prs(prs)
 
     team_id = prs[0].team_id
@@ -842,7 +840,7 @@ def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs([grazed, owned], audiences)
 
     assert ("Swept in" in client.prompts[0]) is not dropped
@@ -893,7 +891,7 @@ def test_a_line_about_another_teams_half_of_a_merge_is_dropped(
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs([partly, ours], [audience, _audience(2)])
 
     ours_line = (2, "Our own area changed.")
@@ -992,7 +990,7 @@ def test_a_merge_the_reviewer_wrote_this_team_no_clause_for_never_reaches_the_mo
     )
     client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
 
-    with patch("products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client", return_value=client):
+    with patch("products.stamphog.backend.logic.digest.build_anthropic_client", return_value=client):
         summary = summarize_merged_prs([unaddressed, ours], [_audience(3), _audience(2)])
 
     assert "Somebody else's half" not in client.prompts[0]
@@ -1046,7 +1044,7 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
 
     with patch(
-        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+        "products.stamphog.backend.logic.digest.build_anthropic_client",
         side_effect=RuntimeError("gateway down"),
     ):
         summary = summarize_merged_prs(prs)
@@ -1061,17 +1059,14 @@ def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() ->
     AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="", LLM_GATEWAY_URL="http://llm-gateway.test", LLM_GATEWAY_API_KEY="phx_test"
 )
 def test_without_the_ai_gateway_the_digest_never_reaches_the_python_gateway() -> None:
-    # The legacy gateway has no stamphog route, so a process without the Go pair posts the plain list
-    # even when a Python-gateway client would have answered.
+    # The legacy gateway has no stamphog route, so a process without the Go pair posts the plain list.
     prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
-    client = _recording_llm_client([json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]})])
 
-    with patch("posthog.llm.gateway_client.get_anthropic_gateway_client", return_value=client) as python_gateway:
+    with patch("posthog.llm.gateway_client.Anthropic") as anthropic_sdk:
         summary = summarize_merged_prs(prs)
 
     assert summary.judged is False
-    python_gateway.assert_not_called()
-    assert client.calls == []
+    anthropic_sdk.assert_not_called()
 
 
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:
@@ -1093,7 +1088,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     )
 
     with patch(
-        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+        "products.stamphog.backend.logic.digest.build_anthropic_client",
         return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
     ):
         summary = summarize_merged_prs(prs)
@@ -1219,7 +1214,7 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
         json.dumps({"headline": raw_headline}),
     ]
     with patch(
-        "products.stamphog.backend.logic.digest.build_ai_gateway_anthropic_client",
+        "products.stamphog.backend.logic.digest.build_anthropic_client",
         return_value=_recording_llm_client(contents),
     ):
         summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])

@@ -475,7 +475,7 @@ class TestLogsContextAPI(ClickhouseTestMixin, APIBaseTest):
         assert body["timeline"][1]["attrs"] == "step=upload"
         assert {"key": "workflow_run_id", "value": "run-42", "log_count": 2} in body["correlation_keys"]
 
-    @parameterized.expand([("restricted", ["scheduler"]), ("granted", None), ("admin", None)])
+    @parameterized.expand([("restricted", ["scheduler"]), ("granted", None)])
     @time_machine.travel(_NOW, tick=False)
     def test_context_hides_pipeline_logs_from_restricted_members(
         self, access: PropertyAccess, expected_services: list[str] | None

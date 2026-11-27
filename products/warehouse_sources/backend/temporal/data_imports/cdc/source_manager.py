@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     COMPANION_JOB_IDS_KEY,
     companions_completed,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import BUFFER_GENERATION_SEEN_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     EMPTY_POSITION,
     LanePosition,
@@ -185,6 +186,7 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
 # File name to ETag of the files at the highest position that listing saw, kept beside it.
 BUFFER_LISTED_TAIL_KEY = "cdc_buffer_listed_tail"
+_LISTING_STAMP_KEYS = (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY, BUFFER_GENERATION_SEEN_KEY)
 
 
 @frozen
@@ -195,6 +197,8 @@ class ListingProof:
     # File name to ETag of the files at the highest position the listing saw. A file still carrying
     # that ETag holds exactly what the run read.
     tail: Mapping[str, str]
+    # The buffer generation the run read before it listed. None on a stamp written before generations existed.
+    generation_seen: int | None = None
 
 
 def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
@@ -239,7 +243,12 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | N
             continue
         if companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
-            return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
+            seen = (snapshot or {}).get(BUFFER_GENERATION_SEEN_KEY)
+            return ListingProof(
+                listed_at=stamped,
+                tail=tail if isinstance(tail, dict) else {},
+                generation_seen=seen if isinstance(seen, int) and not isinstance(seen, bool) else None,
+            )
     return None
 
 
@@ -294,6 +303,22 @@ async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
     )
 
 
+def stamp_listing_on_job(
+    job_id: str, team_id: int, listed_at: dt.datetime, tail: Mapping[str, str], *, generation_seen: int
+) -> None:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    # Field-scoped: job completion writes status and finished_at, never the snapshot. The
+    # row lock keeps the companion ids a writer on the same JSON puts there.
+    with transaction.atomic():
+        job = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
+        snapshot = dict(job.schema_snapshot or {})
+        snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+        snapshot[BUFFER_LISTED_TAIL_KEY] = dict(tail)
+        snapshot[BUFFER_GENERATION_SEEN_KEY] = generation_seen
+        ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
+
+
 def clear_listing(job_id: str, team_id: int) -> None:
     """Drop the listing stamp from a job that a retry is about to hand back without draining.
 
@@ -314,7 +339,7 @@ def clear_listing(job_id: str, team_id: int) -> None:
         stamped = dict(job.schema_snapshot or {}) if job is not None else {}
         if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
             return
-        snapshot = {k: v for k, v in stamped.items() if k not in (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY)}
+        snapshot = {k: v for k, v in stamped.items() if k not in _LISTING_STAMP_KEYS}
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
 
@@ -690,11 +715,14 @@ class CDCSourceManager:
         *,
         deletion_floor: int | None = None,
         proof: ListingProof | None = None,
+        generation_seen: int,
     ) -> None:
         self._inputs = inputs
         self._logger = logger
         self._deletion_floor = deletion_floor
         self._proof = proof
+        # Read off the schema before the listing, so the stamp never claims writes the listing could miss.
+        self._generation_seen = generation_seen
 
     def _is_consumed(self, file: _BufferFile) -> bool:
         """Whether every table this schema feeds already holds this file's rows.
@@ -763,21 +791,11 @@ class CDCSourceManager:
         that run's completion which turns it into proof. A crash leaves the job un-completed, so a
         partial run can never prove anything, and a no-op tick never lists and never stamps.
         """
-        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-        def _stamp() -> None:
-            # Field-scoped: job completion writes status and finished_at, never the snapshot. The
-            # row lock keeps the companion ids a writer on the same JSON puts there.
-            with transaction.atomic():
-                job = ExternalDataJob.objects.select_for_update().get(
-                    id=self._inputs.job_id, team_id=self._inputs.team_id
-                )
-                snapshot = dict(job.schema_snapshot or {})
-                snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
-                snapshot[BUFFER_LISTED_TAIL_KEY] = dict(tail)
-                ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
-
-        await database_sync_to_async_pool(db_read_with_retry)(_stamp)
+        await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: stamp_listing_on_job(
+                self._inputs.job_id, self._inputs.team_id, listed_at, tail, generation_seen=self._generation_seen
+            )
+        )
 
     async def _list_buffer_files(self) -> list[_BufferFile]:
         """Buffer files under this schema's prefix, in position order.

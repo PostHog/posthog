@@ -22,7 +22,12 @@ from django.test.utils import CaptureQueriesContext
 
 import httpx
 import requests
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog.api.services.query import process_query_dict, run_planned_query
@@ -41,8 +46,11 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
-from products.dashboards.backend.v2 import query_batch as query_batch_module
-from products.dashboards.backend.v2.frames import frames_for
+from products.dashboards.backend.v2 import (
+    observability,
+    query_batch as query_batch_module,
+)
+from products.dashboards.backend.v2.frames import MAX_PROMETHEUS_SERIES, frames_for
 from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.dashboards.backend.v2.telemetry import Step, pick_step, returns_log_lines, time_range
 from products.event_definitions.backend.models import PropertyDefinition
@@ -393,6 +401,56 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["result"]["cache"]["stale"] for line in lines], [True, True, True])
         self.assertEqual(len(refreshed), 1)
 
+    @parameterized.expand(
+        [
+            ("span_refresh_idle", False, 4, 1),
+            ("span_refresh_in_flight", True, 4, 1),
+            ("span_slots_taken", False, 0, 1),
+            ("one_span_refresh_per_board", False, 4, 2),
+        ]
+    )
+    def test_a_span_refresh_in_flight_holds_back_only_the_next_span_refresh(
+        self, _name: str, busy: bool, span_slots: int, span_tiles: int
+    ) -> None:
+        self._warm_via_query_endpoint("$pageview")
+        span_panels = [
+            {
+                "target": {
+                    "refId": f"traces{n}",
+                    "language": "query",
+                    "query": json.dumps(
+                        {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": f"-{24 + n}h"}}
+                    ),
+                },
+                "time": _LAST_7_DAYS,
+                "swr": True,
+            }
+            for n in range(span_tiles)
+        ]
+        self._lines(span_panels, format="frames")
+        shares = query_batch_module._share_keys(self.team.organization_id, self.user.pk)
+        refreshed: list[str] = []
+
+        with (
+            patch.object(query_batch_module, "_span_refresh_shares", set(shares) if busy else set()),
+            patch.object(query_batch_module, "_span_refresh_slots", Semaphore(span_slots)),
+            patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True),
+            patch(
+                "products.dashboards.backend.v2.query_batch.process_query_dict",
+                side_effect=lambda team, query, **kwargs: refreshed.append(query["kind"]),
+            ),
+        ):
+            self._lines([*span_panels, _insight("$pageview", swr=True)], format="frames")
+            wait_until(
+                lambda: (
+                    query_batch_module._refresh_slots._value == query_batch_module.MAX_QUEUED_REFRESHES
+                    and query_batch_module._span_refresh_slots._value == span_slots
+                )
+            )
+
+        expected = ["DataTableNode"] if busy or not span_slots else ["DataTableNode", "TraceSpansAggregationQuery"]
+        self.assertEqual(sorted(refreshed), sorted(expected))
+
     @parameterized.expand([("stream_deadline", "MAX_STREAM_SECONDS"), ("idle_deadline", "MAX_IDLE_SECONDS")])
     def test_a_client_that_stops_reading_gives_its_place_back(self, _name: str, deadline: str) -> None:
         inputs = _cache_only_inputs()
@@ -518,11 +576,63 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
         # A SQL tile is fresh for as long as its range's interval allows, so the hour tile expires first.
         self.assertEqual([line["result"]["cache"]["stale"] for line in later[1:]], [False, True])
 
-    def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
+    @parameterized.expand(
+        [
+            (kind, access_level)
+            for kind in ("TraceSpansQuery", "TraceSpansAggregationQuery")
+            for access_level in ("none", "viewer")
+        ]
+    )
+    def test_a_traces_tile_runs_only_in_the_batch_and_only_with_tracing_access(
+        self, kind: str, access_level: str
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
+        self.client.force_login(
+            self._create_user("traces-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        )
+        query = {"kind": kind, "dateRange": {"date_from": "-24h"}, "serviceNames": ["posthog-web-django"]}
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        [line] = self._lines([{"target": target, "time": _LAST_7_DAYS}], format="frames")
+
+        if access_level == "viewer":
+            self.assertNotIn("error", line)
+            self.assertEqual(line["result"]["format"], "frames")
+            self.assertIsInstance(line["result"]["frames"], list)
+            # The same viewer is refused on /query: only the batch opts span kinds in.
+            response = self.client.post(f"/api/environments/{self.team.pk}/query/", {"query": query}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertEqual(
+                response.json()["detail"],
+                "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+            )
+        else:
+            self.assertEqual(
+                line,
+                {
+                    "i": 0,
+                    "refId": "traces",
+                    "error": "Access control failure. You don't have `viewer` access to the `tracing` resource.",
+                },
+            )
+
+    def test_a_signed_out_traces_tile_is_refused(self) -> None:
+        self.client.logout()
+        query = {"kind": "TraceSpansAggregationQuery", "dateRange": {"date_from": "-24h"}}
+        target = {"refId": "traces", "language": "query", "query": json.dumps(query)}
+
+        response = self._batch([{"target": target, "time": _LAST_7_DAYS}])
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_frames_format_draws_hogql_and_a_table_node_as_frames(self) -> None:
         sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"
         queries = [
             {"target": {"refId": "sql", "language": "hogql", "query": sql, "legend": "{{app}}"}, "time": _LAST_7_DAYS},
-            # A table node has no frame shape, like funnels or retention, so its line keeps the runner's result.
             _insight("$pageview"),
         ]
 
@@ -537,8 +647,8 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             )
             self.assertEqual(sql_line["result"]["canonical"], sql)
             self.assertNotIn("error", table_line)
-            self.assertEqual(table_line["result"]["format"], "result")
-            self.assertIsInstance(table_line["result"]["result"]["results"], list)
+            self.assertEqual(table_line["result"]["format"], "frames")
+            self.assertEqual([field["name"] for field in table_line["result"]["frames"][0]["fields"]], ["count()"])
             canonical = json.loads(table_line["result"]["canonical"])
             self.assertEqual(canonical["query"]["kind"], "DataTableNode")
             self.assertEqual(canonical["filters"]["date_from"], "-7d")
@@ -575,6 +685,29 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             [query_id.rsplit("-", 1)[0] for query_id, _parent in tags[:2] if query_id],
             ["dashboard-v2-batch-none-t_1-A", "dashboard-v2-batch-none-none-C"],
         )
+
+    def test_the_server_span_is_returned_and_tagged_instead_of_the_inbound_traceparent(self) -> None:
+        tags: list[str | None] = []
+
+        def tagged(*args: Any, **kwargs: Any) -> Any:
+            tags.append(get_query_tags().traceparent)
+            return process_query_dict(*args, **kwargs)
+
+        tracer = TracerProvider().get_tracer(__name__)
+        with (
+            patch.object(query_batch_module, "process_query_dict", side_effect=tagged),
+            tracer.start_as_current_span("POST query_batch", kind=SpanKind.SERVER) as span,
+        ):
+            response = self._batch(
+                [{"target": {"refId": "C", "language": "hogql", "query": "select 1"}, "time": _LAST_7_DAYS}],
+                {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+            )
+            b"".join(cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content))
+        context = span.get_span_context()
+        server_traceparent = f"00-{context.trace_id:032x}-{context.span_id:016x}-01"
+
+        self.assertEqual(response.headers["traceresponse"], server_traceparent)
+        self.assertEqual(tags, [server_traceparent])
 
     def test_each_line_carries_its_target_also_when_panels_share_a_cached_body(self) -> None:
         node = json.dumps(_events_node("$pageview")["source"])
@@ -641,6 +774,111 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         query_id = "dashboard-v2-batch-none-t_1-a-0123abcd"
         self.assertEqual(runs, [(query_id, query_id, traceparent)])
+
+    def test_the_stream_and_each_target_are_spans_in_the_requests_trace_and_are_metered(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer(__name__)
+        node = json.dumps({"query": _events_node("$pageview")})
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="A", language=QueryBatchLanguage.HOGQL, query="select 1"),
+                date_from="now-7d",
+                date_to="now",
+                tile="t-1",
+            ),
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="B", language=QueryBatchLanguage.QUERY, query=node),
+                date_from="now-7d",
+                date_to="now",
+            ),
+        ]
+
+        def run_in_clickhouse(*args: Any, **kwargs: Any) -> Any:
+            with tracer.start_as_current_span("SELECT"):
+                return process_query_dict(*args, **kwargs)
+
+        def ok_targets(language: str) -> float:
+            labels = {"language": language, "outcome": "ok"}
+            return REGISTRY.get_sample_value("dashboard_v2_query_batch_targets_total", labels) or 0.0
+
+        before = {language: ok_targets(language) for language in ("hogql", "query")}
+        with (
+            patch.object(observability, "tracer", tracer),
+            patch.object(query_batch_module, "process_query_dict", side_effect=run_in_clickhouse),
+        ):
+            # The request's span ends before the stream is read, as it does when the view returns the response.
+            with tracer.start_as_current_span("POST api/projects/dashboard_v2/query_batch/") as request_span:
+                batch = QueryBatch(
+                    team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id="traced"
+                )
+            lines = [json.loads(line) for line in b"".join(batch.stream()).splitlines() if line.strip()]
+
+        self.assertEqual([line.get("error") for line in lines], [None, None])
+        spans = exporter.get_finished_spans()
+
+        def attrs(span: Any) -> dict[str, Any]:
+            return dict(span.attributes or {})
+
+        def parent_id(span: Any) -> int:
+            assert span.parent is not None
+            return span.parent.span_id
+
+        by_id = {span.context.span_id: span for span in spans if span.context is not None}
+        (stream,) = [span for span in spans if span.name == "dashboard_v2.query_batch.stream"]
+        targets = {
+            attrs(span)["dashboard_v2.ref_id"]: span for span in spans if span.name == "dashboard_v2.query_batch.target"
+        }
+        stream_id = stream.get_span_context().span_id
+        self.assertEqual(parent_id(stream), request_span.get_span_context().span_id)
+        self.assertEqual(attrs(stream)["dashboard_v2.lines_ok"], 2)
+        self.assertEqual(attrs(stream)["dashboard_v2.cancelled"], False)
+        self.assertEqual(
+            {
+                ref_id: (parent_id(span), attrs(span)["dashboard_v2.language"], attrs(span)["cache.hit"])
+                for ref_id, span in targets.items()
+            },
+            {"A": (stream_id, "hogql", False), "B": (stream_id, "query", False)},
+        )
+        self.assertEqual(attrs(targets["B"])["dashboard_v2.query_kind"], "EventsQuery")
+        self.assertTrue(all("dashboard_v2.error" not in attrs(span) for span in spans))
+        selects = [span for span in spans if span.name == "SELECT"]
+        self.assertEqual(len(selects), 2)
+        for select in selects:
+            execute = by_id[parent_id(select)]
+            self.assertEqual(execute.name, "dashboard_v2.query_batch.execute")
+            self.assertIn(by_id[parent_id(execute)], targets.values())
+        self.assertEqual(
+            {language: ok_targets(language) - before[language] for language in before}, {"hogql": 1, "query": 1}
+        )
+
+
+class TestTargetSpanAttributes(SimpleTestCase):
+    def _attributes(self, line: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        with provider.get_tracer(__name__).start_as_current_span("target") as span:
+            outcome = observability._describe(span, line).outcome
+        (finished,) = exporter.get_finished_spans()
+        return outcome, dict(finished.attributes or {})
+
+    def test_points_count_the_value_fields_of_each_frame(self) -> None:
+        frame = {
+            "fields": [
+                {"name": "time", "type": "time", "values": [1, 2, 3]},
+                {"name": "count", "type": "number", "values": [4, 5, 6]},
+                {"name": "unique", "type": "number", "values": [1, 1, 2]},
+            ]
+        }
+        outcome, attributes = self._attributes({"result": {"cache": {}, "frames": [frame, frame]}})
+        self.assertEqual((outcome, attributes["dashboard_v2.frames"], attributes["dashboard_v2.points"]), ("ok", 2, 12))
+
+    def test_an_errors_text_stays_out_of_the_span(self) -> None:
+        outcome, attributes = self._attributes({"error": "Unknown table secret_customer_table"})
+        self.assertEqual(outcome, "error")
+        self.assertNotIn("secret_customer_table", repr(attributes))
 
 
 class TestQueryShares(SimpleTestCase):
@@ -743,6 +981,32 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(rerun_logql["result"]["cache"]["hit"], False)
         self.assertEqual(list(self._snuffle_calls(request)), ["http://logs.test/loki/api/v1/query_range"])
 
+    @parameterized.expand([("promql", "sum(up)"), ("logql", '{service_name="api"}')])
+    def test_a_telemetry_target_answers_while_every_worker_could_be_building_hogql(
+        self, language: str, query: str
+    ) -> None:
+        hogql_may_finish = Event()
+
+        def run(team: Any, query: dict, *args: Any, **kwargs: Any) -> Any:
+            if query["kind"] == "HogQLQuery":
+                hogql_may_finish.wait(timeout=10)
+                return {"results": []}
+            return process_query_dict(team, query, *args, **kwargs)
+
+        sql = [
+            {"target": {"refId": f"sql-{n}", "language": "hogql", "query": f"select {n}"}, "time": _LAST_HOUR}
+            for n in range(query_batch_module.WORKERS_PER_BATCH)
+        ]
+        with _snuffle_requests(), patch.object(query_batch_module, "process_query_dict", side_effect=run):
+            response = self._batch([*sql, _telemetry(language, query)])
+            lines = (line for line in cast(Iterator[bytes], response.streaming_content) if line.strip())
+            first = json.loads(next(lines))
+            hogql_may_finish.set()
+            rest = [json.loads(line) for line in lines]
+
+        self.assertEqual((first["refId"], first.get("error")), (language, None))
+        self.assertEqual(sorted(line["refId"] for line in rest), [target["target"]["refId"] for target in sql])
+
     @parameterized.expand([("at_the_limit", 1000, None), ("past_the_limit", 1001, True)])
     def test_log_lines_past_the_limit_are_marked_truncated(
         self, _name: str, returned: int, truncated: bool | None
@@ -789,6 +1053,31 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         [table] = logs["result"]["frames"]
         self.assertEqual(
             [field["values"] for field in table["fields"]], [[start * 1000], ["boom"], ["service_name=api"]]
+        )
+
+    def test_frames_format_names_a_result_without_frames_as_an_error(self) -> None:
+        too_many = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"pod": str(pod)}, "values": [[0, "1"]]} for pod in range(MAX_PROMETHEUS_SERIES + 1)
+                ],
+            },
+        }
+        with _snuffle_requests(200, too_many):
+            [line] = self._lines(
+                [_telemetry("logql", 'sum by (pod) (count_over_time({app="api"}[1m]))')], format="frames"
+            )
+
+        self.assertEqual(
+            line,
+            {
+                "i": 0,
+                "refId": "logql",
+                "error": "This logql result can't be drawn as a chart.",
+                "unsupported_shape": "logql",
+            },
         )
 
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])

@@ -1,11 +1,14 @@
-import time
 import asyncio
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from urllib.parse import urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import DatabaseError, transaction
+from django.utils import timezone
 
 import requests
 import posthoganalytics
@@ -13,10 +16,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -24,6 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.domain_connect import extract_root_domain_and_host
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
 from posthog.models.proxy_record import (
@@ -34,13 +39,15 @@ from posthog.models.proxy_record import (
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.tasks.proxy import reconcile_proxy_root_redirect
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
+from posthog.temporal.proxy_service import CreateManagedProxyInputs
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     get_custom_hostname_by_domain,
     update_cloudflare_proxy_root_redirect,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
+from posthog.temporal.proxy_service.create import start_proxy_provisioning
+from posthog.temporal.proxy_service.delete import start_proxy_deletion
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -66,6 +73,23 @@ def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
         },
         groups=groups(organization),
     )
+
+
+@contextmanager
+def _lock_proxy_for_write(organization: Organization, record_id: UUID) -> Iterator[None]:
+    records = organization.proxy_records.filter(id=record_id)
+    if not records.exists():
+        raise NotFound()
+
+    lock = cloudflare_proxy_lock(record_id)
+    if not lock.acquire(blocking=False):
+        if not records.exists():
+            raise NotFound()
+        raise Throttled(wait=5, detail="This proxy is being updated.")
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 class ProxyRecordSerializer(serializers.ModelSerializer):
@@ -279,6 +303,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
+    def _get_proxy_record(self, pk: str | UUID | None) -> ProxyRecord:
+        record_id = serializers.UUIDField().run_validation(pk)
+        try:
+            return self.organization.proxy_records.get(id=record_id)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
+
     @property
     def max_proxy_records(self) -> int:
         feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
@@ -309,10 +340,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Returns the full configuration including domain, CNAME target, and current provisioning status.",
     )
     def retrieve(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
         serializer = self.get_serializer(record)
         return Response(serializer.data)
 
@@ -322,9 +350,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         responses={200: ProxyRecordSerializer},
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
+        pk = serializers.UUIDField().run_validation(pk)
         reconciliation_required = False
         try:
-            with transaction.atomic():
+            with _lock_proxy_for_write(self.organization, pk), transaction.atomic():
                 record = self.organization.proxy_records.select_for_update().get(id=pk)
 
                 if not is_cloudflare_proxy_by_cname(record.target_cname):
@@ -407,15 +436,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 domain=record.domain,
                 target_cname=record.target_cname,
             )
-            workflow_id = f"proxy-create-{inputs.proxy_record_id}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "create-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                )
-            )
+            asyncio.run(start_proxy_provisioning(temporal, inputs))
         except Exception as e:
             capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
             record.delete()
@@ -441,10 +462,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def diagnose(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
 
         # Per-user, per-record cooldown. Each diagnose makes ~5–10 outbound requests
         # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
@@ -482,10 +500,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def retry(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
 
         if record.status not in (
             ProxyRecord.Status.ERRORING,
@@ -507,9 +522,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        record.status = ProxyRecord.Status.WAITING
-        record.message = None
-        record.save()
+        unchanged_record = self.organization.proxy_records.filter(
+            id=record.id, status=record.status, updated_at=record.updated_at
+        )
 
         try:
             temporal = sync_connect()
@@ -519,23 +534,28 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 domain=record.domain,
                 target_cname=record.target_cname,
             )
-            workflow_id = f"proxy-create-{inputs.proxy_record_id}-retry-{int(time.time())}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "create-proxy",
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            started = asyncio.run(
+                start_proxy_provisioning(
+                    temporal, inputs, resume=True, id_conflict_policy=WorkflowIDConflictPolicy.FAIL
                 )
             )
+        except WorkflowAlreadyStartedError:
+            started = False
         except Exception as e:
             capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
-            record.status = ProxyRecord.Status.ERRORING
-            record.save()
+            unchanged_record.update(status=ProxyRecord.Status.ERRORING, message=None, updated_at=timezone.now())
             return Response(
                 {"detail": "Failed to start retry workflow."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # A joined run owns the status. A new run may already have advanced it by the time Temporal replies.
+        if started:
+            unchanged_record.update(status=ProxyRecord.Status.WAITING, message=None, updated_at=timezone.now())
+        try:
+            record.refresh_from_db()
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
 
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "retried")
@@ -547,63 +567,45 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
     )
     def destroy(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        pk = serializers.UUIDField().run_validation(pk)
+        with _lock_proxy_for_write(self.organization, pk):
+            record = self._get_proxy_record(pk)
 
-        if record.status in (
-            ProxyRecord.Status.WAITING,
-            ProxyRecord.Status.ERRORING,
-            ProxyRecord.Status.TIMED_OUT,
-        ) and not is_cloudflare_proxy_by_cname(record.target_cname):
-            _capture_proxy_event(request, record, "deleted")
-            record.delete()
-        else:
-            previous_status = record.status
-            # The workflow id is fixed per record, so a repeat delete collides with the
-            # deletion already running. Join that run only when the record was already
-            # deleting. Any other status means the last run is failing, and joining it
-            # would leave the record deleting forever once it closes.
-            delete_conflict_policy = (
-                WorkflowIDConflictPolicy.USE_EXISTING
-                if previous_status == ProxyRecord.Status.DELETING
-                else WorkflowIDConflictPolicy.FAIL
-            )
-            record.status = ProxyRecord.Status.DELETING
-            record.save()
-
-            try:
-                temporal = sync_connect()
-                inputs = DeleteManagedProxyInputs(
-                    organization_id=record.organization_id,
-                    proxy_record_id=record.id,
-                    domain=record.domain,
-                    target_cname=record.target_cname,
-                    root_redirect_url=record.root_redirect_url,
+            if record.status in (
+                ProxyRecord.Status.WAITING,
+                ProxyRecord.Status.ERRORING,
+                ProxyRecord.Status.TIMED_OUT,
+            ) and not is_cloudflare_proxy_by_cname(record.target_cname):
+                _capture_proxy_event(request, record, "deleted")
+                record.delete()
+            else:
+                previous_status = record.status
+                # The workflow id is fixed per record, so a repeat delete collides with the
+                # deletion already running. Join that run only when the record was already
+                # deleting. Any other status means the last run is failing, and joining it
+                # would leave the record deleting forever once it closes.
+                delete_conflict_policy = (
+                    WorkflowIDConflictPolicy.USE_EXISTING
+                    if previous_status == ProxyRecord.Status.DELETING
+                    else WorkflowIDConflictPolicy.FAIL
                 )
-                workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
-                asyncio.run(
-                    temporal.start_workflow(
-                        "delete-proxy",
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                        id_conflict_policy=delete_conflict_policy,
-                    )
-                )
-            except Exception as e:
-                capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
-                record.status = previous_status
+                record.status = ProxyRecord.Status.DELETING
                 record.save()
-                return Response(
-                    {"detail": "Failed to start deletion workflow."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
 
-            _capture_proxy_event(request, record, "deleted")
+                try:
+                    asyncio.run(start_proxy_deletion(sync_connect(), record, id_conflict_policy=delete_conflict_policy))
+                except Exception as e:
+                    capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    record.status = previous_status
+                    record.save()
+                    return Response(
+                        {"detail": "Failed to start deletion workflow."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
 
-        return Response(
-            {"success": True},
-            status=status.HTTP_200_OK,
-        )
+                _capture_proxy_event(request, record, "deleted")
+
+            return Response(
+                {"success": True},
+                status=status.HTTP_200_OK,
+            )

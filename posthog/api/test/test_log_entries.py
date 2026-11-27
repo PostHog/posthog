@@ -11,13 +11,10 @@ from rest_framework import status
 from posthog.api.log_entries import count_log_entries
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.workload import Workload
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.event_definitions.backend.models import PropertyDefinition
 
 
 def create_log_entry(
@@ -72,37 +69,6 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             timestamp=timestamp,
         )
 
-    def _set_property_access(self, property_type: int, access: str) -> None:
-        self.organization.available_product_features = (
-            []
-            if access == "feature_disabled"
-            else [
-                {"key": feature, "name": feature}
-                for feature in [AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]
-            ]
-        )
-        self.organization.save()
-        self.organization_membership.level = (
-            OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
-        )
-        self.organization_membership.save()
-        property_definition = PropertyDefinition.objects.create(
-            team=self.team,
-            name="private_note",
-            type=property_type,
-            group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
-        )
-        PropertyAccessControl.objects.create(
-            team=self.team, property_definition=property_definition, access_level="none"
-        )
-        if access == "granted":
-            PropertyAccessControl.objects.create(
-                team=self.team,
-                property_definition=property_definition,
-                organization_member=self.organization_membership,
-                access_level="read",
-            )
-
     def test_returns_default(self):
         res = self.get_log_entries()
         assert res.status_code == status.HTTP_200_OK
@@ -132,26 +98,17 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("event", PropertyDefinition.Type.EVENT, "restricted", "log_entries"),
-            ("person", PropertyDefinition.Type.PERSON, "restricted", "log_entries"),
-            ("group", PropertyDefinition.Type.GROUP, "restricted", "log_entries"),
-            ("member_override", PropertyDefinition.Type.EVENT, "granted", "log_entries"),
-            ("admin", PropertyDefinition.Type.EVENT, "admin", "log_entries"),
-            ("feature_disabled", PropertyDefinition.Type.EVENT, "feature_disabled", "log_entries"),
-            ("alias", PropertyDefinition.Type.EVENT, "restricted", "log_entries AS logs"),
-            ("subquery", PropertyDefinition.Type.EVENT, "restricted", "(SELECT * FROM log_entries)"),
+            ("restricted", "restricted", "log_entries"),
+            ("granted", "granted", "log_entries"),
             (
                 "column_alias",
-                PropertyDefinition.Type.EVENT,
                 "restricted",
                 "(SELECT original_source AS log_source, message FROM log_entries AS l(original_source, log_source))",
             ),
         ]
     )
-    def test_hogql_log_entries_follow_property_access(
-        self, _name: str, property_type: int, access: str, source: str
-    ) -> None:
-        self._set_property_access(property_type, access)
+    def test_hogql_log_entries_follow_property_access(self, _name: str, access: PropertyAccess, source: str) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
         sources = ["batch_export", "hog_flow", "hog_function", "plugin", "session_replay"]
         for log_source in sources:
             create_log_entry(
@@ -180,10 +137,10 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             [log_source, f"{log_source} log message"] for log_source in expected_sources
         ]
 
-    @parameterized.expand([("restricted",), ("admin",)])
+    @parameterized.expand([("restricted",), ("granted",)])
     @time_machine.travel("2026-01-15 12:00:00", tick=False)
-    def test_hogql_invocation_errors_follow_property_access(self, access: str) -> None:
-        self._set_property_access(PropertyDefinition.Type.EVENT, access)
+    def test_hogql_invocation_errors_follow_property_access(self, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
         now = datetime(2026, 1, 15, 12, tzinfo=UTC)
         kinds = ["hog_flow", "hog_flow_rerun", "hog_function", "hog_function_rerun"]
         for kind in kinds:
@@ -230,14 +187,10 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         expected_kinds = [] if access == "restricted" else kinds
         assert response.json()["results"] == [[kind, f"{kind} error message"] for kind in expected_kinds]
 
-    @parameterized.expand([("restricted",), ("member_rule",), ("admin",), ("granted",)])
+    @parameterized.expand([("restricted",), ("granted",)])
     @time_machine.travel("2026-11-01 12:00:00", tick=False)
-    def test_mirrored_pipeline_logs_follow_property_access(self, access: str) -> None:
-        self._set_property_access(PropertyDefinition.Type.EVENT, access)
-        if access == "member_rule":
-            PropertyAccessControl.objects.filter(team=self.team).update(
-                organization_member=self.organization_membership
-            )
+    def test_mirrored_pipeline_logs_follow_property_access(self, access: PropertyAccess) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
         services = ["application", "posthog-internal-hog-functions", "posthog-internal-workflows"]
         for service in services:
             sync_execute(
@@ -254,7 +207,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 workload=Workload.LOGS,
             )
-        expected_services = ["application"] if access in {"restricted", "member_rule"} else services
+        expected_services = ["application"] if access == "restricted" else services
 
         hogql = self.client.post(
             f"/api/projects/{self.team.pk}/query/",

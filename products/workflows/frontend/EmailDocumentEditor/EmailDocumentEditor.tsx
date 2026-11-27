@@ -1,11 +1,12 @@
 import './EmailDocumentEditor.scss'
 
-import type { EditorEvents, EditorOptions } from '@tiptap/core'
+import type { EditorEvents, EditorOptions, JSONContent } from '@tiptap/core'
+import type { Schema } from '@tiptap/pm/model'
 import { EditorContent, useEditor } from '@tiptap/react'
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconRedo, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
@@ -38,7 +39,7 @@ import { buildEmailExtensions } from './emailExtensions'
 import { uploadEmailImage, uploadErrorText } from './emailMediaLibraryLogic'
 import { EmailSuggestionItem, createEmailSuggestion } from './emailSuggestionExtension'
 import { EmailVariableContext, EmailVariableOption, variableOptions as toVariableOptions } from './emailVariables'
-import { htmlSentAsWritten, renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
+import { htmlSentAsWritten, lineHeightCss, safeEmailDoc, sentEmailHtml } from './renderEmailHtml'
 
 const PLACEHOLDER = 'Write something, type / for blocks or {{ for variables'
 const NARROW_WIDTH = 900
@@ -59,6 +60,15 @@ function backgroundImageStyle(image: EmailBackgroundImage): React.CSSProperties 
         backgroundRepeat: image.repeat ? 'repeat' : 'no-repeat',
         backgroundSize: image.size ?? 'auto',
         backgroundPosition: image.position ?? 'center top',
+    }
+}
+
+/** A saved document as the editor holds it, with every attribute filled in. Null when there is none it can hold. */
+function normalizedDoc(schema: Schema, doc: JSONContent | undefined): JSONContent | null {
+    try {
+        return doc ? schema.nodeFromJSON(safeEmailDoc(doc)).toJSON() : null
+    } catch {
+        return null
     }
 }
 
@@ -84,6 +94,7 @@ export function EmailDocumentEditor(): JSX.Element {
     const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
     const [rootWidth, setRootWidth] = useState(1200)
     const rootRef = useRef<HTMLDivElement>(null)
+    const canvasScrollTop = useRef(0)
     const suggestionsOpenRef = useRef(false)
 
     const [linkEditorRequest, setLinkEditorRequest] = useState(0)
@@ -331,6 +342,13 @@ export function EmailDocumentEditor(): JSX.Element {
         return () => observer.disconnect()
     }, [])
 
+    // Preview unmounts the canvas.
+    useLayoutEffect(() => {
+        if (canvas) {
+            canvas.scrollTop = canvasScrollTop.current
+        }
+    }, [canvas])
+
     const narrow = rootWidth < NARROW_WIDTH
     useEffect(() => {
         setPanelOpen(!narrow)
@@ -339,7 +357,16 @@ export function EmailDocumentEditor(): JSX.Element {
     const doc = editor.getJSON()
     const sentAsWritten = htmlSentAsWritten(doc) !== null
     const page = sentAsWritten ? PAGE_FOR_HTML_AS_WRITTEN : resolvePageStyle(doc.attrs?.page)
-    const html = mode === 'preview' ? renderEmailHtml(doc) : ''
+    const html =
+        mode === 'preview'
+            ? sentEmailHtml(doc, {
+                  html: logicProps.value?.html,
+                  doc: normalizedDoc(
+                      editor.schema,
+                      emailDocumentFromValue(logicProps.value).document?.doc ?? convertedEmailDocument?.doc
+                  ),
+              })
+            : ''
 
     const context: EmailEditorContextValue = useMemo(
         () => ({
@@ -464,6 +491,7 @@ export function EmailDocumentEditor(): JSX.Element {
                     <div className="flex flex-1 min-h-0 relative">
                         <div
                             ref={setCanvas}
+                            onScroll={(event) => (canvasScrollTop.current = event.currentTarget.scrollTop)}
                             className="EmailDocumentEditor__scroll relative flex-1 min-w-0 overflow-auto"
                             style={{
                                 backgroundColor: page.backgroundColor,
@@ -500,8 +528,7 @@ export function EmailDocumentEditor(): JSX.Element {
                                             color: page.textColor,
                                             fontFamily: page.fontFamily,
                                             fontSize: page.fontSize,
-                                            // Unitless, because a percentage inherits as a fixed size and larger text would overlap.
-                                            lineHeight: page.lineHeight / 100,
+                                            lineHeight: lineHeightCss(page.lineHeight),
                                             padding: `${page.bodyPadding.top}px ${page.bodyPadding.right}px ${page.bodyPadding.bottom}px ${page.bodyPadding.left}px`,
                                             borderRadius: page.bodyBorderRadius || undefined,
                                             border: page.bodyBorderWidth

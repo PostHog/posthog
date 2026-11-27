@@ -33,6 +33,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.aeo.backend import prompt_limit
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.engine_settings import engine_schedule
@@ -84,9 +85,10 @@ def run_citation_checks(
         ), []
 
     checked_before = run_day_start(timezone.now())
-    prompts = select_prompts(
-        team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
+    run_limit = min(
+        settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, prompt_limit.max_active_prompts(team.id)
     )
+    prompts = select_prompts(team, run_limit, checked_before=checked_before)
     if not prompts:
         if not _active_prompts(team).exists():
             logger.warning("aeo_citation_run_no_prompts", team_id=team.id)

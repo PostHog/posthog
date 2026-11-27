@@ -49,6 +49,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
+    ControlChangeKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -747,21 +748,25 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             and resource_permitted(self.request, self.user_access_control, resource, access_level, scope_action)
         ]
 
-    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
-        # Logs checks run without the member, so the member's property rules cannot hide pipeline logs from them.
+    def _pipeline_logs_hidden(self, source_kind: str, source_config: dict[str, Any]) -> bool:
         # A malformed config is refused by the source's own validation later.
         if source_kind != PlatformAlertConfigurationSourceKind.LOGS.value or not isinstance(source_config, dict):
-            return
+            return False
         filters = source_config.get("filters")
         names = filters.get("serviceNames") if isinstance(filters, dict) else None
         if names is not None and not (isinstance(names, list) and all(isinstance(name, str) for name in names)):
-            return
+            return False
         services = set(names or [])
         if services and not services & PIPELINE_LOG_SERVICE_NAMES:
-            return
-        if access_control_api.get_restricted_properties_with_group_type_index_for_team(
-            team_id=self._canonical_team_id(), user=cast(User, self.request.user)
-        ):
+            return False
+        return bool(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(
+                team_id=self._canonical_team_id(), user=cast(User, self.request.user)
+            )
+        )
+
+    def _require_pipeline_log_access(self, source_kind: str, source_config: dict[str, Any]) -> None:
+        if self._pipeline_logs_hidden(source_kind, source_config):
             raise PermissionDenied(
                 "Your property access permissions do not allow alerts on pipeline logs. "
                 "Pick the services this alert watches, without PostHog pipeline services."
@@ -794,12 +799,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         self, source_kind: str, stored: PlatformAlertConfigurationEdit, fields: dict[str, Any]
     ) -> PlatformAlertConfigurationEdit:
         edited = replace(stored, **fields)
-        # Only a rename or a change to when the alert fires leaves what it reads and who it tells as they were.
         # An edit form sends unchanged settings back, so compare values, not keys.
         changed = {name for name, value in fields.items() if getattr(stored, name) != value}
-        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
         if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
             self._require_pipeline_log_access(source_kind, edited.source_config)
+            self._require_pipeline_log_access(source_kind, stored.source_config)
         return edited
 
     def _edit(self, request: Request, pk: str, *, partial: bool) -> Response:
@@ -1110,9 +1114,24 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         limit = query.validated_data["limit"]
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
-        self._readable_configuration(team_id, configuration_id)
+        current = self._readable_configuration(team_id, configuration_id)
+        # Checks count every log, so a member who cannot see pipeline logs gets the state changes without the values.
+        # A check from before the last change to its settings may have read pipeline logs.
+        hide_values = self._pipeline_logs_hidden(current.source_kind, current.source_config)
         read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
+        )
+        hide_before = (
+            max(
+                (
+                    change.occurred_at
+                    for change in read.changes.changes
+                    if change.kind == ControlChangeKind.CONFIG_CHANGE
+                ),
+                default=None,
+            )
+            if not hide_values and self._pipeline_logs_hidden(current.source_kind, {})
+            else None
         )
         events: list[dict[str, Any]] = [
             *(
@@ -1121,7 +1140,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "kind": PlatformAlertEventKind.CHECK,
                     "previous_state": check.previous_state,
                     "state": check.state,
-                    "value": check.value,
+                    "value": None
+                    if hide_values or (hide_before is not None and check.occurred_at < hide_before)
+                    else check.value,
                     "error_message": check.error_message,
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,

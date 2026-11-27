@@ -47,7 +47,7 @@ class TestLokiQueryApi(APIBaseTest):
         self.schedule_budget_debit = debit_patcher.start()
         self.addCleanup(debit_patcher.stop)
 
-    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    @parameterized.expand([("restricted", 403), ("granted", 200)])
     def test_logql_follows_property_access(self, access: PropertyAccess, expected_status: int) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 

@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "note": {
+            "default": "",
+            "description": "Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "pr_url": {
+            "description": "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.",
+            "format": "uri",
+            "maxLength": 500,
+            "type": "string"
+        }
+    },
+    "required": ["pr_url"],
+    "type": "object"
+}

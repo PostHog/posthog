@@ -20,6 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor
@@ -34,6 +35,8 @@ from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, 
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LogsFilterBuilder
+
+_ALERT_QUERY_MODIFIERS = HogQLQueryModifiers(convertToProjectTimezone=False)
 
 
 class AlertQuerySubject(Protocol):
@@ -117,25 +120,33 @@ def _period_count_columns(ranges: list[CheckWindow]) -> list[ast.Expr]:
     ]
 
 
-def _scheduled_check_context(team: Team) -> HogQLContext:
-    # Who may point an alert at pipeline logs is checked when the alert is saved, so the scheduled
-    # check must not apply the team's default property rules, which hide pipeline logs.
-    return HogQLContext(team_id=team.pk, restricted_properties=set())
-
-
 def _run_alert_query(
-    team: Team, query: ast.SelectQuery, *, ch_user: ClickHouseUser, settings: HogQLGlobalSettings
+    team: Team,
+    query: ast.SelectQuery,
+    *,
+    ch_user: ClickHouseUser,
+    settings: HogQLGlobalSettings,
+    user: User | None = None,
 ) -> HogQLQueryResponse:
     return execute_hogql_query(
         query_type="alert_check",
         query=query,
         team=team,
-        context=_scheduled_check_context(team),
+        user=user,
         workload=Workload.LOGS,
         ch_user=ch_user,
         settings=settings,
         limit_context=LimitContext.QUERY,
-        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        modifiers=_ALERT_QUERY_MODIFIERS,
+        context=HogQLContext(
+            team_id=team.pk,
+            team=team,
+            user=user,
+            enable_select_queries=True,
+            database=Database.create_for_posthog_tables(team, modifiers=_ALERT_QUERY_MODIFIERS),
+            # Scheduled checks ignore property rules. Who may watch pipeline logs is checked when the alert is saved.
+            restricted_properties=None if user else set(),
+        ),
     )
 
 
@@ -351,19 +362,8 @@ class AlertCheckQuery:
         if not isinstance(query, ast.SelectQuery):
             raise ValueError("Failed to build alert check query")
 
-        context = (
-            HogQLContext(team_id=self.team.pk, user=self.user) if self.user else _scheduled_check_context(self.team)
-        )
-        return execute_hogql_query(
-            query_type="alert_check",
-            query=query,
-            team=self.team,
-            user=self.user,
-            context=context,
-            workload=Workload.LOGS,
-            settings=self.SETTINGS,
-            limit_context=LimitContext.QUERY,
-            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        return _run_alert_query(
+            self.team, query, ch_user=ClickHouseUser.DEFAULT, settings=self.SETTINGS, user=self.user
         )
 
     def _tag(self) -> None:

@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 
 import { RoleSpec, roleSpecs, secretsOf } from './roles'
+import { groupLag } from './stack'
 import { KafkaGroup, kafkaGroups, scenarioGroupsOf, wiringOf } from './topology'
 
 const LIST = `BROKER  GROUP                     STATE
@@ -164,6 +165,14 @@ describe('topology', () => {
     it('fails the read when rpk fails, instead of reading its error as groups', async () => {
         await expect(
             kafkaGroups(fakeDocker(dir, { list: 'unable to dial: connection refused', describe: '', exitCode: 1 }))
+        ).rejects.toThrow()
+    })
+
+    it('fails the lag read when rpk fails after it printed a zero total', async () => {
+        const describe = 'GROUP        cdp-intake-transactional-email-consumer\nMEMBERS      1\nTOTAL-LAG    0\n'
+
+        await expect(
+            groupLag('cdp-intake-transactional-email-consumer', fakeDocker(dir, { list: '', describe, exitCode: 1 }))
         ).rejects.toThrow()
     })
 })

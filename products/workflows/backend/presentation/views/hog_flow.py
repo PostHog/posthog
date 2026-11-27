@@ -149,7 +149,12 @@ from products.replay_vision.backend.facade.api import (
 )
 from products.tasks.backend.facade.api import list_workflow_last_runs
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    TASK_RUN_GATEWAY_PRODUCT,
+    reasoning_efforts_for,
+    runnable_model_choices,
+    uncataloged_runtime_adapter,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskSkillsInvalid,
@@ -189,7 +194,6 @@ from products.workflows.backend.facade.blast_radius import (
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
-    get_audience_person_page,
     get_audience_size,
     is_account_audience,
     parse_account_audience_filters,
@@ -211,6 +215,7 @@ from products.workflows.backend.facade.contracts import (
     Workflow,
     WorkflowAccessDenied,
     WorkflowActor,
+    WorkflowArchived,
     WorkflowBatchJobNotFound,
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -268,6 +273,7 @@ from products.workflows.backend.facade.proposals import (
     approve_proposal,
     as_the_serializer_stores_it,
     conversion_evidence_error,
+    conversion_sample_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -1608,6 +1614,14 @@ class BlastRadiusSerializer(serializers.Serializer):
             "project's daily email allowance to its other workflows, so it may reach more people over several days."
         ),
     )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Keys of the project's test account filters this audience leaves out because they only apply to events, "
+            "such as event properties. Empty unless the audience filters out test accounts."
+        ),
+    )
 
 
 class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
@@ -1624,11 +1638,17 @@ class InternalBatchJobAudienceSnapshotSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True, help_text="Why the audience could not be resolved, in words meant for the customer."
     )
+    skipped_test_account_filters = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Keys of the project's test account filters this run left out because they only apply to events. "
+            "Empty until the audience is ready."
+        ),
+    )
 
 
 class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
-    """Response contract for the internal blast-radius persons endpoint. Mirrors
-    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+    """Response contract for one page of a batch run's stored audience, read by the Node batch resolver."""
 
     users_affected = serializers.ListField(
         child=serializers.CharField(),
@@ -1870,6 +1890,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
             "pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, "
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
+            "function_email also accepts click_tracking_enabled?: <bool> (defaults to false when sensitive is true, "
+            "true otherwise) to override link click tracking without turning off opens. "
             "function_push also accepts sensitive?: <bool> (default false) - when true, the notification is "
             "still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps "
             "no variables, so it can't be rerun. "
@@ -2089,24 +2111,25 @@ class HogFlowActionSerializer(serializers.Serializer):
         model = model_value.get("model")
         reasoning_effort = model_value.get("reasoning_effort")
         if model:
-            # An empty catalogue means the gateway is unreachable, not that no model is valid -
-            # skip rather than block every save during an outage (see available_model_choices).
-            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-            if available:
-                choice = next((c for c in available if c.model == model), None)
-                if choice is None:
+            choice = next((c for c in runnable_model_choices(TASK_RUN_GATEWAY_PRODUCT) if c.model == model), None)
+            if choice is not None:
+                supported_efforts = choice.supported_efforts
+            else:
+                runtime_adapter = uncataloged_runtime_adapter(model)
+                if runtime_adapter is None:
                     raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
-                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
-                    raise serializers.ValidationError(
-                        {
-                            "inputs": {
-                                "model": (
-                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
-                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
-                                )
-                            }
+                supported_efforts = reasoning_efforts_for(runtime_adapter, model)
+            if reasoning_effort and reasoning_effort not in supported_efforts:
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "model": (
+                                f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                f"'{model}'. Supported values: {', '.join(supported_efforts) or 'none'}."
+                            )
                         }
-                    )
+                    }
+                )
 
         max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
         if max_parallel_tasks is not None:
@@ -2526,6 +2549,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             fixed_template_id = _FIXED_TEMPLATE_IDS.get(data.get("type", ""))
             if fixed_template_id:
                 template_id = _apply_fixed_template_id(config, template_id, fixed_template_id, strict=strict)
+            if data.get("type") == "function_email":
+                if "click_tracking_enabled" in config:
+                    click_tracking = config["click_tracking_enabled"]
+                    if click_tracking is None:
+                        config.pop("click_tracking_enabled")
+                    elif not isinstance(click_tracking, bool):
+                        raise serializers.ValidationError({"config": {"click_tracking_enabled": "Must be a boolean."}})
             # After the fixed-id coercion, so a library UUID sent as template_id (the dominant
             # authoring mistake) lands in template_uuid first and still gets materialized.
             if data.get("type") == "function_email" and config.get("template_uuid"):
@@ -4588,17 +4618,24 @@ def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: uuid_mod.UU
     )
     target = HogFlowState.ACTIVE if enabled else HogFlowState.DRAFT
     if hog_flow.status != target:
-        validated_data: dict[str, Any] = {"status": target}
-        if enabled:
+
+        def _validate_locked(locked: WorkflowEditState) -> dict[str, Any] | None:
+            if locked.status == HogFlowState.ARCHIVED:
+                raise WorkflowArchived()
+            if locked.status == target:
+                return None
+            if not enabled:
+                return {"status": target}
             serializer = HogFlowSerializer(
-                hog_flow,
+                locked,
                 data={"status": target},
                 partial=True,
                 context={"team_id": team_id, "get_team": lambda: team},
             )
             serializer.is_valid(raise_exception=True)
-            validated_data = dict(serializer.validated_data)
-        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validated_data=validated_data)
+            return dict(serializer.validated_data)
+
+        save_validated_workflow(team_id=team_id, hog_flow_id=hog_flow.id, validate=_validate_locked)
     return str(target)
 
 
@@ -5269,16 +5306,28 @@ class SuggestionsScoutStatus(models.TextChoices):
 class SuggestionsSampleSerializer(serializers.Serializer):
     reached = serializers.BooleanField(
         read_only=True,
-        help_text="Whether an email step of the live version has enough tracked sends, over enough time, for "
-        "PostHog to judge it.",
+        help_text="Whether an email step of the live version has enough sends, over enough time, for PostHog to "
+        "judge it. Only tracked sends count unless `reads_conversion` is true.",
     )
     tracked_sends = serializers.IntegerField(
         read_only=True,
         help_text="Tracked sends (sends with open tracking on) from the live version's busiest email step in the "
         "last 7 days.",
     )
+    sends = serializers.IntegerField(
+        read_only=True,
+        help_text="All sends, with open tracking on or off, from the live version's busiest email step in the last "
+        "7 days.",
+    )
+    reads_conversion = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether PostHog can read this workflow's conversion goal. When true, sends without open tracking "
+        "count toward `required_sends` too, because suggestions can aim at conversion instead of opens.",
+    )
     required_sends = serializers.IntegerField(
-        read_only=True, help_text="Tracked sends an email step needs before PostHog judges it."
+        read_only=True,
+        help_text="Sends an email step needs before PostHog judges it: tracked sends, or all sends when "
+        "`reads_conversion` is true.",
     )
     version_live_since = serializers.DateTimeField(
         read_only=True, help_text="When the live version was published. PostHog waits 48 hours before judging it."
@@ -7253,6 +7302,17 @@ class HogFlowViewSet(
         if conversion_error:
             raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        sample_error = conversion_sample_error(
+            hog_flow_id=instance.id,
+            live=snapshot_flow_content(instance),
+            base_version=params["base_version"],
+            step_id=step_id,
+            changes=content,
+            evidence=evidence,
+            measured=measured,
+        )
+        if sample_error:
+            raise exceptions.ValidationError({"evidence": sample_error})
         if measured is not None:
             evidence["measured"] = measured
 
@@ -7919,6 +7979,7 @@ class HogFlowViewSet(
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key
                     ),
+                    "skipped_test_account_filters": size.skipped_test_account_filters,
                     "realtime_cohort": (
                         {
                             "id": realtime_cohort.id,
@@ -8890,54 +8951,6 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
 
-    def internal_user_blast_radius_persons(self, request: Request, team_id: str) -> Response:
-        """
-        Internal endpoint for Node.js services to query user blast radius persons with pagination.
-        Requires Bearer token authentication via INTERNAL_API_SECRET.
-        """
-        if request.method != "POST":
-            return Response({"error": "Method not allowed"}, status=405)
-
-        try:
-            team = Team.objects.get(id=int(team_id))
-        except (Team.DoesNotExist, ValueError):
-            return Response({"error": "Team not found"}, status=404)
-
-        if "filters" not in request.data:
-            return Response({"error": "Missing filters for which to get blast radius"}, status=400)
-
-        filters = request.data.get("filters", {}) or {}
-        group_type_index = request.data.get("group_type_index", None)
-        cursor = request.data.get("cursor", None)
-        dedupe_key = request.data.get("dedupe_key", None)
-
-        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
-            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
-
-        try:
-            reject_unusable_audience_conditions(team, filters)
-            page = get_audience_person_page(
-                team_id=team.id,
-                filters=filters,
-                group_type_index=group_type_index,
-                cursor=cursor,
-                dedupe_key=dedupe_key,
-            )
-            return Response(
-                InternalBlastRadiusPersonsSerializer(
-                    {
-                        "users_affected": page.ids,
-                        "cursor": page.ids[-1] if page.ids else None,
-                        "has_more": page.has_more,
-                    }
-                ).data
-            )
-        except exceptions.ValidationError as e:
-            return Response({"error": _validation_error_message(e)}, status=400)
-        except Exception as e:
-            logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
-            return Response({"error": "Internal server error"}, status=500)
-
     def internal_batch_job_audience_snapshot(self, request: Request, team_id: str, batch_job_id: str) -> Response:
         """
         Internal endpoint for the Node batch resolver: resolve the run's whole audience once, in the
@@ -8974,14 +8987,19 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": "Internal server error"}, status=500)
         return Response(
             InternalBatchJobAudienceSnapshotSerializer(
-                {"status": snapshot.status, "audience_size": snapshot.audience_size, "error": snapshot.error}
+                {
+                    "status": snapshot.status,
+                    "audience_size": snapshot.audience_size,
+                    "error": snapshot.error,
+                    "skipped_test_account_filters": snapshot.skipped_test_account_filters,
+                }
             ).data
         )
 
     def internal_batch_job_audience_page(self, request: Request, team_id: str, batch_job_id: str) -> Response:
         """
         Internal endpoint for the Node batch resolver: one page of a run's stored audience, cursor-paginated
-        like internal_user_blast_radius_persons. Requires Bearer token authentication via INTERNAL_API_SECRET.
+        in person id order. Requires Bearer token authentication via INTERNAL_API_SECRET.
         """
         if request.method != "POST":
             return Response({"error": "Method not allowed"}, status=405)

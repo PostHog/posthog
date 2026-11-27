@@ -22,11 +22,12 @@ if TYPE_CHECKING:
 #
 # Access scope: this table is registered with HogQL under the standard team_id
 # guard — same scope as `app_metrics2`, `metrics`, and other operational tables.
-# Property restrictions exclude function diagnostics because error messages can contain property values.
-# Per-function / per-workflow access controls are NOT enforced here; other users with project
-# query access can SELECT lifecycle rows for every function and flow in the project.
-# Sensitive payload fields are excluded (see next paragraph), and the runs UI gates on
-# function/flow access at the parent scene level.
+# Per-function / per-workflow access controls are NOT enforced here; any user
+# with project query access can SELECT lifecycle rows (invocation_id, status,
+# error_kind/message, event/person identifiers) for every function and flow
+# in the project. Sensitive payload fields are excluded (see next paragraph),
+# and the runs UI gates on function/flow access at the parent scene level.
+# Members with property restrictions get no function or flow rows, because error messages can hold property values.
 #
 # `invocation_globals` is intentionally NOT exposed here. The column carries the
 # full rerun payload — for hog functions whose trigger is a source webhook, that

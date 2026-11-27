@@ -22,6 +22,7 @@ from posthog.models.signals import model_activity_signal
 
 from products.alerts_platform.backend.facade.contracts import (
     MAX_STORED_INTEGER,
+    ControlChangeKind,
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -820,17 +821,26 @@ def _record_change(
     spec = source_configs.spec(SourceKind(configuration.source_kind))
     kept = spec.kept_source_config_keys if spec is not None else frozenset()
     # Compared as `_apply` compares them for `ending_reason`, so a row and an ended firing agree.
+    compared = _with_kept_keys(current, edit, kept)
     kind = control_plane.change_kind(
-        _with_kept_keys(current, edit, kept),
+        compared,
         edit,
         regrouped=not edit.grouping.splits_like(current.grouping),
         snooze_changed=snooze_changed,
         snooze_until=snooze_until,
     )
-    if kind is not None:
+    kinds = [kind] if kind is not None else []
+    # Alert history hides earlier values from restricted members from the last change to what the alert reads,
+    # so that change is recorded even when a toggle or a snooze in the same edit wins.
+    if kind not in (None, ControlChangeKind.CONFIG_CHANGE) and compared.source_config != edit.source_config:
+        kinds.append(ControlChangeKind.CONFIG_CHANGE)
+    if kinds:
         platform_lifecycle.record_history_after_commit(
             configuration.team_id,
-            [platform_lifecycle.control_change_row(configuration, kind, previous_state=previous_state, now=now)],
+            [
+                platform_lifecycle.control_change_row(configuration, kind, previous_state=previous_state, now=now)
+                for kind in kinds
+            ],
         )
 
 

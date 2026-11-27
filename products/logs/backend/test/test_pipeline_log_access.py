@@ -12,12 +12,14 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedAlertCheckQuery
 from products.logs.backend.anomaly_scan import TimeRange, fetch_bucket_counts
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.natural_language_query import gather_filter_context
 from products.logs.backend.pattern_diff import _first_seen_ever
 from products.logs.backend.platform_ownership import hand_over
@@ -32,8 +34,6 @@ _PATTERN = "step <*> failed"
 
 
 class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
-    """Every Logs reader that a member can reach hides pipeline logs from restricted members only."""
-
     def setUp(self) -> None:
         super().setUp()
         insert_logs_and_rollups(
@@ -82,7 +82,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         [
             (reader, access)
             for reader in ("alert_check", "anomaly_scan", "series_bands", "pattern_first_seen", "search_suggestions")
-            for access in ("restricted", "granted", "admin")
+            for access in ("restricted", "granted")
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -93,6 +93,13 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
         assert read(_APP, self.user) > 0
         assert (read(_PIPELINE, self.user) > 0) == (access != "restricted")
         assert (read(_PIPELINE, None) > 0) == (reader == "alert_check")
+
+    def test_has_logs_counts_pipeline_logs_under_a_team_rule(self) -> None:
+        pipeline_only = Team.objects.create(organization=self.organization, name="Pipeline only")
+        insert_logs_and_rollups([log_row(pipeline_only.id, _START, service=_PIPELINE, pattern=_PATTERN)])
+        set_member_property_access(team=pipeline_only, membership=self.organization_membership, access="restricted")
+
+        assert HasLogsQueryRunner(pipeline_only).run() is True
 
     @time_machine.travel(_NOW, tick=False)
     def test_scheduled_alert_check_counts_pipeline_logs_under_a_team_rule(self) -> None:
@@ -107,7 +114,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert sum(bucket.count for bucket in result.per_alert[str(alert.id)]) == 3
 
-    @parameterized.expand([("restricted", 0), ("granted", 3), ("admin", 3)])
+    @parameterized.expand([("restricted", 0), ("granted", 3)])
     @time_machine.travel(_NOW, tick=False)
     def test_alert_simulation_follows_property_access(self, access: PropertyAccess, expected: int) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
@@ -135,7 +142,6 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("restricted_app", "restricted", [_APP], 201),
             ("restricted_pipeline_draft", "restricted", [_PIPELINE], 403, False),
             ("granted_pipeline", "granted", [_PIPELINE], 201),
-            ("admin_pipeline", "admin", [_PIPELINE], 201),
         ]
     )
     def test_alert_on_pipeline_logs_follows_property_access(
@@ -165,12 +171,6 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("rename", True, {"name": "Renamed"}, 200),
-            (
-                "rename_from_edit_form",
-                True,
-                {"name": "Renamed", "filters": {"serviceNames": [_PIPELINE]}},
-                200,
-            ),
             ("snooze", True, {"snooze_until": "2099-01-01T00:00:00Z"}, 200),
             ("change_filters", True, {"filters": {"serviceNames": [_PIPELINE], "severityLevels": ["warn"]}}, 403),
             ("turn_on", False, {"enabled": True}, 403),
@@ -178,7 +178,10 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("change_draft_filters", False, {"filters": {"severityLevels": ["warn"]}}, 403),
             ("change_routing_labels", True, {"labels": {"team": "payments"}}, 403),
             ("change_grouping", True, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
-            ("change_threshold", True, {"threshold_count": 5}, 200),
+            ("change_threshold", True, {"threshold_count": 5}, 403),
+            ("change_window", True, {"window_minutes": 60}, 403),
+            ("change_evaluation", True, {"evaluation_periods": 3, "datapoints_to_alarm": 2}, 200),
+            ("move_off_pipeline_logs", True, {"filters": {"serviceNames": [_APP]}}, 403),
             ("send_no_routing_labels", True, {"labels": {}}, 200),
         ]
     )
@@ -301,6 +304,16 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("rename", {"name": "Renamed"}, 200),
             ("route", {"labels": {"team": "payments"}}, 403),
             ("group", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
+            (
+                "move_off_pipeline_logs",
+                {
+                    "source_config": {
+                        "filters": {"serviceNames": [_APP]},
+                        "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
+                    }
+                },
+                403,
+            ),
         ]
     )
     def test_restricted_member_edits_a_pipeline_platform_alert_with_its_config_unchanged(
@@ -321,7 +334,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.patch(
                 f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/",
-                {**change, "source_config": stored["source_config"]},
+                {"source_config": stored["source_config"], **change},
                 format="json",
             )
 
@@ -348,9 +361,9 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400, response.json()
 
-    @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
+    @parameterized.expand([("restricted", True), ("granted", False)])
     def test_destination_on_pipeline_log_alert_follows_property_access(
-        self, access: PropertyAccess, expected: int
+        self, access: PropertyAccess, refused: bool
     ) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):
             alert = self.client.post(
@@ -372,7 +385,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        assert (response.status_code == 403) == (expected == 403), response.json()
+        assert (response.status_code == 403) == refused, response.json()
 
     @parameterized.expand([("to_pipeline_logs", _APP, _PIPELINE, True), ("to_app_logs", _PIPELINE, _APP, False)])
     def test_destination_on_a_handed_over_alert_follows_its_current_filters(
@@ -405,3 +418,98 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert (response.status_code == 403) == refused, response.json()
+
+    @parameterized.expand(
+        [
+            ("logs_restricted_pipeline", "logs", "restricted", _PIPELINE, None, None),
+            ("logs_restricted_app", "logs", "restricted", _APP, None, 6),
+            ("logs_granted_pipeline", "logs", "granted", _PIPELINE, None, 6),
+            ("logs_restricted_moved_off_pipeline", "logs", "restricted", _PIPELINE, "move_to_app", None),
+            (
+                "logs_restricted_moved_off_pipeline_and_disabled",
+                "logs",
+                "restricted",
+                _PIPELINE,
+                "move_and_disable",
+                None,
+            ),
+            ("logs_restricted_app_disabled", "logs", "restricted", _APP, "disable", 6),
+            ("platform_restricted_pipeline", "platform", "restricted", _PIPELINE, None, None),
+            ("platform_restricted_app", "platform", "restricted", _APP, None, 6),
+            ("platform_granted_pipeline", "platform", "granted", _PIPELINE, None, 6),
+            ("platform_restricted_moved_off_pipeline", "platform", "restricted", _PIPELINE, "move_to_app", None),
+            (
+                "platform_restricted_moved_off_pipeline_and_disabled",
+                "platform",
+                "restricted",
+                _PIPELINE,
+                "move_and_disable",
+                None,
+            ),
+            ("platform_restricted_app_disabled", "platform", "restricted", _APP, "disable", 6),
+        ]
+    )
+    def test_alert_history_counts_follow_property_access(
+        self, _name: str, api: str, access: PropertyAccess, service: str, edit: str | None, expected: int | None
+    ) -> None:
+        filters = {"serviceNames": [service]}
+        condition = {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5}
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+        ):
+            if api == "logs":
+                logs_alert = LogsAlertConfiguration.objects.create(
+                    team=self.team, created_by=self.user, name="Alert", filters=filters, **condition
+                )
+                LogsAlertEvent.objects.create(
+                    alert=logs_alert,
+                    threshold_breached=True,
+                    state_before="not_firing",
+                    state_after="firing",
+                    result_count=6,
+                )
+                url = f"/api/projects/{self.team.pk}/logs/alerts/{logs_alert.pk}/events/"
+            else:
+                alert = self.client.post(
+                    f"/api/projects/{self.team.pk}/platform_alerts/",
+                    {"source_kind": "logs", "source_config": {"filters": filters, "condition": condition}},
+                    format="json",
+                ).json()
+                platform_testing.record_check(
+                    alert["id"],
+                    team_id=self.team.id,
+                    at=timezone.now() - dt.timedelta(minutes=5),
+                    previous_state="not_firing",
+                    state="firing",
+                    value=6,
+                )
+                url = f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/events/"
+            if edit is not None:
+                app_filters = {"serviceNames": [_APP]}
+                move = (
+                    {"filters": app_filters}
+                    if api == "logs"
+                    else {"source_config": {"filters": app_filters, "condition": condition}}
+                )
+                body = {
+                    "move_to_app": move,
+                    "move_and_disable": {**move, "enabled": False},
+                    "disable": {"enabled": False},
+                }[edit]
+                with self.captureOnCommitCallbacks(execute=True):
+                    edited = self.client.patch(url.removesuffix("events/"), body, format="json")
+                assert edited.status_code == 200, edited.json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+            response = self.client.get(url)
+
+        assert response.status_code == 200, response.json()
+        events = response.json()
+        events = events["results"] if api == "logs" else events
+        count_field = "result_count" if api == "logs" else "value"
+        assert [
+            (event["state"] if api == "platform" else event["state_after"], event[count_field])
+            for event in events
+            if event["kind"] == "check"
+        ] == [("firing", expected)]

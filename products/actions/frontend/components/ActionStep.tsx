@@ -21,20 +21,21 @@ import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import {
-    ActionStepStringMatching,
-    ActionStepType,
-    AnyPropertyFilter,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { ActionStepType, AnyPropertyFilter, PropertyOperator } from '~/types'
 
 import {
-    SCREEN_NAME_MATCHING_LABEL,
-    SCREEN_NAME_PROPERTY,
-    type ScreenNameMatching,
-    isScreenNameFilter,
-} from '../utils/screenName'
+    ACTION_STEP_MATCHING_LABEL,
+    actionStepFilters,
+    actionStepMatching,
+    actionStepScreenNames,
+    actionStepTypeOption,
+    withActionStepFilters,
+    withActionStepMatching,
+    withActionStepOption,
+    withActionStepScreenName,
+    withActionStepType,
+} from '../utils/actionStepEdits'
+import { SCREEN_NAME_MATCHING_LABEL, type ScreenNameMatching } from '../utils/screenName'
 import { EventHealthWarning } from './EventHealthWarning'
 import { EventName } from './EventName'
 
@@ -175,24 +176,13 @@ export function ActionStep({
                 <div className="mt-4 deprecated-space-y-2">
                     <LemonLabel>Filters</LemonLabel>
                     <PropertyFilters
-                        propertyFilters={
-                            step.event === '$screen'
-                                ? step.properties?.filter((p) => !isScreenNameFilter(p))
-                                : step.properties
-                        }
+                        propertyFilters={actionStepFilters(step)}
                         pageKey={identifier}
                         eventNames={step.event ? [step.event] : []}
                         taxonomicGroupTypes={[...DEFAULT_TAXONOMIC_GROUP_TYPES, ...groupsTaxonomicTypes]}
-                        onChange={(properties) => {
-                            const screenNameFilter =
-                                step.event === '$screen'
-                                    ? (step.properties?.filter((p) => isScreenNameFilter(p)) ?? [])
-                                    : []
-                            sendStep({
-                                ...step,
-                                properties: [...screenNameFilter, ...(properties as [])] as AnyPropertyFilter[],
-                            })
-                        }}
+                        onChange={(properties) =>
+                            sendStep(withActionStepFilters(step, properties as AnyPropertyFilter[]))
+                        }
                         showConditionBadge
                         disabledReason={disabledReason ?? undefined}
                     />
@@ -222,10 +212,7 @@ function Option({
     disabledReason?: string
 }): JSX.Element {
     const onOptionChange = (val: string): void => {
-        sendStep({
-            ...step,
-            [item]: val || null, // "" is a valid filter, we don't want it
-        })
+        sendStep(withActionStepOption(step, item, val))
     }
 
     return (
@@ -404,14 +391,9 @@ function TypeSwitcher({
     disabledReason?: string
 }): JSX.Element {
     const handleChange = (type: string): void => {
-        const overrides: Record<string, Partial<ActionStepType>> = {
-            $autocapture: { event: '$autocapture' },
-            event: { event: null },
-            $pageview: { event: '$pageview' },
-            $screen: { event: '$screen', url: null, url_matching: null },
-        }
-        if (type in overrides) {
-            sendStep({ ...step, ...overrides[type] })
+        const nextStep = withActionStepType(step, type)
+        if (nextStep) {
+            sendStep(nextStep)
         }
     }
 
@@ -419,14 +401,7 @@ function TypeSwitcher({
         <div data-attr="action-type-switcher">
             <LemonSegmentedButton
                 onChange={handleChange}
-                value={
-                    step.event === '$autocapture' ||
-                    step.event === '$pageview' ||
-                    step.event === '$screen' ||
-                    step.event === undefined
-                        ? step.event
-                        : 'event'
-                }
+                value={actionStepTypeOption(step)}
                 options={[
                     {
                         value: '$pageview',
@@ -470,12 +445,7 @@ function ScreenNameField({
     sendStep: (stepToSend: ActionStepType) => void
     disabledReason?: string
 }): JSX.Element {
-    const existingFilter = step.properties?.find(isScreenNameFilter)
-    const rawValue = existingFilter && 'value' in existingFilter ? existingFilter.value : undefined
-    const screenNames: string[] =
-        rawValue == null || rawValue === '' ? [] : Array.isArray(rawValue) ? rawValue.map(String) : [String(rawValue)]
-    const filterOperator: ScreenNameMatching | undefined =
-        existingFilter && 'operator' in existingFilter ? (existingFilter.operator as ScreenNameMatching) : undefined
+    const { screenNames, operator: filterOperator } = actionStepScreenNames(step)
 
     // Keep the selected operator even when the value is empty (an empty filter isn't persisted, so we can't
     // read it back off the step) — otherwise picking "matches exactly" before typing would snap back to the default.
@@ -487,24 +457,7 @@ function ScreenNameField({
     const singleValue = screenNames[0] ?? ''
 
     const setFilter = (value: string | string[], op: ScreenNameMatching): void => {
-        const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
-        const isEmpty = Array.isArray(value) ? value.length === 0 : !value
-        if (isEmpty) {
-            sendStep({ ...step, properties: otherProperties })
-            return
-        }
-        sendStep({
-            ...step,
-            properties: [
-                ...otherProperties,
-                {
-                    key: SCREEN_NAME_PROPERTY,
-                    value,
-                    operator: op as PropertyOperator,
-                    type: PropertyFilterType.Event,
-                },
-            ],
-        })
+        sendStep(withActionStepScreenName(step, value, op))
     }
 
     const handleOperatorChange = (op: ScreenNameMatching): void => {
@@ -567,34 +520,20 @@ function StringMatchingSelection({
     sendStep: (stepToSend: ActionStepType) => void
     disabledReason?: string
 }): JSX.Element {
-    const key = `${field}_matching` as keyof ActionStepType
     const handleURLMatchChange = (value: string): void => {
-        sendStep({ ...step, [key]: value })
+        sendStep(withActionStepMatching(step, field, value))
     }
-    const defaultValue: ActionStepStringMatching = field === 'url' ? 'contains' : 'exact'
 
     return (
         <div className="flex flex-1 justify-end">
             <LemonSegmentedButton
                 onChange={handleURLMatchChange}
-                value={(step[key] as ActionStepStringMatching) || defaultValue}
-                options={[
-                    {
-                        value: 'exact',
-                        label: 'matches exactly',
-                        disabledReason,
-                    },
-                    {
-                        value: 'regex',
-                        label: 'matches regex',
-                        disabledReason,
-                    },
-                    {
-                        value: 'contains',
-                        label: 'contains',
-                        disabledReason,
-                    },
-                ]}
+                value={actionStepMatching(step, field)}
+                options={Object.entries(ACTION_STEP_MATCHING_LABEL).map(([value, label]) => ({
+                    value,
+                    label,
+                    disabledReason,
+                }))}
                 size="xsmall"
             />
         </div>

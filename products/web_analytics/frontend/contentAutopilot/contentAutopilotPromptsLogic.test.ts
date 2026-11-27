@@ -8,8 +8,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsBulkImport, aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
-import type { AEOPromptApi } from '../generated/api.schemas'
+import {
+    aeoPromptsBulkImport,
+    aeoPromptsList,
+    aeoPromptsPartialUpdate,
+    aeoPromptsTopics,
+    aeoSetupContext,
+} from '../generated/api'
+import type { AEOPromptApi, AEOSetupContextApi } from '../generated/api.schemas'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
@@ -19,6 +25,7 @@ jest.mock('../generated/api', () => ({
     aeoPromptsTopics: jest.fn(),
     aeoPromptsPartialUpdate: jest.fn(),
     aeoPromptsBulkImport: jest.fn(),
+    aeoSetupContext: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
@@ -27,6 +34,22 @@ const mockPromptsList = jest.mocked(aeoPromptsList)
 const mockPromptsTopics = jest.mocked(aeoPromptsTopics)
 const mockPromptsPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
 const mockPromptsBulkImport = jest.mocked(aeoPromptsBulkImport)
+const mockSetupContext = jest.mocked(aeoSetupContext)
+
+const setupContext = (activePrompts: number, maxActivePrompts: number): AEOSetupContextApi => ({
+    websites: [],
+    own_domains: ['hedgebox.net'],
+    active_prompts: activePrompts,
+    max_active_prompts: maxActivePrompts,
+    paused_prompts: 0,
+    keywords: 0,
+    has_checks: true,
+    ai_data_processing_approved: true,
+    first_run_available: true,
+    prompt_target: 20,
+    website_days: 7,
+    engines: [],
+})
 
 describe('contentAutopilotPromptsLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsLogic.build>
@@ -38,6 +61,7 @@ describe('contentAutopilotPromptsLogic', () => {
         initKeaTests()
         mockPromptsList.mockResolvedValue({ count: 120, next: null, previous: null, results: EXAMPLE_PROMPTS })
         mockPromptsTopics.mockResolvedValue(EXAMPLE_PROMPT_TOPICS)
+        mockSetupContext.mockResolvedValue(setupContext(3, 100))
     })
 
     afterEach(() => {
@@ -213,5 +237,35 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual(
             succeeds ? [] : ['Prompt is too long']
         )
+    })
+
+    it('reads the prompt limit, shows why a refused toggle failed, and reloads the count after a change', async () => {
+        const prompt = EXAMPLE_PROMPTS.find((example) => !example.active) as AEOPromptApi
+        const activeOf = (): boolean | undefined =>
+            logic.values.prompts?.results.find((row) => row.id === prompt.id)?.active
+        mockSetupContext.mockResolvedValue(setupContext(100, 100))
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(100, 100), promptLimitReached: true })
+
+        const limitMessage =
+            "You're tracking 100 prompts, and this project can track up to 100. Turn off some prompts first."
+        mockPromptsPartialUpdate.mockRejectedValueOnce(
+            new ApiError('Bad request', 400, undefined, { detail: limitMessage })
+        )
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(activeOf()).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith(limitMessage)
+
+        mockSetupContext.mockResolvedValue(setupContext(101, 150))
+        mockPromptsPartialUpdate.mockResolvedValueOnce({ ...prompt, active: true })
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(101, 150), promptLimitReached: false })
+        expect(activeOf()).toBe(true)
     })
 })
