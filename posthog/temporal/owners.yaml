@@ -23,6 +23,8 @@ rules:
       owners: team-workflows
     - match: '/product_analytics/'
       owners: team-analytics
+    - match: ['/common/organization_admission.py', '/tests/common/test_organization_admission_interceptor.py']
+      owners: team-platform-features
     - match: '/proxy_service/'
       owners: team-platform-features
     - match: '/quota_limiting/'
