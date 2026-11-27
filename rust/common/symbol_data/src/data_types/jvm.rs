@@ -16,8 +16,11 @@ use crate::{
 /// CLI derives the symbol set id from these bytes, so that the same build never gets two ids.
 // Each source entry needs memory for its map node and string headers, also when its key and
 // contents are empty. The reader rejects a larger count before it builds the map, so that a small
-// bundle cannot make the reader allocate much more memory than the bundle size suggests.
-pub const MAX_JVM_BUNDLE_SOURCES: usize = 1_000_000;
+// bundle cannot make the reader allocate much more memory than the bundle size suggests. The limit
+// also keeps that overhead small next to a symbol cache budget, so that a cache can hold a bundle of
+// many empty files instead of evicting it and parsing it again for each frame. One application has
+// far fewer source files.
+pub const MAX_JVM_BUNDLE_SOURCES: usize = 100_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct JvmBundle {
