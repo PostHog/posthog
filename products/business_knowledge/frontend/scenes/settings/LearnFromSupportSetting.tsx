@@ -62,7 +62,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                         </Button>
                     ) : null}
                 </div>
-                {settings.learn_from_support_enabled ? <QuillLearnedLibrariesSetting /> : null}
+                <QuillLearnedLibrariesSetting />
                 <LearnFromPastTicketsSetting />
             </div>
         )
@@ -87,7 +87,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                     </Link>
                 ) : null}
             </div>
-            {settings.learn_from_support_enabled ? <LearnedLibrariesSetting /> : null}
+            <LearnedLibrariesSetting />
             <LearnFromPastTicketsSetting />
         </div>
     )

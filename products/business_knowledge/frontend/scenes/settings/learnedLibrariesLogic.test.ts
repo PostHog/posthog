@@ -1,5 +1,3 @@
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -45,15 +43,22 @@ const SUPPORT: KnowledgeLibraryApi = {
 
 describe('learnedLibrariesLogic', () => {
     let logic: ReturnType<typeof learnedLibrariesLogic.build>
+    let saved: KnowledgeLibraryApi[]
 
-    function receivingIds(): string[] {
-        return (logic.values.libraries ?? []).filter((library) => library.is_default).map((library) => library.id)
+    function receivingIds(libraries: KnowledgeLibraryApi[] | null): string[] {
+        return (libraries ?? []).filter((library) => library.is_default).map((library) => library.id)
     }
 
     beforeEach(async () => {
         jest.clearAllMocks()
         silenceKeaLoadersErrors()
-        ;(listLibraries as jest.Mock).mockResolvedValue([LEARNED, SUPPORT])
+        // A small stand-in for the server: it keeps the libraries and applies each update to them.
+        saved = [LEARNED, SUPPORT]
+        ;(listLibraries as jest.Mock).mockImplementation(async () => saved)
+        ;(updateLibrary as jest.Mock).mockImplementation(async (id: string, payload: { is_default?: boolean }) => {
+            saved = saved.map((library) => (library.id === id ? { ...library, ...payload } : library))
+            return saved.find((library) => library.id === id)
+        })
         initKeaTests()
         logic = learnedLibrariesLogic()
         logic.mount()
@@ -66,14 +71,13 @@ describe('learnedLibrariesLogic', () => {
     })
 
     it('saves a second receiving library and unlocks the first one', async () => {
-        ;(updateLibrary as jest.Mock).mockResolvedValue({ ...SUPPORT, is_default: true })
         expect(logic.values.lastReceivingLibraryId).toBe(LEARNED.id)
 
         logic.actions.setReceivesLearnedSources(SUPPORT.id, true)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(updateLibrary).toHaveBeenCalledWith(SUPPORT.id, { is_default: true })
-        expect(receivingIds()).toEqual([LEARNED.id, SUPPORT.id])
+        expect(receivingIds(saved)).toEqual([LEARNED.id, SUPPORT.id])
+        expect(receivingIds(logic.values.libraries)).toEqual([LEARNED.id, SUPPORT.id])
         expect(logic.values.lastReceivingLibraryId).toBeNull()
         expect(logic.values.savingLibraryIds).toEqual([])
     })
@@ -84,8 +88,27 @@ describe('learnedLibrariesLogic', () => {
         logic.actions.setReceivesLearnedSources(SUPPORT.id, true)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(receivingIds()).toEqual([LEARNED.id])
-        expect(lemonToast.error).toHaveBeenCalledWith('Could not change the library. Try again.')
+        expect(receivingIds(logic.values.libraries)).toEqual([LEARNED.id])
         expect(logic.values.savingLibraryIds).toEqual([])
+    })
+
+    it('keeps a saved checkbox when a reload from another failure returned first', async () => {
+        let finishSave: () => void = () => {}
+        ;(updateLibrary as jest.Mock).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishSave = () => resolve({ ...SUPPORT, is_default: true })
+                })
+        )
+
+        logic.actions.setReceivesLearnedSources(SUPPORT.id, true)
+        // The reload answers before the save lands, so it still reports Support as not receiving.
+        logic.actions.loadLibraries()
+        await expectLogic(logic).toDispatchActions(['loadLibrariesSuccess'])
+        expect(receivingIds(logic.values.libraries)).toEqual([LEARNED.id])
+        finishSave()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(receivingIds(logic.values.libraries)).toEqual([LEARNED.id, SUPPORT.id])
     })
 })

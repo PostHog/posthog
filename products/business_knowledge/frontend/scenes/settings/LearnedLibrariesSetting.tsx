@@ -2,12 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 import { learnedLibrariesLogic } from './learnedLibrariesLogic'
 
-export function LearnedLibrariesSetting(): JSX.Element {
+export function LearnedLibrariesSetting(): JSX.Element | null {
     const { libraries, librariesLoading, sortedLibraries, savingLibraryIds, lastReceivingLibraryId } =
         useValues(learnedLibrariesLogic)
     const { setReceivesLearnedSources, loadLibraries } = useActions(learnedLibrariesLogic)
+    const { settings } = useValues(businessKnowledgeSettingsLogic)
+
+    // The choice only matters while learning is on.
+    if (!settings?.learn_from_support_enabled) {
+        return null
+    }
 
     return (
         <div className="flex flex-col items-start gap-2 max-w-xl">

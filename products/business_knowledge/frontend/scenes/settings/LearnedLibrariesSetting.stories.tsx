@@ -27,6 +27,10 @@ const meta: Meta<typeof LearnedLibrariesSetting> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/business_knowledge/libraries/': libraries,
+                '/api/projects/:team_id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                },
             },
         }),
     ],
