@@ -4,6 +4,7 @@ import { CSSProperties } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { AdventPollShares } from './adventCalendarLogic'
 import {
     ADVENT_PICTURE,
     AdventDoor,
@@ -39,6 +40,7 @@ export interface AdventPictureReveal {
 
 export interface AdventPictureCastProps {
     graph: AdventGraph
+    shares?: AdventPollShares
     reveal?: AdventPictureReveal | null
     onActivateDoor?: (doorId: string) => void
     onEnterDoor?: (doorId: string) => void
@@ -47,6 +49,7 @@ export interface AdventPictureCastProps {
 
 export function AdventPictureCast({
     graph,
+    shares,
     reveal,
     onActivateDoor,
     onEnterDoor,
@@ -86,6 +89,11 @@ export function AdventPictureCast({
                             <span className="AdventPicture__pick" data-attr="advent-door-pick">
                                 <span className="AdventPicture__pick-topic">{door.question.topic}</span>
                                 <span className="AdventPicture__pick-answer">{door.answer.label}</span>
+                                {shares?.[door.day]?.[door.answer.id] !== undefined && (
+                                    <span className="AdventPicture__pick-topic">
+                                        {`${shares[door.day][door.answer.id]}% agree`}
+                                    </span>
+                                )}
                             </span>
                         )}
                     </span>

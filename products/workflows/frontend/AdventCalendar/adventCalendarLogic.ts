@@ -93,6 +93,20 @@ async function resultsOrNull(request: Promise<AdventCalendarResultsApi>): Promis
     }
 }
 
+export type AdventPollShares = Record<number, Record<string, number>>
+
+function sharesOfAnswered(results: AdventCalendarResultsApi | null): AdventPollShares {
+    const answered = (results?.questions ?? []).filter(
+        (question) => question.answer && question.shares.some((share) => share.share > 0)
+    )
+    return Object.fromEntries(
+        answered.map((question) => [
+            question.day,
+            Object.fromEntries(question.shares.map((share) => [share.option, share.share])),
+        ])
+    )
+}
+
 export interface AdventSnowPuff extends AdventPoint {
     id: string
 }
@@ -123,6 +137,7 @@ export interface adventCalendarLogicValues {
     openCount: number
     pollResults: AdventCalendarResultsApi | null
     pollResultsLoading: boolean
+    pollShares: AdventPollShares
     progress: AdventProgress
     progressByUser: Record<string, AdventProgress>
     revealingDoor: AdventDoor | null
@@ -170,6 +185,21 @@ export interface adventCalendarLogicActions {
     }
     finishReveal: () => {
         value: true
+    }
+    loadPollResults: () => any
+    loadPollResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPollResultsSuccess: (
+        pollResults: AdventCalendarResultsApi | null,
+        payload?: any
+    ) => {
+        pollResults: AdventCalendarResultsApi | null
+        payload?: any
     }
     openDoor: (
         userUuid: string,
@@ -224,6 +254,7 @@ export interface adventCalendarLogicMeta {
         ) => number
         rewards: (user: UserType | null) => AdventRewards
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
+        pollShares: (pollResults: AdventCalendarResultsApi | null) => AdventPollShares
         openCount: (graph: AdventGraph) => number
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
         revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
@@ -273,6 +304,9 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         pollResults: [
             null as AdventCalendarResultsApi | null,
             {
+                loadPollResults: async () =>
+                    (await resultsOrNull(api.workflowAdventCalendarResults(String(values.currentProjectId)))) ??
+                    values.pollResults,
                 savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
                     (await resultsOrNull(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer))) ??
                     values.pollResults,
@@ -357,6 +391,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 today: adventCalendarLogicValues['today'],
                 rewards: adventCalendarLogicValues['rewards']
             ): AdventGraph => buildAdventGraph(progress, today, rewards),
+        ],
+        pollShares: [
+            (s) => [s.pollResults],
+            (pollResults: adventCalendarLogicValues['pollResults']): AdventPollShares => sharesOfAnswered(pollResults),
         ],
         openCount: [(s) => [s.graph], (graph: adventCalendarLogicValues['graph']): number => openDoors(graph).length],
         selectedDoor: [
@@ -452,5 +490,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         }, 'clock')
         posthog.capture(EVENTS.viewed)
         actions.preloadImages()
+        actions.loadPollResults()
     }),
 ])
