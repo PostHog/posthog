@@ -162,6 +162,55 @@ describe('message audience on-screen events', () => {
         ])
     })
 
+    it('reports a label that comes on screen and leaves again before the page updates', () => {
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Email them" />)
+        act(() => {
+            mockAllIsIntersecting(true)
+            mockAllIsIntersecting(false)
+        })
+
+        expect(events('message audience shown')).toEqual([
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: expect.any(String) },
+        ])
+    })
+
+    it('gives a click the attempt of the button that was seen, not one enabled offscreen', () => {
+        const spot = (label: string, disabled: boolean): JSX.Element => (
+            <MessageAudienceSpot source="cohort" destination="broadcast" disabled={disabled}>
+                {label}
+            </MessageAudienceSpot>
+        )
+        const offscreen = render(spot('Below the fold', true))
+        render(spot('On screen', false))
+        act(() => mockAllIsIntersecting(true))
+        act(() => mockAllIsIntersecting(false))
+        offscreen.rerender(spot('Below the fold', false))
+        captureMessageAudienceClicked('cohort', 'broadcast')
+
+        const shown = events('message audience shown')
+        expect(shown).toHaveLength(1)
+        expect(events('message audience clicked')).toEqual([
+            { source: 'cohort', destination: 'broadcast', attempt_id: shown[0].attempt_id },
+        ])
+    })
+
+    it('keeps one attempt per destination when a button switches away and back', () => {
+        const button = (destination: 'broadcast' | 'workflow'): JSX.Element => (
+            <MessageAudienceButton audience={audience} destinations={[destination]} label="Email them" />
+        )
+        const { rerender } = render(button('broadcast'))
+        act(() => mockAllIsIntersecting(true))
+        rerender(button('workflow'))
+        act(() => mockAllIsIntersecting(true))
+        rerender(button('broadcast'))
+        act(() => mockAllIsIntersecting(true))
+
+        expect(events('message audience shown').map(({ destination }) => destination)).toEqual([
+            'broadcast',
+            'workflow',
+        ])
+    })
+
     it('reports each menu destination only once the menu opens', async () => {
         render(<MessageAudienceButton audience={audience} label="Email them" />)
         act(() => mockAllIsIntersecting(true))

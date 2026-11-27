@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { uuid } from 'lib/utils/dom'
@@ -18,21 +18,41 @@ export function MessageAudienceSpot({
     disabled = false,
     children,
 }: MessageAudienceSpotProps): JSX.Element {
-    const attemptId = useMemo(() => uuid(), [source, destination])
-    const reported = useRef<string | null>(null)
-    const { ref, inView } = useInView()
+    const attemptIds = useRef<Record<string, string>>({})
+    const key = `${source}:${destination}`
+    attemptIds.current[key] ??= uuid()
+    const attemptId = attemptIds.current[key]
 
-    useEffect(
-        () => (disabled ? undefined : holdMessageAudienceAttempt(source, destination, attemptId)),
-        [disabled, source, destination, attemptId]
-    )
+    const current = useRef({ source, destination, attemptId, disabled })
+    current.current = { source, destination, attemptId, disabled }
+    const onScreen = useRef(false)
+    const releases = useRef(new Map<string, () => void>())
+
+    const reportIfSeen = useCallback(() => {
+        const { source, destination, attemptId, disabled } = current.current
+        if (!onScreen.current || disabled || releases.current.has(attemptId)) {
+            return
+        }
+        releases.current.set(attemptId, holdMessageAudienceAttempt(source, destination, attemptId))
+        captureMessageAudienceShown(source, destination, attemptId)
+    }, [])
+
+    const { ref } = useInView({
+        onChange: (inView) => {
+            onScreen.current = inView
+            reportIfSeen()
+        },
+    })
+
+    useEffect(reportIfSeen, [reportIfSeen, disabled, attemptId])
 
     useEffect(() => {
-        if (inView && !disabled && reported.current !== attemptId) {
-            reported.current = attemptId
-            captureMessageAudienceShown(source, destination, attemptId)
+        const held = releases.current
+        return () => {
+            held.forEach((release) => release())
+            held.clear()
         }
-    }, [inView, disabled, source, destination, attemptId])
+    }, [])
 
     return <span ref={ref}>{children}</span>
 }
