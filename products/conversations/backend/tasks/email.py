@@ -14,6 +14,7 @@ import structlog
 from celery import shared_task
 
 from posthog.comment.formatting import rich_content_to_html, rich_content_to_markdown
+from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -331,7 +332,13 @@ def flush_pending_email_replies() -> None:
             logger.warning("email_reply_outbox_expired", outbox_id=str(outbox.id), attempts=outbox.attempts)
             _mark_outbox_failed(outbox, "exceeded max delivery age")
             continue
-        _process_outbox_row(outbox)
+        # One row that cannot be built must not skip the rest of the batch, which holds other teams' replies.
+        # The row keeps its lease and stays pending, so it retries later and expires after EMAIL_OUTBOX_MAX_AGE.
+        try:
+            _process_outbox_row(outbox)
+        except Exception as e:
+            logger.exception("email_reply_outbox_row_failed", outbox_id=str(outbox.id))
+            capture_exception(e, {"outbox_id": str(outbox.id)})
 
     logger.info("flush_pending_email_replies_completed", count=len(batch))
 

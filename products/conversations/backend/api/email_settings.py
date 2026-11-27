@@ -2,6 +2,7 @@
 
 import uuid
 import secrets
+import unicodedata
 from email.utils import formataddr, make_msgid
 from enum import StrEnum
 from hashlib import sha256
@@ -392,9 +393,9 @@ def _clean_from_name(value: str) -> str:
     value = value.strip()
     if not value:
         raise serializers.ValidationError("Display name cannot be blank.")
-    # A line break here makes Django raise BadHeaderError when it builds the From header,
-    # so every reply on the channel fails instead of sending.
-    if any(ord(c) < 32 or ord(c) == 127 for c in value):
+    # The email header policy refuses any value that splitlines() breaks, which includes
+    # U+2028 and U+0085. A stored name like that makes every reply on the channel fail to build.
+    if len(value.splitlines()) > 1 or any(unicodedata.category(c) == "Cc" for c in value):
         raise serializers.ValidationError("Display name cannot contain line breaks or control characters.")
     return value
 
@@ -1034,7 +1035,7 @@ class EmailSetDisplayNameView(APIView):
         if config.kind == EmailChannelKind.SUPPORT and not is_admin:
             return Response({"error": "Only organization admins can manage support email channels."}, status=403)
         if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION and config.owner_id != user.id and not is_admin:
-            return Response({"error": "Email config not found"}, status=404)
+            return Response({"error": "Email config not found"}, status=403)
 
         config.from_name = request.validated_data["from_name"]
         config.save(update_fields=["from_name"])
@@ -1207,7 +1208,7 @@ class EmailDisconnectView(APIView):
             if config.kind == EmailChannelKind.SUPPORT and not is_admin:
                 return Response({"error": "Only organization admins can manage support email channels."}, status=403)
             if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION and config.owner_id != user.id and not is_admin:
-                return Response({"error": "Email config not found"}, status=404)
+                return Response({"error": "Email config not found"}, status=403)
 
             domain_to_delete = config.domain
             was_default = config.is_default

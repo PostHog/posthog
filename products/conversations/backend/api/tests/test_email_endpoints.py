@@ -726,7 +726,7 @@ class TestEmailChannelPermissions(BaseTest):
             content_type="application/json",
         )
 
-        assert response.status_code == 404
+        assert response.status_code == 403
         assert EmailChannel.objects.filter(id=channel.id).exists()
 
     @patch("products.conversations.backend.api.email_settings.send_mime")
@@ -1683,7 +1683,7 @@ class TestEmailDisplayNameSettings(BaseTest):
                 OrganizationMembership.Level.MEMBER,
                 EmailChannelKind.CUSTOMER_COMMUNICATION,
                 "other",
-                404,
+                403,
             ),
             (
                 "admin_renames_others_channel",
@@ -1735,6 +1735,7 @@ class TestEmailDisplayNameSettings(BaseTest):
         assert self._set_display_name(other_config, "Renamed").status_code == 404
         assert self._set_display_name(config, "   ").status_code == 400
         assert self._set_display_name(config, "Acme\r\nSupport").status_code == 400
+        assert self._set_display_name(config, "Acme\u2028Support").status_code == 400
         other_config.refresh_from_db()
         config.refresh_from_db()
         assert (other_config.from_name, config.from_name) == ("Other", "Support")
@@ -2419,6 +2420,27 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         outbox.refresh_from_db()
         assert mock_send_mime.called is expect_send
         assert outbox.status == expected_status
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_flush_keeps_going_after_a_row_that_cannot_be_built(self, mock_send_mime: MagicMock):
+        from products.conversations.backend.tasks.email import flush_pending_email_replies
+
+        broken_config = self._create_config("broken@example.com", "aaa111")
+        EmailChannel.objects.filter(id=broken_config.id).update(from_name="Acme\nSupport")
+        broken_config.refresh_from_db()
+        _, broken_outbox = self._create_outbox(self._create_ticket(broken_config))
+        _, good_outbox = self._create_outbox(self._create_ticket(self._create_config("support@example.com", "bbb222")))
+        EmailOutboxMessage.objects.filter(id=broken_outbox.id).update(
+            next_attempt_at=timezone.now() - timedelta(minutes=1)
+        )
+
+        flush_pending_email_replies()
+
+        broken_outbox.refresh_from_db()
+        good_outbox.refresh_from_db()
+        assert broken_outbox.status == EmailOutboxMessage.Status.PENDING
+        assert good_outbox.status == EmailOutboxMessage.Status.SENT
+        assert mock_send_mime.call_count == 1
 
 
 class TestEmailInboundDmarcRewrite(MailgunWebhookTestMixin, BaseTest):
