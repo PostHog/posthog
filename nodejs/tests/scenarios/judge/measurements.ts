@@ -261,7 +261,7 @@ export const sesFeedbackPosts: MeasurementDefinition = {
         const noneUnmeasured =
             evidence.feedbackInFlight === undefined
                 ? 'no SES feedback post went out in this run'
-                : 'every SES feedback post was still in flight at the final read'
+                : 'SES feedback posts were still in flight at the final read'
         return byStep.flatMap(([{ scale }, posts]) =>
             [
                 { key: `posted_${scale}x`, value: posts.length },
