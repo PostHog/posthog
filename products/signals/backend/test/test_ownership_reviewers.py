@@ -13,6 +13,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import PathOwnership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.role_external_reference import RoleExternalReference
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import SignalFinding, SuggestedReviewers
 from products.signals.backend.implementation_authorization import ImplementationAuthorization
@@ -179,6 +181,54 @@ def test_codeowners_routes_without_owners_yaml_only_to_a_project_member(team):
         reviewers = suggest_repository_owners(team.id, "example/app", ["src/app.py"], [])
 
     assert reviewers == [OwnershipReviewer(login="inside", reason="CODEOWNERS: src/app.py")]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("explicit_mapping", [True, False])
+@pytest.mark.parametrize("has_github_login", [True, False])
+def test_codeowners_resolves_posthog_role_without_github_team_members_api(
+    team, explicit_mapping: bool, has_github_login: bool
+) -> None:
+    member = User.objects.create(email="role-member@example.com")
+    membership = OrganizationMembership.objects.create(organization=team.organization, user=member)
+    role_name = "Error Tracking" if explicit_mapping else "Replay"
+    role = Role.objects.create(name=role_name, organization=team.organization)
+    RoleMembership.objects.create(role=role, user=member, organization_member=membership)
+    if explicit_mapping:
+        RoleExternalReference.objects.create(
+            organization=team.organization,
+            role=role,
+            provider="github",
+            provider_organization_id="example",
+            provider_role_id="team-cymbal",
+            provider_role_slug="team-cymbal",
+            provider_role_name="@example/team-cymbal",
+        )
+
+    team_handle = "@example/team-cymbal" if explicit_mapping else "@example/team-replay"
+    github = MagicMock()
+    github.get_file_contents.return_value = {"content": f"/src/ {team_handle}\n"}
+    github.list_team_members.side_effect = AssertionError("GitHub team members API should not be called")
+    with (
+        patch(
+            "products.signals.backend.report_generation.ownership_reviewers.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ),
+        patch(
+            "products.signals.backend.report_generation.ownership_reviewers.resolve_path_owners",
+            return_value=PathOwnership(team_by_path={}, registry={}, resolved=False),
+        ),
+        patch.object(User, "get_github_login", return_value="role-handle" if has_github_login else None),
+    ):
+        reviewers = suggest_repository_owners(team.id, "example/app", ["src/app.py"], [])
+
+    assert reviewers == [
+        OwnershipReviewer(
+            login="role-handle" if has_github_login else None,
+            reason="CODEOWNERS: src/app.py",
+            user_uuid=None if has_github_login else str(member.uuid),
+        )
+    ]
 
 
 def test_ownership_suggestions_follow_repository_owners_then_commit_authors():

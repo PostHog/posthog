@@ -616,11 +616,11 @@ def _build_reviewers_content(
     reviewers_content: list[ReviewerContent] = []
     reviewers_by_login = {reviewer.login.lower(): reviewer for reviewer in resolution.reviewers}
     for owner in owner_reviewers:
-        reviewer = reviewers_by_login.get(owner.login)
+        reviewer = reviewers_by_login.get(owner.login) if owner.login else None
         reviewers_content.append(
             ReviewerContent(
                 github_login=owner.login,
-                user_uuid=None,
+                user_uuid=owner.user_uuid,
                 github_name=reviewer.name if reviewer else None,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits] if reviewer else [],
                 reason=owner.reason,
@@ -630,10 +630,11 @@ def _build_reviewers_content(
         )
         if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
             break
+    existing_logins = {entry["github_login"] for entry in reviewers_content if entry["github_login"]}
     for reviewer in resolution.reviewers:
         if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
             break
-        if reviewer.login.lower() in {entry["github_login"] for entry in reviewers_content}:
+        if reviewer.login.lower() in existing_logins:
             continue
         reviewers_content.append(
             ReviewerContent(

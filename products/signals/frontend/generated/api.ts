@@ -19,6 +19,7 @@ import type {
     AnomalyPointsResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
+    CodeownersTeamsResponseApi,
     CommitDiffResponseApi,
     CreateReportCheckRequestApi,
     EditReportRequestApi,
@@ -168,6 +169,7 @@ import type {
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
+    SignalsCodeownersTeamsListParams,
     SignalsMonthlyUsageParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
@@ -406,6 +408,37 @@ export const signalsAnomaliesSearchRetrieve = async (
     options?: RequestInit
 ): Promise<AnomalySearchResponseApi> => {
     return apiMutator<AnomalySearchResponseApi>(getSignalsAnomaliesSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsCodeownersTeamsListUrl = (projectId: string, params?: SignalsCodeownersTeamsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/codeowners_teams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/codeowners_teams/`
+}
+
+/**
+ * Scan CODEOWNERS files from the project's connected GitHub repositories, return discovered `@organization/team-slug` handles, and resolve each handle's `likely_role` in the organization.
+ * @summary Scan CODEOWNERS teams for PostHog role mapping
+ */
+export const signalsCodeownersTeamsList = async (
+    projectId: string,
+    params?: SignalsCodeownersTeamsListParams,
+    options?: RequestInit
+): Promise<CodeownersTeamsResponseApi> => {
+    return apiMutator<CodeownersTeamsResponseApi>(getSignalsCodeownersTeamsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -43,6 +43,14 @@ class TestRoleExternalReferenceAPI(APILicensedTest):
         self.assertEqual(len(list_response.json()["results"]), 1)
 
         reference_id = create_response.json()["id"]
+        other_role = Role.objects.create(name="Backend", organization=self.organization)
+        patch_response = self.client.patch(
+            f"{self._base_url()}/{reference_id}/",
+            {"role": str(other_role.id)},
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.json()["role"], str(other_role.id))
+
         delete_response = self.client.delete(f"{self._base_url()}/{reference_id}/")
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(RoleExternalReference.objects.filter(id=reference_id).exists())
@@ -118,6 +126,24 @@ class TestRoleExternalReferencePermissions(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_member_cannot_update(self) -> None:
+        ref = RoleExternalReference.objects.create(
+            organization=self.organization,
+            role=self.role,
+            provider="github",
+            provider_organization_id="posthog",
+            provider_role_id="frontend-team",
+            provider_role_slug="frontend-team",
+            provider_role_name="@posthog/frontend-team",
+            created_by=self.user,
+        )
+        other_role = Role.objects.create(name="Backend", organization=self.organization)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(f"{self._base_url()}/{ref.id}/", {"role": str(other_role.id)})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
     CLASS_DATA_LEVEL_SETUP = False
@@ -165,3 +191,25 @@ class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
     def test_cannot_delete_reference_from_other_org(self) -> None:
         response = self.client.delete(f"/api/organizations/{self.org_a.id}/role_external_references/{self.ref_b.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_apply_sync_and_sync_github_endpoints_require_org_admin_and_update_sync_mode(self) -> None:
+        self.ref_a.sync_mode = RoleExternalReference.SyncMode.PROPOSED
+        self.ref_a.provider_member_logins = []
+        self.ref_a.save()
+
+        apply_resp = self.client.post(
+            f"/api/organizations/{self.org_a.id}/role_external_references/{self.ref_a.id}/apply_sync/",
+            {"mode": "auto"},
+        )
+        self.assertEqual(apply_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(apply_resp.json()["sync_mode"], "auto")
+        self.assertIn("drift", apply_resp.json())
+
+        sync_resp = self.client.post(f"/api/organizations/{self.org_a.id}/role_external_references/sync_github/")
+        self.assertEqual(sync_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(sync_resp.json()["created_roles"], 0)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        forbidden_resp = self.client.post(f"/api/organizations/{self.org_a.id}/role_external_references/sync_github/")
+        self.assertEqual(forbidden_resp.status_code, status.HTTP_403_FORBIDDEN)

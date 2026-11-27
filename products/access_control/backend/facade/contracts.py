@@ -11,6 +11,7 @@ from enum import Enum
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.scopes.catalog import APIScopeObject
 
 
@@ -203,6 +204,66 @@ class ObjectAccessRuleInput:
 class UserRole:
     id: UUID
     name: str
+
+
+class RoleMatchSource(LabeledStrEnum):
+    EXTERNAL_REFERENCE = "external_reference", "External reference"
+    NAME_MATCH = "name_match", "Name match"
+
+
+class RoleSyncMode(LabeledStrEnum):
+    MANUAL = "manual", "Manual"
+    PROPOSED = "proposed", "Proposed"
+    AUTO = "auto", "Auto"
+
+
+class RoleSyncActionMode(LabeledStrEnum):
+    ONCE = "once", "Sync once"
+    AUTO = "auto", "Keep in sync"
+    MANUAL = "manual", "Manual only"
+
+
+@frozen
+class LikelyRole:
+    id: UUID
+    name: str
+    source: RoleMatchSource
+
+
+@frozen
+class RoleMembershipDrift:
+    has_drift: bool
+    to_add_user_ids: frozenset[int]
+    to_remove_user_ids: frozenset[int]
+    provider_member_count: int | None
+    matched_posthog_member_count: int
+    current_role_member_count: int
+
+
+@frozen
+class ExternalRoleReference:
+    id: UUID
+    provider: str
+    provider_organization_id: str
+    provider_role_id: str
+    provider_role_slug: str | None
+    provider_role_name: str
+    role_id: UUID
+    role_name: str
+    sync_mode: RoleSyncMode = RoleSyncMode.MANUAL
+    role_created_by_sync: bool = False
+    provider_member_logins: tuple[str, ...] | None = None
+    orphaned_at: datetime | None = None
+    last_synced_at: datetime | None = None
+
+
+@frozen
+class GitHubRoleSyncOutcome:
+    created_roles: int
+    updated_roles: int
+    proposed_roles: int
+    orphaned_references: int
+    skipped_missing_members_permission: bool
 
 
 @frozen

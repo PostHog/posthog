@@ -23,6 +23,7 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubRepositoryAccessResponseApi,
+    GitHubRoleSyncResponseApi,
     GitHubTeamsResponseApi,
     GitLabProjectsResponseApi,
     IntegrationAccessRequestApi,
@@ -51,12 +52,14 @@ import type {
     PaginatedRoleExternalReferenceListApi,
     PatchedEmailSenderUpdateRequestApi,
     PatchedEnvironmentMappingUpdateApi,
+    PatchedRoleExternalReferenceApi,
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
     PostHogConnectionTargetApi,
     PushTokenImportRequestApi,
     PushTokenImportResponseApi,
     RoleExternalReferenceApi,
+    RoleExternalReferenceApplySyncApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
@@ -156,6 +159,42 @@ export const roleExternalReferencesCreate = async (
     })
 }
 
+export const getRoleExternalReferencesUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/${id}/`
+}
+
+export const roleExternalReferencesUpdate = async (
+    organizationId: string,
+    id: string,
+    roleExternalReferenceApi: NonReadonly<RoleExternalReferenceApi>,
+    options?: RequestInit
+): Promise<RoleExternalReferenceApi> => {
+    return apiMutator<RoleExternalReferenceApi>(getRoleExternalReferencesUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(roleExternalReferenceApi),
+    })
+}
+
+export const getRoleExternalReferencesPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/${id}/`
+}
+
+export const roleExternalReferencesPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedRoleExternalReferenceApi?: NonReadonly<PatchedRoleExternalReferenceApi>,
+    options?: RequestInit
+): Promise<RoleExternalReferenceApi> => {
+    return apiMutator<RoleExternalReferenceApi>(getRoleExternalReferencesPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedRoleExternalReferenceApi),
+    })
+}
+
 export const getRoleExternalReferencesDestroyUrl = (organizationId: string, id: string) => {
     return `/api/organizations/${organizationId}/role_external_references/${id}/`
 }
@@ -168,6 +207,24 @@ export const roleExternalReferencesDestroy = async (
     return apiMutator<void>(getRoleExternalReferencesDestroyUrl(organizationId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getRoleExternalReferencesApplySyncCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/${id}/apply_sync/`
+}
+
+export const roleExternalReferencesApplySyncCreate = async (
+    organizationId: string,
+    id: string,
+    roleExternalReferenceApplySyncApi: RoleExternalReferenceApplySyncApi,
+    options?: RequestInit
+): Promise<RoleExternalReferenceApi> => {
+    return apiMutator<RoleExternalReferenceApi>(getRoleExternalReferencesApplySyncCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(roleExternalReferenceApplySyncApi),
     })
 }
 
@@ -198,6 +255,20 @@ export const roleExternalReferencesLookupRetrieve = async (
     return apiMutator<RoleLookupResponseApi>(getRoleExternalReferencesLookupRetrieveUrl(organizationId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getRoleExternalReferencesSyncGithubCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/role_external_references/sync_github/`
+}
+
+export const roleExternalReferencesSyncGithubCreate = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<GitHubRoleSyncResponseApi> => {
+    return apiMutator<GitHubRoleSyncResponseApi>(getRoleExternalReferencesSyncGithubCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
     })
 }
 

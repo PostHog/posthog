@@ -1,2 +1,5 @@
 """Celery beat schedules for access_control."""
-# Define periodic task schedules here
+
+from celery.schedules import crontab
+
+GITHUB_ROLE_SYNC_CRONTAB = crontab(minute="17", hour="*/6")

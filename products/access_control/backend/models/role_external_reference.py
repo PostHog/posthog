@@ -23,6 +23,11 @@ class RoleExternalReference(UUIDModel):
                        provider_role_id="C01234567", provider_role_slug="frontend", provider_role_name="#frontend"
     """
 
+    class SyncMode(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        PROPOSED = "proposed", "Proposed"
+        AUTO = "auto", "Auto"
+
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -44,6 +49,16 @@ class RoleExternalReference(UUIDModel):
     provider_role_slug = models.CharField(max_length=255, null=True, blank=True)
     # Display name
     provider_role_name = models.CharField(max_length=255)
+    sync_mode = models.CharField(
+        max_length=32,
+        choices=SyncMode.choices,
+        default=SyncMode.MANUAL,
+        db_default=SyncMode.MANUAL,
+    )
+    role_created_by_sync = models.BooleanField(default=False, db_default=False)
+    provider_member_logins = models.JSONField(null=True, blank=True)
+    orphaned_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
