@@ -4,9 +4,6 @@ import { LemonTabs } from '@posthog/lemon-ui'
 
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
@@ -40,33 +37,26 @@ export function AccessControls({
         canEdit,
         terraformDisabledReason,
         loading,
-        activePanelSubject,
         visibleResourceKeySet,
         filteredResourceKeySet,
         accessDetailPanelEnabled,
+        openDetailSubject,
         ruleModalState,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel, openRuleModal } = useActions(logic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetail, openRuleModal } = useActions(logic)
     const quillSurface = useQuillSurface()
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
-    // Highlight the row whose detail is open in the side panel
-    const openInPanelId =
-        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && activePanelSubject?.scopeType === scopeType
-            ? activePanelSubject.subjectId
-            : null
+    const openInPanelId = openDetailSubject?.scopeType === scopeType ? openDetailSubject.subjectId : null
 
     const onEdit = (entry: AccessControlSettingsEntry): void => {
         if (!accessDetailPanelEnabled) {
             openRuleModal({ scopeType, entry, projectId })
             return
         }
-        openAccessDetailPanel(scopeType, getEntryId(entry))
-        openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
+        openAccessDetail(scopeType, getEntryId(entry))
     }
 
     if (quillSurface) {

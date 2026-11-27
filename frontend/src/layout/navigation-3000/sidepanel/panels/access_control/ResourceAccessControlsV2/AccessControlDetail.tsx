@@ -13,18 +13,19 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessDetailSubjectScope } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
-import { getEntryId, inheritedFor, isMemberEntry, subjectDisabledReason } from './helpers'
+import { getEntryId, inheritedFor, isMemberEntry, roleMemberNames, subjectDisabledReason } from './helpers'
 import { ObjectAccessRules } from './ObjectAccessRules'
 import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry } from './types'
+import { useAccessDetailSubject } from './useAccessDetailSubject'
 
 export function AccessControlDetailContent({
     projectId,
@@ -35,14 +36,7 @@ export function AccessControlDetailContent({
     scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
-    const subjectId = getEntryId(entry)
-    const subjectNoun = scopeType === 'role' ? 'role' : 'member'
-    const { canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
-    const { user } = useValues(userLogic)
-
-    // The same gate as the project select and products above, so the whole page greys out together
-    // (permissions, self-edits, org admins who always have full access)
-    const cannotEditReason = terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
+    const { subjectId, subjectNoun, cannotEditReason } = useAccessDetailSubject(projectId, scopeType, entry)
 
     return (
         <>
@@ -115,11 +109,7 @@ function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
                     {members.length > 0 && (
                         <p className="mb-0">
                             {members.length === 1 ? '1 member loses' : `${members.length} members lose`} the role:{' '}
-                            {members
-                                .map((m) => (m.user.first_name ? fullName(m.user) : m.user.email))
-                                .sort()
-                                .join(', ')}
-                            .
+                            {roleMemberNames(members)}.
                         </p>
                     )}
                 </div>
@@ -183,19 +173,11 @@ function ProjectAccessSection({
     entry: AccessControlSettingsEntry
 }): JSX.Element {
     const { availableProjectLevels, canEdit, terraformDisabledReason } = useValues(accessControlsLogic({ projectId }))
-    const { updateAccessControlMembers, updateAccessControlRoles } = useActions(accessControlsLogic({ projectId }))
+    const { setSubjectProjectAccess } = useActions(accessControlsLogic({ projectId }))
     const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
 
     const subjectId = getEntryId(entry)
-
-    const onChange = (level: AccessControlLevel | null): void => {
-        if (scopeType === 'role') {
-            updateAccessControlRoles([{ role: subjectId, level }], 'v2')
-        } else {
-            updateAccessControlMembers([{ member: subjectId, level }], 'v2')
-        }
-    }
 
     return (
         <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center gap-4">
@@ -228,7 +210,7 @@ function ProjectAccessSection({
                 dropdownPlacement="bottom-end"
                 level={entry.project.access_level}
                 levels={availableProjectLevels}
-                onChange={onChange}
+                onChange={(level) => setSubjectProjectAccess(scopeType, subjectId, level)}
                 disabledReason={terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)}
                 inherited={inheritedFor(entry.project, 'this project')}
                 // Falls back to a plain "No override" for a subject with nothing above them, which
@@ -241,39 +223,23 @@ function ProjectAccessSection({
 
 function MemberRoles({ userUuid }: { userUuid: string }): JSX.Element {
     const { sortedRoles, rolesLoading, canEditRoles } = useValues(roleAccessControlLogic)
-    const { addMembersToRole, removeMemberFromRole, createRoleWithMember } = useActions(roleAccessControlLogic)
+    const { setMemberRoles } = useActions(roleAccessControlLogic)
 
     // `user_uuid` on role members is write-only in the API — the readable id is `member.user.uuid`.
-    const currentRoles = sortedRoles.filter((r) => r.members.some((m) => m.user.uuid === userUuid))
-    const currentNames = currentRoles.map((r) => r.name)
+    const currentNames = sortedRoles.filter((r) => r.members.some((m) => m.user.uuid === userUuid)).map((r) => r.name)
 
     const onChange = (newNames: string[]): void => {
         // ObjectTags lowercases every value before it reaches us (see cleanTag), so match roles case-insensitively.
         const rolesByLowerName = new Map(sortedRoles.map((r) => [r.name.toLowerCase(), r]))
-        const currentLower = new Map(currentRoles.map((r) => [r.name.toLowerCase(), r]))
-        const nextLower = new Set(newNames.map((n) => n.toLowerCase()))
-
-        for (const lowerName of nextLower) {
-            if (currentLower.has(lowerName)) {
-                continue
-            }
-            const role = rolesByLowerName.get(lowerName)
-            if (role) {
-                addMembersToRole(role, [userUuid])
-            } else {
-                // Genuinely new role name — create it and assign the member in one step
-                createRoleWithMember(lowerName, userUuid)
-            }
-        }
-        for (const [lowerName, role] of currentLower) {
-            if (nextLower.has(lowerName)) {
-                continue
-            }
-            const roleMember = role.members.find((m) => m.user.uuid === userUuid)
-            if (roleMember) {
-                removeMemberFromRole(role, roleMember.id)
-            }
-        }
+        const nextLower = [...new Set(newNames.map((n) => n.toLowerCase()))]
+        setMemberRoles(
+            userUuid,
+            nextLower.flatMap((name) => {
+                const role = rolesByLowerName.get(name)
+                return role ? [role.id] : []
+            }),
+            nextLower.filter((name) => !rolesByLowerName.has(name))
+        )
     }
 
     return canEditRoles === false ? (
@@ -308,26 +274,11 @@ function ProductsSection({
     const { availableResourceLevels, canEdit, terraformDisabledReason, showAllProducts, productsCollapse } = useValues(
         accessControlsLogic({ projectId })
     )
-    const { updateResourceAccessControls, setShowAllProducts } = useActions(accessControlsLogic({ projectId }))
+    const { setSubjectResourceAccess, setShowAllProducts } = useActions(accessControlsLogic({ projectId }))
     const { user } = useValues(userLogic)
 
     const subjectId = getEntryId(entry)
     const { visibleResources, collapsedCount, canCollapse } = productsCollapse
-
-    // Persist immediately on every change — no explicit save button
-    const onResourceChange = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
-        updateResourceAccessControls(
-            [
-                {
-                    resource,
-                    access_level: level,
-                    role: scopeType === 'role' ? subjectId : null,
-                    organization_member: scopeType === 'member' ? subjectId : null,
-                },
-            ],
-            scopeType
-        )
-    }
 
     return (
         <AccessDetailSection title="Products" description={`The access this ${subjectNoun} has to each product.`}>
@@ -374,7 +325,9 @@ function ProductsSection({
                                         level={res?.access_level ?? null}
                                         levels={levels}
                                         minimumLevel={res?.minimum}
-                                        onChange={(level) => onResourceChange(resource.key, level)}
+                                        onChange={(level) =>
+                                            setSubjectResourceAccess(scopeType, subjectId, resource.key, level)
+                                        }
                                         disabledReason={
                                             terraformDisabledReason ?? subjectDisabledReason(entry, canEdit, user?.uuid)
                                         }

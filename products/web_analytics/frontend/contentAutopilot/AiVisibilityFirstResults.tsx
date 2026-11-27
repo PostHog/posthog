@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { Heading, Skeleton, Text } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
@@ -14,9 +13,12 @@ import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ShareOfVoiceRow, answeredChecks, firstResultsView } from './firstResults'
+import { formatShare } from './shares'
 import { sortEngines } from './utils'
 
-const share = (part: number, whole: number): string => (whole > 0 ? percentage(part / whole, 0) : '-')
+// The step sits in the setup wizard, so it shows fewer brands per page than the report tables.
+const FIRST_RESULTS_PAGE_SIZE = 5
+const share = (part: number, whole: number): string => (whole > 0 ? formatShare(part / whole) : '-')
 
 const FIRST_RESULT_LABELS = {
     named: {
@@ -96,6 +98,7 @@ export const AiVisibilityFirstResults = (): JSX.Element => {
                         dataSource={rows}
                         rowKey="domain"
                         data-attr="ai-visibility-first-results-brands"
+                        pagination={{ pageSize: FIRST_RESULTS_PAGE_SIZE }}
                         columns={[
                             {
                                 title: 'Brand',
