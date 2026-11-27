@@ -361,6 +361,42 @@ def test_sweeper_restores_a_missing_extraction_schedule(
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
 
 
+@pytest.mark.parametrize(
+    "management, slot_exists, last_run_minutes_ago, existing_reason, expected_reason",
+    [
+        pytest.param("posthog", False, 3 * 24 * 60, None, "slot_missing", id="lost_slot_with_stopped_capture"),
+        pytest.param("posthog", False, 5, None, None, id="running_capture_recreates_the_slot_itself"),
+        pytest.param("posthog", True, 3 * 24 * 60, None, None, id="slot_without_a_confirmed_position"),
+        pytest.param("self_managed", False, 3 * 24 * 60, None, None, id="self_managed_slot"),
+        pytest.param(
+            "posthog",
+            False,
+            3 * 24 * 60,
+            "auto_dropped_critical_lag",
+            "auto_dropped_critical_lag",
+            id="existing_marker_stays",
+        ),
+    ],
+)
+def test_sweeper_marks_a_lost_posthog_managed_slot_broken(
+    team, management, slot_exists, last_run_minutes_ago, existing_reason, expected_reason
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
+    schema = _create_cdc_schema(team, source)
+    last_run_at = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=last_run_minutes_ago)
+    config = {**schema.sync_type_config, "cdc_last_run_at": last_run_at.isoformat()}
+    if existing_reason:
+        config["cdc_broken"] = {"reason": existing_reason}
+    schema.sync_type_config = config
+    schema.save()
+
+    _, _, mock_pause = _run(_mock_adapter(lag_bytes=None, slot_survives_drop=slot_exists))
+
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason
+    assert mock_pause.called is (expected_reason != existing_reason)
+
+
 def _job(team, source, schema, status, age, workflow_id=None):
     job = ExternalDataJob.objects.create(
         team_id=team.pk, pipeline=source, schema=schema, status=status, rows_synced=0, workflow_id=workflow_id
