@@ -90,7 +90,7 @@ class PlatformAlertRoutingSourceAccessPermission(BasePermission):
     no alert data, so it needs view access to every alert source. A token also needs the scope for every source."""
 
     message = "Only organization admins can change alert routing. Reading it needs access to every alert source."
-    _RESOURCES: tuple[APIScopeObject, ...] = (*sorted(set(SOURCE_KIND_RESOURCE.values())), "insight")
+    _RESOURCES: tuple[APIScopeObject, ...] = tuple(sorted(set(SOURCE_KIND_RESOURCE.values())))
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         assert isinstance(view, TeamAndOrgViewSetMixin)

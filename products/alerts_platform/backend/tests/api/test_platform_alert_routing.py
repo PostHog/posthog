@@ -32,7 +32,6 @@ _SECRET_FIELD = {"pagerduty": "pagerduty_routing_key", "incident_io": "incident_
 # Built from the source list, so a key in this test keeps covering every source when a new one is added.
 _EVERY_SOURCE_WRITE_SCOPES = [
     "alert:write",
-    "insight:write",
     *sorted({f"{resource}:write" for resource in SOURCE_KIND_RESOURCE.values()}),
 ]
 
