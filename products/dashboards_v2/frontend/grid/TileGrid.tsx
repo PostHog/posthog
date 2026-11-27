@@ -98,11 +98,12 @@ export type TileGridProps = {
 function toLayout(tiles: Tile[], sizeOf: SizeOf, isMovable?: (tile: Tile) => boolean): Layout {
     return toPlacedItems(tiles, sizeOf).map((item, index) => {
         const tile = tiles[index]
-        // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
-        // need, but never shorter.
+        // A closed section is one row, so it is resized in width only. It keeps its top and bottom handles, so that a
+        // pull on them shows the height is fixed instead of doing nothing. An open one can be made taller than its
+        // tiles need, but never shorter.
         if (isSection(tile)) {
             if (tile.panel.collapsed) {
-                return { ...item, minH: item.h, maxH: item.h, resizeHandles: ['w', 'e'] }
+                return { ...item, minH: item.h, maxH: item.h, resizeHandles: ALL_HANDLES }
             }
             return { ...item, minH: contentRows(tile.panel), maxH: undefined, resizeHandles: ALL_HANDLES }
         }

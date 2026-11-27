@@ -9,6 +9,11 @@
     padding-block: 0;
 }
 
+/* A closed section's rows are 10px taller than its header, so the header sits in the middle of them. */
+.SectionTile:not(:has(> .SectionTile__body)) {
+    justify-content: center;
+}
+
 /* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
 .SectionTile__header {
     /* A quill card header's height, fixed so the header and padding make three grid rows (GRID.sectionChromeRows). */
@@ -30,10 +35,15 @@
 
 /* One grid row and gap (22px) more than the header's 44px, which `sectionDescriptionRows` adds to the section's rows. */
 .SectionTile__header--described {
+    /* The title row keeps the place it has in a 44px header, so titles of sections side by side line up. */
+    align-content: start;
     height: 66px;
+    padding-top: 12px;
 
-    /* The body adds its inset under the header, so the same inset above keeps the space over the title and under the description equal. */
-    padding-top: var(--section-inset);
+    /* Quill spans the actions over both rows, which would drop them below the title's line. */
+    > .quill-card__action {
+        grid-row: 1;
+    }
 }
 
 /* Starts under the title's text, past the toggle and the title's own padding. */
