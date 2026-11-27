@@ -1117,11 +1117,6 @@ tools:
         bin_script: check_ducklake_up
         description: Healthcheck for Ducklake with self-healing
         hidden: true
-    start:llm:gateway:
-        bin_script: start-llm-gateway
-        description: Start the LLM gateway service
-        needs_secrets: true
-        hidden: true
     posthog:node:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
