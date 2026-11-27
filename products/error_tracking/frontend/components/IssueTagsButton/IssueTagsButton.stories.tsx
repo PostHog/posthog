@@ -8,12 +8,16 @@ import { IssueSeveritySelect } from '../IssueSeveritySelect'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { IssueTagsButton } from './IssueTagsButton'
 
-type Tag = Pick<ErrorTrackingIssueTag, 'key' | 'label'>
+type Tag = Pick<ErrorTrackingIssueTag, 'key' | 'label' | 'color'>
 
 const MANY_TAGS: Tag[] = [
-    { key: 'rule_frontend', label: 'Frontend' },
-    { key: 'rule_checkout', label: 'Checkout' },
-    { key: 'rule_long', label: 'Unhandled errors in old Safari and Firefox versions that customers still report' },
+    { key: 'rule_frontend', label: 'Frontend', color: 'blue' },
+    { key: 'rule_checkout', label: 'Checkout', color: 'green' },
+    {
+        key: 'rule_long',
+        label: 'Unhandled errors in old Safari and Firefox versions that customers still report',
+        color: 'orange',
+    },
     { key: 'cause_in_trace', label: 'Cause in trace' },
     ...[
         'Billing',
