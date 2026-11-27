@@ -5879,11 +5879,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 await breakpoint(100)
                 let usage: TaskRunComputeUsageResponseApi
                 try {
-                    // The session cancels the request when a reset or a successor run replaces it.
-                    usage = await session.request(STREAM_REQUEST_TIMEOUT_MS, (signal) =>
-                        tasksRunsComputeUsageRetrieve(String(session.projectId), session.taskId, session.runId, {
-                            signal,
-                        })
+                    // The session's controller aborts the request when a reset or a successor run replaces it.
+                    usage = await tasksRunsComputeUsageRetrieve(
+                        String(session.projectId),
+                        session.taskId,
+                        session.runId,
+                        {
+                            signal: session.controller.signal,
+                        }
                     )
                 } catch {
                     // The compute only adds to the model cost that the run reports, so a failed read keeps the last value.
