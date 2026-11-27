@@ -34,7 +34,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import MAX_IMPACT_SESSIONS, _bucket_starts
+from products.messaging.backend.services.transactional_email_log import _bucket_starts
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -963,21 +963,21 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         sends = sorted(self._send(30, f"tied-{n}@example.com", clicked) for n in range(TIED_SENDS))
         for run_id in reversed(sends):
             self._land("tied", "tied-sends-session", run_id, at=NOW - timedelta(minutes=10))
-        tied_sessions = [f"tied-session-{n:03d}" for n in range(MAX_IMPACT_SESSIONS + 2)]
+        tied_sessions = [f"tied-session-{n:03d}" for n in range(202)]
         for session_id in tied_sessions:
             self._land("tied", session_id, sends[-1], at=NOW - timedelta(minutes=20))
         flush_persons_and_events()
 
         listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert listed["has_more"] is True
+        assert (len(listed["sessions"]), listed["has_more"]) == (200, True)
         assert listed["sessions"][0] == {
             "session_id": "tied-sends-session",
             "message_id": sends[0],
             "first_pageview_at": "2026-06-15T11:50:00Z",
         }
         assert [session["session_id"] for session in listed["sessions"][1:]] == sorted(tied_sessions, reverse=True)[
-            : MAX_IMPACT_SESSIONS - 1
+            :199
         ]
 
     @parameterized.expand(
