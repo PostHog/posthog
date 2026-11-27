@@ -28,7 +28,7 @@ import {
     roleSpecs,
     secretsOf,
 } from '../environment/roles'
-import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { cyclotronUrlOf, postgresUrlOf, writerUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
@@ -38,6 +38,7 @@ import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
 import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
+    ActivitySample,
     DriveWindow,
     Measurement,
     Probed,
@@ -48,6 +49,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
@@ -201,15 +203,22 @@ async function startProbes(
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
+    const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, () =>
+        readActivity(() => probe.activity())
+    )
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),
         queue: () => queue.taken(),
         stop: () =>
             (stopping ??= (async () => {
-                const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
+                const [writerSamples, queueSamples, activitySamples] = await Promise.all([
+                    writer.stop(),
+                    queue.stop(),
+                    activity.stop(),
+                ])
                 await writerProbe.end()
-                return { writer: writerSamples, queue: queueSamples }
+                return { writer: writerSamples, queue: queueSamples, activity: activitySamples }
             })()),
     }
 }
@@ -417,10 +426,14 @@ function localTarget(
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
             const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
-            const probe = createCyclotronProbe(cyclotronUrl, async () => {
-                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
-                return lags.reduce((total, lag) => total + lag, 0)
-            })
+            const probe = createCyclotronProbe(
+                cyclotronUrl,
+                async () => {
+                    const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                    return lags.reduce((total, lag) => total + lag, 0)
+                },
+                writerUrlOf(env, profile.settings)
+            )
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),
@@ -697,6 +710,8 @@ export function createRunner(
                     seed: card.seed,
                     startedAt: driveStartedAt,
                     endsAt: driveStartedAt + durationMs(card.drive.for),
+                    terminationGraceMs:
+                        profile.terminationGrace === undefined ? undefined : durationMs(profile.terminationGrace),
                 })
                 const windowOpen = new AbortController()
                 void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {

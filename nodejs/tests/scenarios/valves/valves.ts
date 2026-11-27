@@ -30,6 +30,7 @@ export type ValveContext = {
     seed?: number
     startedAt?: number
     endsAt?: number
+    terminationGraceMs?: number
 }
 
 type EntryContext = ValveContext & { pick?: string }
@@ -81,18 +82,27 @@ export const roleKill: ValveDefinition = {
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-const Grace = z.object({ grace: TerminationGrace }).strict()
+const Grace = z.object({ grace: TerminationGrace.optional() }).strict()
+
+const graceMsOf = (dose: unknown, { terminationGraceMs }: ValveContext): number => {
+    const { grace } = Grace.parse(dose)
+    const graceMs = grace === undefined ? terminationGraceMs : durationMs(grace)
+    if (graceMs === undefined) {
+        throw new Error('role.terminate needs a grace: give dose.grace or terminationGrace in the profile')
+    }
+    return graceMs
+}
 
 export const roleTerminate: ValveDefinition = {
     name: 'role.terminate',
     params: Grace,
     target: CdpRole,
     strandsRunningJobs: false,
-    apply: ({ environment }, target, dose) =>
-        environment.actuate({
+    apply: async (context, target, dose) =>
+        context.environment.actuate({
             kind: 'terminate',
             role: CdpRole.parse(target),
-            graceMs: durationMs(Grace.parse(dose).grace),
+            graceMs: graceMsOf(dose, context),
         }),
 }
 
