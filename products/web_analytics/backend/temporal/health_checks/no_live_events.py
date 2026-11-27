@@ -126,5 +126,7 @@ def _no_live_events_result(events: set[str], *, still_sending: bool) -> HealthCh
             "reason": f"No {' or '.join(ordered)} events in last {NO_LIVE_EVENTS_LOOKBACK_DAYS} days",
             "events": ordered,
         },
-        hash_keys=[],
+        # A warning hashes apart from the critical issue, so losing the last platform creates a new
+        # issue and fires an alert instead of raising the severity of the open warning in place.
+        hash_keys=["events"] if still_sending else [],
     )

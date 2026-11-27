@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
+from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow, invalidate_published_days
 from posthog.temporal.health_checks.rollups.tests.helpers import window_ending_yesterday
@@ -178,3 +179,24 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
                 [(result.severity, result.payload["events"]) for result in results],
                 [(expected_severity, expected_events)],
             )
+
+    def test_no_live_events_alerts_again_when_the_last_platform_stops(self) -> None:
+        self._define_events([("$pageview", 40), ("$screen", 1)])
+        window = window_ending_yesterday(NoLiveEventsCheck.window_days)
+        self._insert([SCREENS], window)
+        self._publish_window_for_another_project(window)
+        check = NoLiveEventsCheck()
+
+        _process_batch_detection([self.team.id], check.kind, check.detect)
+        EventsHealthDaily.objects.unscoped().filter(team_id=self.team.id).delete()
+        invalidate_published_days(EventsHealthDaily)
+        escalation = _process_batch_detection([self.team.id], check.kind, check.detect)
+
+        self.assertEqual(escalation.issues_upserted, 1)
+        self.assertCountEqual(
+            HealthIssue.objects.filter(team_id=self.team.id, kind=check.kind).values_list("severity", "status"),
+            [
+                (HealthIssue.Severity.WARNING, HealthIssue.Status.RESOLVED),
+                (HealthIssue.Severity.CRITICAL, HealthIssue.Status.ACTIVE),
+            ],
+        )
