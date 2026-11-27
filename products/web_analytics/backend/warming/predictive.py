@@ -3,11 +3,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-import posthoganalytics
-
 from posthog.dataclasses import frozen
-
-PREDICTIVE_WARMING_FLAG = "web-analytics-predictive-warming"
+from posthog.models.instance_setting import get_instance_setting
 
 WarmingArm = Literal["predictive", "current"]
 
@@ -90,16 +87,16 @@ class ShapeDemand:
         return 1 / (1 + math.exp(-logit))
 
 
-def warming_arm(team_id: int) -> WarmingArm:
+def predictive_rollout_percent() -> int:
     try:
-        enabled = posthoganalytics.feature_enabled(
-            PREDICTIVE_WARMING_FLAG,
-            str(team_id),
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        return int(get_instance_setting("WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT"))
     except Exception:
-        return "current"
-    return "predictive" if enabled else "current"
+        return 0
+
+
+def arm_for(team_id: int, rollout_percent: int) -> WarmingArm:
+    return "predictive" if team_id % 100 < rollout_percent else "current"
+
+
+def warming_arm(team_id: int) -> WarmingArm:
+    return arm_for(team_id, predictive_rollout_percent())

@@ -467,9 +467,15 @@ CONSTANCE_CONFIG = {
     ),
     "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT": (
         get_from_env("WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT", default=20, type_cast=int),
-        "For projects in the web-analytics-predictive-warming flag, the cache warmer only warms a query shape "
+        "For projects in the predictive warming rollout, the cache warmer only warms a query shape "
         "when the demand model gives at least this percent chance of a request in the next four hours. "
         "Lower values warm more shapes at a higher cost.",
+        int,
+    ),
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT": (
+        get_from_env("WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT", default=0, type_cast=int),
+        "Percent of projects in the predictive cache warming rollout. A project is in it when its id modulo 100 "
+        "is below this value. 0 keeps every project on the current warmer.",
         int,
     ),
     "REALTIME_COHORT_JOIN_OPEN": (
@@ -574,6 +580,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
     "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED",
     "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT",
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_ROLLOUT_PERCENT",
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",

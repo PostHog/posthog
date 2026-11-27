@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 
 from django.test import SimpleTestCase
 
-from products.web_analytics.backend.warming.predictive import ShapeDemand
+from parameterized import parameterized
+
+from products.web_analytics.backend.warming.predictive import ShapeDemand, arm_for
 
 
 def _at(day: int, hour: int) -> datetime:
@@ -48,3 +50,18 @@ class TestShapeDemand(SimpleTestCase):
 
         assert absent.hours_since_last == 169
         assert absent.request_probability() < 0.2 < habitual.request_probability()
+
+
+class TestArmFor(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("below_bucket", 1234, 34, "current"),
+            ("just_above_bucket", 1234, 35, "predictive"),
+            ("everyone", 1299, 100, "predictive"),
+            ("nobody", 1200, 0, "current"),
+        ]
+    )
+    def test_the_rollout_percent_decides_the_arm(
+        self, _name: str, team_id: int, rollout_percent: int, expected_arm: str
+    ) -> None:
+        self.assertEqual(arm_for(team_id, rollout_percent), expected_arm)
