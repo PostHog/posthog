@@ -53,8 +53,11 @@ def sync_timeseries_recalculation(
             # Same lock as request_recalculation and the calc result write; the two hourly workflows serialize
             # here so they see each other's row and share it instead of creating two. Taken on the initial read
             # so the metric config inspected below cannot go stale while waiting for the lock.
-            experiment = Experiment.objects.select_for_update(no_key=True).get(
-                id=experiment_id, team_id=team_id, deleted=False
+            experiment = (
+                Experiment.objects.for_team(team_id)
+                .deleted_is_false()
+                .select_for_update(no_key=True)
+                .get(id=experiment_id)
             )
         except Experiment.DoesNotExist:
             return None
