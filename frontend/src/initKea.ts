@@ -171,6 +171,8 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSessionsPage: 'products.ai_observability.frontend.redesign.sessions.sessionsListLogic', // The sessions list shows the error, or toasts its own when rows stay on screen
     loadErrorsPage: 'products.ai_observability.frontend.redesign.errors.errorsListLogic', // The errors list shows the error or the range banner, or toasts its own when rows stay on screen
     loadErrorNewCount: 'products.ai_observability.frontend.redesign.errors.errorNewCountLogic', // The New chip shows a failure mark
+    loadErrorDetail: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic', // The error drawer shows the failure with a retry
+    loadErrorRecentTraces: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic', // The error drawer shows the failure with a retry
     loadConversationPage: 'products.ai_observability.frontend.redesign.sessions.sessionConversationLogic', // The conversation shows the error in place, with a retry
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
@@ -228,6 +230,8 @@ const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
     loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
     loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
+    // The error drawer says the error has no occurrences in the selected range
+    loadErrorDetail: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
