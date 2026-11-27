@@ -360,6 +360,19 @@ describe('adventCalendarLogic', () => {
         await waitFor(() => expect(api.opens).toMatchObject([{ day: 1 }]))
     })
 
+    it('shows the pick another tab saved when a staff preview answers the same door', async () => {
+        useMocks(calendarApi().mocks)
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', { day: '2' })
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+        logic.actions.answerDoor('door-2', 'james')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+    })
+
     it.each([
         ['a staff user', 'locked', true],
         ['anyone else', 'ready', false],

@@ -503,8 +503,9 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     return
                 }
                 const uuid = values.user?.uuid ?? ''
-                if (cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]) {
-                    actions.openDoor(uuid, door.day, null, values.isLive)
+                const storedPick = cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]
+                if (storedPick) {
+                    actions.openDoor(uuid, door.day, storedPick, values.isLive)
                     return
                 }
                 const notTaken = index === 0 ? 'lower' : 'upper'
