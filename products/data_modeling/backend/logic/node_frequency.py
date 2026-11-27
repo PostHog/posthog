@@ -320,7 +320,7 @@ def dag_ids_reading_warehouse_table(team_id: int, table_id: uuid.UUID) -> set[uu
         .values_list("name", flat=True)
         .first()
     )
-    matches_table = Q(**{f"properties__{_WAREHOUSE_TABLE_ID_KEY}": str(table_id)})
+    matches_table = Q(properties__warehouse_table_id=str(table_id))
     if table_name is not None:
         matches_table |= Q(name=table_name)
     return set(
