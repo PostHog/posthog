@@ -25,7 +25,12 @@ import {
 import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import { FoundryEndpointField } from './FoundryEndpointField'
 import { KeyValidationStatus } from './KeyValidationStatus'
-import { DEFAULT_AZURE_API_VERSION, KeyValidationResult, LLMProvider } from './llmProviderKeysLogic'
+import {
+    CUSTOM_ENDPOINT_PROVIDERS,
+    DEFAULT_AZURE_API_VERSION,
+    KeyValidationResult,
+    LLMProvider,
+} from './llmProviderKeysLogic'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
 
 const PROVIDER_ITEMS = LLM_PROVIDER_SELECT_OPTIONS.map((option) => ({
@@ -44,7 +49,6 @@ export interface QuillAddKeyDialogProps {
     onSubmit: () => void
     submitLoading: boolean
     submitDisabled: boolean
-    restrictionReason: string | null
     providerKeysLoading: boolean
     provider: LLMProvider
     onProviderChange: (provider: LLMProvider) => void
@@ -67,6 +71,7 @@ export interface QuillAddKeyDialogProps {
     apiKeyPlaceholder: string
     apiKeyInvalid: boolean
     usesFoundry: boolean
+    customEndpointDisabledReason: string | null
     endpointErrorField: 'endpoint' | 'key' | null
     preValidationResult: KeyValidationResult | null
     preValidationResultLoading: boolean
@@ -78,7 +83,6 @@ export function QuillAddKeyDialog({
     onSubmit,
     submitLoading,
     submitDisabled,
-    restrictionReason,
     providerKeysLoading,
     provider,
     onProviderChange,
@@ -101,6 +105,7 @@ export function QuillAddKeyDialog({
     apiKeyPlaceholder,
     apiKeyInvalid,
     usesFoundry,
+    customEndpointDisabledReason,
     endpointErrorField,
     preValidationResult,
     preValidationResultLoading,
@@ -129,7 +134,15 @@ export function QuillAddKeyDialog({
                                 </SelectTrigger>
                                 <SelectContent>
                                     {PROVIDER_ITEMS.map((item) => (
-                                        <SelectItem key={item.value} value={item.value}>
+                                        <SelectItem
+                                            key={item.value}
+                                            value={item.value}
+                                            disabledReason={
+                                                CUSTOM_ENDPOINT_PROVIDERS.includes(item.value)
+                                                    ? customEndpointDisabledReason
+                                                    : null
+                                            }
+                                        >
                                             {item.label}
                                         </SelectItem>
                                     ))}
@@ -174,6 +187,7 @@ export function QuillAddKeyDialog({
                         {isAnthropic && (
                             <FoundryEndpointField
                                 optional
+                                disabledReason={customEndpointDisabledReason}
                                 value={azureEndpoint}
                                 onChange={onFoundryEndpointChange}
                                 errorMessage={
@@ -246,13 +260,7 @@ export function QuillAddKeyDialog({
                     <Button variant="outline" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button
-                        variant="primary"
-                        onClick={onSubmit}
-                        loading={submitLoading}
-                        disabled={submitDisabled}
-                        disabledReason={restrictionReason}
-                    >
+                    <Button variant="primary" onClick={onSubmit} loading={submitLoading} disabled={submitDisabled}>
                         Add key
                     </Button>
                 </DialogFooter>

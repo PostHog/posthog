@@ -12,6 +12,7 @@ import { FoundryEndpointField } from './FoundryEndpointField'
 import { KeyValidationStatus } from './KeyValidationStatus'
 import {
     CreateLLMProviderKeyPayload,
+    CUSTOM_ENDPOINT_PROVIDERS,
     DEFAULT_AZURE_API_VERSION,
     LLMProvider,
     llmProviderKeysLogic,
@@ -46,16 +47,19 @@ function getKeyPlaceholder(provider: LLMProvider, usesFoundry = false): string {
 }
 
 export function AddKeyModal(): JSX.Element {
-    const restrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
     const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
     const todayRailNav = useQuillSurface()
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const customEndpointDisabledReason = adminRestrictionReason
+        ? 'Only a project admin can add a key with a custom endpoint.'
+        : null
 
     const [provider, setProvider] = useState<LLMProvider>('openai')
     const [name, setName] = useState('')
@@ -223,7 +227,6 @@ export function AddKeyModal(): JSX.Element {
                 onSubmit={handleSubmit}
                 submitLoading={providerKeysLoading || preValidationResultLoading}
                 submitDisabled={!isValid}
-                restrictionReason={restrictionReason}
                 providerKeysLoading={providerKeysLoading}
                 provider={provider}
                 onProviderChange={handleProviderChange}
@@ -246,6 +249,7 @@ export function AddKeyModal(): JSX.Element {
                 apiKeyPlaceholder={getKeyPlaceholder(provider, usesFoundry)}
                 apiKeyInvalid={apiKeyInvalid}
                 usesFoundry={usesFoundry}
+                customEndpointDisabledReason={customEndpointDisabledReason}
                 endpointErrorField={endpointErrorField}
                 preValidationResult={preValidationResult}
                 preValidationResultLoading={preValidationResultLoading}
@@ -269,7 +273,6 @@ export function AddKeyModal(): JSX.Element {
                         onClick={handleSubmit}
                         loading={providerKeysLoading || preValidationResultLoading}
                         disabled={!isValid}
-                        disabledReason={restrictionReason}
                     >
                         Add key
                     </LemonButton>
@@ -283,7 +286,12 @@ export function AddKeyModal(): JSX.Element {
                         value={provider}
                         onChange={handleProviderChange}
                         disabled={providerKeysLoading}
-                        options={LLM_PROVIDER_SELECT_OPTIONS}
+                        options={LLM_PROVIDER_SELECT_OPTIONS.map((option) => ({
+                            ...option,
+                            disabledReason: CUSTOM_ENDPOINT_PROVIDERS.includes(option.value)
+                                ? customEndpointDisabledReason
+                                : null,
+                        }))}
                         className="mt-1"
                         fullWidth
                     />
@@ -328,6 +336,7 @@ export function AddKeyModal(): JSX.Element {
                 {isAnthropic && (
                     <FoundryEndpointField
                         optional
+                        disabledReason={customEndpointDisabledReason}
                         value={azureEndpoint}
                         onChange={handleEndpointChange(setAzureEndpoint)}
                         errorMessage={

@@ -9,11 +9,13 @@ export function FoundryEndpointField({
     onChange,
     errorMessage,
     optional,
+    disabledReason = null,
 }: {
     value: string
     onChange: (value: string) => void
     errorMessage: string | null
     optional: boolean
+    disabledReason?: string | null
 }): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -24,6 +26,7 @@ export function FoundryEndpointField({
                 onChange={onChange}
                 errorMessage={errorMessage}
                 optional={optional}
+                disabledReason={disabledReason}
             />
         )
     }
@@ -40,9 +43,12 @@ export function FoundryEndpointField({
                 className="mt-1"
                 fullWidth
                 status={errorMessage ? 'danger' : undefined}
+                disabled={!!disabledReason}
             />
             {errorMessage ? (
                 <p className="text-xs text-danger mt-1">{errorMessage}</p>
+            ) : disabledReason ? (
+                <p className="text-xs text-muted mt-1">{disabledReason}</p>
             ) : (
                 <p className="text-xs text-muted mt-1">
                     {optional

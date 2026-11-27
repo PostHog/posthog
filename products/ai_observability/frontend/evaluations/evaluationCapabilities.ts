@@ -1,4 +1,4 @@
-import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import { type LLMProviderKey, isUsableProviderKey } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 // Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
@@ -78,12 +78,12 @@ export function evaluationCanResolveModel(
 /** Why a judge can't be turned on yet, or null when it can. */
 export function evaluationEnableBlockedReason(
     evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
-    providerKeys: Pick<LLMProviderKey, 'state'>[]
+    providerKeys: Pick<LLMProviderKey, 'state' | 'can_use'>[]
 ): string | null {
     if (evaluationCanResolveModel(evaluation)) {
         return null
     }
-    return providerKeys.some((key) => key.state === 'ok')
+    return providerKeys.some(isUsableProviderKey)
         ? 'Choose a model with a provider API key to enable this evaluation.'
         : 'Add a provider API key, then choose a model with it to enable this evaluation.'
 }

@@ -3,8 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { ByokModelPickerNotice } from '../../ByokModelPickerNotice'
-import { getModelPickerFooterActions, ModelPicker, useAddKeyDisabledReason } from '../../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker } from '../../ModelPicker'
 import { modelPickerLogic } from '../../modelPickerLogic'
 import { AddKeyModal } from '../../settings/AddKeyModal'
 import { llmProviderKeysLogic } from '../../settings/llmProviderKeysLogic'
@@ -24,7 +28,6 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
     } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
     const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
-    const addKeyDisabledReason = useAddKeyDisabledReason()
 
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -39,7 +42,10 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                             fullWidth
                             center
                             onClick={() => setNewKeyModalOpen(true)}
-                            disabledReason={addKeyDisabledReason}
+                            disabledReason={getAccessControlDisabledReason(
+                                AccessControlResourceType.LlmAnalytics,
+                                AccessControlLevel.Editor
+                            )}
                             data-attr="evaluation-add-api-key"
                         >
                             Add API key
@@ -53,8 +59,7 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                             loading={loading}
                             footerActions={getModelPickerFooterActions(
                                 judgeModelGroups.some((group) => !group.disabledReason),
-                                () => setNewKeyModalOpen(true),
-                                addKeyDisabledReason
+                                () => setNewKeyModalOpen(true)
                             )}
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"

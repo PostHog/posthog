@@ -365,7 +365,9 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def accept_estimate(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """What accepting would run on recent data, and what a judge would cost, for the confirm step."""
         try:
-            estimate = facade.estimate_eval_suggestion_accept(self.team, self._access(), self._suggestion_id(pk))
+            estimate = facade.estimate_eval_suggestion_accept(
+                self.team, self._access(), self._suggestion_id(pk), getattr(request.user, "pk", None)
+            )
         except EvalSuggestionNotFoundError:
             raise NotFound(NOT_FOUND_MESSAGE)
         return Response(EvalSuggestionEstimateSerializer(estimate).data)

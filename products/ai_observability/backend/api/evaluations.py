@@ -2,6 +2,7 @@ import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import models, transaction
@@ -66,6 +67,7 @@ from ..llm.providers.openrouter import is_non_chat_model
 from ..logic.evaluations.preview_outcomes import outcome_counts, preview_grader
 from ..logic.evaluations.preview_queries import generation_io_preview, load_generation_events
 from ..logic.evaluations.preview_units import session_quiet_period_seconds, trace_window_seconds
+from ..logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_CATEGORICAL_OPTIONS,
@@ -850,7 +852,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             )
         return (
             "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
-            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK). "
+            "You can add one in Settings > AI observability > Bring your own key (BYOK). "
             "Then set the evaluation's model to one from that key and enable it."
         )
 
@@ -877,7 +879,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return LLMProviderKey.objects.filter(id=provider_key_id, team=self.context["get_team"]()).first()
 
     def _create_or_update_model_configuration(
-        self, model_config_data: dict[str, Any] | None, team_id: int
+        self, model_config_data: dict[str, Any] | None, team_id: int, pinned_key_id: UUID | None = None
     ) -> LLMModelConfiguration | None:
         """Create or update an LLMModelConfiguration from serializer data."""
         if model_config_data is None:
@@ -892,6 +894,14 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {"model_configuration": {"provider_key_id": "Provider key not found"}}
                 )
+            # A judge that keeps the key it already had is not a new use of someone's key.
+            request = self.context["request"]
+            if (
+                provider_key.id != pinned_key_id
+                and not is_service_auth(request)
+                and not can_use_provider_key(provider_key, getattr(request.user, "pk", None))
+            ):
+                raise serializers.ValidationError({"model_configuration": {"provider_key_id": PIN_KEY_MESSAGE}})
 
         model_config = LLMModelConfiguration(
             team_id=team_id,
@@ -932,7 +942,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 old_config = instance.model_configuration
 
             validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                model_config_data, instance.team_id
+                model_config_data,
+                instance.team_id,
+                pinned_key_id=old_config.provider_key_id if old_config else None,
             )
 
         result = super().update(instance, validated_data)

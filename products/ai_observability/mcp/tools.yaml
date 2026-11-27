@@ -576,8 +576,9 @@ tools:
             model_configuration with provider and model. An llm_judge runs only on the key pinned in
             model_configuration.provider_key_id, and keys can't be added through MCP. Check llma-provider-key-list first
             and pin an ok-state key; enabling needs one. With no usable key, create the judge with enabled=false and
-            provider_key_id null, and tell the user it starts scoring once a project admin adds a key in Settings > AI
-            observability > Bring your own key (BYOK), picks it as the judge's model, and enables it. 'hog':
+            provider_key_id null, and tell the user it starts scoring once they add a key in Settings > AI
+            observability > Bring your own key (BYOK), pick it as the judge's model, and enable it. A judge can pin a key
+            the caller added or one a project admin added. 'hog':
             evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and
             'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min,
             max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode,

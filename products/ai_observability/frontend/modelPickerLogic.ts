@@ -8,6 +8,7 @@ import { llmAnalyticsProviderKeysModelsList } from './generated/api'
 import {
     type LLMProvider,
     LLMProviderKey,
+    isUsableProviderKey,
     llmProviderKeysLogic,
     providerSortIndex,
     toLLMProvider,
@@ -85,9 +86,14 @@ function allowsCustomModel(key: LLMProviderKey): boolean {
     return key.provider === 'azure_openai' || (key.provider === 'anthropic' && !!key.azure_endpoint_display)
 }
 
+// Naming who added the key shows whose provider account the prompts go to.
 function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
     const label = providerLabel(key.provider)
-    return (keysPerProvider[key.provider] ?? 0) > 1 ? `${label} (${key.name})${suffix}` : `${label}${suffix}`
+    const details = [
+        (keysPerProvider[key.provider] ?? 0) > 1 ? key.name : null,
+        key.created_by ? `added by ${key.created_by.email}` : null,
+    ].filter(Boolean)
+    return details.length > 0 ? `${label} (${details.join(', ')})${suffix}` : `${label}${suffix}`
 }
 
 function unavailableKeyState(
@@ -282,7 +288,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         byokModels: {
             __default: [] as ModelOption[],
             loadByokModels: async (): Promise<ModelOption[]> => {
-                const validKeys = values.providerKeys.filter((k: LLMProviderKey) => k.state === 'ok')
+                const validKeys = values.providerKeys.filter(isUsableProviderKey)
                 if (validKeys.length === 0) {
                     return []
                 }
@@ -379,7 +385,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         hasByokKeys: [
             (s) => [s.providerKeys],
             (providerKeys: LLMProviderKey[]): boolean =>
-                providerKeys.some((k) => k.state === 'ok' && k.provider !== 'system_one'),
+                providerKeys.some((k) => isUsableProviderKey(k) && k.provider !== 'system_one'),
         ],
         generativeByokModels: [
             (s) => [s.byokModels, s.providerKeys],
@@ -420,7 +426,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    const customModelKey = allowsCustomModel(key) && key.state === 'ok'
+                    const customModelKey = allowsCustomModel(key) && isUsableProviderKey(key)
                     if (models.length > 0 || customModelKey) {
                         groups.push({
                             provider: key.provider,

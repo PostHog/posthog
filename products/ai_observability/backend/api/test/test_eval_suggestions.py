@@ -130,14 +130,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         values = {"team": self.team, **defaults, "run": self.suggestion_run, **fields}
         return EvalSuggestion.objects.for_team(values["team"].pk).create(kind=kind, **values)
 
-    def _judge_key(self) -> None:
+    def _judge_key(self, *, created_by: User | None = None) -> None:
         LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
             name="Judge key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
-            created_by=self.user,
+            created_by=created_by or self.user,
         )
 
     @parameterized.expand(
@@ -399,13 +399,28 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert response.json()["backfill_id"] is None
         assert Evaluation.objects.filter(team=self.team, deleted=False).count() == 1
 
-    @parameterized.expand([("with_a_working_key", True, "gpt-6-luna", 0.08), ("without_a_key", False, None, None)])
+    @parameterized.expand(
+        [
+            ("own_key", "own", "gpt-6-luna", 0.08),
+            ("a_project_admins_key", "admin", "gpt-6-luna", 0.08),
+            # A member's key may bill their own provider account, so another member's accept cannot use it.
+            ("another_members_key", "member", None, None),
+            ("without_a_key", None, None, None),
+        ]
+    )
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=20, already_judged=0))
     def test_judge_estimate_prices_whole_units_on_the_key_accept_uses(
-        self, _name: str, with_key: bool, model: str | None, cost: float | None, _count: MagicMock
+        self, _name: str, key: str | None, model: str | None, cost: float | None, _count: MagicMock
     ) -> None:
-        if with_key:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        if key == "own":
             self._judge_key()
+        elif key is not None:
+            level = OrganizationMembership.Level.ADMIN if key == "admin" else OrganizationMembership.Level.MEMBER
+            self._judge_key(
+                created_by=User.objects.create_and_join(self.organization, "other@posthog.com", None, level=level)
+            )
         # One trace judge run reads a 40k-token transcript, at $0.10 per million input tokens.
         suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, mean_input_tokens=40_000)
 

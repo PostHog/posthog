@@ -58,7 +58,7 @@ PLAN_BUDGET_SECONDS = 10
 
 NO_KEY_MESSAGE = (
     "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
-    "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), then add this evaluation."
+    "You can add one in Settings > AI observability > Bring your own key (BYOK), then add this evaluation."
 )
 KEY_CHANGED_MESSAGE = (
     "The provider key shown for this eval no longer works. Close this and add the eval again to see the current key."
@@ -152,9 +152,10 @@ def plan_backfill(
     return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
 
 
-def suggestion_judge_key(suggestion: EvalSuggestion, team: Team) -> LLMProviderKey:
-    """The key an accepted judge runs on, preferring the provider whose model calibrated it. Raises without one."""
-    key = judge_key(team.pk, provider=provider_for_model(suggestion.judge_model))
+def suggestion_judge_key(suggestion: EvalSuggestion, team: Team, user_id: int | None) -> LLMProviderKey:
+    """The key an accepted judge runs on: one shared with the project or the person's own, preferring the provider
+    whose model calibrated it. Raises without one."""
+    key = judge_key(team.pk, provider=provider_for_model(suggestion.judge_model), user_id=user_id)
     if key is None:
         raise ValidationError(NO_KEY_MESSAGE)
     return key
@@ -174,7 +175,7 @@ def judge_model_configuration(key: LLMProviderKey) -> dict[str, Any]:
     return {"provider": key.provider, "model": DEFAULT_MODEL_BY_PROVIDER[key.provider], "provider_key_id": str(key.id)}
 
 
-def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
+def estimate(suggestion: EvalSuggestion, team: Team, user_id: int | None) -> AcceptEstimate:
     target = str(suggestion.draft.get("target", "generation"))
     target_config = suggestion.draft.get("target_config") or {}
     plan = plan_backfill(
@@ -193,7 +194,7 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
     if suggestion.draft.get("evaluation_type") == "llm_judge":
         # The same key and model accept uses. Without a working key, accept refuses, so nothing is priced.
         try:
-            key = suggestion_judge_key(suggestion, team)
+            key = suggestion_judge_key(suggestion, team, user_id)
             model, key_id, key_name = DEFAULT_MODEL_BY_PROVIDER[key.provider], key.id, key.name
         except ValidationError:
             model = None
@@ -273,10 +274,11 @@ def accept(
 
         data: dict[str, Any] = {**suggestion.draft, "enabled": True, "conditions": conditions_for(suggestion)}
         if data.get("evaluation_type") == "llm_judge":
+            # The serializer below refuses a confirmed key the person may not use.
             key = (
                 confirmed_judge_key(team, provider_key_id)
                 if provider_key_id
-                else suggestion_judge_key(suggestion, team)
+                else suggestion_judge_key(suggestion, team, user.pk)
             )
             data["model_configuration"] = judge_model_configuration(key)
         serializer = EvaluationSerializer(data=data, context=serializer_context)

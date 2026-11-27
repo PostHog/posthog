@@ -549,25 +549,38 @@ describe('modelPickerLogic', () => {
             expect(logic.values.playgroundByokProviderModelGroups.some((g) => g.allowsCustomModel)).toBe(false)
         })
 
-        it('should disambiguate labels when multiple keys exist for same provider', async () => {
+        it('should label keys by name when a provider has several, and by who added them', async () => {
             useMocks({
                 get: {
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', name: 'Production', state: 'ok' },
-                            { id: 'key-2', provider: 'openai', name: 'Staging', state: 'ok' },
+                            {
+                                id: 'key-2',
+                                provider: 'openai',
+                                name: 'Staging',
+                                state: 'ok',
+                                created_by: { first_name: 'Ada', email: 'ada@example.com' },
+                            },
+                            {
+                                id: 'key-3',
+                                provider: 'anthropic',
+                                name: 'Claude',
+                                state: 'ok',
+                                created_by: { first_name: '', email: 'bo@example.com' },
+                            },
                         ],
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
-                        if (keyId === 'key-1' || keyId === 'key-2') {
+                        if (['key-1', 'key-2', 'key-3'].includes(keyId ?? '')) {
                             return [200, BYOK_OPENAI_MODELS]
                         }
                         return [200, []]
                     },
                     '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
-                        const keyId = params.key_id
-                        if (keyId === 'key-1' || keyId === 'key-2') {
+                        const keyId = String(params.key_id)
+                        if (['key-1', 'key-2', 'key-3'].includes(keyId)) {
                             return [200, BYOK_OPENAI_MODELS]
                         }
                         return [200, []]
@@ -580,10 +593,14 @@ describe('modelPickerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const groups = logic.values.providerModelGroups
-            expect(groups).toHaveLength(2)
+            expect(groups).toHaveLength(3)
 
             const labels = groups.map((g) => g.label).sort()
-            expect(labels).toEqual(['OpenAI (Production)', 'OpenAI (Staging)'])
+            expect(labels).toEqual([
+                'Anthropic (added by bo@example.com)',
+                'OpenAI (Production)',
+                'OpenAI (Staging, added by ada@example.com)',
+            ])
         })
     })
 })

@@ -264,8 +264,8 @@ No usable key does not block creating the judge. Keys cannot be added through MC
 - If the team has an `ok` key that the judge isn't set to use, pin it with `provider_key_id` instead of asking
   for a new one.
 - If the team has no usable key, still create the judge with `enabled: false`. Do not spot-run or enable it.
-- Tell the user plainly that the judge starts scoring once a project admin adds a key in Settings > AI
-  observability > Bring your own key (BYOK) and enables it. A judge left disabled with no word to the user
+- Tell the user plainly that the judge starts scoring once they add a key in Settings > AI
+  observability > Bring your own key (BYOK), pick it as the judge's model, and enable it. A judge left disabled with no word to the user
   never runs, so this message is part of the job, including when a create with `enabled: true` is rejected
   for a missing key and you retry it disabled.
 

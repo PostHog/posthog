@@ -21,6 +21,8 @@ export type LLMProvider = LLMProviderEnumApi
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
 export const DEFAULT_SYSTEM_ONE_BASE_URL: string = ''
 export const DEFAULT_SYSTEM_ONE_MODEL: string = ''
+/** Providers whose keys point at a host the person types in. Only project admins may add these. */
+export const CUSTOM_ENDPOINT_PROVIDERS: LLMProvider[] = ['azure_openai', 'openai_compatible', 'system_one']
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -121,7 +123,14 @@ export interface LLMProviderKey extends Partial<
         last_name: string
         email: string
     } | null
+    /** Whether this person may pin the key to a judge or run it in the playground. */
+    can_use?: boolean
     last_used_at: string | null
+}
+
+/** A working key this person may pin to a judge or run in the playground. */
+export function isUsableProviderKey(key: Pick<LLMProviderKey, 'state' | 'can_use'>): boolean {
+    return key.state === 'ok' && key.can_use !== false
 }
 
 /** Canonical provider key ordering: provider order, then key name, then id. */
@@ -143,7 +152,7 @@ export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
 
 export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
     return sortProviderKeys(keys)
-        .filter((key) => key.state === 'ok')
+        .filter(isUsableProviderKey)
         .map((key) => key.id)
 }
 
@@ -156,7 +165,10 @@ export function firstUsableProviderKeyIdForProvider(
         return null
     }
 
-    return sortProviderKeys(keys).find((key) => key.state === 'ok' && key.provider === normalizedProvider)?.id ?? null
+    return (
+        sortProviderKeys(keys).find((key) => isUsableProviderKey(key) && key.provider === normalizedProvider)?.id ??
+        null
+    )
 }
 
 export interface CreateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
@@ -195,6 +207,10 @@ export interface ProviderKeyFieldError {
 // An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
 export function isFoundryKey(key: LLMProviderKey): boolean {
     return key.provider === 'anthropic' && !!key.azure_endpoint_display
+}
+
+export function hasCustomEndpoint(key: LLMProviderKey): boolean {
+    return CUSTOM_ENDPOINT_PROVIDERS.includes(key.provider) || isFoundryKey(key)
 }
 
 function editKeyFieldsFor(key: LLMProviderKey): EditKeyField[] {
@@ -804,7 +820,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         requiresProviderKey: [
             (s) => [s.providerKeys, s.providerKeysLoading],
             (providerKeys: LLMProviderKey[], providerKeysLoading: boolean): boolean =>
-                !providerKeysLoading && !providerKeys.some((key) => key.state === 'ok'),
+                !providerKeysLoading && !providerKeys.some(isUsableProviderKey),
         ],
     }),
 

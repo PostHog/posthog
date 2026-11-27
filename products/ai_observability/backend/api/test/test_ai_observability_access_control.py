@@ -646,13 +646,13 @@ class TestAIObservabilityAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create", status.HTTP_403_FORBIDDEN),
+            ("create", status.HTTP_201_CREATED),
             ("update", status.HTTP_403_FORBIDDEN),
             ("validate", status.HTTP_403_FORBIDDEN),
             ("delete", status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_editor_cannot_mutate_provider_key_without_project_admin(self, action, expected_status):
+    def test_editor_can_add_a_provider_key_but_not_change_someone_elses(self, action, expected_status):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 

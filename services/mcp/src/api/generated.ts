@@ -70483,6 +70483,8 @@ export namespace Schemas {
       readonly api_version_display: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
+      /** Whether you can pin this key to a judge or run it in the playground: you added it, a project admin added it, or you are a project admin. */
+      readonly can_use: boolean;
       /** @nullable */
       readonly last_used_at: string | null;
     }
@@ -96577,6 +96579,8 @@ export namespace Schemas {
       readonly api_version_display?: string | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
+      /** Whether you can pin this key to a judge or run it in the playground: you added it, a project admin added it, or you are a project admin. */
+      readonly can_use?: boolean;
       /** @nullable */
       readonly last_used_at?: string | null;
     }
