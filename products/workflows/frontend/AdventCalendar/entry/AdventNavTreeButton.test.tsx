@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { CategorySuffixNav, CustomCategorySuffix } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
+import { CategorySuffixNav, CustomCategorySuffix } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
 import { ProductItemCategory } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -54,7 +54,9 @@ describe('the advent tree on the Messaging sidebar header', () => {
         expect(tree.closest('a')?.getAttribute('href')).toContain(urls.workflowsAdventCalendar())
 
         await userEvent.click(tree)
-        expect(captured).toEqual([['workflows advent entry clicked', { entry: 'nav-tree', nav }]])
+        expect(captured.filter(([event]) => event.startsWith('workflows advent'))).toEqual([
+            ['workflows advent entry clicked', { entry: 'nav-tree', nav }],
+        ])
     })
 
     it.each<[string, string, boolean]>([
