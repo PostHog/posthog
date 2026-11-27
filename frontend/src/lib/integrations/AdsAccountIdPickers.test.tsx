@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
@@ -43,7 +45,8 @@ describe('ads account ID pickers', () => {
         expect(screen.getByText(label)).toBeInTheDocument()
     })
 
-    test('LinkedIn Ads picker shows why the account list failed to load', async () => {
+    test('LinkedIn Ads picker shows why the account list failed to load, without a toast', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations/:id/linkedin_ads_accounts': () => [
@@ -60,6 +63,7 @@ describe('ads account ID pickers', () => {
         )
 
         expect(await screen.findByText('LinkedIn is unavailable.')).toBeInTheDocument()
+        expect(toastError).not.toHaveBeenCalled()
     })
 
     test('Google Ads conversion action picker loads actions for a numeric saved customer ID', async () => {
