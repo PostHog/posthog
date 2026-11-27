@@ -1,14 +1,17 @@
 import ast
 import json
 import secrets
-from contextlib import ExitStack
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from graphlib import CycleError, TopologicalSorter
 from time import monotonic
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+
 from pydantic import JsonValue
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, Throttled, ValidationError
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import get_direct_connection_source, raw_query_uses_organization_grant
@@ -16,10 +19,22 @@ from posthog.hogql.direct_sql import get_raw_adapter_for_source
 from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    app_org_concurrency_slot,
+    get_api_team_rate_limiter,
+)
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tags_context,
+)
 from posthog.clickhouse.workload import Workload
+from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.app_viewer import draft_app_release, viewer_variables
@@ -72,13 +87,39 @@ def source_cell_chain(cells: list[NotebookCellState], targets: set[str]) -> list
 
 
 def bounded_frame_json(value: Any) -> str:
+    encoder = json.JSONEncoder(ensure_ascii=False, default=str, allow_nan=False)
+    pieces: list[str] = []
+    remaining = APP_VIEWER_MAX_OUTPUT_BYTES
     try:
-        encoded = json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
+        for piece in encoder.iterencode(value):
+            if len(piece) > remaining:
+                raise ValidationError("The result is too large. Narrow the inputs or aggregate the source data.")
+            remaining -= len(piece.encode())
+            if remaining < 0:
+                raise ValidationError("The result is too large. Narrow the inputs or aggregate the source data.")
+            pieces.append(piece)
     except ValueError as error:
         raise ValidationError("The result contains a non-finite number. Convert it to null in the source.") from error
-    if len(encoded.encode()) > APP_VIEWER_MAX_OUTPUT_BYTES:
-        raise ValidationError("The result is too large. Narrow the inputs or aggregate the source data.")
-    return encoded
+    return "".join(pieces)
+
+
+@contextmanager
+def _query_slots(team: Team) -> Iterator[None]:
+    is_api = is_api_key_access_method(get_query_tag_value("access_method"))
+    api_limit = None
+    if is_api and settings.EE_AVAILABLE and settings.API_QUERIES_ENABLED:
+        feature = team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
+        api_limit = feature.get("limit") if feature else None
+    try:
+        with (
+            get_api_team_rate_limiter().run(is_api=is_api, team_id=team.pk, limit=api_limit),
+            app_org_concurrency_slot(team),
+        ):
+            yield
+    except ConcurrencyLimitExceeded as error:
+        from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
+
+        raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
 
 
 def _remaining_seconds(deadline: float) -> int:
@@ -297,15 +338,20 @@ def _run_sql_cell(
     final: bool,
     include_types: bool,
 ) -> dict[str, JsonValue]:
-    response = execute_hogql_query(
-        query=query,
-        team=notebook.team,
-        user=user,
-        connection_id=cell.connection_id,
-        send_raw_query=cell.send_raw_query,
-        settings=HogQLGlobalSettings(max_execution_time=_remaining_seconds(deadline)),
-        workload=Workload.ONLINE,
-    )
+    with _query_slots(notebook.team):
+        response = execute_hogql_query(
+            query=query,
+            team=notebook.team,
+            user=user,
+            connection_id=cell.connection_id,
+            send_raw_query=cell.send_raw_query,
+            settings=HogQLGlobalSettings(
+                max_execution_time=_remaining_seconds(deadline),
+                max_result_bytes=APP_VIEWER_MAX_OUTPUT_BYTES,
+                result_overflow_mode="throw",
+            ),
+            workload=Workload.ONLINE,
+        )
     if response.error:
         raise ValidationError(response.error)
     if len(response.results) > MAX_ROWS:

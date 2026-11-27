@@ -310,6 +310,7 @@ class ClickHouseAdapter:
                     settings={
                         "max_execution_time": statement_timeout_seconds,
                         "max_block_size": DIRECT_CLICKHOUSE_MAX_BLOCK_SIZE,
+                        **settings.model_dump(include={"max_result_bytes", "result_overflow_mode"}, exclude_none=True),
                     },
                 ) as client:
                     fetch_result = _fetch_capped_clickhouse_rows(

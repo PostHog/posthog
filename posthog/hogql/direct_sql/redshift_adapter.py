@@ -183,4 +183,13 @@ class RedshiftAdapter:
             (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
         ]
         print_columns = [column.name for column in description]
-        return DirectQueryResult(results=results, types=types, print_columns=print_columns)
+        return DirectQueryResult(
+            results=results,
+            types=types,
+            print_columns=print_columns,
+            json_text_columns=frozenset(
+                column.name for column in description if column.type_code in {1082, 1083, 1114, 1184, 1186, 1266}
+            )
+            if request.settings.max_result_bytes
+            else frozenset(),
+        )
