@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { acceptedDeliveriesOf, deliveryKey, isAccepted, truthGapOf } from './invariants'
+import { acceptedDeliveriesOf, deliveryKey, truthGapOf } from './invariants'
 import type { JudgeEvidence } from './invariants'
 import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
@@ -197,15 +197,6 @@ export const roleExitMs: MeasurementDefinition = {
     },
 }
 
-const unreadTruthOf = ({ unread, unsettled, converged, truth, truthFrom }: MeasureEvidence): string | undefined =>
-    unread !== undefined
-        ? `the truth could not be read: ${unread}`
-        : (unsettled ??
-          truthGapOf(truth, truthFrom) ??
-          (converged === false
-              ? 'the run did not converge, so a resend could still land after the final read'
-              : undefined))
-
 export const leaseReclaimMs: MeasurementDefinition = {
     name: 'lease_reclaim_ms',
     params: z.object({}).strict(),
@@ -217,24 +208,17 @@ export const resentInvocations: MeasurementDefinition = {
     name: 'resent_invocations',
     params: z.object({}).strict(),
     unit: 'invocations',
-    measure: (evidence) => {
-        const unreadTruth = unreadTruthOf(evidence)
-        if (unreadTruth !== undefined) {
-            return [{ key: 'total', ...unmeasured(unreadTruth) }]
-        }
-        const accepted = Map.groupBy(
-            evidence.truth.filter(
-                ({ invocationId, unitId, status }) =>
-                    invocationId !== undefined && unitId !== undefined && isAccepted(status)
-            ),
-            ({ unitId, invocationId }) => `${unitId} ${invocationId}`
-        )
-        const resent = [...accepted]
-            .filter(([, sends]) => sends.length > 1)
-            .map(([key, sends]) => ({ key, value: sends.length }))
-        return [{ key: 'total', value: resent.length }, ...resent]
-    },
+    measure: () => [{ key: 'total', ...unmeasured('not measured: a run-scoped resend count is a follow-up') }],
 }
+
+const unreadTruthOf = ({ unread, unsettled, converged, truth, truthFrom }: MeasureEvidence): string | undefined =>
+    unread !== undefined
+        ? `the truth could not be read: ${unread}`
+        : (unsettled ??
+          truthGapOf(truth, truthFrom) ??
+          (converged === false
+              ? 'the run did not converge, so a resend could still land after the final read'
+              : undefined))
 
 const SES_HOLD = 'ses.hold'
 
