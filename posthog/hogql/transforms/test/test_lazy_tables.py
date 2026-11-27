@@ -746,6 +746,30 @@ class TestLazyJoins(BaseTest):
 
         assert [tuple(row) for row in result.results] == [("signed_up", UUID(str(person.uuid)), 1)]
 
+    def test_lazy_join_moved_onto_another_join_name_keeps_both_joins(self) -> None:
+        for field_name, source_table_key in [("lookup", "distinct_id"), ("lookup_2", "event")]:
+            DataWarehouseJoin(
+                team=self.team,
+                source_table_name="events",
+                source_table_key=source_table_key,
+                joining_table_name="persons",
+                joining_table_key="properties.email",
+                field_name=field_name,
+            ).save()
+        by_distinct_id = create_person(team=self.team, distinct_ids=["a"], properties={"email": "lookup-user"})
+        by_event = create_person(team=self.team, distinct_ids=["b"], properties={"email": "lookup_event"})
+        event_uuid = _create_event(team=self.team, event="lookup_event", distinct_id="lookup-user")
+        flush_persons_and_events()
+
+        result = execute_hogql_query(
+            "SELECT e.lookup.id, e.lookup_2.id, e__lookup.marker FROM events AS e "
+            "CROSS JOIN (SELECT 1 AS marker) AS e__lookup WHERE e.uuid = {event_uuid}",
+            team=self.team,
+            placeholders={"event_uuid": ast.Constant(value=event_uuid)},
+        )
+
+        assert [tuple(row) for row in result.results] == [(UUID(str(by_distinct_id.uuid)), UUID(str(by_event.uuid)), 1)]
+
     def _schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:

@@ -652,6 +652,9 @@ class LazyTableResolver(TraversingVisitor):
         joins_to_add: dict[str, LazyJoinToAdd] = {}
         tables_to_add: dict[str, LazyTableToAdd] = {}
         # Field types retain the original tables after the scope replaces them with subqueries.
+        # Both types share one alias map, so that they give each lazy join the same alias.
+        if select_type.lazy_join_aliases is None:
+            select_type.lazy_join_aliases = {}
         original_select_type = ast.SelectQueryType(
             tables=dict(select_type.tables), lazy_join_aliases=select_type.lazy_join_aliases
         )
@@ -999,7 +1002,6 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
-            select_type.register_lazy_join_alias(to_table)
             join_scope.from_scan = unexpanded_scans.get(join_scope.from_table)
             join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,

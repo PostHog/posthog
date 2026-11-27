@@ -304,19 +304,26 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
     return None
 
 
-def _lazy_join_alias(select: ast.SelectQueryType, alias: str) -> str:
-    """Make the alias of a lazy join differ from every table that the query names itself.
+def _lazy_join_alias(select: ast.SelectQueryType, name: str) -> str:
+    """Give the lazy join `name` an alias that no other table or lazy join of the scope uses.
 
-    A query can name its own table like a lazy join, for example `d__tags`. The lazy join then takes `d__tags_2`.
-    Callers compute the alias again after the join is added, so the check skips the aliases that lazy table
-    resolution registered on the scope.
+    `name` is `{table alias}__{field}`, which a query can also give its own table, for example `d__tags`. The lazy join
+    then takes the first free suffix, such as `d__tags_2`. The scope remembers the alias of each join by its name, so a
+    repeated call for the same join returns the same alias, and a lazy join that is itself named `d__tags_2` takes
+    another one.
     """
-    lazy_join_aliases = select.lazy_join_aliases or set()
-    candidate = alias
+    if select.lazy_join_aliases is None:
+        select.lazy_join_aliases = {}
+    aliases = select.lazy_join_aliases
+    if name in aliases:
+        return aliases[name]
+    taken = set(select.tables) | set(aliases.values())
+    candidate = name
     index = 1
-    while candidate in select.tables and candidate not in lazy_join_aliases:
+    while candidate in taken:
         index += 1
-        candidate = f"{alias}_{index}"
+        candidate = f"{name}_{index}"
+    aliases[name] = candidate
     return candidate
 
 
