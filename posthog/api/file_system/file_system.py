@@ -3,8 +3,7 @@ import json
 import shlex
 import logging
 import builtins
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
@@ -30,35 +29,25 @@ from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.file_system.access_levels import (
-    RESOURCE_LEVEL_ONLY_TYPES,
     FileSystemAccessLevelSerializerMixin,
     _coerce_refs_for_lookup,
     canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
     file_system_ref_alternate_spellings,
-    file_system_resource,
-    filter_workflow_files_by_access_level,
-    keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     DeletionResult,
-    FileChangeContext,
-    FileObjectRef,
-    check_file_system_object_changes,
     delete_file_system_object,
-    file_system_object_creator_ids,
     get_restorable_object,
     is_file_system_type_registered,
-    lock_file_system_objects,
-    prepare_file_system_objects,
     run_post_delete_batch_hooks,
     undo_delete as undo_delete_object,
 )
@@ -71,22 +60,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
-from posthog.exceptions import Conflict, InsufficientScope
+from posthog.exceptions import Conflict
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
-from posthog.models.file_system.constants import (
-    RETIRED_FILE_SYSTEM_TYPES,
-    WORKFLOW_FILE_SYSTEM_TYPES,
-    resolved_workflows_list_v2,
-    workflows_list_v2_enabled,
-)
-from posthog.models.file_system.file_system import (
-    DEFAULT_SURFACE,
-    FileSystem,
-    escape_path,
-    join_path,
-    split_path,
-    surface_q,
-)
+from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES, UNFILED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.file_system import DEFAULT_SURFACE, FileSystem, join_path, split_path, surface_q
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
@@ -95,26 +72,22 @@ from posthog.models.file_system.file_system_view_log import (
     get_recent_file_system_items,
     recent_view_logs,
 )
-from posthog.models.file_system.refs import file_refs_q, same_file_ref, uuid_ref_key, uuid_refs_q
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
-from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade import api as access_control_api
-from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 logger = logging.getLogger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
-
-UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
 
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
 TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
@@ -164,15 +137,6 @@ def validate_file_system_path(path: Any) -> str:
     if len(segments) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
     return join_path(segments)
-
-
-def validate_file_system_placement(folder: str | None, name: str | None) -> None:
-    if not folder:
-        return
-    try:
-        validate_file_system_path(f"{folder}/{escape_path(name or 'Untitled')}")
-    except serializers.ValidationError as error:
-        raise serializers.ValidationError({"_create_in_folder": error.detail})
 
 
 def parse_tags_param(raw: str | None) -> builtins.list[str]:
@@ -265,39 +229,23 @@ def _any_surface_q(team_id: int) -> Q:
     return Q(surface__isnull=True) | Q(surface__in=surfaces)
 
 
-def _ref_lookup_q(ref: str, entry_type: str | None = None) -> Q:
-    """Rows filed under `ref`. A workflow or template row matches in any spelling of the id."""
-    if (entry_type and entry_type not in WORKFLOW_FILE_SYSTEM_TYPES) or uuid_ref_key(ref) is None:
-        return Q(ref=ref)
-    return Q(ref=ref) | (Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & file_refs_q(WORKFLOW_FILE_SYSTEM_TYPES, [ref]))
-
-
 def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface: Q) -> dict[str, set[str]]:
     spellings = {ref: {ref} for ref in refs}
-    # Only workflow and template rows can keep a spelling other than the canonical id, because rows of
-    # those types were written before refs were canonicalized. Matching every UUID-keyed type by its key
-    # would scan the team's rows of that type on each delete, so other types match their exact ref.
-    uuid_keyed = file_type in WORKFLOW_FILE_SYSTEM_TYPES
-    if uuid_keyed:
-        canonical_by_key = {key: ref for ref in refs if (key := uuid_ref_key(ref))}
-        matching = uuid_refs_q(refs)
-    else:
-        canonical_by_key = {
-            spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
-        }
-        if not canonical_by_key:
-            return spellings
-        matching = Q(ref__in=canonical_by_key)
+    canonical_by_spelling = {
+        spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
+    }
+    if not canonical_by_spelling:
+        return spellings
     stored_spellings = (
-        FileSystem.objects.filter(any_surface, ~Q(shortcut=True), team_id=team_id, type=file_type)
-        .filter(matching)
+        FileSystem.objects.filter(
+            any_surface, ~Q(shortcut=True), team_id=team_id, type=file_type, ref__in=canonical_by_spelling
+        )
         .values_list("ref", flat=True)
         .distinct()
     )
     for stored in stored_spellings:
-        key = uuid_ref_key(stored) if uuid_keyed else stored
-        if stored is not None and key in canonical_by_key:
-            spellings[canonical_by_key[key]].add(stored)
+        if stored is not None:
+            spellings[canonical_by_spelling[stored]].add(stored)
     return spellings
 
 
@@ -344,15 +292,12 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
+        if attrs.get("type") in UNFILED_FILE_SYSTEM_TYPES:
+            raise serializers.ValidationError({"type": "The project tree no longer stores items of this type."})
         entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
         ref = attrs.get("ref")
         if "ref" not in attrs and "type" in attrs and self.instance:
             ref = self.instance.ref
-        # The write guard checks access through the object a row points to, so a workflow or template row
-        # without one would skip it.
-        changes_object = self.instance is None or "type" in attrs or "ref" in attrs
-        if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and not ref and changes_object:
-            raise serializers.ValidationError({"ref": "A workflow or email template file needs a ref."})
         if ref and entry_type:
             attrs["ref"] = canonical_file_system_ref(entry_type, ref)
         return attrs
@@ -420,6 +365,11 @@ class FileSystemViewLogSerializer(serializers.Serializer):
     type = serializers.CharField()
     ref = serializers.CharField()
     viewed_at = serializers.DateTimeField(required=False)
+
+    def validate_type(self, value: str) -> str:
+        if value in UNFILED_FILE_SYSTEM_TYPES:
+            raise serializers.ValidationError(f"Views of type '{value}' are not logged.")
+        return value
 
 
 class FileSystemViewLogListQuerySerializer(serializers.Serializer):
@@ -520,40 +470,6 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
-# The scopes a token needs to place, unlink or restore a workflow or template file, and to add a shortcut to one.
-WORKFLOW_FILE_WRITE_SCOPES = ["file_system:write", "hog_flow:write"]
-WORKFLOW_SHORTCUT_WRITE_SCOPES = ["file_system:write", "hog_flow:read"]
-
-
-@dataclass(frozen=True)
-class WorkflowFileTarget:
-    """A workflow or template file row as it will be after a write."""
-
-    type: str
-    ref: str
-    team_id: int
-    shortcut: bool
-
-
-def _workflow_target(
-    entry_type: Optional[str], ref: Optional[str], team_id: int, shortcut: Optional[bool]
-) -> WorkflowFileTarget | None:
-    if entry_type not in WORKFLOW_FILE_SYSTEM_TYPES:
-        return None
-    # A row with no ref still needs workflow access to change. Its empty ref names no object, so its access
-    # resolves at resource level.
-    return WorkflowFileTarget(
-        type=entry_type,
-        ref=canonical_file_system_ref(entry_type, ref) if ref else "",
-        team_id=team_id,
-        shortcut=bool(shortcut),
-    )
-
-
-def _row_target(row: FileSystem) -> WorkflowFileTarget | None:
-    return _workflow_target(row.type, row.ref, row.team_id, row.shortcut)
-
-
 @extend_schema(extensions={"x-product": "core"})
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
@@ -636,75 +552,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         about, so its product registers a filter. Evaluated on every read, so a channel's type or
         membership changing needs no resync.
         """
-        queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
-        return self._visible_files(queryset)
+        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
-        return self._filter_by_access(
-            self._filter_by_product_visibility(queryset), workflow_files_enabled=self._workflow_files_enabled
-        )
-
-    def _filter_by_access(self, queryset: QuerySet, *, workflow_files_enabled: bool) -> QuerySet:
-        queryset = keep_workflow_files_in_scoped_teams(queryset, self.request.successful_authenticator)
+        queryset = self._filter_by_product_visibility(queryset)
         if not self.user_access_control:
             return queryset
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
-        if not workflow_files_enabled:
-            return self.user_access_control.filter_and_annotate_file_system_queryset(
-                queryset, extra_denied_refs=self._denied_short_id_refs
-            )
-        queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
-            queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
+            queryset, extra_denied_refs=self._denied_short_id_refs
         )
-
-    def _only_viewed_workflow_files(self, queryset: QuerySet) -> QuerySet:
-        viewed = recent_view_logs(
-            team_id=self.team.id, user_id=cast(User, self.request.user).id, surface=self.file_system_surface
-        ).filter(same_file_ref(WORKFLOW_FILE_SYSTEM_TYPES, "ref", OuterRef("ref")), type=OuterRef("type"))
-        return queryset.filter(~Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) | Exists(viewed))
-
-    def _lock_and_authorize_workflow_files(
-        self,
-        rows: Q | None = None,
-        *,
-        writes: Callable[[FileSystem], Iterable[WorkflowFileTarget | None]] = lambda row: [_row_target(row)],
-        new_files: Iterable[WorkflowFileTarget | None] = (),
-        skip_denied: bool = False,
-    ) -> tuple[builtins.list[FileSystem], set[WorkflowFileTarget]]:
-        """The one authorization for every write into workflow and template file rows.
-
-        It locks the project's rows that match `rows` in id order and reloads them, so the check sees the
-        rows the caller then writes. A row that was moved, retyped or deleted after the caller read it is
-        checked as it is now, or is gone from the result. `writes(row)` gives the files each locked row
-        becomes, and `new_files` the files the caller creates. The caller must hold a transaction when it
-        passes `rows`. It also locks the objects behind the rows it checks, the same way, so a save of one
-        of those objects waits until the caller commits. With `skip_denied` the denied files are returned
-        rather than raised, for a caller that writes only the allowed ones and places no object, so it locks
-        no object either.
-
-        Nothing here can wait on the flag service. The tree evaluates the flag locally, and a write that files
-        an object into a folder gets the service's answer from `resolved_workflows_list_v2` before its
-        transaction starts.
-        """
-        locked = self._lock_file_rows(rows) if rows is not None else []
-        targets = {target for row in locked for target in writes(row) if target is not None}
-        targets |= {target for target in new_files if target is not None}
-        denied = self._denied_workflow_files(targets, lock_objects=not skip_denied)
-        if denied and not skip_denied:
-            raise next(iter(denied.values()))
-        return locked, set(denied)
 
     def _lock_file_rows(self, rows: Q, *, without_meta: bool = False) -> builtins.list[FileSystem]:
         """The only row lock a file system write takes on file rows, so every write locks in one order.
 
         A write collects every file row it changes or counts first, and locks them here in one statement in
-        id order, which is also the order the file sync updates rows in. It locks the objects behind the rows
-        only after this, with `lock_file_system_objects`, which never waits for a lock. A save of an object
-        locks the object first and its file rows second, so a write that waited for the object while it held
-        the rows could deadlock with it. A caller that only deletes or counts the rows passes `without_meta`.
+        id order, which is also the order the file sync updates rows in. A caller that only deletes or counts
+        the rows passes `without_meta`.
         """
         locked = (
             FileSystem.objects.select_for_update(of=("self",))
@@ -713,105 +579,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return list(locked.defer("meta") if without_meta else locked)
 
-    def _authorize_workflow_files(self, targets: Iterable[WorkflowFileTarget | None]) -> None:
-        denied = self._denied_workflow_files({target for target in targets if target is not None})
-        if denied:
-            raise next(iter(denied.values()))
-
-    def _denied_workflow_files(
-        self, targets: set[WorkflowFileTarget], *, lock_objects: bool = False
-    ) -> dict[WorkflowFileTarget, APIException]:
-        denied: dict[WorkflowFileTarget, APIException] = {}
-        if not targets:
-            return denied
-        ordered = sorted(targets, key=lambda target: (target.team_id, target.type, target.ref, target.shortcut))
-        # A shortcut only points at the object, so it needs the access to open it. Any other row places or
-        # unlinks the object itself, so it needs the access to change it.
-        missing_scopes = {
-            False: scopes_caller_lacks(self.request, WORKFLOW_FILE_WRITE_SCOPES),
-            True: scopes_caller_lacks(self.request, WORKFLOW_SHORTCUT_WRITE_SCOPES),
-        }
-        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
-        for target in ordered:
-            if missing_scopes[target.shortcut]:
-                denied[target] = InsufficientScope(missing_scopes[target.shortcut])
-            elif scoped_team_ids and target.team_id not in scoped_team_ids:
-                denied[target] = PermissionDenied(
-                    "This API key doesn't cover this environment. Use a key scoped to it to change workflow files here."
-                )
-        if self.user_access_control:
-            checks: tuple[tuple[bool, AccessControlLevel, str], ...] = (
-                (False, "editor", "You need editor access to change this. Ask a project admin to grant it."),
-                (True, "viewer", "You need access to this to add a shortcut to it. Ask a project admin to grant it."),
-            )
-            # A row without a ref names no object, so it takes the resource level in its own environment.
-            # The tree spans every environment in the project, and `self.user_access_control` answers only
-            # for the environment of the request. A denied environment falls back to the resource default,
-            # so its project access is checked first.
-            access_by_team = self.user_access_control.for_team_ids(
-                {target.team_id for target in ordered if not target.ref}
-            )
-            for shortcut, level, message in checks:
-                group = [target for target in ordered if target.shortcut is shortcut and target not in denied]
-                missing = set(
-                    entries_missing_access_level(
-                        [(target.type, target.ref, target.team_id) for target in group if target.ref],
-                        self.user_access_control,
-                        self.team.project_id,
-                        level,
-                    )
-                )
-                for target in group:
-                    if (target.type, target.ref) in missing or (
-                        not target.ref
-                        and not (
-                            access_by_team[target.team_id].has_project_access
-                            and access_by_team[target.team_id].check_access_level_for_resource(
-                                file_system_resource(target.type), required_level=level
-                            )
-                        )
-                    ):
-                        denied[target] = PermissionDenied(message)
-        owned = [target for target in ordered if not target.shortcut and target.ref and target not in denied]
-        refs_by_type: dict[tuple[int, str], set[str]] = {}
-        for target in owned:
-            refs_by_type.setdefault((target.team_id, target.type), set()).add(target.ref)
-        refused = check_file_system_object_changes(
-            FileChangeContext(user=self.request.user, request=self.request), refs_by_type, lock=lock_objects
-        )
-        for target in owned:
-            if error := refused.get(FileObjectRef(team_id=target.team_id, type=target.type, ref=target.ref)):
-                denied[target] = error
-        return denied
-
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        data = serializer.validated_data
         with transaction.atomic():
-            self._lock_and_authorize_workflow_files(
-                new_files=[_workflow_target(data.get("type"), data.get("ref"), self.team.id, data.get("shortcut"))]
-            )
             super().perform_create(serializer)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        instance = cast(FileSystem, serializer.instance)
-        data = serializer.validated_data
         with transaction.atomic():
-            locked, _ = self._lock_and_authorize_workflow_files(
-                Q(pk=instance.pk),
-                writes=lambda row: [
-                    _row_target(row),
-                    _workflow_target(
-                        data.get("type", row.type),
-                        data.get("ref", row.ref),
-                        row.team_id,
-                        data.get("shortcut", row.shortcut),
-                    ),
-                ],
-            )
-            if not locked:
-                raise NotFound()
-            serializer.instance = locked[0]
+            serializer.instance = self._reload_under_lock(cast(FileSystem, serializer.instance))
             super().perform_update(serializer)
+
+    def _reload_under_lock(self, instance: FileSystem) -> FileSystem:
+        locked = self._lock_file_rows(Q(pk=instance.pk))
+        if not locked:
+            raise NotFound()
+        return locked[0]
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -904,7 +685,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     else:
                         q = Q(type=value)
                 elif field == "ref":
-                    q = _ref_lookup_q(value)
+                    q = Q(ref=value)
                 else:  # unknown prefix → search for the full token in path and type
                     q = Q(path__icontains=token) | Q(type__icontains=token)
             elif "/" in token and not basename_only:
@@ -954,34 +735,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
 
-    @cached_property
-    def _workflow_files_enabled(self) -> bool:
-        return workflows_list_v2_enabled(self.team, cast(User, self.request.user))
-
-    def _visible_files(self, queryset: QuerySet) -> QuerySet:
-        if self._workflow_files_enabled:
-            return queryset
-        # Each check matches a constant path prefix, so Postgres runs it at most once per statement. A prefix built
-        # from the outer row's path cannot use an index and scans the project once per row.
-        files = self._scope_by_project(FileSystem.objects.all())
-        only_workflow_files = Q()
-        for folder in ("Unfiled", *UNFILED_WORKFLOW_FOLDERS):
-            under = files.filter(path__startswith=f"{folder}/")
-            other_files = under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
-                type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
-            )
-            only_workflow_files |= (
-                Q(type="folder", path=folder)
-                & Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
-                & ~Exists(other_files)
-            )
-        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(only_workflow_files)
-
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = self._scope_by_project_and_environment(queryset)
+        queryset = self._scope_by_project_and_environment(queryset).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
         if self.action in ("list", "retrieve"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
@@ -1037,7 +795,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.annotate(last_viewed_at=Subquery(views.values("viewed_at")[:1]))
 
         if ref_param:
-            queryset = queryset.filter(_ref_lookup_q(ref_param, type_param))
+            queryset = queryset.filter(ref=ref_param)
             queryset = queryset.order_by("shortcut")  # override order
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
@@ -1304,13 +1062,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False, pagination_class=None)
     def frequent(self, request: Request, **kwargs: object) -> Response:
         queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
-        queryset = self._filter_by_access_control(self._only_viewed_workflow_files(queryset))
+        queryset = self._filter_by_access_control(queryset)
         items = get_recent_file_system_items(
             team_id=self.team.id,
             user_id=cast(User, request.user).id,
             surface=self.file_system_surface,
             limit=request.validated_query_data["limit"],
-            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, "folder", "task"],
+            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES, "folder", "task"],
             file_system_queryset=queryset,
             frequent_on=timezone.now().astimezone(ZoneInfo(self.team.timezone or "UTC")).date(),
         )
@@ -1354,15 +1112,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         not_type_param = request.query_params.get("not_type")
         # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
-        exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
-        if not self._workflow_files_enabled:
-            exclude_types.extend(WORKFLOW_FILE_SYSTEM_TYPES)
+        exclude_types = [
+            *RETIRED_FILE_SYSTEM_TYPES,
+            *UNFILED_FILE_SYSTEM_TYPES,
+            *([not_type_param] if not_type_param else []),
+        ]
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
-            type__in=RETIRED_FILE_SYSTEM_TYPES
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
         )
-        base_queryset = self._filter_by_access_control(self._only_viewed_workflow_files(base_queryset))
+        base_queryset = self._filter_by_access_control(base_queryset)
         if search_param:
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
@@ -1404,9 +1164,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         was the last reference to it. Returns the reloaded `instance` and the deleted objects.
 
         The rows are read first without a lock: the target, the files under it, and every row that references
-        the same objects. Then `_lock_file_rows` locks all of them in one statement, and the objects are
-        locked after that without waiting. A row that changed after it was read stays where it is, and so
-        does a row filed under the target after the lock.
+        the same objects. Then `_lock_file_rows` locks all of them in one statement. A row that changed after
+        it was read stays where it is, and so does a row filed under the target after the lock.
         """
         read = [instance]
         if instance.type == "folder" and recursive and not instance.shortcut:
@@ -1424,7 +1183,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 refs_by_type.setdefault((row.team_id, row.type), set()).add(
                     canonical_file_system_ref(row.type, row.ref)
                 )
-        prepare_file_system_objects(self.request, refs_by_type)
 
         # A row filed on a surface the team never used before is missed by the sampled surface list. Sample
         # again after the lock. When the list changed, roll the lock back to its savepoint, which releases the
@@ -1452,7 +1210,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if target is None:
             raise NotFound()
         if (target.type, target.ref, bool(target.shortcut), target.path) != (*read_as[instance.pk], instance.path):
-            self._authorize_workflow_files({_row_target(target)})
             raise Conflict("This item changed while you were deleting it. Refresh and try again.", code="file_changed")
         under_target = sorted(
             (
@@ -1472,6 +1229,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # several of them go in this request, the first one carries it, so the object's hooks run once.
         groups: dict[tuple[int, str, str], list[FileSystem]] = {}
         for row in removed:
+            if row.type in UNFILED_FILE_SYSTEM_TYPES:
+                # The caller may lack access to the row, so the message leaves its type out.
+                raise serializers.ValidationError({"detail": "This folder holds items that can't be deleted here."})
             if row.shortcut or row.type == "folder" or row.type in RETIRED_FILE_SYSTEM_TYPES:
                 continue
             if not is_file_system_type_registered(row.type):
@@ -1485,33 +1245,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if row.pk not in removed_ids and not row.shortcut and row.ref
         }
         carriers: list[FileSystem] = []
-        objects_to_delete: list[FileObjectRef] = []
+        objects_to_delete: list[tuple[int, str, str]] = []
         for (team_id, file_type, ref), group in sorted(groups.items()):
             if (team_id, file_type, ref) not in surviving:
                 carriers.append(group[0])
-                objects_to_delete.append(FileObjectRef(team_id=team_id, type=file_type, ref=ref))
+                objects_to_delete.append((team_id, file_type, ref))
 
-        self._ensure_can_change_pipelines((entry.team_id, entry.type) for entry in objects_to_delete)
-        # Every other type's object needs the same editor access as through its own API.
-        other_objects = [
-            (entry.type, entry.ref, entry.team_id)
-            for entry in objects_to_delete
-            if entry.type not in WORKFLOW_FILE_SYSTEM_TYPES
-        ]
+        self._ensure_can_change_pipelines((team_id, file_type) for team_id, file_type, _ in objects_to_delete)
+        objects = [(file_type, ref, team_id) for team_id, file_type, ref in objects_to_delete]
         if (
-            other_objects
+            objects
             and self.user_access_control
-            and entries_missing_access_level(other_objects, self.user_access_control, self.team.project_id, "editor")
+            and entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
         ):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
-        self._authorize_workflow_files(
-            {_row_target(row) for row in removed}
-            | {_workflow_target(entry.type, entry.ref, entry.team_id, False) for entry in objects_to_delete}
-        )
 
-        locked_objects = lock_file_system_objects(
-            FileObjectRef(team_id=row.team_id, type=row.type, ref=row.ref) for row in carriers if row.ref
-        )
         carrier_ids = {row.pk for row in carriers}
         deleted_objects: list[dict[str, Any]] = []
         results: list[DeletionResult] = []
@@ -1526,7 +1274,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 request=self.request,
                 team=self.team,
                 organization=getattr(self, "organization", None),
-                locked_objects=locked_objects,
             )
             results.append(result)
             deleted_objects.append(
@@ -1551,7 +1298,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             if instance.type == "folder" and not query.validated_data["recursive"]:
-                locked, _ = self._lock_and_authorize_workflow_files(Q(pk=instance.pk))
+                locked = self._lock_file_rows(Q(pk=instance.pk))
                 if not locked:
                     raise NotFound()
                 if (locked[0].type, locked[0].path) != (instance.type, instance.path):
@@ -1580,11 +1327,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance_created_by = instance.created_by
 
         if instance.type == "folder":
-            # The tree hides retired rows, so a retired leftover needs no folder to sit in.
-            leftovers = self._without_hidden_workflow_files(
-                self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
-                    type__in=RETIRED_FILE_SYSTEM_TYPES
-                )
+            # The tree hides retired and unfiled rows, so such a leftover needs no folder to sit in.
+            leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/")).exclude(
+                type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
             )
             first_leftover = leftovers.first()
             if first_leftover:
@@ -1605,37 +1350,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # requests naming the same objects in opposite order would each hold one and block on the
         # other. Sorting means every request takes those locks in the same order instead.
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
-        # Check the scopes before any object is read, so a token that lacks them gets the same answer whether or
-        # not the workflow or template it names exists.
-        if any(item["type"] in WORKFLOW_FILE_SYSTEM_TYPES for item in items) and (
-            missing := scopes_caller_lacks(request, WORKFLOW_FILE_WRITE_SCOPES)
-        ):
-            raise InsufficientScope(missing)
         undo_results: list[dict[str, str]] = []
-        refs_by_type: dict[tuple[int, str], set[str]] = {}
-        for item in items:
-            refs_by_type.setdefault((self.team.id, item["type"]), set()).add(item["ref"])
-        prepare_file_system_objects(request, refs_by_type)
-        # Refuse before anything reads an object's creator or asks the flag service about them, so a refused
-        # restore takes the same steps whether or not the object exists. The transaction below checks again.
-        for item in items:
-            self._authorize_restore(item, lock=False)
-        # A restore into a folder files its object again on save, which asks the flag service for the
-        # object's creator. Ask it here, before the restore locks the object.
-        creator_ids: set[int] = set()
-        for (team_id, file_type), refs in refs_by_type.items():
-            placed = {item["ref"] for item in items if item["type"] == file_type and item.get("path") is not None}
-            if file_type in WORKFLOW_FILE_SYSTEM_TYPES and placed & refs:
-                creator_ids |= file_system_object_creator_ids(file_type, team_id, placed & refs)
 
-        creators = {user.pk: user for user in User.objects.filter(pk__in=creator_ids)} if creator_ids else {}
-
-        with (
-            resolved_workflows_list_v2(self.team, creators.values()),
-            transaction.atomic(),
-        ):
+        with transaction.atomic():
             for item in items:
-                self._authorize_restore(item, lock=True)
+                self._ensure_can_restore(item["type"], item["ref"])
                 try:
                     restored_instance = undo_delete_object(
                         type_string=item["type"],
@@ -1646,40 +1365,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         team=self.team,
                         organization=getattr(self, "organization", None),
                     )
-                except InsufficientScope:
-                    raise
-                except PermissionDenied:
-                    raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
                 except ValueError:
                     logger.exception(
                         "Exception during undo_delete_object (type=%s, ref=%s)", item.get("type"), item.get("ref")
                     )
                     raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
-                self._restore_file_system_path(restored_instance, item, creators)
+                self._restore_file_system_path(restored_instance, item)
                 undo_results.append({"type": item["type"], "ref": item["ref"]})
 
         return Response({"undone": undo_results}, status=status.HTTP_200_OK)
 
-    def _authorize_restore(self, item: dict[str, Any], *, lock: bool) -> None:
-        self._ensure_can_restore(item["type"], item["ref"])
-        # A refusal that names its reason, such as a linked workflow the caller can't edit, would tell the caller
-        # that a deleted object exists under a guessed ref. So it gets the same answer as a ref that names nothing.
-        target = _workflow_target(item["type"], item["ref"], self.team.id, False)
-        try:
-            if lock:
-                self._lock_and_authorize_workflow_files(new_files=[target])
-            else:
-                self._authorize_workflow_files([target])
-        except InsufficientScope:
-            raise
-        except PermissionDenied:
-            raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
-
     def _ensure_can_change_pipelines(self, targets: Iterable[tuple[int, str]]) -> None:
         """Each target is (team_id, file type). A sibling environment's file is checked against its own rules."""
-        pipeline_teams = {
-            team_id for team_id, t in targets if t.startswith("hog_function/") or t in WORKFLOW_FILE_SYSTEM_TYPES
-        }
+        pipeline_teams = {team_id for team_id, t in targets if t.startswith("hog_function/")}
         user = cast(User, self.request.user)
         if any(
             access_control_api.get_restricted_properties_with_group_type_index_for_team(team_id=team_id, user=user)
@@ -1694,14 +1392,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
         user_access_control = self.user_access_control
         allowed = instance is not None and (
-            not user_access_control
-            or (
-                user_access_control.check_access_level_for_resource(
-                    file_system_resource(type_string), required_level="editor"
-                )
-                if type_string in RESOURCE_LEVEL_ONLY_TYPES
-                else user_access_control.check_access_level_for_object(instance, required_level="editor")
-            )
+            True
+            if not user_access_control
+            else user_access_control.check_access_level_for_object(instance, required_level="editor")
         )
         if not allowed:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
@@ -1711,13 +1404,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         file_type = query_serializer.validated_data.get("type")
-        files = save_unfiled_files(
-            self.team,
-            cast(User, request.user),
-            file_type,
-            surface=self.file_system_surface,
-            authorize=self._authorized_unfiled_files,
-        )
+        files = save_unfiled_files(self.team, cast(User, request.user), file_type, surface=self.file_system_surface)
 
         self._retroactively_fix_folders_and_depth(cast(User, request.user))
 
@@ -1735,12 +1422,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
-
-    def _authorized_unfiled_files(self, files: builtins.list[FileSystem]) -> builtins.list[FileSystem]:
-        # Unfiled is a read, so a read-only key reaches it. It still writes rows, so the workflow and template
-        # files it would create pass the same check as any other write, and the denied ones stay unfiled.
-        denied = self._denied_workflow_files({target for file in files if (target := _row_target(file))})
-        return [file for file in files if _row_target(file) not in denied]
 
     def _move_folder_shortcuts(self, old_path: str, new_path: str, team_id: int) -> None:
         shortcuts = self._scope_by_project(
@@ -1761,17 +1442,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            # Lock and authorize the moved row and, for a folder, the exact rows under it this move saves, in
+            # Lock the moved row and, for a folder, the exact rows under it this move saves, in
             # one statement. A row filed into the folder after the read is not locked and stays where it is.
             rows = Q(pk=instance.pk)
             if instance.type == "folder":
                 visible = self._filter_by_access_control(
                     self._scope_by_project_and_environment(
                         FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                    )
+                    ).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
                 )
                 rows |= Q(path__startswith=f"{instance.path}/", pk__in=list(visible.values_list("pk", flat=True)))
-            locked, _ = self._lock_and_authorize_workflow_files(rows)
+            locked = self._lock_file_rows(rows)
             moved = next((row for row in locked if row.pk == instance.pk), None)
             if moved is None:
                 raise NotFound()
@@ -1810,9 +1491,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 instance.depth = len(split_path(instance.path))
                 instance.save()
 
-        # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder)
-        leftovers = self._without_hidden_workflow_files(
-            self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/"))
+        # Repair folder tree for items we *didn't* move (hog functions in other teams under the moved folder).
+        # The tree hides unfiled rows, so an unfiled leftover gets no folder that would look empty.
+        leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{old_path}/")).exclude(
+            type__in=UNFILED_FILE_SYSTEM_TYPES
         )
         first_leftover = leftovers.first()
         if first_leftover:
@@ -1840,11 +1522,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                qs = self._scope_by_project_and_environment(qs)
+                qs = self._scope_by_project_and_environment(qs).exclude(type__in=UNFILED_FILE_SYSTEM_TYPES)
                 qs = self._filter_by_access_control(qs)
-                children, _ = self._lock_and_authorize_workflow_files(
-                    Q(path__startswith=f"{instance.path}/", pk__in=list(qs.values_list("pk", flat=True))),
-                    writes=lambda row: [_workflow_target(row.type, row.ref, row.team_id, True)],
+                children = self._lock_file_rows(
+                    Q(path__startswith=f"{instance.path}/", pk__in=list(qs.values_list("pk", flat=True)))
                 )
 
                 for file in children:
@@ -1869,13 +1550,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         else:
             with transaction.atomic():
-                locked, _ = self._lock_and_authorize_workflow_files(
-                    Q(pk=instance.pk),
-                    writes=lambda row: [_workflow_target(row.type, row.ref, row.team_id, True)],
-                )
-                if not locked:
-                    raise NotFound()
-                instance = locked[0]
+                instance = self._reload_under_lock(instance)
                 instance.pk = None  # This removes the id
                 instance.path = new_path
                 instance.depth = len(split_path(instance.path))
@@ -1906,7 +1581,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         project_team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
         queryset = self._scope_by_project_and_environment(FileSystem.objects.select_related("created_by"))
         queryset = queryset.filter(team_id__in=project_team_ids).exclude(
-            type__in=[*RETIRED_FILE_SYSTEM_TYPES, "folder"]
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES, "folder"]
         )
         if filter_tokens:
             queryset = self._apply_search_to_queryset(queryset, " ".join(shlex.quote(t) for t in filter_tokens))
@@ -2004,7 +1679,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user_id=request.user.id,
             surface=self.file_system_surface,
             type=validated.get("type") or None,
-            exclude_types=RETIRED_FILE_SYSTEM_TYPES,
+            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES],
             limit=validated.get("limit"),
         )
 
@@ -2025,7 +1700,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .select_related("created_by")
             .order_by("depth", "path")
         )
-        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
+        qs = self._scope_by_project_and_environment(qs).exclude(
+            type__in=[*RETIRED_FILE_SYSTEM_TYPES, *UNFILED_FILE_SYSTEM_TYPES]
+        )
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()
@@ -2040,15 +1717,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
-
-    def _without_hidden_workflow_files(self, leftovers: QuerySet) -> QuerySet:
-        """Leftovers of a folder write that may get their parent folders back. A folder filed for a workflow or
-        template file the caller cannot read would show the caller that file's path, so those files get none.
-        A file the flag hides from the caller is still one the caller can read, so it keeps its folder."""
-        readable = self._filter_by_access(
-            leftovers.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES), workflow_files_enabled=True
-        )
-        return leftovers.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=readable.values("pk")))
 
     def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
         """
@@ -2071,9 +1739,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     surface=self.file_system_surface,
                 )
 
-    def _restore_file_system_path(
-        self, instance: Any, payload: dict[str, Any], creators: dict[int, User] | None = None
-    ) -> None:
+    def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
         restore_path = payload.get("path")
         if restore_path is None:
             return
@@ -2081,11 +1747,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         team = getattr(instance, "team", None) if instance is not None else None
         team = team or self.team
 
-        created_by_id = getattr(instance, "created_by_id", None)
-        if creators and created_by_id in creators:
-            created_by: Any = creators[created_by_id]
-        else:
-            created_by = getattr(instance, "created_by", None) if instance is not None else None
+        created_by = getattr(instance, "created_by", None) if instance is not None else None
         request_user = self.request.user if isinstance(self.request.user, User) else None
         created_by_user = created_by if isinstance(created_by, User) else request_user
         if created_by_user is None:
@@ -2100,7 +1762,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # ref (`+42` against `42`), so both refs match, and a row is created only when neither has one.
         refs = {payload["ref"], fs_data.ref} if fs_data else {payload["ref"]}
         restored = FileSystem.objects.filter(
-            surface_q(self.file_system_surface), file_refs_q(payload["type"], refs), team=team, type=payload["type"]
+            surface_q(self.file_system_surface), team=team, type=payload["type"], ref__in=refs
         ).update(path=restore_path, depth=len(split_path(restore_path)))
         if restored or fs_data is None:
             return
@@ -2135,7 +1797,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Parent folders show path segments to everyone who lists the tree, so they come only from rows this
         # caller can read, and each one goes in its source row's environment.
-        readable_files = self._filter_by_access_control(scoped_files)
+        readable_files = self._filter_by_access_control(scoped_files.exclude(type__in=UNFILED_FILE_SYSTEM_TYPES))
         scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
         if scoped_team_ids:
             readable_files = readable_files.filter(team_id__in=scoped_team_ids)
@@ -2173,10 +1835,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if items_to_update:
             with transaction.atomic():
-                locked, denied = self._lock_and_authorize_workflow_files(
-                    Q(pk__in=[item.pk for item in items_to_update]), skip_denied=True
-                )
-                for item in locked:
-                    if _row_target(item) not in denied:
-                        item.depth = len(split_path(item.path))
-                        item.save()
+                for item in self._lock_file_rows(Q(pk__in=[item.pk for item in items_to_update])):
+                    item.depth = len(split_path(item.path))
+                    item.save()

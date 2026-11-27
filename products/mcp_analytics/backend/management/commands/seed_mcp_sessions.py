@@ -2,6 +2,7 @@ import math
 import uuid
 import random
 from collections.abc import Hashable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Generic, Literal, TypeVar
 
@@ -590,6 +591,53 @@ INTENTS_BY_TOOL: dict[str, list[str]] = {
     ],
 }
 DEFAULT_INTENT = "Helping the user investigate a recent product-analytics question without a specific recorded intent."
+
+# Clustering drops texts that open 3+ sessions, so most intents get a unique suffix.
+UNIQUE_INTENT_PROBABILITY = 0.85
+INTENT_REQUESTERS = [
+    "The growth team asked",
+    "Requested by the CEO",
+    "Support escalated this",
+    "The on-call engineer asked",
+    "Finance needs this",
+    "The design lead asked",
+    "A customer success manager asked",
+    "The data team flagged this",
+    "Marketing asked",
+    "The platform team needs this",
+    "Sales leadership asked",
+    "The mobile team asked",
+    "Product ops needs this",
+    "The security team asked",
+    "A new hire asked",
+    "The founders asked",
+    "The billing squad needs this",
+    "The onboarding squad asked",
+    "Legal asked",
+    "The analytics guild needs this",
+]
+INTENT_DEADLINES = [
+    "before Monday's planning meeting",
+    "for the quarterly board deck",
+    "ahead of the launch on Thursday",
+    "for an enterprise renewal call",
+    "after a spike in support tickets",
+    "for the weekly metrics email",
+    "before the pricing change ships",
+    "to close out an incident review",
+    "for the investor update",
+    "before the sprint retro",
+    "for a customer health check",
+    "ahead of the all-hands",
+    "to settle a debate in Slack",
+    "before rolling back the deploy",
+    "for the experiment readout",
+    "to prepare the roadmap review",
+    "after a partner reported missing data",
+    "for the hiring plan",
+    "before the EU region migration",
+    "for tomorrow's standup",
+]
 
 MISSING_CAPABILITY_INTENTS: list[str] = [
     "Create a new dashboard and arrange the most relevant insights on it.",
@@ -1201,7 +1249,7 @@ def plan_sessions(
             else min(max_calls, min_calls + int((max_calls - min_calls + 1) * rng.random() ** 2))
         )
         if days > 0:
-            age_day = day_picker.pick(day_weights, amount=calls)
+            age_day = day_picker.pick(day_weights, amount=calls or 1)
             end_offset_min = rng.randint(max(31, age_day * 24 * 60), (age_day + 1) * 24 * 60)
         else:
             # Within the last hour, so the session shows up in every default date range.
@@ -1272,6 +1320,26 @@ class Command(BaseCommand):
             "$mcp_seeded, plus the session intent rows those events belong to. Genuine MCP traffic "
             "and data seeded before the marker existed are left alone.",
         )
+        parser.add_argument(
+            "--intent-rate",
+            type=float,
+            default=1.0,
+            help="Share of sessions whose tool calls carry $mcp_intent. 0 seeds an SDK with intent capture off.",
+        )
+        parser.add_argument(
+            "--no-conversation-id",
+            action="store_true",
+            help="Give every event its own $session_id and drop $mcp_conversation_id, like a stateless server "
+            "without conversation IDs, so each call lands in its own session.",
+        )
+        parser.add_argument("--no-model", action="store_true", help="Leave $mcp_llm_model off every event.")
+        parser.add_argument("--no-errors", action="store_true", help="Make every tool call succeed.")
+        parser.add_argument("--anonymous", action="store_true", help="Never identify users, so no persons exist.")
+        parser.add_argument(
+            "--no-client-info",
+            action="store_true",
+            help="Drop the client name, version, vendor header and User-Agent, so no harness can be resolved.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if run_mode().is_deployed_cloud:
@@ -1299,6 +1367,12 @@ class Command(BaseCommand):
         feedback_count: int = explicit_feedback if explicit_feedback is not None else default_feedback_count
         seed: int | None = options["seed"]
         clear: bool = options["clear"]
+        intent_rate: float = options["intent_rate"]
+        no_conversation_id: bool = options["no_conversation_id"]
+        no_model: bool = options["no_model"]
+        no_errors: bool = options["no_errors"]
+        identified_probability = 0.0 if options["anonymous"] else IDENTIFIED_PROBABILITY
+        no_client_info: bool = options["no_client_info"]
 
         if min_calls > max_calls:
             raise CommandError("--min-calls must be <= --max-calls")
@@ -1415,6 +1489,8 @@ class Command(BaseCommand):
             # the transport's session instead and no $mcp_conversation_id.
             if handshake_session_id:
                 session_properties = {"$session_id": handshake_session_id}
+            elif no_conversation_id:
+                session_properties = {"$session_id": f"ses_{uuid.uuid4().hex}"}
             else:
                 session_properties = {
                     "$session_id": session.session_id,
@@ -1481,7 +1557,7 @@ class Command(BaseCommand):
             identified_distinct_id: str | None = None
             person_uuid: str | None = None
             person_props: dict[str, Any] = {}
-            if rng.random() < IDENTIFIED_PROBABILITY:
+            if rng.random() < identified_probability:
                 identified_distinct_id = rng.choice(IDENTIFIED_PERSONAS)["distinct_id"]
                 person_uuid, person_props = ensure_person(identified_distinct_id, {}, is_identified=True)
             else:
@@ -1489,33 +1565,34 @@ class Command(BaseCommand):
                 # so no person row exists for these sessions.
                 common_properties["$process_person_profile"] = False
 
-            client_index = client_picker.pick(client_weights, amount=calls)
+            client_index = client_picker.pick(client_weights, amount=calls or 1)
             client = CLIENT_PROFILES[client_index]
-            protocol_version = protocol_picker.pick(protocol_version_weights(age_fraction, client), amount=calls)
+            protocol_version = protocol_picker.pick(protocol_version_weights(age_fraction, client), amount=calls or 1)
             is_stateless = protocol_version == STATELESS_PROTOCOL_VERSION
+            reported = replace(client, name=None, vendor_client=None, user_agent=None) if no_client_info else client
             common_properties.update(
                 {
                     "$lib": SDK_LIB_NAME,
                     "$mcp_source": NEW_SDK_SOURCE,
                     "$mcp_server_name": MCP_SERVER_NAME,
                     "$mcp_server_version": MCP_SERVER_VERSION,
-                    "$mcp_client_name": client.name,
-                    "$mcp_client_version": client.version if client.name else None,
+                    "$mcp_client_name": reported.name,
+                    "$mcp_client_version": reported.version if reported.name else None,
                     "$mcp_protocol_version": protocol_version,
                 }
             )
-            if client.vendor_client:
-                vendor_key = "mcp_vendor_client" if client.legacy_vendor_key else "$mcp_vendor_client"
-                common_properties[vendor_key] = client.vendor_client
-            if client.user_agent:
-                common_properties["$mcp_client_user_agent"] = client.user_agent
+            if reported.vendor_client:
+                vendor_key = "mcp_vendor_client" if reported.legacy_vendor_key else "$mcp_vendor_client"
+                common_properties[vendor_key] = reported.vendor_client
+            if reported.user_agent:
+                common_properties["$mcp_client_user_agent"] = reported.user_agent
             model_properties: dict[str, Any] = {}
             model_weights: dict[str | None, float] = {
                 None: client.unknown_model_rate,
                 **{model: (1 - client.unknown_model_rate) * weight for model, weight in client.models.items()},
             }
-            model = model_pickers.setdefault(client_index, EvenPicker()).pick(model_weights, amount=calls)
-            if model is not None:
+            model = model_pickers.setdefault(client_index, EvenPicker()).pick(model_weights, amount=calls or 1)
+            if model is not None and not no_model:
                 model_properties = {"$mcp_llm_model": model, "$mcp_llm_model_source": client.model_source}
 
             session = _SeededSession(
@@ -1559,8 +1636,12 @@ class Command(BaseCommand):
 
             # One coherent intent per session, from the tool the session mostly calls, so the
             # clustering page has themes to group and each tool's sample intents fit the tool.
-            primary_tool = primary_tool_picker.pick(tool_weights, amount=calls)
-            session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
+            primary_tool = primary_tool_picker.pick(tool_weights, amount=calls or 1)
+            session_intent: str | None = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
+            if rng.random() < UNIQUE_INTENT_PROBABILITY:
+                session_intent = f"{session_intent} {rng.choice(INTENT_REQUESTERS)} {rng.choice(INTENT_DEADLINES)}."
+            if rng.random() >= intent_rate:
+                session_intent = None
 
             session_calls: list[_SeededCall] = []
             retry_tool: str | None = None
@@ -1586,7 +1667,9 @@ class Command(BaseCommand):
                     error_types = {"internal": 80, "timeout": 20}
                     duration_ms = int(duration_ms * REGRESSION_LATENCY_FACTOR)
                 failure: _Failure | None = None
-                if is_blocked:
+                if no_errors:
+                    pass
+                elif is_blocked:
                     failure = FAILURES["permission"]
                 elif not is_fast and error_debts[tool_name].fires(error_rate):
                     error_type = rng.choices(list(error_types), weights=list(error_types.values()), k=1)[0]
@@ -1597,8 +1680,10 @@ class Command(BaseCommand):
                     "$mcp_tool_name": tool_name,
                     "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
                     "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
+                    # None drops the property, like an SDK without intent capture.
                     "$mcp_intent": session_intent,
-                    "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
+                    "$mcp_intent_source": session_intent
+                    and rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
                     "$mcp_is_error": failure is not None,
                     "$mcp_parameters": TOOL_ARGUMENTS.get(tool_name, {}),
                     "$mcp_response": {"content": [{"type": "text", "text": f"{tool_name} completed."}]},
@@ -1655,10 +1740,11 @@ class Command(BaseCommand):
             # The session listing derives sessions on the fly from the events above,
             # but intent clustering reads MCPSession.intent (keyed by $session_id), so
             # store one row per session to give the clustering page something to group.
-            with team_scope(team_id):
-                MCPSession.objects.update_or_create(
-                    team=team, session_id=session_id, defaults={"intent": session_intent}
-                )
+            if session_intent:
+                with team_scope(team_id):
+                    MCPSession.objects.update_or_create(
+                        team=team, session_id=session_id, defaults={"intent": session_intent}
+                    )
             seeded_sessions.append(session)
             calls_by_session[session_id] = session_calls
             self.stdout.write(

@@ -19,6 +19,7 @@ type Resource = {
     arn: string
     state: string
     runTag?: string
+    tags?: Record<string, string>
     clusterResourceId?: string
     secretArn?: string
     rdsClusterArn?: string
@@ -126,6 +127,8 @@ export type FakeCloudOptions = {
         runnerStatus?: string
         runnerStatusReason?: unknown
         journalsIntent?: boolean
+        intentAt?: string
+        eventFields?: Record<string, unknown>
         pairRoles?: (PairRole | undefined)[]
         controlStatus?: string
         controlEndedAt?: string
@@ -138,7 +141,7 @@ export type FakeCloudOptions = {
     shortValuesOf?: 'Maximum' | 'Average'
     unknownTimestampOf?: 'Maximum' | 'Average'
     omitsCapacityStatus?: boolean
-    liveReaderAcu?: { maxima: (number | null)[]; averages?: number[]; lagMinutes?: number }
+    liveReaderAcu?: { maxima: (number | null)[]; averages?: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
 
@@ -187,6 +190,7 @@ export class FakeCloud implements Aws {
     readonly resources: Resource[] = []
     readonly parameterStore = new Map<string, string>()
     readonly untyped: string[] = []
+    readonly hostVolumeSnapshots: Record<string, string>[] = []
     private readonly commands: Command[] = []
     private card: Card | undefined
     private metricReads = 0
@@ -281,6 +285,7 @@ export class FakeCloud implements Aws {
                 stackName: cluster,
                 readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
                 readerMinAcu: PROFILE.readerAcu.min,
+                readerMaxAcu: PROFILE.readerAcu.max,
             },
         }
     }
@@ -479,8 +484,26 @@ export class FakeCloud implements Aws {
                 throw new Error(`the fake cloud does not model ${Type}`)
             }
             stack.resources.push(...created)
-            this.resources.push(...created)
+            this.resources.push(...created, ...created.flatMap((resource) => this.snapshotsOf(resource)))
         }
+    }
+
+    private snapshotsOf({ type, logicalId, runTag }: Resource): Resource[] {
+        if (type !== 'AWS::EC2::Volume' || runTag === undefined) {
+            return []
+        }
+        return this.hostVolumeSnapshots.map((tags, n) => {
+            const snapshotId = `snap-${randomUUID().replace(/-/g, '').slice(0, 17)}`
+            return {
+                logicalId: `${logicalId}Snapshot${n}`,
+                type: 'AWS::EC2::Snapshot',
+                id: snapshotId,
+                arn: `arn:aws:ec2:us-east-1::snapshot/${snapshotId}`,
+                state: 'completed',
+                runTag,
+                tags,
+            }
+        })
     }
 
     private hostRunning(instanceId: string): boolean {
@@ -566,7 +589,7 @@ export class FakeCloud implements Aws {
                           requestedAt: new Date(card.startedAt).toISOString(),
                           ...(this.options.card?.journalsIntent === false
                               ? {}
-                              : { intentAt: new Date(failoverAt).toISOString() }),
+                              : { intentAt: this.options.card?.intentAt ?? new Date(failoverAt).toISOString() }),
                           appliedAt: new Date(failoverAt + 5_000).toISOString(),
                       },
                   ]
@@ -610,6 +633,7 @@ export class FakeCloud implements Aws {
                 valve_timeline: timeline,
                 evidence_dir: `/opt/scenario/cache/posthog-scenarios/${runnerRunId}`,
                 ...(role && { pair_role: role, pair_attribution: attribution, pair_reason: pairReason }),
+                ...this.options.card?.eventFields,
             },
         })
     }
@@ -677,7 +701,14 @@ export class FakeCloud implements Aws {
         const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
         return maxima.map((max, i) => ({
             at: newest - (maxima.length - 1 - i) * MINUTE_MS,
-            value: max === null ? undefined : { Maximum: max, Average: averages?.[i] ?? max, SampleCount: 60 }[Stat],
+            value:
+                max === null
+                    ? undefined
+                    : {
+                          Maximum: max,
+                          Average: averages?.[i] === null ? undefined : (averages?.[i] ?? max),
+                          SampleCount: 60,
+                      }[Stat],
         }))
     }
 
@@ -1151,7 +1182,13 @@ export class FakeCloud implements Aws {
                         ...(this.stacks.size > 0 ? this.untyped.map((arn) => ({ arn, runTag: runId })) : []),
                     ]
                         .filter((tagged) => tagged.runTag === runId)
-                        .map(({ arn }) => ({ ResourceARN: arn })),
+                        .map((tagged) => ({
+                            ResourceARN: tagged.arn,
+                            Tags: Object.entries({
+                                'scenario-run': runId,
+                                ...('tags' in tagged ? tagged.tags : {}),
+                            }).map(([Key, Value]) => ({ Key, Value })),
+                        })),
                 }
             }
             case 'ssm get-parameter': {

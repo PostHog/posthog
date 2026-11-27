@@ -65,6 +65,8 @@ export interface UseToolResultOptions {
      * result, before surfacing an error. Set to 0 to wait indefinitely.
      */
     waitTimeoutMs?: number
+    /** Reads the app's data from a successful result. Defaults to `parseToolResultContent`. */
+    readResult?: (structuredContent: unknown, meta: Record<string, unknown> | undefined) => unknown
 }
 
 export interface ContainerDimensions {
@@ -183,6 +185,7 @@ export function useToolResult<T = unknown>({
     appName,
     appVersion = '1.0.0',
     waitTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+    readResult = parseToolResultContent,
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [resultMeta, setResultMeta] = useState<Record<string, unknown> | null>(null)
@@ -243,7 +246,9 @@ export function useToolResult<T = unknown>({
             appInstance.ontoolresult = (params) => {
                 try {
                     const meta = (params as { _meta?: Record<string, unknown> })._meta
-                    const parsed = params.isError ? null : parseToolResultContent<T>(params.structuredContent, meta)
+                    const parsed = params.isError
+                        ? null
+                        : ((readResult(params.structuredContent, meta) ?? null) as T | null)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)

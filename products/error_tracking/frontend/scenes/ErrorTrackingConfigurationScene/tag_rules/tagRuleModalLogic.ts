@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -11,7 +12,7 @@ import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup, Univer
 
 import { issueTagDefinitionsLogic } from '../../../components/IssueFilters/issueTagDefinitionsLogic'
 import { errorTrackingTagRulesCreate, errorTrackingTagRulesUpdate } from '../../../generated/api'
-import type { ErrorTrackingIssueTagRuleFiltersApi } from '../../../generated/api.schemas'
+import type { ErrorTrackingIssueTagRuleFiltersApi, IssueTagColorEnumApi } from '../../../generated/api.schemas'
 import { rulesLogic } from '../rules/rulesLogic'
 import { destroyTagRule } from '../rules/tagRuleRequests'
 import { ErrorTrackingRule, ErrorTrackingRuleType, ErrorTrackingTagRule, ErrorTrackingTagRuleNew } from '../rules/types'
@@ -24,6 +25,7 @@ function emptyRule(): ErrorTrackingTagRuleNew {
         id: 'new',
         label: '',
         description: '',
+        color: null,
         filters: { type: FilterLogicalOperator.And, values: [] },
         disabled_data: null,
         order_key: 0,
@@ -161,6 +163,9 @@ export interface tagRuleModalLogicActions {
     saveRule: () => {
         value: true
     }
+    updateColor: (color: IssueTagColorEnumApi | null) => {
+        color: IssueTagColorEnumApi | null
+    }
     updateDescription: (description: string) => {
         description: string
     }
@@ -205,6 +210,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         updateRule: (rule: EditableTagRule) => ({ rule }),
         updateLabel: (label: string) => ({ label }),
         updateDescription: (description: string) => ({ description }),
+        updateColor: (color: IssueTagColorEnumApi | null) => ({ color }),
         increaseDateRange: true,
         saveRule: true,
     }),
@@ -220,6 +226,10 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
                 updateDescription: (state: EditableTagRule, { description }: { description: string }) => ({
                     ...state,
                     description,
+                }),
+                updateColor: (state: EditableTagRule, { color }: { color: IssueTagColorEnumApi | null }) => ({
+                    ...state,
+                    color,
                 }),
             },
         ],
@@ -271,9 +281,9 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
             false,
             {
                 persistRule: async () => {
-                    const { id, label, description, filters } = values.rule
+                    const { id, label, description, color, filters } = values.rule
                     const projectId = String(teamLogic.values.currentTeamId)
-                    const body = { label, description, filters: filters as ErrorTrackingIssueTagRuleFiltersApi }
+                    const body = { label, description, color, filters: filters as ErrorTrackingIssueTagRuleFiltersApi }
                     if (id === 'new') {
                         const order_key = Math.max(-1, ...values.rules.map((rule) => rule.order_key)) + 1
                         await errorTrackingTagRulesCreate(projectId, { ...body, order_key })
@@ -321,7 +331,10 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         },
         deleteSelectedRulesSuccess: reloadIssueTagDefinitions,
         finishReorderingRulesSuccess: reloadIssueTagDefinitions,
-        openModal: () => actions.resetMatchCount(),
+        openModal: ({ rule }) => {
+            posthog.capture('error_tracking_tag_rule_modal_opened', { mode: rule ? 'edit' : 'create' })
+            actions.resetMatchCount()
+        },
         updateRule: () => actions.resetMatchCount(),
         increaseDateRange: () => actions.loadMatchCount(),
     })),

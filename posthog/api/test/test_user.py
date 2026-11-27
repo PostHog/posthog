@@ -16,6 +16,7 @@ from unittest.mock import ANY, patch
 from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
+from django.core.signing import TimestampSigner
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -25,12 +26,14 @@ from django.utils.text import slugify
 import responses
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
@@ -47,8 +50,10 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.activity import session_public_id
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 from posthog.test.authentication_checks import covers_authentication
 
@@ -1317,8 +1322,17 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_report.assert_not_called()
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_report):
+    @staticmethod
+    def _identity_change_refused_properties(mock_capture) -> dict:
+        [properties] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "user identity change refused"
+        ]
+        return properties
+
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_token_identity_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         key = self.create_personal_api_key_with_scopes(["user:write"])
@@ -1332,10 +1346,15 @@ class TestUserAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="token_auth")
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "token_auth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+        }
 
-    @patch("posthog.api.user.report_user_identity_change_refused")
-    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_report):
+    @patch("posthoganalytics.capture")
+    def test_refusing_a_stale_session_email_change_reports_the_reason(self, mock_capture):
         self.user.email = "alpha@example.com"
         self.user.save()
         self.client.force_login(self.user)
@@ -1346,7 +1365,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
+        session_key = session.session_key
+        assert session_key
+        assert self._identity_change_refused_properties(mock_capture) == {
+            "field": "email",
+            "reason": "stale_reauth",
+            "$set": ANY,
+            "$ip": "127.0.0.1",
+            "session_public_id": str(session_public_id(session_key)),
+        }
 
     @parameterized.expand(
         [
@@ -1413,6 +1440,13 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.pending_email == "beta.gamma@example.com"
         assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
+
+    def test_email_change_to_a_refused_address_reports_it(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.patch("/api/users/@me/", {"email": "refused@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["code"] == "email_verification_code_undeliverable"
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):
@@ -2403,6 +2437,39 @@ class TestUserAPI(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand([(True, None), (True, 123), (False, None), (False, 123)])
+    @responses.activate
+    def test_redirect_to_website(self, impersonated: bool, strapi_id: int | None) -> None:
+        self.user.strapi_id = strapi_id
+        self.user.save(update_fields=["strapi_id"])
+        if impersonated:
+            staff = User.objects.create_user(
+                email="website-staff@example.com", password="x", first_name="Staff", is_staff=True
+            )
+            session = self.client.session
+            session[la_settings.USER_SESSION_FLAG] = TimestampSigner().sign(str(staff.pk))
+            session.save()
+
+        responses.post(
+            "https://squeak.posthog.cc/api/auth/local/register",
+            json={"jwt": "website-token", "user": {"id": 456}},
+        )
+
+        response = self.client.get("/api/user/redirect_to_website?appUrl=https://posthog.com/handbook")
+
+        self.user.refresh_from_db()
+        if impersonated:
+            assert response.status_code == 403
+            assert "Location" not in response
+            assert response.json()["detail"] == "End impersonation before signing in to posthog.com."
+            assert not responses.calls
+            assert self.user.strapi_id == strapi_id
+        else:
+            assert response.status_code == 302
+            assert response["Location"].startswith("https://posthog.com/auth?userData=")
+            assert self.user.strapi_id == (strapi_id or 456)
+            assert len(responses.calls) == (0 if strapi_id else 1)
 
     def test_redirect_user_to_site_with_toolbar(self):
         self.team.app_urls = ["http://127.0.0.1:8010"]
@@ -3618,6 +3685,15 @@ class TestEmailVerificationAPI(APIBaseTest):
 
     # Email verification request
 
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_request_reports_an_address_workflows_refuses(self, mock_scoped_capture):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/users/request_email_verification/", {"uuid": self.other_user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
+        mock_scoped_capture.assert_not_called()
+
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -3642,10 +3718,16 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertTrue(self.user.is_email_verified)
 
         # assert events were captured
+        session_key = self.client.session.session_key
+        assert session_key
         mock_capture.assert_any_call(
             event="user logged in",
             distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
+            properties={
+                "social_provider": "",
+                "$ip": "127.0.0.1",
+                "session_public_id": str(session_public_id(session_key)),
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.team.organization_id),
@@ -3828,6 +3910,20 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.is_email_verified
         assert self.client.session.get("_auth_user_id") == str(self.user.id)
+
+    def test_email_verification_refuses_service_account(self) -> None:
+        code = self._request_code()
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+        original_verified = self.user.is_email_verified
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, original_verified)
+        self.assertIsNone(self.user.last_login)
 
     def test_code_with_pasted_noise_verifies(self):
         code = self._request_code()

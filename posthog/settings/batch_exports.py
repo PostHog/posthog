@@ -117,7 +117,6 @@ BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
     os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
 )
 
-CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 # Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
@@ -216,3 +215,8 @@ BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS: list[str] = get_list(
 BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: int = get_from_env(
     "BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE", 0, type_cast=int
 )
+
+# When false, the Temporal worker hosts no batch export workflows and loads none of the destination
+# SDKs, and the batch export API routes are not registered. Schedules of exports that already exist
+# keep firing with no worker to run them, so pause or delete those exports first.
+BATCH_EXPORTS_ENABLED: bool = get_from_env("BATCH_EXPORTS_ENABLED", True, type_cast=str_to_bool)

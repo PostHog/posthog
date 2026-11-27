@@ -32,7 +32,7 @@ export function createPostHogHandlers(options: PostHogHandlersOptions = {}) {
           reason: "disabled",
         }),
     ),
-    // GET local LLM gateway models - session initialization fetches these in the
+    // GET local Go gateway models - session initialization fetches these in the
     // background for command/model metadata.
     http.get("http://localhost:8080/v1/models", () => {
       return HttpResponse.json({

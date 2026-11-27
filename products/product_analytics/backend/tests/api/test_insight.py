@@ -1378,6 +1378,12 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
         assert sorted(matched_insights) == [insight_one_id]
 
+        # "²" passes str.isdigit() but int() rejects it.
+        for not_an_id in ("[null]", '["²"]'):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"dashboards": not_an_id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, not_an_id)
+            assert response.json()["attr"] == "dashboards"
+
     @time_machine.travel("2012-01-14T03:21:34.000Z", tick=False)
     def test_create_insight_items(self) -> None:
         response = self.client.post(

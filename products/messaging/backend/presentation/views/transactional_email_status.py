@@ -26,6 +26,7 @@ from products.messaging.backend.facade.transactional_email import (
     is_idempotency_key,
     keyed_message_id,
 )
+from products.messaging.backend.presentation.views.docs_order import MessagingDocsOrder
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
     require_email_status_read,
@@ -108,6 +109,7 @@ class TransactionalEmailReadTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThr
 
 
 class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = MessagingDocsOrder.EMAILS
     scope_object = "hog_flow"
     required_scopes = [TRANSACTIONAL_EMAIL_STATUS_SCOPE]
     permission_classes = [IsAuthenticated]

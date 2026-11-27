@@ -51,6 +51,7 @@ from ..logic import (
     quarantine,
     quarantine_lifts,
     repos,
+    review_decisions,
     run_queries,
     runs,
     story_index,
@@ -58,7 +59,20 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, QuarantineLiftState, RunGate, RunPurpose, RunReviewFilter, ShiftBandKind
+from .enums import (
+    ActorType,
+    DecisionAction,
+    DecisionChannel,
+    DecisionState,
+    QuarantineLiftState,
+    ReviewState,
+    RunGate,
+    RunPurpose,
+    RunReviewFilter,
+    RunStatus,
+    ShiftBandKind,
+    SnapshotResult,
+)
 
 User = get_user_model()
 
@@ -97,6 +111,13 @@ def _sanitize_run_metadata(metadata: dict | None) -> dict:
     return cleaned
 
 
+def _sanitize_snapshot_metadata(metadata: dict | None) -> dict:
+    """Drop the review decision history from a client's snapshot metadata. Only `decide` writes it."""
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if k != review_decisions.METADATA_KEY}
+
+
 # Re-export exceptions for callers
 RepoNotFoundError = errors.RepoNotFoundError
 RunNotFoundError = errors.RunNotFoundError
@@ -109,6 +130,9 @@ GitHubRateLimitError = GitHubRateLimitError
 PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
 RunNotFullyResolvedError = errors.RunNotFullyResolvedError
+DecisionRefusedError = errors.DecisionRefusedError
+SnapshotRejectedError = errors.SnapshotRejectedError
+DecidedByPersonError = errors.DecidedByPersonError
 BaselineFilePathNotConfiguredError = errors.BaselineFilePathNotConfiguredError
 CommitStatusNotPostedError = errors.CommitStatusNotPostedError
 BaselineRepairError = errors.BaselineRepairError
@@ -192,11 +216,103 @@ def _parse_diff_metadata(diff_metadata_raw: dict | None) -> _ParsedDiffMetadata:
     )
 
 
+_DECISION_STATES = {
+    DecisionAction.ACCEPT: DecisionState.APPROVED,
+    DecisionAction.REJECT: DecisionState.REJECTED,
+    DecisionAction.CLEAR: DecisionState.CLEARED,
+}
+
+
+def _user(user_id: int | None, user_basic_infos: dict[int, contracts.UserBasicInfo]) -> contracts.UserBasicInfo | None:
+    return user_basic_infos.get(user_id) if user_id is not None else None
+
+
+def _to_snapshot_decision(
+    decision: review_decisions.Decision, run_commit_sha: str, user_basic_infos: dict[int, contracts.UserBasicInfo]
+) -> contracts.SnapshotDecision:
+    return contracts.SnapshotDecision(
+        state=_DECISION_STATES[decision.action],
+        by=_user(decision.by_id, user_basic_infos),
+        via=decision.via,
+        at=decision.at,
+        reason=decision.reason,
+        run_id=decision.run_id,
+        commit_sha=decision.commit_sha,
+        from_earlier_commit=decision.commit_sha != run_commit_sha,
+        seq=decision.seq,
+    )
+
+
+def _to_earlier_decision(
+    decision: review_decisions.Decision,
+    key: review_decisions.DecisionKey,
+    user_basic_infos: dict[int, contracts.UserBasicInfo],
+) -> contracts.EarlierSnapshotDecision:
+    return contracts.EarlierSnapshotDecision(
+        state=_DECISION_STATES[decision.action],
+        by=_user(decision.by_id, user_basic_infos),
+        via=decision.via,
+        at=decision.at,
+        reason=decision.reason,
+        commit_sha=decision.commit_sha,
+        changed=review_decisions.changed_side(decision, key),
+    )
+
+
+@frozen
+class _SnapshotDecisions:
+    """The decisions that count on one run, for the snapshots of that run a read returns."""
+
+    decisions: review_decisions.PullRequestDecisions
+    run_commit_sha: str
+
+    def effective(self, snapshot) -> review_decisions.EffectiveDecision:
+        return self.decisions.effective(
+            review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
+        )
+
+
+def _decision_user_ids(snapshots, decisions: _SnapshotDecisions | None) -> set[int]:
+    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
+    if decisions is None:
+        return user_ids
+    for snapshot in snapshots:
+        effective = decisions.effective(snapshot)
+        for decision in (effective.decision, effective.earlier):
+            if decision is not None and decision.by_id is not None:
+                user_ids.add(decision.by_id)
+    return user_ids
+
+
 def _to_snapshot(
-    snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+    snapshot,
+    repo_id: UUID,
+    user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None,
+    decisions: _SnapshotDecisions | None = None,
 ) -> contracts.Snapshot:
-    reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    """`decisions` makes `review_state` the effective state on the run, and adds the decision fields."""
+    infos = user_basic_infos or {}
+    reviewed_by = infos.get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
     diff_meta = _parse_diff_metadata(snapshot.diff_metadata)
+    review_state = snapshot.review_state
+    reviewed_at = snapshot.reviewed_at
+    approved_hash = snapshot.approved_hash
+    decision: contracts.SnapshotDecision | None = None
+    earlier: contracts.EarlierSnapshotDecision | None = None
+    if decisions is not None:
+        effective = decisions.effective(snapshot)
+        review_state = review_decisions.effective_review_state(snapshot.review_state, effective)
+        # The older review fields describe the same decision as `review_state`, not what the row last stored.
+        if effective.decision is not None:
+            decision = _to_snapshot_decision(effective.decision, decisions.run_commit_sha, infos)
+            reviewed_by = _user(effective.decision.by_id, infos)
+            reviewed_at = effective.decision.at
+            approved_hash = (effective.decision.key.new_hash or "") if effective.accepted else ""
+        elif review_state == ReviewState.PENDING:
+            reviewed_by, reviewed_at, approved_hash = None, None, ""
+        if effective.earlier is not None:
+            key = review_decisions.key_of(snapshot.identifier, snapshot.baseline_hash, snapshot.current_hash)
+            earlier = _to_earlier_decision(effective.earlier, key, infos)
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -208,9 +324,9 @@ def _to_snapshot(
         diff_artifact=_to_artifact(snapshot.diff_artifact, repo_id) if snapshot.diff_artifact else None,
         diff_percentage=snapshot.diff_percentage,
         diff_pixel_count=snapshot.diff_pixel_count,
-        review_state=snapshot.review_state,
-        reviewed_at=snapshot.reviewed_at,
-        approved_hash=snapshot.approved_hash,
+        review_state=review_state,
+        reviewed_at=reviewed_at,
+        approved_hash=approved_hash,
         tolerated_hash_id=snapshot.tolerated_hash_match_id,
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
@@ -220,6 +336,8 @@ def _to_snapshot(
         cluster_summary=diff_meta.cluster_summary,
         size_mismatch=diff_meta.size_mismatch,
         row_shift=diff_meta.row_shift,
+        decision=decision,
+        earlier_decision=earlier,
     )
 
 
@@ -239,11 +357,51 @@ def _compute_unresolved(run) -> int:
     return 0
 
 
+def _to_progress(progress: review_decisions.RunProgress) -> contracts.RunProgress:
+    return contracts.RunProgress(
+        total=progress.total,
+        approved=progress.approved,
+        approved_on_earlier_commits=progress.approved_on_earlier_commits,
+        approved_via_mcp=progress.approved_via_mcp,
+        rejected=progress.rejected,
+        needs_review=progress.needs_review,
+        tolerated=progress.tolerated,
+    )
+
+
+def _to_head_run(run) -> contracts.HeadRun:
+    return contracts.HeadRun(id=run.id, commit_sha=run.commit_sha, status=run.status, approved=run.approved)
+
+
+def _can_finalize(run, head, review: review_decisions.RunReview) -> bool:
+    """Whether a finalize without `approve_all` would pass now.
+
+    Finalize accepts a removal nobody rejected by itself, so an undecided removal does not hold it
+    back, although it counts in `needs_review` and keeps the gate open until then.
+    """
+    open_changes = [
+        snapshot
+        for snapshot in review.with_standing(review_decisions.Standing.NEEDS_REVIEW)
+        if snapshot.result != SnapshotResult.REMOVED
+    ]
+    return (
+        run.id == head.id
+        and run.purpose == RunPurpose.REVIEW
+        and run.status == RunStatus.COMPLETED
+        and not run.approved
+        and review.rejected_count == 0
+        and not open_changes
+    )
+
+
 def _to_run(
     run,
     user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None,
     unresolved: int | None = None,
     stale_approval_count: int = 0,
+    progress: review_decisions.RunProgress | None = None,
+    head=None,
+    can_finalize: bool = False,
 ) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -277,6 +435,9 @@ def _to_run(
         search_match_type=search_match_type_from_instance(run),
         gate=RunGate(run.gate),
         stale_approval_count=stale_approval_count,
+        progress=_to_progress(progress) if progress is not None else None,
+        head_run=_to_head_run(head) if head is not None else None,
+        can_finalize=can_finalize,
     )
 
 
@@ -604,7 +765,11 @@ def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[s
 
 def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.CreateRunResult:
     # Sanitize metadata at the facade boundary before handing the DTO to logic.
-    input = replace(input, metadata=_sanitize_run_metadata(input.metadata))
+    input = replace(
+        input,
+        metadata=_sanitize_run_metadata(input.metadata),
+        snapshots=[replace(s, metadata=_sanitize_snapshot_metadata(s.metadata)) for s in input.snapshots],
+    )
     run, uploads = runs.create_run(input, team_id=team_id)
 
     upload_targets = [
@@ -636,7 +801,7 @@ def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int
             "content_hash": s.content_hash,
             "width": s.width,
             "height": s.height,
-            "metadata": dict(s.metadata) if s.metadata else {},
+            "metadata": _sanitize_snapshot_metadata(s.metadata),
         }
         for s in input.snapshots
     ]
@@ -667,11 +832,20 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
+    review = review_decisions.review_run(run)
+    head = review_decisions.head_run(run)
     return _to_run(
         run,
         user_basic_infos,
-        unresolved=gating.count_unresolved(run),
+        unresolved=(
+            review.needs_review_count + review.rejected_count
+            if review_decisions.decides_by_pull_request(run)
+            else gating.count_unresolved(run)
+        ),
         stale_approval_count=commit_status.stale_approval_count(run),
+        progress=review.progress(),
+        head=head,
+        can_finalize=_can_finalize(run, head, review),
     )
 
 
@@ -679,6 +853,21 @@ def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
     """The repo and run type a run belongs to, for endpoints that only need to know where to look."""
     run = run_queries.get_run(run_id, team_id=team_id)
     return contracts.RunScope(repo_id=run.repo_id, run_type=run.run_type)
+
+
+def _identifiers_in_review_state(snapshots, decisions: _SnapshotDecisions, review_state: str) -> list[str]:
+    """The identifiers among `snapshots` whose effective review state is `review_state`."""
+    return [
+        identifier
+        for identifier, baseline_hash, current_hash, row_state in snapshots.values_list(
+            "identifier", "baseline_hash", "current_hash", "review_state"
+        )
+        if review_decisions.effective_review_state(
+            row_state,
+            decisions.decisions.effective(review_decisions.key_of(identifier, baseline_hash, current_hash)),
+        )
+        == review_state
+    ]
 
 
 def get_run_snapshots(
@@ -690,17 +879,38 @@ def get_run_snapshots(
     quarantined_only: bool = False,
     limit: int | None = None,
     offset: int = 0,
+    review_state: str | None = None,
 ) -> contracts.RunSnapshots:
     """One page of a run's snapshots. `limit=None` returns every match from `offset` on.
 
     Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
     signs a download URL per artifact and a large run holds thousands of rows.
     `quarantined_only` keeps only the quarantined snapshots and overrides `include_quarantined`.
+    A rejected snapshot is listed even when quarantined or unchanged snapshots are left out, because
+    it still blocks finalize. `review_state` filters on the effective state, which can come from a decision
+    made on another run of the pull request.
     """
     if (quarantined_only or not include_quarantined) and team_id is None:
         raise ValueError("team_id is required to filter snapshots by quarantine")
     run = run_queries.get_run(run_id, team_id=team_id)
-    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
+    decisions = _SnapshotDecisions(
+        decisions=review_decisions.pull_request_decisions(run), run_commit_sha=run.commit_sha
+    )
+    # Only ledger mode keeps a decision history. Elsewhere the decisions above are read back from
+    # the rows' own review state, which records no channel, so a read shows no decision.
+    shown_decisions = decisions if review_decisions.decides_by_pull_request(run) else None
+    rejected: set[str] = set()
+    if shown_decisions is not None and (exclude_unchanged or not include_quarantined):
+        rejected = {
+            snapshot.identifier
+            for snapshot in review_decisions.review_run(run, decisions.decisions).with_standing(
+                review_decisions.Standing.REJECTED
+            )
+        }
+    # A tolerated pair is unchanged, and still blocks the run when someone rejected it.
+    snapshots = run_queries.run_snapshots(
+        run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id, unchanged_kept=frozenset(rejected)
+    )
 
     quarantined_count = 0
     if team_id is not None:
@@ -709,14 +919,15 @@ def get_run_snapshots(
         if quarantined_only:
             snapshots = snapshots.filter(identifier__in=quarantined)
         elif not include_quarantined:
-            snapshots = snapshots.exclude(identifier__in=quarantined)
+            snapshots = snapshots.exclude(identifier__in=set(quarantined) - rejected)
+    if review_state is not None:
+        snapshots = snapshots.filter(identifier__in=_identifiers_in_review_state(snapshots, decisions, review_state))
 
     total_count = snapshots.count()
     page = list(snapshots[offset : offset + limit if limit is not None else None])
-    user_ids = {s.reviewed_by_id for s in page if s.reviewed_by_id}
-    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    user_basic_infos = _fetch_decider_infos(_decision_user_ids(page, shown_decisions), run.team_id)
     return contracts.RunSnapshots(
-        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos) for s in page],
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos, shown_decisions) for s in page],
         quarantined_count=quarantined_count,
         total_count=total_count,
     )
@@ -801,20 +1012,88 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.Recompu
     )
 
 
-def approve_snapshots(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
-    """Mark specific snapshots reviewed (DB only — no baseline commit, no gate change).
-
-    This is the per-snapshot "Accept change" triage action. Shipping the run (committing
-    the baseline and greening the gate) happens via finalize_run.
-    """
-    approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
-    run = approvals.approve_snapshots(
-        run_id=input.run_id,
-        user_id=input.user_id,
-        approved_snapshots=approved_snapshots,
-        team_id=team_id,
+def _to_decision_result(outcome: approvals.DecisionOutcome) -> contracts.DecisionResult:
+    return contracts.DecisionResult(
+        run=_to_run(outcome.run),
+        head_run=_to_head_run(outcome.head),
+        progress=_to_progress(outcome.head_review.progress()),
+        already_decided=list(outcome.already_decided),
     )
-    return _to_run(run)
+
+
+def approve_snapshots(
+    input: contracts.ApproveRunInput, team_id: int, via: DecisionChannel = DecisionChannel.WEB
+) -> contracts.DecisionResult:
+    """Accept snapshots (DB only — no baseline commit, no gate pass).
+
+    This is the per-snapshot "Accept change" triage action. Shipping the run (recording or
+    committing the baseline and passing the gate) happens via finalize_run.
+    """
+    outcome = approvals.decide(
+        input.run_id,
+        input.user_id,
+        DecisionAction.ACCEPT,
+        [
+            approvals.DecisionRequest(identifier=s.identifier, new_hash=s.new_hash, old_hash=s.old_hash)
+            for s in input.snapshots
+        ],
+        via=via,
+        team_id=team_id,
+        expected_seq=input.expected_seq,
+        override_rejection=input.override_rejection,
+    )
+    return _to_decision_result(outcome)
+
+
+def reject_snapshots(
+    input: contracts.RejectRunInput, team_id: int, via: DecisionChannel = DecisionChannel.WEB
+) -> contracts.DecisionResult:
+    """Reject snapshots with a reason. A rejection blocks finalize until the picture changes or it is undone."""
+    outcome = approvals.decide(
+        input.run_id,
+        input.user_id,
+        DecisionAction.REJECT,
+        [
+            approvals.DecisionRequest(
+                identifier=s.identifier, new_hash=s.new_hash, old_hash=s.old_hash, reason=s.reason
+            )
+            for s in input.snapshots
+        ],
+        via=via,
+        team_id=team_id,
+        expected_seq=input.expected_seq,
+    )
+    return _to_decision_result(outcome)
+
+
+def clear_snapshot_decisions(
+    input: contracts.ClearRunInput, team_id: int, via: DecisionChannel = DecisionChannel.WEB
+) -> contracts.DecisionResult:
+    """Undo the accept or reject of snapshots, so they need review again."""
+    outcome = approvals.decide(
+        input.run_id,
+        input.user_id,
+        DecisionAction.CLEAR,
+        [approvals.DecisionRequest(identifier=identifier) for identifier in input.identifiers],
+        via=via,
+        team_id=team_id,
+        expected_seq=input.expected_seq,
+        override_rejection=input.override_rejection,
+    )
+    return _to_decision_result(outcome)
+
+
+def not_fully_resolved_detail(error: errors.RunNotFullyResolvedError, team_id: int) -> contracts.NotFullyResolvedDetail:
+    user_basic_infos = _fetch_decider_infos({r.by_id for r in error.rejected if r.by_id is not None}, team_id)
+    return contracts.NotFullyResolvedDetail(
+        rejected=[
+            contracts.RejectedSnapshotDetail(
+                identifier=r.identifier, by=_user(r.by_id, user_basic_infos), reason=r.reason
+            )
+            for r in error.rejected
+        ],
+        needs_review=error.needs_review,
+    )
 
 
 def finalize_run(
@@ -824,6 +1103,7 @@ def finalize_run(
     approve_all: bool = False,
     commit_to_github: bool = True,
     add_images_to_comment_on_pr: bool = False,
+    via: DecisionChannel = DecisionChannel.WEB,
 ) -> contracts.FinalizeResult:
     """Finalize a fully-reviewed run: commit the approved baseline and green the gate.
 
@@ -842,9 +1122,26 @@ def finalize_run(
         approve_all=approve_all,
         commit_to_github=commit_to_github,
         add_images_to_comment_on_pr=add_images_to_comment_on_pr,
+        via=via,
     )
     baseline_content = "" if commit_to_github else baselines.build_signed_baseline(run_id, team_id=team_id)
-    return contracts.FinalizeResult(run=_to_run(run), baseline_content=baseline_content)
+    review = review_decisions.review_run(run)
+    groups = review_decisions.approver_groups(review)
+    user_basic_infos = _fetch_decider_infos({group.by_id for group in groups if group.by_id is not None}, run.team_id)
+    return contracts.FinalizeResult(
+        run=_to_run(run),
+        baseline_content=baseline_content,
+        progress=_to_progress(review.progress()),
+        approvers=[
+            contracts.FinalizeApprover(
+                user=_user(group.by_id, user_basic_infos),
+                via=group.via,
+                count=group.count,
+                commit_shas=list(group.commit_shas),
+            )
+            for group in groups
+        ],
+    )
 
 
 # --- Quarantine ---
@@ -863,6 +1160,17 @@ def _fetch_user_basic_infos(user_ids: set[int]) -> dict[int, contracts.UserBasic
         return {}
     users = User.objects.filter(id__in=user_ids).only("id", "first_name", "email")
     return {u.id: _to_user_basic(u) for u in users}
+
+
+def _fetch_decider_infos(user_ids: set[int], team_id: int) -> dict[int, contracts.UserBasicInfo]:
+    """The users that decisions name, resolved only within the team's organization.
+
+    A decision entry stored before uploads dropped the history key can name any user ID, and its
+    name and email must not reach a reader outside that user's organization.
+    """
+    if not user_ids:
+        return {}
+    return _fetch_user_basic_infos(user_ids & review_decisions.organization_member_ids(team_id))
 
 
 def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:

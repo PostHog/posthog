@@ -3,10 +3,16 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.cohorts.backend.facade.ready_signals import connect_realtime_cohort_ready
-from products.workflows.backend.models import HogFlow, HogFlowOptimization, TeamWorkflowsConfig
+from products.workflows.backend.models import (
+    AdventCalendarAnswer,
+    AdventCalendarDoorOpen,
+    HogFlow,
+    HogFlowOptimization,
+    TeamWorkflowsConfig,
+)
 
 
 def _sync_after_commit(team_id: int) -> None:
@@ -31,6 +37,12 @@ def new_team_captures_engagement_events(
 ) -> None:
     if created and not raw:
         TeamWorkflowsConfig.objects.create(team=instance, capture_workflows_engagement_events=True)
+
+
+@receiver(post_delete, sender=User, dispatch_uid="workflows_deleted_user_drops_advent_calendar_rows")
+def deleted_user_drops_advent_calendar_rows(sender: type, instance: User, **kwargs: object) -> None:
+    AdventCalendarAnswer.objects.filter(user_id=instance.pk).delete()
+    AdventCalendarDoorOpen.objects.filter(user_id=instance.pk).delete()
 
 
 @receiver(post_delete, sender=HogFlowOptimization)

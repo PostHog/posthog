@@ -1,14 +1,15 @@
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Button, Progress, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { percentage } from 'lib/utils/numbers'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { CITATIONS_MAX_DATE_FROM, type CitationsLookup } from './contentAutopilotCitationsModalLogic'
 import { PROMPT_CITATION_COLUMNS, PROMPT_SOURCE_COLUMNS } from './promptReportQueries'
+import { formatShare } from './shares'
 
 // Engine output is third-party text: only plain http(s) URLs become links.
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
@@ -27,21 +28,22 @@ const lookupFor = (kind: CitationsLookup['kind'], value: string): CitationsLooku
 })
 
 const TargetTag = (): JSX.Element => (
-    <LemonTag type="success" size="small" className="shrink-0">
+    <AiVisibilityTag type="success" className="shrink-0">
         Your site
-    </LemonTag>
+    </AiVisibilityTag>
 )
 
 const DomainCell: QueryContextColumnComponent = ({ value, record }) => {
     const domain = String(value ?? '')
     return (
         <span className="flex items-center gap-2 min-w-0">
-            <Tooltip title={domain}>
-                <span className="min-w-0 max-w-56 truncate">
+            <Tooltip>
+                <TooltipTrigger render={<span className="min-w-0 max-w-56 truncate" />}>
                     <ContentAutopilotCitationsLink lookup={lookupFor('domain', domain)} source="prompt-sources-tile">
                         {domain}
                     </ContentAutopilotCitationsLink>
-                </span>
+                </TooltipTrigger>
+                <TooltipContent>{domain}</TooltipContent>
             </Tooltip>
             {cellAt(record, PROMPT_SOURCE_COLUMNS, 'is_target') ? <TargetTag /> : null}
         </span>
@@ -52,23 +54,20 @@ const UrlCell: QueryContextColumnComponent = ({ value, record }) => {
     const url = String(value ?? '')
     return (
         <span className="flex flex-wrap items-center gap-2 min-w-0">
-            <ContentAutopilotCitationsLink
-                lookup={lookupFor('url', url)}
-                source="prompt-citations-tile"
-                className="break-all"
-            >
+            <ContentAutopilotCitationsLink lookup={lookupFor('url', url)} source="prompt-citations-tile">
                 {url}
             </ContentAutopilotCitationsLink>
             {isWebUrl(url) ? (
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconExternal />}
-                    to={url}
-                    targetBlank
-                    hideExternalLinkIcon
+                <Button
+                    size="icon-sm"
+                    nativeButton={false}
+                    render={<LinkPrimitive to={url} target="_blank" />}
+                    aria-label="Open the page"
                     tooltip="Open the page"
                     data-attr="content-autopilot-prompt-citations-tile-open"
-                />
+                >
+                    <IconExternal />
+                </Button>
             ) : null}
             {cellAt(record, PROMPT_CITATION_COLUMNS, 'is_target') ? <TargetTag /> : null}
         </span>
@@ -88,8 +87,8 @@ const ShareCell: QueryContextColumnComponent = ({ value }) => {
     const share = typeof value === 'number' ? value : Number(value ?? 0)
     return (
         <span className="flex items-center gap-2 min-w-32">
-            <LemonProgress percent={share * 100} className="flex-1" />
-            <span className="w-10 text-right tabular-nums">{percentage(share, 0)}</span>
+            <Progress value={share * 100} aria-label="Share of all answers" className="flex-1" />
+            <span className="w-10 text-right tabular-nums">{formatShare(share)}</span>
         </span>
     )
 }

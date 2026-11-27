@@ -136,6 +136,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
         return last_refresh + staleness_threshold_map[mode][self.range_freshness_interval]
 
+    def _runner_event_properties(self) -> dict[str, Any]:
+        if self.range_freshness_interval is None:
+            return {}
+        return {"range_freshness_interval": self.range_freshness_interval}
+
     @cached_property
     def range_freshness_interval(self) -> Optional[str]:
         """The interval whose staleness rule applies, when built under `range_based_freshness` with a relative range."""

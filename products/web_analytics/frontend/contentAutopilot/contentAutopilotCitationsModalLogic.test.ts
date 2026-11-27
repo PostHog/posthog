@@ -49,16 +49,17 @@ describe('contentAutopilotCitationsModalLogic', () => {
         logic.unmount()
     })
 
-    it('loads the answers for the lookup, appends the next page and knows an own page', async () => {
+    it('loads the answers for the lookup in its filters, appends the next page and knows an own page', async () => {
         mockCitations.mockImplementation((_, params) => page(params?.offset ?? 0, 2))
 
-        logic.actions.openCitations(OWN_PAGE, 'rankings-pages')
+        logic.actions.openCitations({ ...OWN_PAGE, engine: 'openai-web-search', topic: null }, 'rankings-pages')
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasMoreCitations: true, isOwnPage: true })
         expect(mockCitations).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             url: OWN_PAGE.value,
             date_from: '2026-10-01',
             date_to: '2026-10-30',
             branded: 'non_branded',
+            engine: 'openai-web-search',
             include_answer_text: true,
             limit: 10,
             offset: 0,
@@ -68,7 +69,7 @@ describe('contentAutopilotCitationsModalLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasMoreCitations: false })
         expect(mockCitations).toHaveBeenLastCalledWith(
             String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ offset: 2 })
+            expect.objectContaining({ offset: 2, engine: 'openai-web-search' })
         )
         expect(logic.values.citations?.results.map((citation) => citation.id)).toEqual(
             EXAMPLE_PROMPT_CITATIONS.map((citation) => citation.id)
@@ -88,6 +89,18 @@ describe('contentAutopilotCitationsModalLogic', () => {
 
         expect(logic.values.citations).toEqual({ count: 3, results: [EXAMPLE_PROMPT_CITATIONS[1]] })
         expect(logic.values.isOwnPage).toBe(false)
+    })
+
+    it.each([
+        ['a report that marks the page as yours', true, true],
+        ['the answers alone', undefined, false],
+    ])('takes a page cited only with tracking parameters as yours from %s', async (_, isOwnPage, expected) => {
+        const tracked = { ...EXAMPLE_PROMPT_CITATIONS[0], target_urls: [`${OWN_PAGE.value}?utm_source=openai`] }
+        mockCitations.mockResolvedValue({ count: 1, next: null, previous: null, results: [tracked] })
+
+        logic.actions.openCitations({ ...OWN_PAGE, isOwnPage }, 'rankings-pages')
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isOwnPage: expected })
     })
 
     it('closes and opens a prompt from the list on the prompts tab', async () => {

@@ -97,7 +97,7 @@ async def test_explicit_refusal_is_not_treated_as_text(has_text: bool) -> None:
 
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
-async def test_gateway_mode_omits_legacy_stage_header():
+async def test_labels_ride_on_the_builder():
     client = _mock_anthropic_client()
     with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client) as build_client:
         await call_llm(
@@ -111,29 +111,9 @@ async def test_gateway_mode_omits_legacy_stage_header():
             properties={"signals_decision_id": "decision-1"},
         )
 
+    assert build_client.call_args.kwargs["ai_stage"] == "match"
     assert build_client.call_args.kwargs["trace_id"] == "decision-1"
     assert build_client.call_args.kwargs["properties"] == {"signals_decision_id": "decision-1"}
-    # In gateway mode the labels ride on the builder's X-PostHog-Properties blob; the per-key
-    # ai_stage header (which the Go gateway drops) must not be sent.
-    assert "extra_headers" not in client.messages.create.call_args.kwargs
-
-
-@pytest.mark.asyncio
-@override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
-async def test_fallback_mode_sends_legacy_stage_header():
-    client = _mock_anthropic_client()
-    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
-        await call_llm(
-            team_id=1,
-            system_prompt="s",
-            user_prompt="u",
-            validate=lambda text: text,
-            stage="match",
-            ai_product="signals_grouping",
-        )
-
-    # On the Python-gateway fallback the stage still rides as a per-key header the route reads.
-    assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
 
 
 @pytest.mark.asyncio

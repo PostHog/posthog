@@ -1065,11 +1065,7 @@ const DJANGO_SEGMENTS = {
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
         // ci-backend.yml's "Run Core tests" step.
-        include: [
-            'posthog/clickhouse/',
-            'posthog/api/test/dashboards/test_dashboard.py',
-            'ee/clickhouse/',
-        ],
+        include: ['posthog/clickhouse/', 'ee/clickhouse/'],
         exclude: [
             'posthog/temporal/',
             'posthog/dags/',
@@ -1237,6 +1233,9 @@ function selectionMetrics(selection) {
         full_run_reasons_count: selection ? (selection.ast?.full_run_reasons ?? []).length : null,
         selected_test_seconds: selection?.durations?.selected_seconds ?? null,
         skipped_test_seconds: selection?.durations?.skipped_seconds ?? null,
+        selected_django_seconds: selection?.durations?.selected_django_seconds ?? null,
+        django_baseline_seconds: selection?.durations?.narrowable_baseline_seconds ?? null,
+        selected_product_seconds: selection?.durations?.selected_product_seconds ?? null,
     }
 }
 
@@ -1596,9 +1595,9 @@ function narrowedJsonTargetsShards(paths, durations) {
 
 // The run identity the selection telemetry event carries, from the runner's own env.
 function runContext() {
-    let prNumber = null
+    let pullRequest = null
     try {
-        prNumber = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request?.number ?? null
+        pullRequest = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request ?? null
     } catch {
         // Not a GitHub run, or no event payload: the fields stay null.
     }
@@ -1606,7 +1605,9 @@ function runContext() {
         event_type: process.env.GITHUB_EVENT_NAME ?? null,
         branch: process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
         sha: process.env.GITHUB_SHA ?? null,
-        pr_number: prNumber,
+        pr_number: pullRequest?.number ?? null,
+        pr_draft: pullRequest?.draft ?? null,
+        merge_queue: (process.env.GITHUB_HEAD_REF ?? '').startsWith('trunk-merge/'),
         run_id: process.env.GITHUB_RUN_ID ?? null,
     }
 }
@@ -1731,6 +1732,7 @@ function buildMatrix(products, durations, productsScaled = false) {
 
 // Exported for unit tests.
 module.exports = {
+    runContext,
     narrowedProducts,
     decideSelection,
     decideSelectionWithShadow,

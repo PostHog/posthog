@@ -4,10 +4,12 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import net from 'net'
 import { tmpdir } from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { createInterface } from 'readline'
 import { setTimeout as sleep } from 'timers/promises'
 import { pathToFileURL } from 'url'
 
+import { defaultConfig } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
 
 import { heldAnswerRule, ruleOf } from './faults'
@@ -114,6 +116,18 @@ describe('provider edge process', () => {
             answeredBeforeRemoval: false,
             answer: 'sent',
         })
+    })
+
+    it('opens a Postgres proxy in the edge process that a client queries through', async () => {
+        const client = new Client({
+            connectionString: await edge.pgProxyOf(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!),
+        })
+        await client.connect()
+        try {
+            expect((await client.query('SELECT 1 AS up')).rows).toEqual([{ up: 1 }])
+        } finally {
+            await client.end()
+        }
     })
 
     it('rejects a pending call when the edge process dies', async () => {

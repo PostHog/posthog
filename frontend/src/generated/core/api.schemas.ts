@@ -2201,7 +2201,7 @@ export interface TeamFeatureFlagPolicyConfigApi {
     /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
     require_tags?: boolean
     /**
-     * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.
+     * Domains to block from /flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.
      * @maxItems 1000
      * @items.maxLength 2000
      */
@@ -2213,13 +2213,13 @@ export interface TeamFeatureFlagPolicyConfigApi {
      */
     blocked_ips?: string[]
     /**
-     * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.
+     * Domains allowed to make /flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.
      * @maxItems 1000
      * @items.maxLength 2000
      */
     allowed_hosts?: string[]
     /**
-     * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins.
+     * IP addresses or CIDR ranges allowed to make /flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins.
      * @maxItems 1000
      * @items.maxLength 2000
      */
@@ -3018,6 +3018,7 @@ export interface ProjectCreateRequestApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    /** A list sent replaces the saved one. Omitted fields are kept. */
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
@@ -4102,6 +4103,7 @@ export interface ProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    /** A list sent replaces the saved one. Omitted fields are kept. */
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
@@ -5000,6 +5002,7 @@ export interface PatchedProjectBackwardCompatApi {
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    /** A list sent replaces the saved one. Omitted fields are kept. */
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
@@ -5221,11 +5224,6 @@ export interface DataDeletionRequestApi {
      * @nullable
      */
     readonly submission_id: string | null
-    /**
-     * Number of selected events, when calculated.
-     * @nullable
-     */
-    readonly count: number | null
     /**
      * Identifier of the user who submitted the request.
      * @nullable
@@ -5980,6 +5978,75 @@ export interface PropertyUsageMetricsItemApi {
 export interface PropertyUsageMetricsResponseApi {
     /** One entry per requested property, in request order. */
     results: PropertyUsageMetricsItemApi[]
+}
+
+export interface TagDefinitionApi {
+    /** Unique identifier of this project's tag. */
+    readonly id: string
+    /** Normalized tag name. */
+    readonly name: string
+    /** Persisted assignments, including soft-deleted items. */
+    readonly usage_count: number
+}
+
+export interface PaginatedTagDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TagDefinitionApi[]
+}
+
+export interface TagManagementErrorApi {
+    /** Error category. */
+    type: string
+    /** Stable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Invalid field, if applicable.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface RenameTagRequestApi {
+    /**
+     * New tag name. Existing names must be merged instead.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface TagMergeRequestApi {
+    /** Existing destination tag in the same project. */
+    target_id: string
+}
+
+export interface TagMergeResultApi {
+    /** Assignments moved to the destination by this merge. */
+    moved_count: number
+    /** Overlapping assignments deduplicated by this merge. */
+    overlap_count: number
+    /** Destination assignments after the completed merge. */
+    usage_count: number
+    /** The surviving destination tag. */
+    tag: TagDefinitionApi
+}
+
+export interface TagMergePreviewApi {
+    /** Assignments currently using the source tag. */
+    source_count: number
+    /** Assignments currently using the destination tag. */
+    target_count: number
+    /** Items currently using both tags. */
+    overlap_count: number
+    /** Destination assignments after deduplicating the current snapshot. */
+    result_count: number
+    /** The destination tag. */
+    tag: TagDefinitionApi
 }
 
 export interface SearchIntentRequestApi {
@@ -8076,6 +8143,33 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type TagDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type TagDefinitionsMergePreviewRetrieveParams = {
+    /**
+     * Existing destination tag in the same project.
+     */
+    target_id: string
+}
 
 export type TerminalNetplayMailboxRetrieveParams = {
     /**

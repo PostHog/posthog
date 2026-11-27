@@ -16,22 +16,29 @@ describe('toolbarPosthogJS', () => {
     afterEach(() => {
         console.error = originalConsoleError
         delete (window as any)._POSTHOG_REMOTE_CONFIG
-        document.querySelectorAll('script[src*="/config.js"]').forEach((script) => script.remove())
         jest.useRealTimers()
     })
 
     async function loadWithRemoteConfig(remoteConfig: Record<string, unknown>): Promise<PostHog> {
+        // posthog-js applies remote config that is already on the window before it requests any.
+        // Preloading it keeps these tests independent of how the SDK fetches config, which changes between
+        // SDK versions. The proxy answers any token and records the lookups.
+        const tokensLookedUp: string[] = []
+        ;(window as any)._POSTHOG_REMOTE_CONFIG = new Proxy(
+            {},
+            {
+                get: (_, token) => {
+                    tokensLookedUp.push(String(token))
+                    return { config: remoteConfig }
+                },
+            }
+        )
         const { toolbarPosthogJS } = await import('~/toolbar/shared/toolbarPosthogJS')
         toolbarPosthogJS.opt_in_capturing()
-
-        // posthog-js loads its remote config with a script tag, which jsdom never runs, so deliver it by hand.
-        ;(window as any)._POSTHOG_REMOTE_CONFIG = {
-            [toolbarPosthogJS.config.token]: { config: remoteConfig },
-        }
-        const configScript = document.querySelector<HTMLScriptElement>('script[src*="/config.js"]')
-        expect(configScript?.onload).toEqual(expect.any(Function))
-        configScript!.onload!(new Event('load'))
         await jest.advanceTimersByTimeAsync(1000)
+
+        // Each test checks that a feature stays off, which also passes when the SDK never read this config.
+        expect(tokensLookedUp).toContain(toolbarPosthogJS.config.token)
 
         return toolbarPosthogJS
     }

@@ -336,6 +336,7 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                             }
                         }
                         const definitions = await api.llmAnalyticsScoreDefinitionsList(String(props.teamId), {
+                            scope: 'item',
                             archived: false,
                             limit: 3,
                             order_by: 'name',
@@ -605,7 +606,8 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
             if (
                 removeProjectIdIfPresent(router.values.location.pathname) !==
                     urls.aiObservabilityOfflineEvaluations() ||
-                router.values.searchParams.tab === 'datasets'
+                router.values.searchParams.tab === 'datasets' ||
+                router.values.searchParams.compare !== undefined
             ) {
                 return
             }
@@ -634,7 +636,7 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
     }),
     urlToAction(({ actions }) => ({
         [urls.aiObservabilityOfflineEvaluations()]: (_, search, __, { method }) => {
-            if (method !== 'REPLACE' && search.tab !== 'datasets') {
+            if (method !== 'REPLACE' && search.tab !== 'datasets' && search.compare === undefined) {
                 actions.hydrateUrl(search)
             }
         },

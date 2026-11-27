@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { cn } from '@posthog/quill'
 import { PostHogErrorBoundary } from '@posthog/react'
@@ -16,6 +16,8 @@ import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import type { TodayRailPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TODAY_PANES } from './todayRailItems'
+import { TODAY_RAIL_FOOT_PANE } from './todayRailLayout'
+import { todayRailLayoutLogic } from './todayRailLayoutLogic'
 import {
     TODAY_RAIL_SHORT_PADDING_CLASS,
     TODAY_RAIL_SHORT_STACK_CLASS,
@@ -26,6 +28,7 @@ import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodaySpacesLogicMount } from './TodaySpacesLogicMount'
 import { todayTourLogic } from './todayTourLogic'
+import { useTodayRailFlip } from './useTodayRailFlip'
 
 // Flag-gated, so users without the flag skip the wizard chunk.
 const WizardRailButton = lazyWithRetry(() =>
@@ -52,7 +55,7 @@ export function railPanesThatFit(
 }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView, featureFlags, railPanes, sidebarVisible } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags, sidebarVisible } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { tourActive } = useValues(todayTourLogic)
     const [chatsPreviewed, setChatsPreviewed] = useState(false)
@@ -65,16 +68,19 @@ export function TodayRail(): JSX.Element {
     }, [pointerInRail, cardOpen])
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
-    const { ref: paneListRef, height: paneListHeight } = useResizeObserver<HTMLDivElement>()
+    const paneListRef = useRef<HTMLDivElement>(null)
+    const { height: paneListHeight } = useResizeObserver<HTMLDivElement>({ ref: paneListRef })
     const { windowSize } = useWindowSize()
-    const fitCount = railPanesThatFit(railPanes, paneListHeight, todayRailMetrics(windowSize.height))
-    const visiblePanes = railPanes.slice(0, fitCount)
-    const overflowPanes = railPanes.slice(fitCount)
+    const { shownRailPanes: listPanes, footPaneShown, customizeOpen } = useValues(todayRailLayoutLogic)
+    const fitCount = railPanesThatFit(listPanes, paneListHeight, todayRailMetrics(windowSize.height))
+    const visiblePanes = listPanes.slice(0, fitCount)
+    const overflowPanes = listPanes.slice(fitCount)
+    // Only while the person arranges the rail: a pane that moves into More on a short window just goes.
+    useTodayRailFlip(paneListRef, visiblePanes, customizeOpen)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => {
         const tile = (
             <TodayRailTile
-                key={pane}
                 label={TODAY_PANES[pane].label}
                 icon={TODAY_PANES[pane].icon}
                 active={activePane === pane}
@@ -87,7 +93,6 @@ export function TodayRail(): JSX.Element {
         const preview = RAIL_PREVIEWS[pane]
         return preview ? (
             <TodayPreviewTrigger
-                key={pane}
                 payload={preview}
                 disabled={activePane === pane && sidebarVisible}
                 className="w-full min-w-0"
@@ -120,8 +125,13 @@ export function TodayRail(): JSX.Element {
                         TODAY_RAIL_SHORT_STACK_CLASS
                     )}
                 >
-                    {visiblePanes.map(renderTile)}
+                    {visiblePanes.map((pane) => (
+                        <div key={pane} data-flip-key={pane} className="flex w-full justify-center">
+                            {renderTile(pane)}
+                        </div>
+                    ))}
                 </div>
+                {footPaneShown && renderTile(TODAY_RAIL_FOOT_PANE)}
                 {wizardUiEnabled &&
                     currentProjectId !== null && (
                         // A local boundary keeps a failed wizard chunk from reaching the shell's
@@ -132,7 +142,7 @@ export function TodayRail(): JSX.Element {
                             </Suspense>
                         </PostHogErrorBoundary>
                     )}
-                <TodayMoreMenu overflowPanes={overflowPanes} renderTile={renderTile} />
+                <TodayMoreMenu overflowPanes={overflowPanes} />
                 <TodayAccountMenu />
                 {chatsPreviewed && <TodaySpacesLogicMount />}
             </nav>

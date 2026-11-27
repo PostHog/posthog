@@ -822,7 +822,7 @@ class TestSlackNudge(BaseTest):
         expected_verdict,
         mock_create_or_update,
         mock_get_client,
-        mock_get_llm_client,
+        mock_build_client,
         _mock_flag_enabled,
     ):
         self.organization.is_ai_data_processing_approved = True
@@ -831,11 +831,11 @@ class TestSlackNudge(BaseTest):
         if llm_answer is None:
             # A gateway failure must be swallowed (no Celery retry storm) and fall back to
             # the heuristics-only nudge instead of silently disabling the feature.
-            mock_get_llm_client.return_value.messages.create.side_effect = RuntimeError("gateway down")
+            mock_build_client.return_value.messages.create.side_effect = RuntimeError("gateway down")
         else:
             completion = Mock()
             completion.content = [Mock(type="text", text=llm_answer)]
-            mock_get_llm_client.return_value.messages.create.return_value = completion
+            mock_build_client.return_value.messages.create.return_value = completion
 
         handle_support_message(
             {
@@ -866,14 +866,11 @@ class TestSlackNudge(BaseTest):
         assert event_props["llm_classifier_used"] is (expected_verdict in ("yes", "no"))
 
         # The generation must carry the funnel events' Slack keys so it joins to its outcome.
-        create_kwargs = mock_get_llm_client.return_value.messages.create.call_args.kwargs
-        assert create_kwargs["extra_headers"] == {
-            "x-posthog-property-feature": "slack_nudge_classifier",
-            "x-posthog-property-$ai_span_name": "slack_nudge_classifier",
-            "x-posthog-property-slack_channel_id": "C_OTHER",
-            "x-posthog-property-slack_thread_ts": "1700000000.000100",
-        }
-        assert mock_get_llm_client.call_args.kwargs["team_id"] == self.team.id
+        build_kwargs = mock_build_client.call_args.kwargs
+        assert build_kwargs["properties"]["feature"] == "slack_nudge_classifier"
+        assert build_kwargs["properties"]["slack_channel_id"] == "C_OTHER"
+        assert build_kwargs["properties"]["slack_thread_ts"] == "1700000000.000100"
+        assert build_kwargs["team_id"] == self.team.id
 
     @override_settings(TEST=False, AI_GATEWAY_URL="https://ai-gateway.local/v1", AI_GATEWAY_API_KEY="test-key")
     @patch(f"{MODULE}.posthoganalytics.feature_enabled", return_value=True)
@@ -881,7 +878,7 @@ class TestSlackNudge(BaseTest):
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_classifier_no_starts_cooldown_so_chatter_is_not_reclassified(
-        self, mock_create_or_update, mock_get_client, mock_get_llm_client, _mock_flag_enabled
+        self, mock_create_or_update, mock_get_client, mock_build_client, _mock_flag_enabled
     ):
         # A "no" verdict must start the nudge cooldown — otherwise an external user posting
         # chatter triggers a paid classifier call on every single message.
@@ -889,7 +886,7 @@ class TestSlackNudge(BaseTest):
         self.organization.save()
         completion = Mock()
         completion.content = [Mock(type="text", text="no")]
-        mock_get_llm_client.return_value.messages.create.return_value = completion
+        mock_build_client.return_value.messages.create.return_value = completion
 
         event = {
             "type": "message",
@@ -900,7 +897,7 @@ class TestSlackNudge(BaseTest):
         handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
         handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
 
-        assert mock_get_llm_client.return_value.messages.create.call_count == 1
+        assert mock_build_client.return_value.messages.create.call_count == 1
         mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_not_called()
         # Only the first message reaches the classifier; the cooldown swallows the second,
@@ -926,7 +923,7 @@ class TestSlackNudge(BaseTest):
         flag_enabled,
         mock_create_or_update,
         mock_get_client,
-        mock_get_llm_client,
+        mock_build_client,
         mock_flag_enabled,
     ):
         # Opted-out orgs must not have customer messages sent to the LLM gateway, and the
@@ -948,7 +945,7 @@ class TestSlackNudge(BaseTest):
             "T123",
         )
 
-        mock_get_llm_client.assert_not_called()
+        mock_build_client.assert_not_called()
         mock_get_client.return_value.chat_postMessage.assert_called_once()
         mock_create_or_update.assert_not_called()
 

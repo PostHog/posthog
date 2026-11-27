@@ -359,7 +359,6 @@ const TRIPWIRE_RULES = [
     // radius proto/buf.yaml gets.
     ['.github/workflows/ci-proto.yml', PROTO],
     // Suites owned by one service directory.
-    ['.github/workflows/ci-llm-gateway.yml', 'service:llm-gateway'],
     ['.github/workflows/ci-oauth-proxy.yml', 'service:oauth-proxy'],
     ['.github/workflows/ci-agent-proxy.yml', 'service:agent-proxy'],
     // The UI apps build reads services/mcp and every products/*/mcp tree,
@@ -460,7 +459,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-credentials-service.yml', 'service:credentials-service'],
     ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
     // Publish and CD workflows found after the first deploy pass.
-    ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
     ['.github/workflows/publish-quill-npm.yml', DEPLOY],
     ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
     // A scheduled mirror of the upstream Playwright image; no suite runs it.
@@ -2097,7 +2095,7 @@ const DOMAIN_LANES = new Map([
     ['repo-config-lane', laneOf('repo-config')],
     ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'credentials-service']) {
+for (const service of ['oauth-proxy', 'agent-proxy', 'credentials-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 

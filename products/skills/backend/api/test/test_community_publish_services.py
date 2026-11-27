@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.skills.backend.api.community_publish_services import (
+    MAX_COMMUNITY_SKILL_FILE_COUNT,
     MAX_TAG_LENGTH,
     CommunitySkillPublishError,
     CommunitySkillPublishValidationError,
@@ -24,7 +25,7 @@ from products.skills.backend.api.community_publish_services import (
     render_community_skill_files,
     render_skill_md,
 )
-from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES
 from products.skills.backend.api.skill_template_services import MAX_TEMPLATE_VARIABLE_BYTES, parse_template_variables
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 
@@ -399,7 +400,7 @@ class TestPublishableSize:
             # Ingest's own per-entry caps: breaching one drops the whole entry, so the pull request
             # merges and the skill never appears in the catalog.
             ("body over the catalog cap", "x" * (MAX_SKILL_BODY_BYTES + 1), 1, 10),
-            ("more files than the catalog takes", "b", MAX_SKILL_FILE_COUNT + 1, 10),
+            ("more files than the catalog takes", "b", MAX_COMMUNITY_SKILL_FILE_COUNT + 1, 10),
             ("one file over the catalog cap", "b", 1, MAX_SKILL_FILE_BYTES + 1),
         ]
     )

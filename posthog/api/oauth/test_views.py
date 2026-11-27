@@ -15,6 +15,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
@@ -55,7 +56,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
 from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
-from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -6249,6 +6250,124 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
 
 
+@override_settings(OAUTH_PROXY_CALLBACK_URLS=["https://proxy.example/oauth/callback/"])
+class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "own_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_a/",
+                True,
+            ),
+            ("shared_route", "https://proxy.example/oauth/callback/", "https://proxy.example/oauth/callback/", True),
+            (
+                "other_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_not_registered",
+                "https://app.example/cb",
+                "https://proxy.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_explicitly",
+                "https://proxy.example/oauth/callback/ https://proxy.example/oauth/callback/app_b/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_extra_query",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/?client=app_a",
+                False,
+            ),
+            (
+                "callback_of_unlisted_host",
+                "https://other.example/oauth/callback/",
+                "https://other.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_default_port",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_encoded_host",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_ideographic_dot",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_userinfo_and_query",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/?client=app_b",
+                False,
+            ),
+            (
+                "shared_route_with_path_param",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/;app_b",
+                False,
+            ),
+            (
+                "own_client_route_of_a_client_id_with_dot_segments",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/https://attacker.example/t/../../../../app_b/",
+                False,
+                "https://attacker.example/t/../../../../app_b",
+            ),
+        ]
+    )
+    def test_proxy_callback_is_bound_to_the_requesting_client(
+        self, _name: str, registered: str, requested: str, allowed: bool, client_id: str = "app_a"
+    ) -> None:
+        app = OAuthApplication(client_id=client_id, redirect_uris=registered)
+
+        result = OAuthValidator().validate_redirect_uri(client_id, requested, SimpleNamespace(client=app))
+
+        assert result is allowed
+
+    @parameterized.expand(
+        [
+            ("shared_route", "https://proxy.example/oauth/callback/", True),
+            ("unrelated_host", "https://app.example/oauth/callback/app_b/", True),
+            ("client_route", "https://proxy.example/oauth/callback/app_b/", False),
+            ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
+            ("client_route_with_default_port", "https://proxy.example:443/oauth/callback/app_b/", False),
+            ("client_route_with_dot_segment", "https://proxy.example/oauth/x/../callback/app_b/", False),
+            ("other_path_on_proxy_host", "https://proxy.example/somewhere/", False),
+        ]
+    )
+    def test_only_the_shared_proxy_callback_can_be_registered(self, _name: str, redirect_uri: str, valid: bool) -> None:
+        app = OAuthApplication(
+            client_id="app_a",
+            redirect_uris=redirect_uri,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+
+        try:
+            app.clean()
+            error = None
+        except ValidationError as e:
+            error = str(e)
+
+        assert error is None if valid else "reserved for the PostHog OAuth proxy" in str(error)
+
+
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
     """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
 
@@ -6367,7 +6486,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         agent_auth = response.json()["agent_auth"]
 
-        self.assertTrue(agent_auth["skill"].endswith("/auth.md"))
+        self.assertEqual(agent_auth["skill"], "https://posthog.com/auth.md")
         self.assertTrue(agent_auth["identity_endpoint"].endswith("/oauth/token/"))
         self.assertEqual(agent_auth["identity_types_supported"], ["identity_assertion"])
         self.assertEqual(
@@ -6440,38 +6559,13 @@ class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
 
 
 class TestOAuthClientManifest(APIBaseTest):
-    """Tests for the auth.md agent-registration manifest."""
-
-    def test_returns_markdown(self):
-        response = self.client.get("/auth.md")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("text/markdown", response["Content-Type"])
-
-    def test_manifest_describes_identity_flow(self):
-        response = self.client.get("/auth.md")
-        body = response.content.decode()
-
-        self.assertIn("# PostHog", body)
-        self.assertIn("/oauth/token/", body)
-        self.assertIn("urn:ietf:params:oauth:token-type:id-jag", body)
-        self.assertIn("/.well-known/oauth-protected-resource", body)
-
-    def test_manifest_lists_scopes(self):
-        response = self.client.get("/auth.md")
-        body = response.content.decode()
-
-        for scope in OAUTH_SCOPES_SUPPORTED:
-            with self.subTest(scope=scope):
-                self.assertIn(f"`{scope}`", body)
-                # A scope with no description falls back to its own name, so an
-                # advertised scope nobody wrote a line for reads as "`x`: x".
-                self.assertNotIn(f"`{scope}`: {scope}", body)
-
-    def test_manifest_accessible_without_authentication(self):
+    def test_service_root_manifest_redirects_to_the_shared_copy(self):
         self.client.logout()
 
         response = self.client.get("/auth.md")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://posthog.com/auth.md")
 
 
 class TestOAuthProtectedResourceMetadata(APIBaseTest):

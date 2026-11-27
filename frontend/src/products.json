@@ -359,6 +359,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Tags", "category": "Schema", "iconType": "tag", "type": null, "intents": [] },
         {
             "path": "Event definitions",
             "category": "Schema",

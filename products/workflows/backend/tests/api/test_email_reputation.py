@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -5,7 +6,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.conf import settings
+from django.core.cache import cache, caches
 from django.test import override_settings
 from django.utils import timezone
 
@@ -17,6 +19,7 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.settings.data_stores import WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
@@ -35,6 +38,18 @@ def _locally_evaluated_flag(released: bool):
     return feature_enabled
 
 
+def _shipped_redis_cache() -> dict:
+    return {
+        **settings.CACHES,
+        "workflows_email_infrastructure_health": {
+            **WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG,
+            "LOCATION": settings.REDIS_URL,
+            "KEY_PREFIX": f"test-{uuid.uuid4()}",
+        },
+    }
+
+
+ENOUGH_ACCOUNT_SENDS = {"SEND": 10_000, "DELIVERY": 9_900, "DELIVERY_COMPLAINT": 9_000}
 CHANGED_AT = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 DAILY_METRICS_FETCH = "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team"
 
@@ -45,6 +60,7 @@ class TestEmailReputationAPI(APIBaseTest):
         # Totals and the AWS tenant lookup are cached per team and the team persists across
         # this class's tests — clear so one test's mocked data can't leak into the next.
         cache.clear()
+        caches["workflows_email_infrastructure_health"].clear()
 
     def _create_flow(self, name: str) -> HogFlow:
         return HogFlow.objects.create(
@@ -110,10 +126,6 @@ class TestEmailReputationAPI(APIBaseTest):
     def _get_reputation_from_ses(self, *, released: bool = True) -> dict:
         with (
             patch(
-                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
-                return_value={},
-            ),
-            patch(
                 "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
                 side_effect=_locally_evaluated_flag(released),
             ),
@@ -126,7 +138,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(
         self, _name: str, failing_metrics: set[str]
     ):
-        with FakeSesEndpoint().installed() as ses:
+        with override_settings(CACHES=_shipped_redis_cache()), FakeSesEndpoint().installed() as ses:
             ses.failing_metrics.update(failing_metrics)
             ses.account_metrics.update(
                 {
@@ -151,7 +163,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
     def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
         with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
-            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.account_metrics.update(ENOUGH_ACCOUNT_SENDS)
             ses.failing_metrics.add("PERMANENT_BOUNCE")
             during_the_failure = self._get_reputation_from_ses()["infrastructure"]
 
@@ -161,6 +173,26 @@ class TestEmailReputationAPI(APIBaseTest):
 
         assert during_the_failure is None
         assert after_it_clears is not None
+
+    @parameterized.expand([("a_handful", 7), ("a_few_dozen", 37), ("just_under_the_floor", 9_999)])
+    def test_reputation_withholds_the_infrastructure_health_of_a_low_volume_account(self, _name: str, sends: int):
+        with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
+            ses.account_metrics.update(
+                {
+                    "SEND": sends,
+                    "DELIVERY": sends - 1,
+                    "PERMANENT_BOUNCE": 1,
+                    "COMPLAINT": 1,
+                    "DELIVERY_COMPLAINT": sends - 1,
+                }
+            )
+            first = self._get_reputation_from_ses()
+            clock.shift(timedelta(minutes=2))
+            second = self._get_reputation_from_ses()
+
+        assert first["infrastructure"] is None
+        assert second["infrastructure"] is None
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
 
     def test_reputation_asks_ses_once_when_it_rejects_the_account_query(self):
         with FakeSesEndpoint().installed() as ses:
@@ -172,7 +204,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
     def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
         with FakeSesEndpoint().installed() as ses:
-            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.account_metrics.update(ENOUGH_ACCOUNT_SENDS)
             ses.denied = True
             data = self._get_reputation_from_ses()
 
@@ -180,7 +212,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
     def test_reputation_asks_ses_nothing_for_a_project_without_the_flag(self):
         with FakeSesEndpoint().installed() as ses:
-            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.account_metrics.update(ENOUGH_ACCOUNT_SENDS)
             data = self._get_reputation_from_ses(released=False)
 
         assert data["infrastructure"] is None

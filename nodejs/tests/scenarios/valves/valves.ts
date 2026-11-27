@@ -4,9 +4,10 @@ import { z } from 'zod'
 import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import type { RunManifest } from '../cloud/lease'
-import { durationMs } from '../duration'
+import { TerminationGrace, durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
+import type { RoleTermination } from '../environment/supervisor'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { AmbiguousParams, FaultRule, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
@@ -21,6 +22,7 @@ export type ValveContext = {
     seed?: number
     startedAt?: number
     endsAt?: number
+    terminationGraceMs?: number
 }
 
 type EntryContext = ValveContext & { pick?: string }
@@ -31,6 +33,7 @@ export type ValveDefinition = Definition & {
     roleExitGraceMs?: number
     restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
+    cyclotronThroughEdge?: true
     apply(context: EntryContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
 
@@ -46,6 +49,7 @@ export type ValveTimelineEntry = {
     releaseIntentAt?: string
     releaseObservations?: Observation[]
     releaseError?: string
+    exit?: RoleTermination
     error?: string
 }
 
@@ -68,6 +72,30 @@ export const roleKill: ValveDefinition = {
     target: CdpRole,
     strandsRunningJobs: true,
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
+}
+
+const Grace = z.object({ grace: TerminationGrace.optional() }).strict()
+
+const graceMsOf = (dose: unknown, { terminationGraceMs }: ValveContext): number => {
+    const { grace } = Grace.parse(dose)
+    const graceMs = grace === undefined ? terminationGraceMs : durationMs(grace)
+    if (graceMs === undefined) {
+        throw new Error('role.terminate needs a grace: give dose.grace or terminationGrace in the profile')
+    }
+    return graceMs
+}
+
+export const roleTerminate: ValveDefinition = {
+    name: 'role.terminate',
+    params: Grace,
+    target: CdpRole,
+    strandsRunningJobs: false,
+    apply: async (context, target, dose) =>
+        context.environment.actuate({
+            kind: 'terminate',
+            role: CdpRole.parse(target),
+            graceMs: graceMsOf(dose, context),
+        }),
 }
 
 export const roleFreeze: ValveDefinition = {
@@ -165,22 +193,64 @@ export const destAmbiguous: ValveDefinition = {
     },
 }
 
+export const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
-    params: z.object({}).strict(),
+    params: FailoverDose,
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     roleExitGraceMs: 5000,
     restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
-    apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
+    apply: ({ environment, commits, manifest }, _target, dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))
-            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
+            : environment.actuate({
+                  kind: 'rds.failover',
+                  manifest,
+                  holdMs,
+                  commits,
+                  signal,
+                  warmReader: FailoverDose.parse(dose).warmReader === true,
+              }),
+}
+
+const Dose = z.union([
+    z.object({ count: z.number().int().min(1) }).strict(),
+    z.object({ share: z.number().gt(0).max(1) }).strict(),
+])
+
+export const pgEnqueueRefused: ValveDefinition = {
+    name: 'pg.enqueue_refused',
+    params: Dose,
+    target: z.literal('cyclotron'),
+    strandsRunningJobs: false,
+    cyclotronThroughEdge: true,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'pg.enqueue_refused', dose: Dose.parse(dose) }),
+        }),
+}
+
+export const pgCommitReplyLost: ValveDefinition = {
+    name: 'pg.commit_reply_lost',
+    params: Dose,
+    target: z.literal('cyclotron'),
+    strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
+    cyclotronThroughEdge: true,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'pg.commit_reply_lost', dose: Dose.parse(dose) }),
+        }),
 }
 
 export const VALVES: ValveDefinition[] = [
     roleKill,
+    roleTerminate,
     roleFreeze,
     pgDropConnections,
     pgFailover,
@@ -189,7 +259,12 @@ export const VALVES: ValveDefinition[] = [
     sesReject,
     sesAmbiguous,
     destAmbiguous,
+    pgEnqueueRefused,
+    pgCommitReplyLost,
 ]
+
+export const cyclotronThroughEdge = (entries: readonly ValveEntry[]): boolean =>
+    entries.some(({ valve }) => VALVES.find(({ name }) => name === valve)?.cyclotronThroughEdge === true)
 
 const POLL_MS = 1000
 
@@ -253,7 +328,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                 }
             }
             if (entry.when!.name === 'edge_accepted') {
-                boundary = await context.environment.actuate({ kind: 'edge.fault', rule: heldAnswerRule() })
+                const rule = picking(heldAnswerRule(entry.when!.params.share), context)
+                boundary = await context.environment.actuate({ kind: 'edge.fault', rule })
                 if (boundary.accepted === undefined) {
                     throw new Error('the edge cannot say when it accepted a request')
                 }
@@ -329,6 +405,8 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
         } catch (error) {
             record.error = (error as Error).message
         } finally {
+            const hitSource =
+                entry.when?.name === 'edge_accepted' && entry.when.params.share !== undefined ? boundary : actuation
             await releaseBoundary()
             if (actuation) {
                 try {
@@ -337,9 +415,10 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     journal()
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                    journal()
                 }
                 try {
-                    const hits = await actuation.hits?.()
+                    const hits = await hitSource?.hits?.()
                     if (hits) {
                         unitIds.set(record, hits)
                     }

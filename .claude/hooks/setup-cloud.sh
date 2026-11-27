@@ -33,6 +33,12 @@ uv sync --quiet || echo "Warning: uv sync failed, Python tests and linters are u
 pnpm install --frozen-lockfile --prefer-offline --filter=. --filter=@posthog/frontend... || \
     echo "Warning: pnpm install failed, frontend tests and linters are unavailable" >&2
 
+# Build the workspace packages the frontend imports from dist/ (@posthog/quill*, @posthog/hogvm, ...).
+# Without them, typescript:check reports "Cannot find module" errors that have nothing
+# to do with the change under test. This is the same step CI runs before typechecking.
+bin/turbo --filter=@posthog/frontend prepare --output-logs=errors-only >&2 || \
+    echo "Warning: frontend workspace build failed; run 'bin/turbo --filter=@posthog/frontend prepare' before typechecking" >&2
+
 # Put the project venv ahead of the sandbox's unrelated global python tools, so
 # 'pytest', 'ruff' and 'mypy' resolve to the versions pinned by pyproject.toml.
 if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -d "$PROJECT_DIR/.venv/bin" ]; then

@@ -37,8 +37,3 @@ export function rankingsChart(rankings: AEOPromptSetRankingsApi): RankingsChart 
         })),
     }
 }
-
-/** Change in visibility against the previous window, in percentage points. Null when either window had no answers. */
-export function visibilityChange(visibility: number | null, previous: number | null): number | null {
-    return visibility === null || previous === null ? null : Math.round((visibility - previous) * 1000) / 10
-}

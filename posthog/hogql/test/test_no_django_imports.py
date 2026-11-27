@@ -14,7 +14,7 @@ DJANGO_FREE_MODULES = [
     "posthog.clickhouse.events_json",
     "posthog.property_columns",
     "posthog.week_start_day",
-    "products.event_definitions.backend.property_type",
+    "products.event_definitions.backend.facade.enums",
     "posthog.hogql.ast",
     "posthog.hogql.base",
     "posthog.hogql.visitor",

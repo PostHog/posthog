@@ -11,6 +11,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
+import { AlertCoverage, Alerts, AlertsRead, startAlerts } from '../alerts/alerts'
 import { residentBacklogOf } from '../backlog/backlog'
 import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard, Named, Step, Target, stepsOf } from '../cards'
 import { runManifestOf } from '../cloud/lease'
@@ -27,7 +28,7 @@ import {
     roleSpecs,
     secretsOf,
 } from '../environment/roles'
-import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { cyclotronUrlOf, postgresUrlOf, writerUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
@@ -37,6 +38,7 @@ import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
 import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
+    ActivitySample,
     DriveWindow,
     Measurement,
     Probed,
@@ -47,6 +49,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     startSampler,
 } from '../judge/measurements'
 import { Ramp, rampOf, stepRatesOf, watchRamp } from '../judge/ramp'
@@ -60,7 +63,7 @@ import { Provenance, provenanceOf } from '../scorecard/provenance'
 import { ScorecardProperties, scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
-import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { ValveTimelineEntry, createValves, cyclotronThroughEdge } from '../valves/valves'
 import { DependencyLoss, watchDependencies } from './dependency-watch'
 import { writeJson } from './evidence-file'
 import { type RunStop, openLiveLog } from './live'
@@ -78,6 +81,7 @@ import {
 } from './status'
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
+const ALERTS_FILE = 'alerts.jsonl'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
@@ -129,6 +133,7 @@ export type RunResult = {
     ramp?: Ramp
     stopped?: RunStop
     timeline: ValveTimelineEntry[]
+    alerts?: AlertCoverage
     restarts?: RoleExit[]
     startedAt: string
     endedAt: string
@@ -178,6 +183,7 @@ type Outcome = Pick<
     | 'bars'
     | 'ramp'
     | 'stopped'
+    | 'alerts'
 >
 
 export type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
@@ -197,15 +203,22 @@ async function startProbes(
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
+    const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, () =>
+        readActivity(() => probe.activity())
+    )
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),
         queue: () => queue.taken(),
         stop: () =>
             (stopping ??= (async () => {
-                const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
+                const [writerSamples, queueSamples, activitySamples] = await Promise.all([
+                    writer.stop(),
+                    queue.stop(),
+                    activity.stop(),
+                ])
                 await writerProbe.end()
-                return { writer: writerSamples, queue: queueSamples }
+                return { writer: writerSamples, queue: queueSamples, activity: activitySamples }
             })()),
     }
 }
@@ -413,10 +426,14 @@ function localTarget(
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
             const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
-            const probe = createCyclotronProbe(cyclotronUrl, async () => {
-                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
-                return lags.reduce((total, lag) => total + lag, 0)
-            })
+            const probe = createCyclotronProbe(
+                cyclotronUrl,
+                async () => {
+                    const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                    return lags.reduce((total, lag) => total + lag, 0)
+                },
+                writerUrlOf(env, profile.settings)
+            )
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),
@@ -456,6 +473,7 @@ export type RunnerOptions = {
     topologyEveryMs?: number
     target?: RunTarget
     counterRead?: CounterRead
+    alertScrapeIntervalMs?: number
 }
 
 export function createRunner(
@@ -467,6 +485,7 @@ export function createRunner(
         topologyEveryMs = TOPOLOGY_EVERY_MS,
         target,
         counterRead = COUNTER_READ,
+        alertScrapeIntervalMs,
     }: RunnerOptions = {}
 ): Runner {
     const stateDir = defaultStateDir(env)
@@ -545,7 +564,13 @@ export function createRunner(
     }
 
     const stage = {
-        async judge(loaded: LoadedCard, signal: AbortSignal, role?: PairRole): Promise<Judged> {
+        // A pair's control resets with its faulted run's routing, so the two runs differ in the fault alone.
+        async judge(
+            loaded: LoadedCard,
+            signal: AbortSignal,
+            role?: PairRole,
+            throughEdge = cyclotronThroughEdge(loaded.card.valves)
+        ): Promise<Judged> {
             if (restartRequired !== undefined) {
                 throw restartRequired
             }
@@ -579,6 +604,8 @@ export function createRunner(
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
+            let alerting: Alerts | undefined
+            let alerted: AlertsRead | undefined
             const judging = new AbortController()
             let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
@@ -602,12 +629,16 @@ export function createRunner(
             try {
                 await opened.connect()
                 enter('reset')
-                await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
-                    restartRequired = new Error(
-                        `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
-                    )
-                    throw error
-                })
+                await environment
+                    .reset(profile.settings, profile.replicas, {
+                        cyclotronThroughEdge: throughEdge,
+                    })
+                    .catch((error: unknown) => {
+                        restartRequired = new Error(
+                            `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
+                        )
+                        throw error
+                    })
                 runConfig = await environment.runConfig()
                 enter('seed')
                 const seeded = await opened.seed(signal).catch((error: unknown) => {
@@ -635,9 +666,28 @@ export function createRunner(
                     () => environment.dependencyHealth().then(({ down }) => down),
                     HEALTH_INTERVAL_MS
                 )
-                sampler = await startSampler(
-                    environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
-                )
+                const targets = environment
+                    .roles()
+                    .map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
+                sampler = await startSampler(targets)
+                alerting =
+                    loaded.alerts &&
+                    (await startAlerts({
+                        alerts: loaded.alerts,
+                        targets,
+                        scrapeIntervalMs: alertScrapeIntervalMs,
+                        onTransition: ({ at, latest, rule, instance, tier, state, value }) =>
+                            live.write({
+                                type: 'alert',
+                                at,
+                                ...(latest !== undefined && { latest }),
+                                rule,
+                                instance,
+                                ...(tier !== undefined && { tier }),
+                                state,
+                                value,
+                            }),
+                    }))
                 probes = await opened.probes(seeded.teamIds)
                 const offers = await opened.offers()
                 const driveStartedAt = Date.now()
@@ -660,6 +710,8 @@ export function createRunner(
                     seed: card.seed,
                     startedAt: driveStartedAt,
                     endsAt: driveStartedAt + durationMs(card.drive.for),
+                    terminationGraceMs:
+                        profile.terminationGrace === undefined ? undefined : durationMs(profile.terminationGrace),
                 })
                 const windowOpen = new AbortController()
                 void sleep(Math.max(0, driveStartedAt + durationMs(card.drive.for) - Date.now()), undefined, {
@@ -720,10 +772,12 @@ export function createRunner(
                 await pendingJudgments()
                 const stop = watch?.stopped()
                 enter('judge')
+                const judgedAt = Date.now()
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 await live.stop()
                 dependencies = await health.stop()
+                alerted = await alerting?.finish(driveWindow, valves.timeline(), judgedAt)
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const checked = await judge.check(
                     card.invariants,
@@ -817,6 +871,7 @@ export function createRunner(
                     admissions,
                     bars,
                     ...(ramp && { ramp }),
+                    ...(alerted && { alerts: alerted.coverage }),
                 }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
@@ -838,6 +893,7 @@ export function createRunner(
                 judging.abort()
                 await pendingJudgments()
                 await valves.releaseAll()
+                await alerting?.close()
                 dependencies = (await health?.stop()) ?? dependencies
                 probed = (await probes?.stop()) ?? probed
                 sampled = (await sampler?.stop()) ?? sampled
@@ -888,6 +944,12 @@ export function createRunner(
                 }
                 if (counters !== undefined) {
                     writeJson(evidenceDir, 'counters.json', counters)
+                }
+                if (alerted !== undefined) {
+                    writeFileSync(
+                        path.join(evidenceDir, ALERTS_FILE),
+                        alerted.lines.map((line) => `${JSON.stringify(line)}\n`).join('')
+                    )
                 }
                 if (recorded) {
                     writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
@@ -953,7 +1015,12 @@ export function createRunner(
         },
 
         async runPair(loaded, signal) {
-            const control = await stage.judge(controlOf(loaded), signal, 'control')
+            const control = await stage.judge(
+                controlOf(loaded),
+                signal,
+                'control',
+                cyclotronThroughEdge(loaded.card.valves)
+            )
             const faulted = signal.aborted
                 ? { missing: 'the run was interrupted before the faulted run' }
                 : await stage.judge(loaded, signal).catch((error: unknown) => ({ missing: messageOf(error) }))

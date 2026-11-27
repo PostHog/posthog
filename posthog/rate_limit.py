@@ -781,16 +781,19 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    """One bucket per credential (personal API key hash, unless `bucket_per_api_key` is off, else user) even on team-scoped views, for
     endpoints where one user must not be able to drain the whole team's budget.
 
     The parent's cache key idents a session-authenticated request on a team view by team id, which
     would collapse every member of the team into one bucket.
     """
 
+    # Off where rolling a personal API key must not start a fresh budget.
+    bucket_per_api_key = True
+
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if request.user.is_authenticated:
-            ident = hashed_personal_api_key_for_throttling(request) or request.user.pk
+            ident = (self.bucket_per_api_key and hashed_personal_api_key_for_throttling(request)) or request.user.pk
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -934,6 +937,19 @@ class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
 # team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOTopicRelabelBurstRateThrottle(_TeamBucketRateThrottle):
+    """A topic rename, merge or removal rewrites the label on every past check of the topic, so the project's
+    rewrites are capped, whoever sends them."""
+
+    scope = "aeo_topic_relabel_burst"
+    rate = "10/minute"
+
+
+class AEOTopicRelabelSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_topic_relabel_sustained"
+    rate = "60/hour"
+
+
 class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_burst"
     rate = "30/minute"
@@ -942,6 +958,19 @@ class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_sustained"
     rate = "300/hour"
+
+
+# An AEO search detail runs one aggregation over the window's searches per distinct search, and each
+# distinct search is a new cache entry. Expanding rows is a click per request, so the rates clear a
+# person reading the overview while bounding a loop of searches that start cold reads.
+class AEOSearchDetailBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_burst"
+    rate = "60/minute"
+
+
+class AEOSearchDetailSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_sustained"
+    rate = "600/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -1248,31 +1277,26 @@ class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilityTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+class _TranslationMemberRateThrottle(_UserBucketRateThrottle):
+    """One bucket per member, so one member translating a lot cannot lock the rest of the team out. A team-wide
+    bucket would also count the requests these refuse, so one member could still drain it in seconds."""
+
+    bucket_per_api_key = False
+
+
+class AIObservabilityTranslationBurstThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class AIObservabilityTranslationDailyThrottle(PersonalApiKeyRateThrottle):
-    # Daily cap for LLM-powered translation endpoint
-    # Hard limit to prevent runaway costs
+class AIObservabilityTranslationDailyThrottle(_TranslationMemberRateThrottle):
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
-
-
-class AIObservabilitySentimentBurstThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_burst"
-    rate = "60/minute"
-
-
-class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
-    scope = "llm_analytics_sentiment_sustained"
-    rate = "600/hour"
 
 
 class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -2310,6 +2334,16 @@ class ComposeTicketBurstThrottle(UserRateThrottle):
 class ComposeTicketSustainedThrottle(UserRateThrottle):
     scope = "compose_ticket_sustained"
     rate = "180/hour"
+
+
+class TicketAiRerunBurstThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_burst"
+    rate = "10/minute"
+
+
+class TicketAiRerunSustainedThrottle(UserRateThrottle):
+    scope = "ticket_ai_rerun_sustained"
+    rate = "60/hour"
 
 
 class TicketNoteBurstThrottle(UserRateThrottle):

@@ -20,7 +20,14 @@ from products.warehouse_sources.sources.google_play_console.settings import (
     ListEndpoint,
     MetricSetEndpoint,
 )
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, frozen, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    raise_for_retryable_status,
+    vendor_retry,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -262,6 +269,11 @@ class GooglePlayConsoleClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
 
+    # `suspend_adapter=False` keeps the adapter's own GET/HEAD/OPTIONS retry (`DEFAULT_RETRY`) live
+    # for a transient 500/502/503/504, so that behavior, and the vendor's exhausted-error copy for
+    # it, stays exactly as before. This decorator adds the retry the adapter never gave a 429: its
+    # own budget is too short for Play's quota window to clear, and it never covers a POST at all.
+    @vendor_retry(suspend_adapter=False)
     def request(
         self,
         method: str,
@@ -283,6 +295,8 @@ class GooglePlayConsoleClient:
                 url=url,
                 body=response.text[:500],
             )
+            if response.status_code == 429:
+                raise_for_retryable_status(response, vendor="Google Play", url=url)
             response.raise_for_status()
 
         payload = response.json()

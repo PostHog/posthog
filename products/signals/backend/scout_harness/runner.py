@@ -67,6 +67,11 @@ from products.signals.backend.scout_harness.limits import (
     failure_streak_pause_threshold,
     interval_runs_in_tolerance_window,
 )
+from products.signals.backend.scout_harness.message_routes import (
+    MessageRoute,
+    get_message_routes,
+    scout_send_message_enabled,
+)
 from products.signals.backend.scout_harness.model_selection import RUNTIME_ADAPTER_CODEX, resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
@@ -909,6 +914,13 @@ async def _arun_signals_scout(
                     team_id=team.parent_team_id or team.id, run_id=run_id, status=trial_status
                 )
             )
+        else:
+            # Success, failure and cancellation all send: the reports the queued messages point at exist.
+            await asyncio.shield(
+                database_sync_to_async(_send_queued_messages_safely, thread_sensitive=False)(
+                    team_id=team.parent_team_id or team.id, run_id=run_id
+                )
+            )
 
 
 async def arun_signals_scout(
@@ -989,16 +1001,21 @@ def _memory_upkeep_is_live(team: Team) -> bool:
     upkeep run that wrote nothing leaves the section off. The enabled check matters because the
     scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
     changing when the upkeep scout was switched off. Every scout run reads the team's whole
-    scratchpad, so there is no per-user access to check. A failed read is False: the section is
-    optional steering.
+    scratchpad, so there is no per-user access to check. The runner sets no ambient team scope and
+    the scratchpad manager is fail-closed, so the read opens its own scope on the canonical team,
+    where scratchpad rows are stored. A failed read is False: the section is optional steering.
     """
     try:
+        canonical_team_id = team.parent_team_id or team.id
         enabled = (
-            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            SignalScoutConfig.objects.for_team(canonical_team_id, canonical=True)
             .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
             .exists()
         )
-        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        if not enabled:
+            return False
+        with team_scope(canonical_team_id, canonical=True):
+            return has_live_entry_created_by(team_id=canonical_team_id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
@@ -1058,6 +1075,18 @@ def _inbox_reports_search_available(team: Team, mcp_tool_allowlist: list[str] | 
     except Exception as error:
         capture_exception(error)
         return False
+
+
+def _message_routes_for_run(
+    team: Team, config: SignalScoutConfig, *, is_private_trial: bool
+) -> tuple[MessageRoute, ...]:
+    """The routes the run's prompt lists, or none when `scout-send-message` would refuse every call."""
+    if is_private_trial:
+        return ()
+    routes = get_message_routes(config.output_destinations)
+    if not routes or not scout_send_message_enabled(team):
+        return ()
+    return routes
 
 
 def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
@@ -1327,6 +1356,9 @@ async def _spawn_and_run(
     inbox_reports_search = await database_sync_to_async(_inbox_reports_search_available, thread_sensitive=False)(
         team, mcp_tool_allowlist
     )
+    message_routes = await database_sync_to_async(_message_routes_for_run, thread_sensitive=False)(
+        team, config, is_private_trial=trial is not None
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1348,6 +1380,10 @@ async def _spawn_and_run(
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
         structured_output_schema=(config.structured_output_schema if config.emit else None),
+        # Renders the messages section (route keys and conditions) only when the scout may send:
+        # the flag is on, the config has routes, and the run is not a private trial.
+        message_routes=message_routes,
+        messages_dry_run=not config.emit,
         # Names the objects this scout may change, so it acts on them and reports what it changed.
         # Resolved through the same allowlist the token is, so the prompt can never promise write
         # access the token does not carry.
@@ -1670,11 +1706,21 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 age_seconds=age_seconds,
             )
             transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
+            # A reaped run never reaches the runner's terminal paths, so its queued messages go out here.
+            _send_queued_messages_safely(team_id=team_id, run_id=run.id)
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
                 extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
             )
+
+
+def _send_queued_messages_safely(*, team_id: int, run_id: Any) -> None:
+    from products.signals.backend.scout_harness.message_send import (
+        send_queued_scout_messages_safely,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
+    send_queued_scout_messages_safely(team_id=team_id, run_id=run_id)
 
 
 def _claim_finished_orphan(*, run_id: Any, team_id: int) -> bool:

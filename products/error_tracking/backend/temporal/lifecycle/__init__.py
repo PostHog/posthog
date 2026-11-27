@@ -1,3 +1,4 @@
+from products.error_tracking.backend.temporal.lifecycle.change_log_activity import ACTIVITIES as CHANGE_LOG_ACTIVITIES
 from products.error_tracking.backend.temporal.lifecycle.issue_created import (
     ACTIVITIES as ISSUE_CREATED_ACTIVITIES,
     WORKFLOWS as ISSUE_CREATED_WORKFLOWS,
@@ -15,7 +16,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_spiking import (
 )
 
 WORKFLOWS = ISSUE_CREATED_WORKFLOWS + ISSUE_REOPENED_WORKFLOWS + ISSUE_SPIKING_WORKFLOWS
-ACTIVITIES = ISSUE_CREATED_ACTIVITIES + ISSUE_REOPENED_ACTIVITIES + ISSUE_SPIKING_ACTIVITIES
+ACTIVITIES = ISSUE_CREATED_ACTIVITIES + ISSUE_REOPENED_ACTIVITIES + ISSUE_SPIKING_ACTIVITIES + CHANGE_LOG_ACTIVITIES
 
 __all__ = [
     "ACTIVITIES",

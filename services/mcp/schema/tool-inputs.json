@@ -1850,6 +1850,7 @@
             "properties": {
                 "operations": {
                     "minItems": 1,
+                    "maxItems": 50,
                     "type": "array",
                     "items": {
                         "oneOf": [
@@ -1862,11 +1863,13 @@
                                     },
                                     "alias": {
                                         "type": "string",
+                                        "maxLength": 1000,
                                         "description": "The replacement for the matched path, e.g. \"/users/<id>/profile\". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a \"?page=N\" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax (\"\\1\" to \"\\9\" for a group, \"\\0\" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one."
                                     },
                                     "regex": {
                                         "type": "string",
                                         "minLength": 1,
+                                        "maxLength": 1000,
                                         "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
                                     }
                                 },
@@ -1888,11 +1891,13 @@
                                     },
                                     "alias": {
                                         "type": "string",
+                                        "maxLength": 1000,
                                         "description": "The replacement for the matched path, e.g. \"/users/<id>/profile\". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a \"?page=N\" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax (\"\\1\" to \"\\9\" for a group, \"\\0\" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one."
                                     },
                                     "regex": {
                                         "type": "string",
                                         "minLength": 1,
+                                        "maxLength": 1000,
                                         "description": "A re2 pattern matched against the path, e.g. \"/users/\\\\d+/profile\". No need to escape \"/\". Anchor with ^ / $ when you mean it."
                                     }
                                 },
@@ -1912,12 +1917,14 @@
                                     },
                                     "alias": {
                                         "description": "New alias. Omit to keep the current alias.",
-                                        "type": "string"
+                                        "type": "string",
+                                        "maxLength": 1000
                                     },
                                     "regex": {
                                         "description": "New regex. Omit to keep the current regex.",
                                         "type": "string",
-                                        "minLength": 1
+                                        "minLength": 1,
+                                        "maxLength": 1000
                                     }
                                 },
                                 "required": ["action", "target_alias"],
@@ -1961,7 +1968,7 @@
                     "description": "Ordered list of edits to apply to the current path cleaning rules, in sequence."
                 },
                 "sample_paths": {
-                    "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Approximate (JS regex, not re2) — use execute-sql with replaceRegexpAll to confirm edge cases.",
+                    "description": "Optional real paths (e.g. \"/users/123/profile\") to preview against, up to 25. The response shows how the current and resulting rule sets rewrite each one, computed in ClickHouse with replaceRegexpAll exactly as path cleaning runs. The preview needs the query:read scope.",
                     "maxItems": 25,
                     "type": "array",
                     "items": {
@@ -3312,6 +3319,17 @@
                                     }
                                 ]
                             },
+                            "description": {
+                                "description": "Display-only name for this release condition group. It does not affect evaluation.",
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
                             "condition_id": {
                                 "description": "The condition_id this condition had when you read the flag. Send it unchanged when you keep, edit, or move the condition. Leave it off a new condition or one copied from a different flag. The update is refused when no condition on the flag has this ID.",
                                 "type": "string"
@@ -3918,7 +3936,7 @@
                     "enum": ["sandbox", "own"]
                 },
                 "drop_own_sender_settings": {
-                    "description": "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it.",
+                    "description": "With sender 'sandbox': drop the settings the PostHog test sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, turned-off run_link_tag_enabled, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it.",
                     "type": "boolean"
                 }
             },

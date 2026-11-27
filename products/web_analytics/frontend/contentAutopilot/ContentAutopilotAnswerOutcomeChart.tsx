@@ -1,16 +1,15 @@
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptOutcomeMetric } from './promptReport'
 import type { AnswerOutcomeChart } from './visibilityChart'
@@ -27,6 +26,11 @@ const COPY: Record<PromptOutcomeMetric, { title: string; yes: string; no: string
     mentioned: { title: 'Answers that mention you', yes: 'Mentioned', no: 'Not mentioned' },
     cited: { title: 'Answers that cite you', yes: 'Cited', no: 'Not cited' },
 }
+
+const OPTIONS: { value: PromptOutcomeMetric; label: string }[] = [
+    { value: 'mentioned', label: 'Mentioned' },
+    { value: 'cited', label: 'Cited' },
+]
 
 /** One stacked bar per day: the answers that met the metric on top of the ones that didn't, across every engine. */
 export const ContentAutopilotAnswerOutcomeChart = ({
@@ -55,30 +59,46 @@ export const ContentAutopilotAnswerOutcomeChart = ({
         ],
         [chart, metric, yesColor, noColor]
     )
+    const hasData = chart.yes.some(Boolean) || chart.no.some(Boolean)
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader
-                description={description}
-                title={COPY[metric].title}
-                actions={
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonSegmentedButton
-                            size="xsmall"
-                            value={metric}
-                            onChange={onMetricChange}
-                            options={[
-                                { value: 'mentioned', label: 'Mentioned' },
-                                { value: 'cited', label: 'Cited' },
-                            ]}
-                            data-attr={`${dataAttr}-metric`}
-                        />
-                        <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
-                    </div>
-                }
-            />
-            <div className="h-72 min-w-0 flex flex-col p-2" data-attr={dataAttr}>
-                <TimeSeriesBarChart series={series} labels={chart.labels} theme={theme} config={CONFIG} />
+        <AiVisibilityCard
+            title={COPY[metric].title}
+            description={description}
+            actions={
+                <>
+                    <ToggleGroup
+                        variant="outline"
+                        aria-label="Chart metric"
+                        value={[metric]}
+                        onValueChange={(next: string[]) => {
+                            // Clicking the chosen metric again empties the group, which keeps the current metric.
+                            if (next[0]) {
+                                onMetricChange(next[0] as PromptOutcomeMetric)
+                            }
+                        }}
+                        data-attr={`${dataAttr}-metric`}
+                    >
+                        {OPTIONS.map(({ value, label }) => (
+                            <ToggleGroupItem key={value} value={value}>
+                                {label}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
+                </>
+            }
+        >
+            <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
+                {hasData ? (
+                    <TimeSeriesBarChart series={series} labels={chart.labels} theme={theme} config={CONFIG} />
+                ) : (
+                    <Empty className="flex-1">
+                        <EmptyHeader>
+                            <EmptyDescription>No answers in this date range.</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                )}
             </div>
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }
