@@ -56,6 +56,8 @@ hooks = [
   "posthog.models.integration.auth_types.register_kind_auth_types",
   "posthog.models.resource_transfer.registered_models.register_model",
   "posthog.models.team.extensions.register_team_extension_signal",
+  "posthog.slack.block_actions.register_block_action_handler",
+  "posthog.slack.channel_messages.register_channel_message_handler",
   "posthog.tasks.alerts.detectors.registry.register_detector",
   "products.alerts_platform.backend.delivery.delivery_paths.register_chooser",
   "products.alerts_platform.backend.delivery.delivery_paths.register_emitter",
