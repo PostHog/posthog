@@ -55,6 +55,27 @@ describe('aiShellLogic', () => {
         })
     })
 
+    describe('isTaskRunnerAvailable selector', () => {
+        it.each([
+            { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
+            { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
+            {
+                realm: 'self-hosted with only an Anthropic key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: true, openai_available: false },
+                expected: true,
+            },
+            {
+                realm: 'self-hosted with only an OpenAI key',
+                preflight: { cloud: false, is_debug: false, anthropic_available: false, openai_available: true },
+                expected: false,
+            },
+        ])('is $expected on $realm', async ({ preflight, expected }) => {
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
+
+            await expectLogic(logic).toMatchValues({ isTaskRunnerAvailable: expected })
+        })
+    })
+
     // The flag is the only thing that may expose the new posthog_ai surface — without the gate a stored
     // preference (or a missing default) would leak it to every user. Lock in: flag off collapses to legacy
     // regardless of the stored mode; flag on passes the stored mode through. When the server sends its
