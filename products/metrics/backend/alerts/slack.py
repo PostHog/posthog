@@ -277,10 +277,13 @@ def render_metrics_slack_message(
     context = ["*FIRING*"]
     if group:
         context.append(escape_slack_mrkdwn(clip_text(group, 300)))
+    # Slack shows a link or a date in a verbatim element as raw text, so these two stay out of the
+    # verbatim one that carries the ingested group labels.
+    links = []
     if project is not None:
-        context.append(f"<{project.url}|{escape_slack_mrkdwn(project.label)}>")
+        links.append(f"<{project.url}|{escape_slack_mrkdwn(project.label)}>")
     stamp = int(transition.occurred_at.timestamp())
-    context.append(f"<!date^{stamp}^{{date_short_pretty}} {{time}}|{transition.occurred_at:%b %d %H:%M} UTC>")
+    links.append(f"<!date^{stamp}^{{date_short_pretty}} {{time}}|{transition.occurred_at:%b %d %H:%M} UTC>")
 
     fields = []
     if transition.value is not None:
@@ -290,7 +293,9 @@ def render_metrics_slack_message(
         fields.append(f"*Fires when*\n{escape_slack_mrkdwn(condition)}")
 
     # Verbatim, so a bare `@channel` in an ingested label value cannot become a broadcast.
-    blocks: list[dict[str, Any]] = [header_block(title), _verbatim(context_block(" · ".join(context)))]
+    summary = _verbatim(context_block(" · ".join(context)))
+    summary["elements"].append({"type": "mrkdwn", "text": " · ".join(links)})
+    blocks: list[dict[str, Any]] = [header_block(title), summary]
     if fields:
         fields_section = fields_block(fields)
         # Verbatim, so a bare `@here` in text cannot become a broadcast.

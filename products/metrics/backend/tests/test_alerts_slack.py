@@ -49,6 +49,11 @@ def test_a_firing_card_leads_with_the_value_and_ends_with_the_actions() -> None:
     assert fields == ["*Value*\n1", "*Fires when*\n&gt; 0"]
     assert content.blocks[0]["text"]["text"] == "🔴 Checkout errors"
     assert "Checkout errors" in content.text
+    # Slack shows a link or a date in a verbatim element as raw text.
+    labels, links = content.blocks[1]["elements"]
+    assert labels["verbatim"] is True
+    assert "verbatim" not in links
+    assert links["text"].startswith("<https://example.com/project/1|Demo project> · <!date^")
 
 
 def test_the_card_is_complete_without_a_history() -> None:
