@@ -224,6 +224,20 @@ class TestFanOut:
             AshbyResumeConfig(parent_cursor="p2", parent_index=1),
         ]
 
+    def test_commits_progress_past_parents_with_no_children(self) -> None:
+        # Most applications have no criteria evaluations, so a walk can yield no row for hours.
+        # Without a commit per parent, a worker restart starts the walk again from the first parent.
+        result = _driver().run(
+            "application_criteria_evaluations",
+            [_page([{"id": "app-1"}, {"id": "app-2"}]), _page([]), _page([])],
+        )
+        assert result.raised is None
+        assert result.rows == []
+        assert result.committed_states == [
+            AshbyResumeConfig(parent_cursor=None, parent_index=1),
+            AshbyResumeConfig(parent_cursor=None, parent_index=2),
+        ]
+
 
 class TestListingBody:
     @pytest.mark.parametrize(
