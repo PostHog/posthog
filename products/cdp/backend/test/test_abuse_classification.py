@@ -660,6 +660,25 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {},
             ),
             (
+                "established_secret_mapping_input_sharing_a_public_host_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                "fetch(inputs.url, {'body': {'text': inputs.text}})",
+                {
+                    "inputs_schema": [{"key": "text", "type": "string", "label": "Text"}],
+                    "inputs": {"text": {"value": "Open http://127.0.0.1:8080/tool"}},
+                    "mappings": [
+                        {
+                            "name": "Orders",
+                            "inputs_schema": [{"key": "url", "type": "string", "label": "URL", "secret": True}],
+                            "inputs": {"url": {"value": "http://127.0.0.1:9200/hook"}},
+                        }
+                    ],
+                },
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+            (
                 "established_truncated_state_with_a_low_ssrf_score",
                 ESTABLISHED,
                 QUIET_SCORES,

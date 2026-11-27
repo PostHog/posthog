@@ -6,7 +6,6 @@ Pure: no database, no DNS lookup, no network.
 import re
 import math
 import ipaddress
-import unicodedata
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -187,7 +186,9 @@ _PUBLIC_DNS_NAME = re.compile(r"(?:[a-z0-9_](?:[a-z0-9_-]*[a-z0-9_])?\.)+[a-z](?
 # The bundled public suffix list, so no lookup goes out and no cache file is written. A `.localhost` name or a cluster
 # short name such as `redis.posthog` has no public suffix, but one whose namespace is also a top-level domain does.
 _DOMAIN_PARTS = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
-_URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]-]+", re.IGNORECASE)
+# Non-ASCII characters stay inside a part: the URL parser maps full-width digits, dots such as `。` and soft hyphens in
+# a host to ASCII or drops them, so a part has to reach `canonicalize_host` whole.
+_URL_PART_SEPARATOR = re.compile(r"[^0-9a-z._:%\[\]\-\u0080-\U0010ffff]+", re.IGNORECASE)
 _BRACKETED_ADDRESS = re.compile(r"\[([^\[\]]*)\]")
 
 
@@ -329,13 +330,9 @@ def _is_literal_public_url(url: str) -> bool:
     # Text still encoded past the last decoding pass can hide any host, such as a redirect target encoded four times.
     if unquote(layers[-1]) != layers[-1]:
         return False
-    return not any(_names_an_address(text) for layer in layers for text in (layer, _parsed_host_form(layer)))
-
-
-def _parsed_host_form(text: str) -> str:
-    """The text with full-width digits and dots such as `。` mapped to ASCII, as the URL parser maps them in a host,
-    so a name the address checks would split apart reads as one name."""
-    return unicodedata.normalize("NFKC", text).replace("\u3002", ".")
+    if any(_resolves_to_its_address(canonicalize_host(nested)) for nested in _url_hosts(url)):
+        return False
+    return not any(map(_names_an_address, layers))
 
 
 def _resolves_to_its_address(host: str) -> bool:
@@ -369,11 +366,12 @@ def _names_an_address(text: str) -> bool:
         if _is_ip(part):
             return True
         for name in filter(None, part.split(":")):
-            if internal_host_name(name) is not None or _is_address_shorthand(name):
+            canonical = canonicalize_host(name)
+            if any(internal_host_name(form) is not None or _is_address_shorthand(form) for form in (name, canonical)):
                 return True
-            # Only the address DNS domains count here. The embedded address pattern also matches file names such as
-            # `20241231.csv`, which a path holds far more often than a host.
-            if _in_address_dns_domain(canonicalize_host(name)):
+            # Only the address DNS domains count for a name outside a URL authority. The embedded address pattern also
+            # matches file names such as `20241231.csv`, which a path holds far more often than a host.
+            if _in_address_dns_domain(canonical):
                 return True
     return False
 

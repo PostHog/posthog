@@ -896,6 +896,16 @@ class TestAbuseRules(SimpleTestCase):
             ("hex_file_name_in_the_path", post_to("https://storage.example.com/exports/20241231.csv"), True),
             ("non_ascii_path", post_to("https://api.example.com/caf%C3%A9/x"), True),
             (
+                "soft_hyphen_name_in_the_query",
+                post_to("https://api.example.com/go?to=http://local\u00adtest.me/x"),
+                False,
+            ),
+            (
+                "address_host_name_in_the_query",
+                post_to("https://api.example.com/go?to=http://10-0-0-1.example.com/x"),
+                False,
+            ),
+            (
                 "unicode_dot_name_in_the_query",
                 post_to("https://api.example.com/go?to=http://localtest\u3002me/x"),
                 False,
