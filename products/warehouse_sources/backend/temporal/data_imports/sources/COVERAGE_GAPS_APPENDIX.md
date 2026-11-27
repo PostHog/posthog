@@ -13309,7 +13309,7 @@ Note: Fetched the official llms index and parsed the OpenAPI definitions embedde
 
 ## ServiceNow — gaps
 
-Today (19): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `configuration_items`, `group_members`, `incidents`, `knowledge_articles`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
+Today (23): `assets`, `catalog_requests`, `catalog_tasks`, `change_requests`, `change_tasks`, `choices`, `ci_relationships`, `companies`, `configuration_items`, `group_members`, `incidents`, `journal_entries`, `knowledge_articles`, `locations`, `metric_instances`, `problems`, `requested_items`, `service_offerings`, `services`, `task_slas`, `tasks`, `user_groups`, `users`
 
 Diffed against: <https://www.servicenow.com/docs/r/zurich/it-service-management/service-level-management/r_TaskSLATable.html (plus https://www.servicenow.com/docs/r/zurich/platform-administration/c_MetricInstance.html, .../system-localization/r_ChoicesTable.html, .../it-service-management/incident-management/itsm-incident-use-case.html)>
 
@@ -13324,12 +13324,12 @@ Note: ServiceNow's Table API is generic — /api/now/table/{table} can query any
 
 Re-audited 2026-11-19 against: <https://www.servicenow.com/docs/api/khub/maps/q4dSP2Icgr1SFv5wanVXvQ/topics/rJ9NSvcVJopY2MEdpkyvcw/content>
 
-- [ ] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
-- [ ] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
+- [x] `Journal entries: comments and work notes (GET /api/now/table/sys_journal_field)` — Comments and work notes on incidents, changes and requested items already synced; join on element_id and element to see the conversation and first-response times (high)
+- [x] `CI relationships (GET /api/now/table/cmdb_rel_ci)` — Parent and child links between configuration items already synced; needed for impact and dependency analysis across incidents and changes (high)
 - [ ] `Catalog items (GET /api/now/table/sc_cat_item)` — Lookup for the catalog item referenced on requested_items and catalog_tasks, so request volume can be grouped by item (medium)
 - [ ] `Approvals (GET /api/now/table/sysapproval_approver)` — Approver, state and decision time for change requests and requested items; shows approval delays (medium)
-- [ ] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
-- [ ] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
+- [x] `Locations (GET /api/now/table/cmn_location)` — Lookup for the location field on users, assets and configuration items (medium)
+- [x] `Companies (GET /api/now/table/core_company)` — Lookup for company references on users, assets and vendors (medium)
 - [ ] `User roles (GET /api/now/table/sys_user_has_role)` — Role grants per user; supports access audits next to the users table (low)
 
 Note (2026-11-19): Used the ServiceNow docs content API (khub) and confirmed each table name in a Zurich or Australia docs page: sys_journal_field (retrieving journal entries), cmdb_rel_ci (CI relationships in the CMDB), sc_cat_item (Service Catalog and CSDM tables), sysapproval_approver (approvals reference), cmn_location, core_company and sys_user_has_role. All use the generic Table API, so each is a one-line settings entry like the existing tables. sys_journal_field can be large, so use the sys_created_on cursor. Field-level audit history (sys_audit) and cmn_department were not confirmed in docs and are left out.
