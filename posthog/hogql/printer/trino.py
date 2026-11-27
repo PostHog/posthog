@@ -1829,6 +1829,11 @@ class TrinoPrinter(PostgresPrinter):
                             and self._is_boolean_column(column_scope, value_type.name)
                         ):
                             return ast.BooleanType(nullable=column_constant_type.nullable)
+                        if isinstance(column_constant_type, ast.UnknownType) and not via_set_query:
+                            projected = self._projected_expression(select_type, value_type.name)
+                            projected_type = self._resolve_type(projected) if projected is not None else None
+                            if projected_type is not None and not isinstance(projected_type, ast.UnknownType):
+                                return projected_type
                         # The first branch's column stands for the set query only when all branches agree with it.
                         via_set_query = via_set_query or isinstance(column_scope, ast.SelectSetQueryType)
                         value_type = column_type
