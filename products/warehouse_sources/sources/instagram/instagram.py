@@ -407,9 +407,9 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
         media_id = str(row["id"])
         try:
             extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
-        except InstagramBadRequestError as error:
-            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
-                raise
+        except (InstagramBadRequestError, InstagramRetryableError) as error:
+            # Meta already refused this page, so a post it still cannot serve (it can answer with a
+            # transient error code instead of 9005) must not fail the sync on every later run.
             logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
             continue
         row.update({name: value for name, value in extra.items() if name != "id"})
