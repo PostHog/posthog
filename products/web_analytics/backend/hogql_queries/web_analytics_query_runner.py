@@ -448,9 +448,14 @@ WHERE and(
             return False
         if not self._session_restriction_flag_enabled:
             return False
+        started = perf_counter()
         restricted = self._run_session_restriction_preflight()
         # Tagged both ways, so query_log tells declined reads (False) apart from reads with the flag off (no tag).
-        tag_queries(web_analytics_sessions_restricted=restricted)
+        # The preflight's time goes on the main read, so query_log can add it to that read's own duration.
+        tag_queries(
+            web_analytics_sessions_restricted=restricted,
+            web_analytics_session_restriction_preflight_ms=round((perf_counter() - started) * 1000),
+        )
         return restricted
 
     def events_evaluable_filters(self) -> ast.Expr:
@@ -519,6 +524,10 @@ SELECT
         if not response.results:
             return False
         matching, in_range = response.results[0]
+        tag_queries(
+            web_analytics_session_restriction_matching_sessions=matching,
+            web_analytics_session_restriction_sessions_in_range=in_range,
+        )
         return session_restriction_pays(matching, in_range)
 
     @cached_property

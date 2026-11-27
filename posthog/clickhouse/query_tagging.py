@@ -510,9 +510,14 @@ class QueryTags(BaseModel):
     web_analytics_precompute_ineligible_reason: Optional[str] = None
     # Why a web analytics read that tried the dimensional tables fell back: a `DimensionalIneligibleReason` value.
     web_analytics_dimensional_ineligible_reason: Optional[str] = None
-    # True when a live web analytics read restricted its sessions side to the sessions the events side matched,
-    # so query_log can compare restricted and unrestricted reads of the same shape.
+    # True when a live web analytics read restricted its sessions side to the sessions the events side matched, and
+    # False when the restriction flag is on but the preflight declined, so query_log can compare the two.
     web_analytics_sessions_restricted: Optional[bool] = None
+    # The session counts and wall time of the preflight that decided `web_analytics_sessions_restricted`, set on
+    # restricted and declined reads alike, so query_log can relate the speed-up to the share of sessions matched.
+    web_analytics_session_restriction_matching_sessions: Optional[int] = None
+    web_analytics_session_restriction_sessions_in_range: Optional[int] = None
+    web_analytics_session_restriction_preflight_ms: Optional[int] = None
     entity_math: Optional[list[str]] = None
 
     # replays

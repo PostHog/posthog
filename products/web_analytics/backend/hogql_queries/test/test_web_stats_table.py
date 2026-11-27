@@ -3164,8 +3164,22 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             runner = self._make_runner(breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE, includeBounceRate=False)
             runner.calculate()
 
+        tags = get_query_tags()
         assert runner.restrict_sessions is expected_restricted
-        assert get_query_tags().web_analytics_sessions_restricted is expected_tag
+        assert tags.web_analytics_sessions_restricted is expected_tag
+        if flag_enabled:
+            assert tags.web_analytics_session_restriction_matching_sessions
+            assert tags.web_analytics_session_restriction_sessions_in_range is not None
+            assert (
+                tags.web_analytics_session_restriction_sessions_in_range
+                - tags.web_analytics_session_restriction_matching_sessions
+                == server_only_sessions
+            )
+            assert tags.web_analytics_session_restriction_preflight_ms is not None
+        else:
+            assert tags.web_analytics_session_restriction_matching_sessions is None
+            assert tags.web_analytics_session_restriction_sessions_in_range is None
+            assert tags.web_analytics_session_restriction_preflight_ms is None
 
     @parameterized.expand(
         [
