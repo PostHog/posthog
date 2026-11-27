@@ -6,7 +6,10 @@ import pytest
 
 import clickhouse_schema_cache
 from clickhouse_schema_cache import (
+    FORMATTED_DDL,
+    FORMATTED_DEFAULT,
     SHARED_INPUTS,
+    SNAPSHOT_QUERIES,
     SnapshotError,
     _other_databases,
     fingerprint,
@@ -119,3 +122,13 @@ def test_load_raises_when_the_cleanup_after_a_failed_restore_fails(tmp_path, mon
     monkeypatch.setattr(clickhouse_schema_cache, "reset", _failing)
     with pytest.raises(SnapshotError, match="could not clean up"):
         load(directory, checkout)
+
+
+def test_snapshot_compares_ddl_and_expressions_as_clickhouse_formats_them() -> None:
+    # RESTORE drops the redundant outer parentheses of `version UInt64 MATERIALIZED (a + b)` in
+    # property_definitions, so the raw text differs between a migrated and a restored schema.
+    tables = next(sql for sql in SNAPSHOT_QUERIES if "FROM system.tables" in sql)
+    columns = next(sql for sql in SNAPSHOT_QUERIES if "FROM system.columns" in sql)
+    assert FORMATTED_DDL in tables
+    assert FORMATTED_DEFAULT in columns
+    assert "create_table_query," not in tables.replace(FORMATTED_DDL, "")

@@ -60,15 +60,20 @@ USER_DATABASES = "database NOT IN ('system', 'information_schema', 'INFORMATION_
 # ops_query_log_archive_v3_mv copies system.query_log into these, so their row counts move with
 # every query the server runs, this snapshot's included.
 QUERY_LOG_TABLES = ("query_log_archive_v3_buffer", "sharded_query_log_archive_v3")
+# RESTORE re-parses the backed-up DDL and drops redundant parentheses, such as the outer pair of a
+# MATERIALIZED expression. Comparing the DDL as ClickHouse formats it ignores that formatting while
+# any real difference in the schema still differs. A statement that does not parse is compared raw.
+FORMATTED_DDL = "ifNull(formatQuerySingleLineOrNull(create_table_query), create_table_query)"
+FORMATTED_DEFAULT = "ifNull(formatQuerySingleLineOrNull('SELECT ' || default_expression), default_expression)"
 SNAPSHOT_QUERIES = (
     "SELECT 'database', name, engine FROM system.databases WHERE name NOT IN "
     "('system', 'information_schema', 'INFORMATION_SCHEMA') ORDER BY ALL",
     f"SELECT 'table', database, replaceRegexpAll(name, '{UUID_SQL}', '<uuid>'), engine, "
-    f"replaceRegexpAll(create_table_query, '{UUID_SQL}', '<uuid>'), "
+    f"replaceRegexpAll({FORMATTED_DDL}, '{UUID_SQL}', '<uuid>'), "
     f"if(name IN {QUERY_LOG_TABLES}, '', toString(total_rows)) "
     f"FROM system.tables WHERE {USER_DATABASES} ORDER BY ALL",
     f"SELECT 'column', database, replaceRegexpAll(table, '{UUID_SQL}', '<uuid>'), position, name, type, "
-    f"default_kind, default_expression, compression_codec FROM system.columns WHERE {USER_DATABASES} ORDER BY ALL",
+    f"default_kind, {FORMATTED_DEFAULT}, compression_codec FROM system.columns WHERE {USER_DATABASES} ORDER BY ALL",
     # Masked credentials make a broken dictionary look identical in SHOW CREATE; loading it does not.
     "SELECT 'dictionary', database, name, status FROM system.dictionaries ORDER BY ALL",
     "SELECT 'function', name, create_query FROM system.functions WHERE origin = 'SQLUserDefined' ORDER BY ALL",
