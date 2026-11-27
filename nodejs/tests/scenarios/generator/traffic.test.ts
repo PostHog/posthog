@@ -1,14 +1,28 @@
-import http from 'http'
-import { AddressInfo } from 'net'
+import { createInMemoryJobQueue, createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import http, { Server } from 'http'
+import { AddressInfo } from 'net'
+import express from 'ultimate-express'
+
+import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
+import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
+import { CdpApi } from '~/cdp/cdp-api'
 import { HogFlowSchema } from '~/cdp/schema/hogflow'
 import {
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailRequestSchema,
 } from '~/cdp/services/hogflows/transactional-email'
+import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK } from '~/common/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { Hub } from '~/types'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
@@ -19,6 +33,7 @@ import {
     bounceFollowup,
     captureWebhook,
     transactionalEmail,
+    workflowWebhook,
 } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
@@ -272,6 +287,68 @@ describe('traffic', () => {
                 }
             })
         })
+    })
+})
+
+describe('workflow_webhook traffic', () => {
+    let hub: Hub
+    let api: CdpApi
+    let server: Server
+    let url: string
+    let teamId: number
+
+    beforeEach(async () => {
+        hub = await createHub({})
+        teamId = (await createTestTeamFixture(hub.postgres)).team.id
+        await insertHogFunctionTemplate(hub.postgres, incomingWebhookTemplate)
+        api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createInMemoryJobQueue(),
+        })
+        await api.start()
+        const app: express.Application = setupExpressApp()
+        app.use('/', api.router())
+        await new Promise<void>((resolve) => {
+            server = app.listen(0, resolve)
+        })
+        url = `http://127.0.0.1:${(app as unknown as { port: number }).port}`
+    })
+
+    afterEach(async () => {
+        server.close()
+        await api.stop()
+        await closeHub(hub)
+    })
+
+    const producedRuns = (): { job: { id: string; state: { state: { event: object } } } }[] =>
+        mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
+            .map((message) => message.value as never)
+
+    it("retries its seeded flow's webhook under the unit's key, so both runs carry the unit and one run id", async () => {
+        const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
+        const unit = { unitId: 'run-w-1', teamId, flowId: flow.id }
+        mockProducerObserver.produceSpy.mockImplementationOnce(() =>
+            Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+        )
+        let now = 0
+        const clock: SendClock = {
+            now: () => now,
+            wait: (ms) => {
+                now += ms
+                return Promise.resolve()
+            },
+        }
+
+        const answer = await workflowWebhook.offer(unit, contextFor(url, undefined, clock), NEVER_ABORTED)
+
+        const runs = producedRuns()
+        expect(answer).toEqual({ accepted: true, retries: 1 })
+        expect(runs.map(({ job }) => job.state.state.event)).toEqual([
+            expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
+            expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
+        ])
+        expect(new Set(runs.map(({ job }) => job.id)).size).toBe(1)
     })
 })
 

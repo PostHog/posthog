@@ -901,15 +901,15 @@ describe('load', () => {
             overTheLimit,
             { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '"1000"' } },
         ],
-        [
-            'a transactional load, which no workflow rate limit slows',
+        ...['transactional_email', 'workflow_webhook'].map((name): [string, object, object] => [
+            `a ${name} load, which no workflow rate limit slows`,
             {
                 ...overTheLimit,
-                drive: { ...overTheLimit.drive, traffic: [{ name: 'transactional_email' }] },
+                drive: { ...overTheLimit.drive, traffic: [{ name }] },
                 invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
             },
-            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
-        ],
+            { ...profile, traffic: { [name]: { ratePerSecond: 2 } } },
+        ]),
         [
             'an email load under half of a refill the profile raises',
             emailRamp,
