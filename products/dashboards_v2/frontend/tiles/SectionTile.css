@@ -104,7 +104,7 @@
 
     /* Without an outline the section is hard to find while editing, so it shows one on hover, as a tile does. */
     .TileGrid--editable .TileGrid__tile:hover > &,
-    .TileGrid--editable .TileGrid__tile:hover > .TileContextMenu__trigger > & {
+    .TileGrid--editable .TileGrid__tile:hover > .ActionContextMenu__trigger > & {
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }

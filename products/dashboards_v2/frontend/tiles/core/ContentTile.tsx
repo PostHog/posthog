@@ -5,6 +5,7 @@ import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
 
+import { ActionContextMenu, hasMenuActions } from '../../menu/ActionContextMenu'
 import type { MenuAction } from '../../menu/menuAction'
 import { ErrorBoundary, PANEL_ERROR_TAG } from '../../panels/core/ErrorBoundary'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
@@ -15,7 +16,6 @@ import { TileBackgroundContext } from '../../panels/core/tileBackground'
 import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './DescriptionIcon'
 import { TileActions } from './TileActions'
 import { showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
-import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { hasPart, isPartShown, showsPart } from './tileParts'
 
 export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
@@ -91,10 +91,10 @@ export function ContentTile({
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
     const menu = useMemo(() => [...placementActions, ...actions], [actions, placementActions])
-    const hasMenu = hasTileMenu(menu)
+    const hasMenu = hasMenuActions(menu)
 
     return (
-        <TileContextMenu actions={menu}>
+        <ActionContextMenu actions={menu}>
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
@@ -167,6 +167,6 @@ export function ContentTile({
                     </CardFooter>
                 )}
             </Card>
-        </TileContextMenu>
+        </ActionContextMenu>
     )
 }

@@ -30,6 +30,7 @@ import {
 } from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { ActionContextMenu, hasMenuActions } from '../menu/ActionContextMenu'
 import { ErrorBoundary } from '../panels/core/ErrorBoundary'
 import { shownDescription } from '../panels/core/panelSchema'
 import { PanelMessage } from '../panels/core/PanelView'
@@ -37,7 +38,6 @@ import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionIcon } from './core/Descriptio
 import { TapTooltip } from './core/TapTooltip'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
-import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
 import { AddTileMenu } from './menu/AddTileMenu'
 import { useSectionActions, useSectionPlacementActions } from './menu/tileMenuActions'
 
@@ -75,7 +75,7 @@ export function SectionTile({
     const [confirmingRemove, setConfirmingRemove] = useState(false)
     const placementActions = useSectionPlacementActions(id, panel, () => setConfirmingRemove(true))
     const actions = useMemo(() => [...ownActions, ...placementActions], [ownActions, placementActions])
-    const hasMenu = hasTileMenu(actions)
+    const hasMenu = hasMenuActions(actions)
     const showAdd = can('addTile')
 
     const descriptionRows = sectionDescriptionRows(panel)
@@ -116,7 +116,7 @@ export function SectionTile({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-            <TileContextMenu actions={actions}>
+            <ActionContextMenu actions={actions}>
                 <Section border={showsBorder(panel)} backgroundColor={panel.appearance?.backgroundColor}>
                     <SectionHeader
                         description={
@@ -183,7 +183,7 @@ export function SectionTile({
                         </ErrorBoundary>
                     )}
                 </Section>
-            </TileContextMenu>
+            </ActionContextMenu>
         </>
     )
 }

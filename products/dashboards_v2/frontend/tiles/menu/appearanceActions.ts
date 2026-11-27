@@ -1,10 +1,10 @@
 import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTypes'
 import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
+import { ACCENT_COLOR_KEYS, ACCENT_COLORS } from '../../panels/core/accentColors'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { type TileDescriptionMode, shownDescription } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
-import { TILE_BACKGROUND_COLORS } from '../../panels/core/tileBackground'
 import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
 import { hasPart, showsPart } from '../core/tileParts'
 
@@ -15,14 +15,6 @@ const SETTINGS: { setting: TileSetting; label: string }[] = [
     { setting: 'header', label: 'Header' },
     { setting: 'footer', label: 'Footer' },
     { setting: 'border', label: 'Border' },
-]
-
-const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
-    { key: 'blue', label: 'Blue', color: TILE_BACKGROUND_COLORS.blue },
-    { key: 'green', label: 'Green', color: TILE_BACKGROUND_COLORS.green },
-    { key: 'yellow', label: 'Yellow', color: TILE_BACKGROUND_COLORS.yellow },
-    { key: 'red', label: 'Red', color: TILE_BACKGROUND_COLORS.red },
-    { key: 'purple', label: 'Purple', color: TILE_BACKGROUND_COLORS.purple },
 ]
 
 /** Null when the setting does not apply to the tile. */
@@ -106,7 +98,7 @@ export function backgroundColorAction(
     const choices: { key: string; label: string; color: string | null }[] = [
         { key: 'default', label: 'Default', color: null },
         { key: 'none', label: 'None', color: NO_BACKGROUND },
-        ...BACKGROUND_COLOR_PRESETS,
+        ...ACCENT_COLOR_KEYS.map((key) => ({ key, label: ACCENT_COLORS[key].label, color: ACCENT_COLORS[key].css })),
     ]
     return {
         ...menu,

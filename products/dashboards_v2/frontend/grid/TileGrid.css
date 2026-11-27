@@ -31,9 +31,9 @@
     }
 
     .react-grid-item.react-draggable-dragging > .dash-ContentTile,
-    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-ContentTile,
+    .react-grid-item.react-draggable-dragging > .ActionContextMenu__trigger > .dash-ContentTile,
     .react-grid-item.react-draggable-dragging > .SectionTile,
-    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .SectionTile {
+    .react-grid-item.react-draggable-dragging > .ActionContextMenu__trigger > .SectionTile {
         box-shadow: var(--shadow-elevation-3000);
         opacity: 0.92;
     }
@@ -178,9 +178,9 @@
     .react-grid-item.resizing,
     .react-grid-item.react-draggable-dragging {
         > .dash-ContentTile,
-        > .TileContextMenu__trigger > .dash-ContentTile,
+        > .ActionContextMenu__trigger > .dash-ContentTile,
         > .SectionTile,
-        > .TileContextMenu__trigger > .SectionTile {
+        > .ActionContextMenu__trigger > .SectionTile {
             outline: 2px solid var(--dv2-interaction-color);
             outline-offset: -1px;
         }

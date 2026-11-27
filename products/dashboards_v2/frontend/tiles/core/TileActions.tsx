@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 
 import { CardAction } from '@posthog/quill'
 
-import { TileContextMenuButton } from './TileContextMenu'
+import { ActionContextMenuButton } from '../../menu/ActionContextMenu'
 
 /** The buttons at the end of a tile's or a section's header, followed by its menu button. */
 export function TileActions({
@@ -25,7 +25,7 @@ export function TileActions({
             className={clsx('TileActions flex items-center gap-1', !alwaysVisible && 'TileActions--hover', className)}
         >
             {children}
-            {menu && <TileContextMenuButton />}
+            {menu && <ActionContextMenuButton />}
         </CardAction>
     )
 }
