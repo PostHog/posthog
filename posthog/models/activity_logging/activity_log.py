@@ -1414,49 +1414,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
     return None, True
 
 
-def activity_log_event_properties(instance: ActivityLog) -> dict[str, Any] | None:
-    from posthog.api.advanced_activity_logs import ActivityLogSerializer
-    from posthog.models.activity_logging.utils import activity_visibility_manager
-
-    restrictions = list(activity_visibility_manager.matching_restrictions(instance, restrict_for_staff=True))
-    if any(not rule.get("summarize_for_destinations") for rule in restrictions):
-        return None
-
-    serialized = ActivityLogSerializer(instance).data
-    if restrictions:
-        fields = {rule["change_field"] for rule in restrictions}
-        changes = sorted(
-            {
-                (field, action)
-                for field, action in activity_visibility_manager.changed_fields(instance)
-                if field in fields and action in ("created", "changed", "deleted")
-            }
-        )
-        summary = {
-            key: serialized[key]
-            for key in (
-                "id",
-                "user",
-                "created_at",
-                "was_impersonated",
-                "team_id",
-                "organization_id",
-                "scope",
-                "activity",
-            )
-        }
-        summary["detail"] = {"changes": [{"field": field, "action": action} for field, action in changes]}
-        return summary
-
-    serialized["detail"] = json.loads(json.dumps(serialized["detail"], cls=ActivityDetailEncoder))
-    serialized["detail"], truncated = bound_detail_for_internal_event(serialized["detail"])
-    if truncated:
-        serialized["detail_truncated"] = True
-    return serialized
-
-
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+    from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
 
     from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
@@ -1465,7 +1425,7 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         return
 
     try:
-        serialized_data = activity_log_event_properties(instance)
+        serialized_data = ActivityLogSerializer.for_internal_event(instance)
         if serialized_data is None:
             logger.info(
                 "Skipping restricted activity log event",

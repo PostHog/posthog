@@ -218,6 +218,7 @@ class TestNotebookAppViewAccess(APIBaseTest):
         [
             ("ActionsPie", {"xAxis": {"column": "Week"}, "yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
             ("Auto", {}),
+            ("ScatterPlot", {"xAxis": {"column": "Visits"}, "yAxis": [{"column": "Signups"}]}),
             ("Metric", {"yAxis": [{"column": "Signups"}, {"column": "Visits"}]}),
         ]
     )
@@ -228,13 +229,13 @@ class TestNotebookAppViewAccess(APIBaseTest):
             f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{json.dumps(chart)}}} />'
         )
         self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Week", "Region", "Signups", "Visits"]
-        self.release.sql_rows[run_id] = [["Oct 12", "North", 222, 450], ["Oct 19", "South", 91, 350]]
+        self.release.sql_rows[run_id] = [["Oct 12", "North", 222, 450], ["Oct 19", "South", 91, None]]
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
         output = self.client.get(url)
         self.assertContains(output, "Publish this chart as a table or single number")
-        for private_value in ("Oct 12", "North", "<td>222</td>", "<td>450</td>"):
+        for private_value in ("Oct 12", "North", "<td>222</td>", "<td>450</td>", "<td>91</td>"):
             self.assertNotContains(output, private_value)
 
     @parameterized.expand(

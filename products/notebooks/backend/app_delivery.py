@@ -33,6 +33,8 @@ from products.notebooks.backend.sql_v2_state import (
 )
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
+APP_OUTPUT_VERSION = 6
+
 
 def active_view_grants(
     team_id: int, notebook_id: UUID, *, offset: int, limit: int
@@ -302,8 +304,6 @@ def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str |
         return display
     chart = viz.get("chartSettings") or {}
     if isinstance(chart, dict) and not (chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations")):
-        if display == "ScatterPlot":
-            return display
         if display in (
             "ActionsLineGraph",
             "ActionsAreaGraph",
@@ -395,7 +395,7 @@ def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppO
     if isinstance(budget, BucketDecision) and not budget.allowed:
         raise Throttled(wait=budget.retry_after)
     cache = cast(RedisCache, caches["notebook_app_outputs"])
-    cache_key = f"notebook-app-output:v5:{team_id}:{release.pk}"
+    cache_key = f"notebook-app-output:v{APP_OUTPUT_VERSION}:{team_id}:{release.pk}"
     cached = cache.get(cache_key)
     if cached is None:
         lock = cache.lock(cache_key + ":building", timeout=20)
