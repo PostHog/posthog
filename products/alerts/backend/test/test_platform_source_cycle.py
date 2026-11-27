@@ -1245,19 +1245,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         assert actual == expected
 
+    @override_settings(CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=True)
     def test_a_failed_checks_queries_are_stopped_even_when_one_stop_fails(self) -> None:
         with patch(
-            "posthog.clickhouse.cancel.cancel_query_on_cluster", side_effect=[TimeoutError("socket timed out"), None]
+            "posthog.clickhouse.cancel.cancel_queries_started_for", side_effect=[TimeoutError("socket timed out"), None]
         ) as cancel:
             stop_insight_queries(self.team.id, "configuration", ("run:1:1", "run:1:2"))
 
         # A timed-out attempt's thread can still run its query, which nothing else stops.
+        assert all(call.kwargs == {"fallback_on_cluster": True} for call in cancel.call_args_list)
         assert [call.args for call in cancel.call_args_list] == [
             (self.team.id, f"{QUERY_ID_PREFIX}run:1:1"),
             (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
         ]
 
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1, CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER=False)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:
         held = self._copy(self._alert(), id=UUID(int=1))
         waiting = self._copy(self._alert(), id=UUID(int=2))
@@ -1266,7 +1268,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
         admit_evaluation_slots(["run:1:1"], limit=1, expires_at=expires_at, key=QUERY_INFLIGHT_KEY)
 
-        with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
+        with patch("posthog.clickhouse.cancel.cancel_queries_started_for") as cancel:
             retried = readmit_retried_check(
                 self.team.id, str(held.id), previous_query_id="run:1:1", held_until=expires_at, attempt=2
             )
@@ -1280,7 +1282,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
         # The kill may not have landed, so the timed-out query stays counted until its thread frees it.
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == {"run:1:1"}
-        cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
+        cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1", fallback_on_cluster=False)
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:

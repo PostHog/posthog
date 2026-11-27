@@ -374,6 +374,7 @@ class SeriesValuesRewrite:
     """
 
     mode: RewriteMode
+    requester_query_id: str | None = None
     # A `time.monotonic()` value. No build starts after it, and no INSERT of a build runs past it.
     deadline: float | None = None
     today_start: datetime = field(
@@ -490,6 +491,7 @@ class _Rewriter(CloningVisitor):
             # The wait only stops the next INSERT from starting. Each INSERT gets the time left until the
             # deadline as its own limit, so one that starts late cannot run past it.
             insert_deadline=deadline,
+            requester_query_id=self.request.requester_query_id,
         )
         # The build compiles queries of its own, which must reach ClickHouse as the executor wrote them.
         hook = hogql_select_rewrite.set(None)
@@ -514,11 +516,11 @@ class _Rewriter(CloningVisitor):
 
 @contextmanager
 def rewriting_series_values(
-    mode: RewriteMode, *, wait_timeout_seconds: float | None = None
+    mode: RewriteMode, *, wait_timeout_seconds: float | None = None, requester_query_id: str | None = None
 ) -> Iterator[SeriesValuesRewrite]:
     # One deadline for every build the caller's queries start, so together they cannot outlast its budget.
     deadline = None if wait_timeout_seconds is None else time.monotonic() + wait_timeout_seconds
-    request = SeriesValuesRewrite(mode=mode, deadline=deadline)
+    request = SeriesValuesRewrite(mode=mode, deadline=deadline, requester_query_id=requester_query_id)
     token = hogql_select_rewrite.set(request.rewrite)
     try:
         yield request
@@ -527,7 +529,7 @@ def rewriting_series_values(
 
 
 def precomputed_series_values(
-    runner: TrendsQueryRunner, *, wait_timeout_seconds: float | None = None
+    runner: TrendsQueryRunner, *, wait_timeout_seconds: float | None = None, requester_query_id: str | None = None
 ) -> PrecomputedSeriesValues | SeriesValuesUnavailable:
     # The values returned are those of the first series, so a query with several is declined until a
     # caller can say which series it wants.
@@ -537,7 +539,9 @@ def precomputed_series_values(
     # the range limit for any project older than a year.
     if runner.query.dateRange and runner.query.dateRange.date_from == "all":
         return SeriesValuesUnavailable(reason=Blocker.ALL_TIME_RANGE)
-    with rewriting_series_values("stored_only", wait_timeout_seconds=wait_timeout_seconds) as request:
+    with rewriting_series_values(
+        "stored_only", wait_timeout_seconds=wait_timeout_seconds, requester_query_id=requester_query_id
+    ) as request:
         try:
             finished = _finished_buckets(runner, request.today_start)
             if not finished:

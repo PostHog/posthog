@@ -449,10 +449,14 @@ def _run_shadow_comparisons(comparisons: Sequence[ShadowComparisonRequest], chec
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
     # Imported here: at module level it changes how many queries the access-control tests count.
-    from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
+    from posthog.clickhouse.cancel import cancel_queries_started_for  # noqa: PLC0415
 
     try:
-        cancel_query_on_cluster(team_id, f"{QUERY_ID_PREFIX}{query_id}")
+        cancel_queries_started_for(
+            team_id,
+            f"{QUERY_ID_PREFIX}{query_id}",
+            fallback_on_cluster=settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER,
+        )
     except Exception:
         logger.exception("Could not stop a timed-out platform insight check", configuration_id=configuration_id)
 
