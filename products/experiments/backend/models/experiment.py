@@ -68,13 +68,16 @@ class ExperimentQuerySet[ExperimentT: "Experiment"](RootTeamQuerySet[ExperimentT
     def for_team(self, team_id: int) -> Self:
         """The rows on the root team of the team's project: the parent of an environment, else the team itself.
 
-        This is the `team_id=` rewrite of `RootTeamQuerySet`, under the name that the fail-closed team managers use
-        for the same resolution. A row on another team of the project does not match.
+        This is the `team_id=` rewrite of `RootTeamQuerySet`, under the name that `TeamScopedManager` uses for the
+        same resolution. A row on another team of the project does not match.
         """
         return self.filter(team_id=team_id)
 
     def on_exact_team(self, team_id: int) -> Self:
-        """The rows on this team only. The id of an environment does not resolve to the root team of its project."""
+        """The rows on this team only. The id of an environment does not resolve to the root team of its project.
+
+        The filter keyword is `team` and not `team_id`, because `RootTeamQuerySet.filter` rewrites only `team_id`.
+        """
         return self.filter(team=team_id)
 
     def on_exact_teams(self, team_ids: Collection[int]) -> Self:
@@ -97,12 +100,16 @@ class ExperimentQuerySet[ExperimentT: "Experiment"](RootTeamQuerySet[ExperimentT
     def live(self) -> Self:
         """The rows that the experiments API still shows, which are the rows whose `deleted` is not true.
 
-        `deleted` is nullable, and the API counts a NULL as live, so this excludes true instead of keeping false.
+        `deleted` is nullable, and `ExperimentService.filter_experiments_queryset` counts a NULL as live, so this
+        excludes true instead of keeping false.
         """
         return self.exclude(deleted=True)
 
     def including_deleted(self) -> Self:
-        """Every row, deleted or not. It filters nothing, so that a read which counts deleted rows says so."""
+        """Every row, deleted or not. It filters nothing, so that a chain which applies no deleted filter says so.
+
+        A later step can still filter the rows, as `ExperimentService.filter_experiments_queryset` does.
+        """
         return self.all()
 
     def deleted_is_false(self) -> Self:
@@ -114,8 +121,13 @@ _ExperimentManagerBase = RootTeamManager.from_queryset(ExperimentQuerySet)
 
 
 class ExperimentManager[ExperimentT: "Experiment"](_ExperimentManagerBase[ExperimentT]):
-    """Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager on the
-    model that does not inherit it would lose the project-scoped team rewriting."""
+    """`from_queryset` copies the lookups of `ExperimentQuerySet` onto the manager, and each copy calls
+    `get_queryset`. `RootTeamManager.get_queryset` builds a `RootTeamQuerySet` by name and ignores the queryset
+    class that `from_queryset` sets, so the override here builds the `ExperimentQuerySet`.
+
+    The base is `RootTeamManager` because `RootTeamMixin` asks a custom manager to inherit it. The
+    project-scoped team rewriting comes from `RootTeamQuerySet`, which `ExperimentQuerySet` inherits.
+    """
 
     def get_queryset(self) -> ExperimentQuerySet[ExperimentT]:
         return ExperimentQuerySet[ExperimentT](self.model, using=self._db)
