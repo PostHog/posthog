@@ -203,7 +203,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             terminatedByValve.add(child)
             const exit: RoleTermination = { signalledAt: new Date().toISOString() }
             const exited = once(child, 'exit').then(([code, signal]) => {
-                Object.assign(exit, { exitedAt: new Date().toISOString(), code, signal })
+                const exitedAt = new Date()
+                Object.assign(exit, { exitedAt: exitedAt.toISOString(), code, signal })
+                return exitedAt.getTime()
             })
             process.kill(-child.pid, 'SIGTERM')
             const kill = setTimeout(() => {
@@ -214,8 +216,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             return {
                 observed: () => Promise.resolve(true),
                 release: async () => {
-                    const waitMs = Date.parse(exit.signalledAt) + graceMs + killedExitWithinMs - Date.now()
-                    if (!(await Promise.race([exited.then(() => true), sleep(waitMs, false, { ref: false })]))) {
+                    const deadline = Date.parse(exit.signalledAt) + graceMs + killedExitWithinMs
+                    const exitedInTime = exited.then((exitedAt) => exitedAt <= deadline)
+                    if (!(await Promise.race([exitedInTime, sleep(deadline - Date.now(), false, { ref: false })]))) {
                         throw new Error(`${nameOf(id)} did not exit ${killedExitWithinMs / 1000}s after its grace`)
                     }
                 },
