@@ -63420,6 +63420,7 @@ export namespace Schemas {
       SpendWithoutConversions: 'spend_without_conversions',
       StrikingDistance: 'striking_distance',
       KeywordTracking: 'keyword_tracking',
+      ConversionMismatch: 'conversion_mismatch',
     } as const;
 
     export type MarketingAnalyticsRecommendationIdentitySourceType = typeof MarketingAnalyticsRecommendationIdentitySourceType[keyof typeof MarketingAnalyticsRecommendationIdentitySourceType];
@@ -112490,6 +112491,7 @@ export namespace Schemas {
      * * `spend_without_conversions` - Spend Without Conversions
      * * `striking_distance` - Striking Distance
      * * `keyword_tracking` - Keyword Tracking
+     * * `conversion_mismatch` - Conversion Mismatch
      */
     export type RecommendationRuleEnum = typeof RecommendationRuleEnum[keyof typeof RecommendationRuleEnum];
 
@@ -112506,6 +112508,7 @@ export namespace Schemas {
       SpendWithoutConversions: 'spend_without_conversions',
       StrikingDistance: 'striking_distance',
       KeywordTracking: 'keyword_tracking',
+      ConversionMismatch: 'conversion_mismatch',
     } as const;
 
     /**
@@ -112531,7 +112534,8 @@ export namespace Schemas {
        * * `keyword_gap` - Keyword Gap
        * * `spend_without_conversions` - Spend Without Conversions
        * * `striking_distance` - Striking Distance
-       * * `keyword_tracking` - Keyword Tracking */
+       * * `keyword_tracking` - Keyword Tracking
+       * * `conversion_mismatch` - Conversion Mismatch */
       rule: RecommendationRuleEnum;
       /** The ad platform the ids belong to.
        *

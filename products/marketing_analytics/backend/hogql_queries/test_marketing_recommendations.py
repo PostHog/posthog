@@ -1569,36 +1569,36 @@ class TestMarketingRecommendations(SimpleTestCase):
             (
                 "google_counts_six_times",
                 {"google_conversions": 60.0},
-                {},
+                False,
                 ("60 conversions in Generic, where your PostHog goals count 10", "Goals"),
             ),
             (
                 "posthog_counts_none",
                 {"google_conversions": 30.0, "conversions": 0.0},
-                {},
+                False,
                 ("30 conversions in Generic, and your PostHog goals count none from them", "Account settings"),
             ),
-            ("under_three_times", {"google_conversions": 25.0}, {}, None),
-            ("too_few_google_conversions", {"google_conversions": 18.0, "conversions": 0.0}, {}, None),
-            ("google_count_unknown", {}, {}, None),
-            ("not_search", {"google_conversions": 60.0, "channel_type": "PERFORMANCE_MAX"}, {}, None),
+            ("under_three_times", {"google_conversions": 25.0}, False, None),
+            ("too_few_google_conversions", {"google_conversions": 18.0, "conversions": 0.0}, False, None),
+            ("google_count_unknown", {}, False, None),
+            ("not_search", {"google_conversions": 60.0, "channel_type": "PERFORMANCE_MAX"}, False, None),
             (
                 "fractional_posthog_count",
                 {"google_conversions": 60.0, "conversions": 0.4},
-                {},
+                False,
                 ("60 conversions in Generic, and your PostHog goals count none from them", "Account settings"),
             ),
-            ("under_five_percent_of_spend", {"google_conversions": 60.0, "cost": 40.0}, {}, None),
+            ("under_five_percent_of_spend", {"google_conversions": 60.0, "cost": 40.0}, False, None),
             (
                 "posthog_conversions_unmatched",
                 {"google_conversions": 60.0},
-                {"posthog_conversions_unmatched": True},
+                True,
                 None,
             ),
         ]
     )
     def test_conversion_mismatch_needs_google_ads_to_count_far_more_than_posthog(
-        self, _name: str, campaign: dict[str, object], inputs: dict[str, object], expected: tuple[str, str] | None
+        self, _name: str, campaign: dict[str, object], unmatched: bool, expected: tuple[str, str] | None
     ) -> None:
         campaigns = (
             _campaign(id="c1", name="Generic", **campaign),
@@ -1607,7 +1607,9 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         rows = [
             rec
-            for rec in recommend(replace(_inputs(campaigns), account_name="Acme Ads", **inputs))
+            for rec in recommend(
+                replace(_inputs(campaigns), account_name="Acme Ads", posthog_conversions_unmatched=unmatched)
+            )
             if rec.rule == "conversion_mismatch"
         ]
 
