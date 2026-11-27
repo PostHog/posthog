@@ -69,18 +69,28 @@ describe('catalogSetupLogic', () => {
         ['the sandbox runtime is on', true, 'new', true],
         ['the person switched back to the legacy chat, which cannot load the setup skill', true, 'legacy', false],
         ['the sandbox runtime is off, so PostHog AI is the legacy chat', false, 'new', false],
-    ])('when %s, postHogAISetupAvailable is correct', (_, sandboxOn, viewMode, expected) => {
-        featureFlagLogic.actions.setFeatureFlags(
-            sandboxOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
-            sandboxOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
-        )
-        aiShellLogic.mount()
-        aiShellLogic.actions.setPhaiViewMode(viewMode)
-        const logic = catalogSetupLogic()
-        logic.mount()
+    ])(
+        'when %s, postHogAISetupAvailable is correct and the shown events report it',
+        (_, sandboxOn, viewMode, expected) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            featureFlagLogic.actions.setFeatureFlags(
+                sandboxOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
+                sandboxOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
+            )
+            aiShellLogic.mount()
+            aiShellLogic.actions.setPhaiViewMode(viewMode)
+            const logic = catalogSetupLogic()
+            logic.mount()
+            logic.actions.reportSetupBannerShown()
+            logic.actions.reportSetupEmptyStateShown()
 
-        expect(logic.values.postHogAISetupAvailable).toBe(expected)
-    })
+            expect(logic.values.postHogAISetupAvailable).toBe(expected)
+            expect(capture).toHaveBeenCalledWith('data catalog setup banner shown', { ai_setup_available: expected })
+            expect(capture).toHaveBeenCalledWith('data catalog setup empty state shown', {
+                ai_setup_available: expected,
+            })
+        }
+    )
 
     test('reloads metrics when the person returns to the tab, until an external agent adds one', () => {
         const logic = catalogSetupLogic()
