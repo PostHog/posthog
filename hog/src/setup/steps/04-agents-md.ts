@@ -1,6 +1,6 @@
 import { blockStage, earlyBlock, writeBlock } from '../agents-md'
 import { completed, runNext, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
+import { SETUP_COMMAND } from '../state'
 
 export const agentsMd: Step = {
     isDone: async (run) =>
@@ -17,7 +17,7 @@ export const agentsMd: Step = {
         if (!run.input.next) {
             return runNext(
                 'setup_agents_md_pending',
-                `Run \`${SETUP_NEXT}\` to add the PostHog section to \`AGENTS.md\`.`
+                `Run \`${SETUP_COMMAND}\` to add the PostHog section to \`AGENTS.md\`.`
             )
         }
 

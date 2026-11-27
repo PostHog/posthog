@@ -44,7 +44,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind, ToolPreset
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_VALUES, ReportLinkKind, ToolPreset
 from products.signals.backend.models import (
     DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalReport,
@@ -124,7 +124,9 @@ from products.signals.backend.scout_harness.tools.runs import (
     MAX_FINDINGS_WINDOW_HOURS,
     MAX_RUNS_PER_SCOUT,
     MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    RUN_SUMMARY_LEAD_CHARS,
     STALENESS_INTERVAL_MULTIPLE,
+    run_summary_lead,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.structured_output import (
@@ -288,6 +290,12 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "runs that errored before close-out. The dedupe key for non-emitting runs."
         ),
     )
+    summary_lead = serializers.SerializerMethodField(
+        help_text=(
+            f"The start of `summary` on one line, at most {RUN_SUMMARY_LEAD_CHARS} characters, ending in `…` "
+            "when the summary is longer. Read the whole summary with the run detail."
+        ),
+    )
     error = serializers.CharField(
         allow_null=True,
         required=False,
@@ -368,11 +376,18 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         ),
     )
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_summary_lead(self, obj: dict[str, Any]) -> str:
+        return run_summary_lead(obj.get("summary"))
+
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
     """Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-    today; kept distinct so future detail-only extensions (linked Signal rows,
-    LLMA token-cost join) can land here without bloating the list response."""
+    minus `summary_lead`, which only shortens a list row; kept distinct so future detail-only
+    extensions (linked Signal rows, LLMA token-cost join) can land here without bloating the
+    list response."""
+
+    summary_lead = None  # type: ignore[assignment]
 
 
 class SignalScoutEmissionSerializer(serializers.ModelSerializer):
@@ -1010,6 +1025,13 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         min_value=1,
         help_text="Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
     )
+    exclude_skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. "
+            "Use it on a fleet-wide `text` search, so your own runs don't fill the page."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1074,7 +1096,21 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_blank=True,
         help_text=(
             "Prose content for prompt injection. Blank when the search projected it out "
-            "(`keys_only=true`); truncated to a preview when `content_max_chars` was set."
+            "(`keys_only=true`); truncated to a preview when `content_max_chars` was set, and starting at "
+            "`content_offset` when one was passed."
+        ),
+    )
+    content_total_length = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Length of the whole entry body in characters, on a search that returns bodies. Null otherwise.",
+    )
+    content_next_offset = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where the rest of the body starts, in characters, when `content` stops before its end. Pass it as "
+            "`content_offset` with the same `key` to read on. Null when `content` reaches the end of the body."
         ),
     )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
@@ -1222,6 +1258,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         help_text=(
             "Truncate each entry's `content` to the first N characters (a preview). Omit for the "
             "full body. Ignored when `keys_only=true`."
+        ),
+    )
+    content_offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=MAX_SCRATCHPAD_CONTENT_LENGTH,
+        help_text=(
+            "Start each entry's `content` at this character. Use it with `key` to read a long entry in parts: "
+            "pass the `content_next_offset` of the previous read. Combines with `content_max_chars`. "
+            "Earlier versions from `include_revisions` are not paged."
         ),
     )
     include_revisions = serializers.BooleanField(
@@ -1987,18 +2033,30 @@ QUALITY_HINTS_HELP_TEXT = (
 class EmitReportResponseSerializer(serializers.Serializer):
     report_id = serializers.CharField(
         allow_null=True,
-        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+        help_text=(
+            "The authored report's id (null only when a preflight gate skipped the call). Returned even when "
+            "suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the "
+            "open report that already names the issue: edit that report."
+        ),
     )
     report_status = serializers.CharField(
         allow_null=True,
-        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+        help_text=(
+            "Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With "
+            "`source_issue_already_reported`, the current status of the open report."
+        ),
     )
     emitted = serializers.BooleanField(
         help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+        help_text=(
+            "`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` "
+            "| `source_issue_already_reported` | null when a report was authored. "
+            "`source_issue_already_reported` means an open report already names one of your `source_issues`, so "
+            "no report was created: add your findings to the report in `report_id` with edit-report."
+        ),
     )
     safety_explanation = serializers.CharField(
         allow_null=True,
@@ -3455,6 +3513,19 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
         ),
     )
 
+    source_product = serializers.CharField(
+        required=False,
+        help_text=(
+            "Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for "
+            "Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet."
+        ),
+    )
+
+    def validate_source_product(self, value: str) -> str:
+        if value not in SIGNAL_SOURCE_PRODUCT_VALUES:
+            raise serializers.ValidationError(f"`{value}` is not a source product.")
+        return value
+
     def validate_tags(self, value: str) -> list[str]:
         tags = sorted({slug for raw in value.split(",") if (slug := slugify_tag(raw))})
         if not tags:
@@ -4031,7 +4102,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     precheck_query_source = serializers.SerializerMethodField(
         help_text=(
             "Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), "
-            "`skill_default` (the default its skill ships), or `off` (no pre-check runs)."
+            "`skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` "
+            "with a null `effective_precheck_query` means the scout runs a built-in check in code."
         ),
     )
     last_run_at = serializers.DateTimeField(

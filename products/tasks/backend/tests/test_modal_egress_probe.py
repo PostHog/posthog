@@ -1,4 +1,5 @@
 import sys
+import json
 import selectors
 import subprocess
 from pathlib import Path
@@ -13,8 +14,11 @@ from parameterized import parameterized
 
 from products.tasks.backend.logic.services.modal_egress_probe import (
     _PREPARE_IDENTITY,
+    _RELAY_RUNNING,
+    _RENEW_CERTIFICATE,
     _START_RELAY,
     _WAIT_READY,
+    AgentEgressCertificateDeliveryError,
     ModalEgressProbe,
 )
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
@@ -65,8 +69,17 @@ class TestModalEgressProbe(SimpleTestCase):
             name="test-egress", relay_image_id="im-example", endpoint=endpoint, dev_proxy_ipv4=dev_proxy_ipv4
         )
 
-    @parameterized.expand([("development",), ("staging",)])
-    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(self, environment: str) -> None:
+    @parameterized.expand(
+        [
+            ("development", "run-a.egress.example.com"),
+            ("staging", "run-a.egress.example.com"),
+            ("double_hyphen", "run-a.edge--blue.example.com"),
+            ("punycode", "run-a.xn--bcher-kva.example.com"),
+        ]
+    )
+    def test_launch_uses_isolated_probe_profile_and_exact_sidecar_destination(
+        self, environment: str, hostname: str
+    ) -> None:
         if environment == "staging":
             self.enterContext(
                 override_settings(
@@ -77,7 +90,7 @@ class TestModalEgressProbe(SimpleTestCase):
                     AGENT_EGRESS_STAGING_PROBE_RUN_ID="00000000-0000-4000-8000-000000000001",
                 )
             )
-        probe = self.launch()
+        probe = self.launch(endpoint=f"https://{hostname}")
 
         config = self.create.call_args.args[0]
         self.assertEqual(config.template, SandboxTemplate.SLIM_BASE)
@@ -85,7 +98,7 @@ class TestModalEgressProbe(SimpleTestCase):
         self.assertTrue(config.vm_runtime)
         self.assertIsNone(config.environment_variables)
         policy = self.sandbox._sandbox._experimental_sidecars.create.call_args.kwargs
-        self.assertEqual(policy["outbound_domain_allowlist"], ["run-a.egress.example.com"])
+        self.assertEqual(policy["outbound_domain_allowlist"], [hostname])
         self.assertIsNone(policy["outbound_cidr_allowlist"])
         self.assertNotIn("volumes", policy)
         self.assertNotIn("secrets", policy)
@@ -105,6 +118,9 @@ class TestModalEgressProbe(SimpleTestCase):
         [
             ("http://run-a.egress.example.com", None),
             ("https://RUN-A.egress.example.com", None),
+            ("https://run-a.-edge.example.com", None),
+            ("https://run-a.edge-.example.com", None),
+            ("https://run-a." + "a" * 64 + ".example.com", None),
             ("https://run-a.egress.example.com/path", None),
             ("https://run-a.egress.example.com?key=value", None),
             ("https://user:password@run-a.egress.example.com", None),
@@ -246,6 +262,37 @@ class TestModalEgressProbe(SimpleTestCase):
 
         self.assertEqual(self.sandbox._sandbox.terminate.call_count, int(state == "live"))
 
+    def test_attached_relay_process_uses_the_remaining_sandbox_lifetime(self) -> None:
+        with patch("products.tasks.backend.logic.services.modal_egress_probe.MAX_SANDBOX_TTL_SECONDS", 21600):
+            probe = ModalEgressProbe.attach(
+                sandbox_id="sb-original",
+                relay_name="egress-relay-example",
+                relay_image_id="im-example",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=7200,
+            )
+        probe.start_relay(certificate="public certificate", server_ca="public CA")
+        start = next(call for call in self.sidecar.exec.call_args_list if _START_RELAY in call.args)
+        self.assertEqual(start.kwargs["timeout"], 7200)
+        self.create.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "lifetime"):
+            ModalEgressProbe.create(
+                name="test-egress",
+                relay_image_id="im-example",
+                endpoint="https://run-a.egress.example.com",
+                ttl_seconds=7200,
+            )
+
+    @parameterized.expand([("write",), ("reload",)])
+    def test_certificate_delivery_errors_are_distinct_from_authority_errors(self, phase: str) -> None:
+        probe = self.launch()
+        if phase == "write":
+            self.sidecar.filesystem.write_text.side_effect = ServiceError("temporarily unavailable")
+        else:
+            self.sidecar.exec.return_value.returncode = 1
+        with self.assertRaisesRegex(AgentEgressCertificateDeliveryError, "certificate delivery failed"):
+            probe.renew_certificate("public certificate")
+
     @parameterized.expand([(False,), (True,)])
     def test_identity_recovery_preserves_private_key(self, csr_missing: bool) -> None:
         with TemporaryDirectory() as temporary:
@@ -282,6 +329,14 @@ class TestModalEgressProbe(SimpleTestCase):
                         selector.register(running.stdout, selectors.EVENT_READ)
                         self.assertTrue(selector.select(timeout=5))
                     self.assertEqual(running.stdout.readline(), "ready\n")
+                    status = subprocess.run(
+                        [sys.executable, "-c", _RELAY_RUNNING, temporary],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                        check=True,
+                    )
+                    self.assertEqual(status.stdout, "running\n")
 
                     duplicate = subprocess.run(command, input="", capture_output=True, text=True, timeout=5, check=True)
 
@@ -290,11 +345,121 @@ class TestModalEgressProbe(SimpleTestCase):
                 finally:
                     running.communicate(timeout=5)
 
+            status = subprocess.run(
+                [sys.executable, "-c", _RELAY_RUNNING, temporary],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            self.assertEqual(status.stdout, "")
             restarted = subprocess.run(command, input="", capture_output=True, text=True, timeout=5, check=True)
             self.assertEqual(restarted.stdout, "ready\n")
 
-    @parameterized.expand([("live",), ("missing",), ("ended",), ("removed",), ("delete_failed",), ("lookup_failed",)])
+    @parameterized.expand([("accepted",), ("rejected",), ("stale_process",)])
+    def test_certificate_delivery_waits_for_reload_and_preserves_failed_material(self, outcome: str) -> None:
+        server = """
+import json, signal, sys, threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+directory = Path(sys.argv[1])
+counts = {'success': 0, 'failure': 0}
+def reload(_signal, _frame):
+    material = (directory / 'relay.pem').read_text()
+    if material == 'rejected':
+        counts['failure'] += 1
+    else:
+        (directory / 'active.pem').write_text(material)
+        counts['success'] += 1
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(''.join(
+            'egress_reload_total{outcome="' + key + '"} ' + str(value) + '\\n'
+            for key, value in counts.items()
+        ).encode())
+    def log_message(self, *args):
+        pass
+signal.signal(signal.SIGHUP, reload)
+with HTTPServer(('127.0.0.1', 0), Handler) as server:
+    thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01))
+    thread.start()
+    print(server.server_port, flush=True)
+    sys.stdin.read()
+    server.shutdown()
+    thread.join()
+"""
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            certificate = directory / "relay.pem"
+            certificate.write_text("original")
+            (directory / "active.pem").write_text("original")
+            command = [sys.executable, "-c", _START_RELAY, temporary, sys.executable, "-c", server, temporary]
+            with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as running:
+                try:
+                    assert running.stdout is not None
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(running.stdout, selectors.EVENT_READ)
+                        self.assertTrue(selector.select(timeout=5))
+                    port = int(running.stdout.readline())
+                    if outcome == "stale_process":
+                        identity_file = directory / "relay-process.json"
+                        identity = json.loads(identity_file.read_text())
+                        identity_file.write_text(json.dumps({**identity, "start_time": "0"}))
+                    candidate = directory / "candidate.pem"
+                    candidate.write_text("rejected" if outcome == "rejected" else "renewed")
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            _RENEW_CERTIFICATE,
+                            temporary,
+                            str(candidate),
+                            f"http://127.0.0.1:{port}/metrics",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=8,
+                    )
+
+                    self.assertEqual(result.returncode == 0, outcome == "accepted", result.stderr)
+                    expected = "renewed" if outcome == "accepted" else "original"
+                    self.assertEqual(certificate.read_text(), expected)
+                    self.assertEqual((directory / "active.pem").read_text(), expected)
+                    self.assertFalse(candidate.exists())
+                    self.assertIsNone(running.poll())
+                finally:
+                    running.communicate(timeout=5)
+
+    @parameterized.expand([(None,), ("public enrollment CA",)])
+    def test_start_relay_installs_only_public_enrollment_material(self, client_ca: str | None) -> None:
+        probe = self.launch()
+        probe.start_relay(certificate="public relay certificate", server_ca="public server CA", client_ca=client_ca)
+
+        files = {call.args[1]: call.args[0] for call in self.sidecar.filesystem.write_text.call_args_list}
+        configuration = json.loads(files["/run/egress/relay.json"])
+        if client_ca is None:
+            self.assertNotIn("client_ca_file", configuration)
+        else:
+            self.assertEqual(files[configuration["client_ca_file"]], client_ca)
+        self.assertEqual(files[configuration["certificate_file"]], "public relay certificate")
+        self.assertNotIn(configuration["private_key_file"], files)
+
+    @parameterized.expand(
+        [("live",), ("enrollment",), ("missing",), ("ended",), ("removed",), ("delete_failed",), ("lookup_failed",)]
+    )
     def test_attached_relay_cleanup_keeps_main_sandbox_and_other_relays(self, state: str) -> None:
+        if state == "enrollment":
+            self.enterContext(
+                override_settings(
+                    DEBUG=False,
+                    TEST=False,
+                    CLOUD_DEPLOYMENT="DEV",
+                    SANDBOX_PROVIDER="modal",
+                    AGENT_EGRESS_ENROLLMENT_CONFIG="/run/egress/enrollment.json",
+                )
+            )
         relay_name = "egress-relay-first"
         probe = ModalEgressProbe.attach(
             sandbox_id="sb-original",
@@ -303,6 +468,8 @@ class TestModalEgressProbe(SimpleTestCase):
             endpoint="https://run-a.egress.example.com",
             ttl_seconds=900,
         )
+        if state == "enrollment":
+            self.enterContext(override_settings(AGENT_EGRESS_ENROLLMENT_CONFIG=""))
         self.sandbox._sandbox._experimental_sidecars.get.side_effect = None
         self.sandbox._sandbox._experimental_sidecars.get.return_value = self.sidecar
         self.sandbox._sandbox.exec.return_value.stdout.read.return_value = '{"204": 1}'

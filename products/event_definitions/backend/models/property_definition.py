@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models.expressions import F
@@ -5,15 +7,20 @@ from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
 
-# Relocated to the Django-free products.event_definitions.backend.property_type module so the
-# HogQL engine can use it without booting Django; re-exported here for existing callers.
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
+
+# Frozen import paths: posthog/migrations/0889 passes PropertyType to `choices=`, and
+# posthog/clickhouse/migrations/0120 imports the DDL, both from this module. The DDL lives in
+# products.event_definitions.backend.sql; new code imports it from there.
 from products.event_definitions.backend.property_type import PropertyType
+from products.event_definitions.backend.sql import (
+    DROP_PROPERTY_DEFINITIONS_TABLE_SQL as DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
+    PROPERTY_DEFINITIONS_TABLE_SQL as PROPERTY_DEFINITIONS_TABLE_SQL,
+)
 
 PERSON_EMAIL_PROPERTY_NAME = "email"
 
@@ -61,11 +68,8 @@ class PropertyFormat(models.TextChoices):
 
 
 class PropertyDefinition(Taggable, UUIDTModel):
-    class Type(models.IntegerChoices):
-        EVENT = 1, "event"
-        PERSON = 2, "person"
-        GROUP = 3, "group"
-        SESSION = 4, "session"
+    # A `type` statement would make this a TypeAliasType, and callers read members like `PropertyDefinition.Type.EVENT`.
+    Type: TypeAlias = PropertyDefinitionType  # noqa: UP040
 
     # No index of its own: posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical) leads with team_id.
     team = models.ForeignKey(
@@ -87,7 +91,9 @@ class PropertyDefinition(Taggable, UUIDTModel):
     property_type = models.CharField(max_length=50, choices=PropertyType, blank=True, null=True)
 
     # :TRICKY: May be null for historical events
-    type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type)
+    type = models.PositiveSmallIntegerField(
+        default=PropertyDefinitionType.EVENT.value, choices=PropertyDefinitionType.choices
+    )
     # Only populated for `Type.GROUP`
     group_type_index = models.PositiveSmallIntegerField(null=True)
 
@@ -186,38 +192,3 @@ def _invalidate_has_person_email_on_save(
     if instance.type == PropertyDefinition.Type.PERSON and instance.name == PERSON_EMAIL_PROPERTY_NAME:
         project_id = instance.project_id or instance.team_id
         transaction.on_commit(lambda: invalidate_has_person_email_cache(project_id))
-
-
-# ClickHouse Table DDL
-
-PROPERTY_DEFINITIONS_TABLE_SQL = lambda: (
-    f"""
-CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`
-(
-    -- Team and project relationships
-    team_id UInt32,
-    project_id UInt32 NULL,
-
-    -- Core property fields
-    name String,
-    property_type String NULL,
-    event String NULL, -- Only null for non-event types
-    group_type_index UInt8 NULL,
-
-    -- Type enum (1=event, 2=person, 3=group, 4=session)
-    type UInt8 DEFAULT 1,
-
-    -- Metadata
-    last_seen_at DateTime,
-
-    -- A composite version number that prioritizes property_type presence over timestamp
-    -- We negate isNull() so rows WITH property_type get higher preference
-    version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
-)
-ENGINE = {ReplacingMergeTree("property_definitions", replication_scheme=ReplicationScheme.REPLICATED, ver="version")}
-ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
-SETTINGS index_granularity = 8192
-"""
-)
-
-DROP_PROPERTY_DEFINITIONS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`"

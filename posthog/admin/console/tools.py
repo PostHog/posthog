@@ -37,6 +37,41 @@ class GroupRow:
 
 
 @frozen
+class ProgressPart:
+    count: int
+    tone: Tone
+
+
+@frozen
+class Progress:
+    """How much of a known total is done, as a bar above a table. `parts` fill it in order, then `moving` pulses.
+
+    Count in `moving` only what can still finish, so the bar does not pulse for a part that will never fill.
+    """
+
+    text: str
+    total: int
+    parts: tuple[ProgressPart, ...]
+    moving: int = 0
+
+    def __post_init__(self) -> None:
+        counts = [*(part.count for part in self.parts), self.moving]
+        if self.total <= 0 or min(counts) < 0 or sum(counts) > self.total:
+            raise ValueError(f"Progress parts {counts} do not fit a total of {self.total}")
+
+    @property
+    def filled(self) -> int:
+        return sum(part.count for part in self.parts)
+
+    # Strings, because a template would write a float with a decimal comma in some locales.
+    def bars(self) -> list[tuple[Tone, str]]:
+        return [(part.tone, f"{part.count / self.total * 100:.3f}") for part in self.parts if part.count]
+
+    def moving_percent(self) -> str:
+        return f"{self.moving / self.total * 100:.3f}"
+
+
+@frozen
 class Table:
     kind: ClassVar[str] = "table"
     columns: tuple[str, ...]
@@ -46,6 +81,7 @@ class Table:
     numeric_columns: tuple[int, ...] = ()
     # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
     scrolls: bool = False
+    progress: Progress | None = None
 
 
 @frozen
@@ -365,6 +401,11 @@ class ConsoleTool:
 
     def page(self, request: "HttpRequest") -> Page:
         raise NotImplementedError
+
+    def app_page(self, request: "HttpRequest") -> "HttpResponse | None":
+        """A page the product renders itself, such as a React app that blocks cannot express. The console serves it
+        in place of `page` and `operations`, for GET and HEAD only. None for a tool built from blocks."""
+        return None
 
     def operations(self, request: "HttpRequest") -> list[ToolOperation]:
         """The actions the tool page offers. The console runs them; `page` stays read-only."""

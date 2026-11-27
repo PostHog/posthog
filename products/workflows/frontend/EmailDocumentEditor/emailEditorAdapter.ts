@@ -1,13 +1,17 @@
 import type { Editor, EditorEvents } from '@tiptap/core'
+import posthog from 'posthog-js'
 
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
+    EMAIL_DOCUMENT_SECTION_VERSION,
     EMAIL_DOCUMENT_VERSION,
     EmailDocument,
     emailDocumentFromValue,
+    hasSection,
     isEmailDocEmpty,
 } from './emailDocument'
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
+import { htmlToEmailText } from './htmlToEmailText'
 import { renderEmailHtml, renderEmailText, safeEmailDoc } from './renderEmailHtml'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
@@ -21,7 +25,11 @@ export function designForDocument(doc: Record<string, any>, html: string): Recor
     if (isEmailDocEmpty(doc)) {
         return null
     }
-    const document: EmailDocument = { version: EMAIL_DOCUMENT_VERSION, doc, html }
+    const document: EmailDocument = {
+        version: hasSection(doc) ? EMAIL_DOCUMENT_SECTION_VERSION : EMAIL_DOCUMENT_VERSION,
+        doc,
+        html,
+    }
     return { ...emailDocumentToUnlayer(doc), [EMAIL_DOCUMENT_DESIGN_KEY]: document }
 }
 
@@ -58,6 +66,7 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             .setContent(safeEmailDoc(doc), { emitUpdate: false })
             .command(({ tr }) => {
                 tr.setDocAttribute('page', doc.attrs?.page ?? {})
+                tr.setDocAttribute('ownPlainText', doc.attrs?.ownPlainText === true)
                 return true
             })
             .run()
@@ -74,18 +83,38 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             callback({ html, design: designForDocument(doc, html) })
         },
         exportPlainText: (callback: (data: { text: string }) => void) => {
-            callback({ text: renderEmailText(editor.getJSON()) })
+            const doc = editor.getJSON()
+            try {
+                callback({ text: renderEmailText(doc) })
+            } catch (error) {
+                // The text part only stands in for the html in mail apps that can't show it, so it never stops an edit
+                // from saving.
+                posthog.captureException(error)
+                callback({ text: htmlToEmailText(renderEmailHtml(doc)) })
+            }
         },
-        loadDesign: (design: Record<string, any>, html?: string) => {
+        loadDesign: (design: Record<string, any>, html?: string, text?: string) => {
             const wrappedHtml = design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
             const savedHtml = design?.[EMAIL_DOCUMENT_DESIGN_KEY]?.html ?? wrappedHtml
             const { document } = emailDocumentFromValue({ design, html: html ?? savedHtml })
             // An old-editor template applied to an open email has to show here too.
-            const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml).document?.doc
+            const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml, text).document?.doc
             if (doc) {
                 loadDoc(doc)
                 emit('design:loaded')
             }
+        },
+        // Text written in the plain text tab belongs to the person, so edits to the email stop rewriting it. An empty
+        // canvas has no html to keep, so it answers false and the email stays text-only.
+        keepOwnPlainText: ({ quietly = false, checkOnly = false }: { quietly?: boolean; checkOnly?: boolean } = {}) => {
+            if (isEmailDocEmpty(editor.getJSON())) {
+                return false
+            }
+            if (!checkOnly && editor.state.doc.attrs.ownPlainText !== true) {
+                const tr = editor.state.tr.setDocAttribute('ownPlainText', true).setMeta('addToHistory', false)
+                editor.view.dispatch(quietly ? tr.setMeta(AUTOMATIC_CHANGE_META, true) : tr)
+            }
+            return true
         },
         loadDocument: (doc: Record<string, any>) => {
             loadDoc(doc)

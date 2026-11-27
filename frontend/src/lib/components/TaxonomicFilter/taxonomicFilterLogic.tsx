@@ -1545,7 +1545,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         },
                         getValue: (option: PropertyDefinition) => option.id,
                         valuesEndpoint: (key) => {
-                            return `api/event/values/?key=${encodeURIComponent(key)}&is_column=true`
+                            return `api/projects/${teamId}/events/values/?key=${encodeURIComponent(key)}&is_column=true`
                         },
                         getPopoverHeader: () => 'Event metadata',
                     },

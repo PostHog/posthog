@@ -54,6 +54,7 @@ The bootstrap is deliberately synchronous and runs before any event loop exists,
 1. `__main__` creates the run transcript, then loads the repo-root `.env` (never overriding what the shell — or hogli's own env loading, under `hogli evals` — already exported), then `setup_django()` sets `DEBUG` / `TEST` / `IN_EVAL_TESTING`, forces `SELF_CAPTURE=0`, and runs `django.setup()` and `setup_test_environment()`. Eval telemetry still uses the explicit regional client configured by the harness.
    The env preflight (required variables, one-line fix per missing one) and provider preflight then run, followed by the personhog binary build (`cargo build`, incremental after the first run) and the AI gateway build (`go build` in the `PostHog/ai-gateway` clone) — a missing key or toolchain fails here, before any database work.
 2. `EvalDatabase.setup()` creates the `default` test database and drives PostHog's own eval database setup (persons database, ClickHouse).
+   Teardown keeps all three databases, so the next run reuses them and skips the migrations and ClickHouse table creation. `--create-db` rebuilds them at the start of a run. A run that finds no `default` test database rebuilds the persons and ClickHouse databases too, because their old rows would collide with the ids of the new teams.
 3. `personhog-replica` (`:15051`) and `personhog-router` (`:15052`) start against the test persons database — before anything can query, so a dead router never poisons the negative group-types cache.
 4. `EvalLiveServer` serves PostHog's ASGI application on `0.0.0.0:18000`, including the sandbox event-ingest route.
 5. The Go AI gateway (`:18080`) starts in resolver mode, on the gateway compose Postgres (database `ai_gateway_evals`) and Valkey (DB 5).
@@ -129,7 +130,7 @@ One `asyncio.Semaphore` on `EvalContext` bounds live sandboxes across every suit
 Two consequences worth internalizing:
 
 - The per-case timeout is an `asyncio.wait_for` **inside** the slot. Braintrust's own `timeout` would have wrapped the whole task invocation, including time queued on the semaphore, killing cases that never got a sandbox.
-- A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It has one permit on ordinary local machines and four when `CODER` or `CI` is set, so managed environments prepare cases faster without making setup concurrency follow Modal's unbounded sandbox capacity.
+- A second `team_setup_slots` semaphore covers the full demo-data clone plus optional case seeder. It defaults to one permit on ordinary local machines, two on Coder, and four on other CI machines. `--team-setup-concurrency` overrides it independently of the sandbox cap.
 - The agent timeout begins after team setup. Waiting for either semaphore never consumes it.
 - All turns share a monotonic poll deadline. The harness reserves up to 120 seconds, capped at one quarter of the case budget, for diagnostic recovery and cleanup before outer cancellation.
 - Poll timeouts retain their stage and log counts in case metadata and local artifacts. They follow the existing scored-timeout path.
@@ -140,16 +141,16 @@ The Temporal worker keeps its own loop on a daemon thread, and the two communica
 
 ## Provider differences
 
-|                     | docker                        | modal                     |
-| ------------------- | ----------------------------- | ------------------------- |
-| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`             |
-| Service URLs        | `host.docker.internal:<port>` | Tailscale Funnel URLs     |
-| `start()`           | base-image freshness check    | Tailscale Funnel          |
-| Local skills        | bind-mounted                  | baked into the image      |
-| Default sandbox cap | 4                             | unbounded                 |
-| Sandbox TTL         | default                       | case timeout plus margin  |
-| Per-case safety net | container sweep               | task-tagged sandbox sweep |
-| End-of-run cleanup  | container sweep               | task-tagged sandbox sweep |
+|                     | docker                        | modal                            |
+| ------------------- | ----------------------------- | -------------------------------- |
+| `SANDBOX_PROVIDER`  | `docker`                      | `MODAL_EVALS`                    |
+| Service URLs        | `host.docker.internal:<port>` | Tailscale Funnel URLs            |
+| `start()`           | base-image freshness check    | Tailscale Funnel                 |
+| Local skills        | bind-mounted                  | baked into the image             |
+| Default sandbox cap | 4                             | 12 on Coder, otherwise unbounded |
+| Sandbox TTL         | default                       | case timeout plus margin         |
+| Per-case safety net | container sweep               | task-tagged sandbox sweep        |
+| End-of-run cleanup  | container sweep               | task-tagged sandbox sweep        |
 
 `MODAL_EVALS` is the same `ModalSandbox` class under the dedicated `posthog-sandbox-evals` app, so eval image builds do not share an image cache with production or local development sandboxes.
 

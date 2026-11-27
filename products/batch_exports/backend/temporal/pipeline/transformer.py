@@ -744,6 +744,7 @@ class CSVStreamTransformer:
         escape_char: str | None = "\\",
         line_terminator: str = "\n",
         quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
+        single_null_as_blank_line: bool = False,
         include_inserted_at: bool = False,
         max_file_size_bytes: int = 0,
     ):
@@ -753,6 +754,7 @@ class CSVStreamTransformer:
         self.escape_char = escape_char
         self.line_terminator = line_terminator
         self.quoting = quoting
+        self.single_null_as_blank_line = single_null_as_blank_line
         self.include_inserted_at = include_inserted_at
         self.max_file_size_bytes = max_file_size_bytes
 
@@ -798,11 +800,15 @@ class CSVStreamTransformer:
             lineterminator=self.line_terminator,
         )
 
-        rows = []
+        is_single_column = len(column_names) == 1
         for record in record_batch.select(column_names).to_pylist():
-            rows.append({k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+            if is_single_column and self.single_null_as_blank_line and record[column_names[0]] is None:
+                text_wrapper.write(self.line_terminator)
+            else:
+                writer.writerow(
+                    {k: _ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()}
+                )
 
-        writer.writerows(rows)
         text_wrapper.flush()
 
         return buffer.getvalue()
@@ -906,6 +912,14 @@ class SchemaTransformer:
         self.table = table
         self.extra_compatible_types = extra_compatible_types
         self.raise_on_incompatible = raise_on_incompatible
+        self._seen_warnings: set[tuple[str | pa.DataType, ...]] = set()
+
+    def _warn_once(self, event: str, **fields: str | pa.DataType) -> None:
+        key = (event, *fields.values())
+        if key in self._seen_warnings:
+            return
+        self._seen_warnings.add(key)
+        logger.warning(event, table=self.table.fully_qualified_name, **fields)
 
     async def iter(
         self,
@@ -930,20 +944,11 @@ class SchemaTransformer:
             try:
                 field = self.table[field_name]
             except KeyError:
-                logger.warning(
-                    "Field missing in target",
-                    name=field_name,
-                    table=self.table.fully_qualified_name,
-                )
+                self._warn_once("Field missing in target", name=field_name)
                 continue
 
             if field.name != field_name:
-                logger.warning(
-                    "Field aliased",
-                    field=field.name,
-                    alias=field.alias,
-                    table=self.table.fully_qualified_name,
-                )
+                self._warn_once("Field aliased", field=field.name, alias=field.alias)
             new_field_names.append(field.name)
 
             if array.type == field.data_type:
@@ -959,12 +964,11 @@ class SchemaTransformer:
                 if self.raise_on_incompatible:
                     raise IncompatibleTypesError(field, array.type)
 
-                logger.warning(
+                self._warn_once(
                     "Detected incompatible types",
                     field=field.name,
                     source_type=array.type,
                     field_type=field.data_type,
-                    table=self.table.fully_qualified_name,
                 )
                 arrays.append(array)
 

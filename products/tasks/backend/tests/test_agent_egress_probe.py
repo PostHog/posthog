@@ -59,6 +59,7 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             ("tunnel", "DEV", "modal", False),
             ("production_us", "US", "modal", False),
             ("production_eu", "EU", "modal", False),
+            ("enrollment_configured", "US", "modal", False),
             ("self_hosted", None, "modal", False),
             ("local_provider", "DEV", "MODAL_DOCKER", False),
         ]
@@ -81,6 +82,9 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
                 SANDBOX_PROVIDER=provider,
                 AGENT_EGRESS_PROBE_CONFIG_DIR=directory,
                 AGENT_EGRESS_STAGING_PROBE_RUN_ID=selected_run,
+                AGENT_EGRESS_ENROLLMENT_CONFIG=str(Path(directory) / "probe.json")
+                if case == "enrollment_configured"
+                else "",
             ),
         ):
             path = Path(directory) / "probe.json"
@@ -105,8 +109,11 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             override_settings(DEBUG=debug, SANDBOX_PROVIDER=provider, AGENT_EGRESS_PROBE_CONFIG_DIR=directory),
             patch.object(Path, "read_bytes", side_effect=AssertionError("File access is disabled")),
         ):
-            with self.assertRaisesRegex(ValueError, "require DEBUG|Set AGENT_EGRESS_PROBE_CONFIG_DIR"):
-                lifecycle(input)
+            with (
+                self.assertRaisesRegex(ValueError, "require DEBUG|Set AGENT_EGRESS_PROBE_CONFIG_DIR"),
+                lifecycle(input),
+            ):
+                pass
 
     @parameterized.expand([("allowed",), ("outside",), ("traversal",), ("symlink",)])
     @override_settings(DEBUG=True, SANDBOX_PROVIDER="MODAL_DOCKER")
@@ -203,6 +210,16 @@ class TestAgentEgressProbeValidation(SimpleTestCase):
             with self.assertRaises(x509.ExtensionNotFound):
                 leaf.extensions.get_extension_for_class(x509.SubjectAlternativeName)
             self.assertEqual(leaf.not_valid_after_utc, ca.not_valid_after_utc)
+            self.assertEqual(issued.expires_at, leaf.not_valid_after_utc)
+            renewed = issuer.issue(
+                csr.public_bytes(serialization.Encoding.PEM).decode(), relay_key_sha256=issued.relay_key_sha256
+            )
+            self.assertEqual(renewed.relay_key_sha256, issued.relay_key_sha256)
+            self.assertNotEqual(
+                x509.load_pem_x509_certificate(renewed.certificate.encode()).serial_number, leaf.serial_number
+            )
+            with self.assertRaisesRegex(ValueError, "key has changed"):
+                issuer.issue(csr.public_bytes(serialization.Encoding.PEM).decode(), relay_key_sha256="other-key")
             spki = relay_key.public_key().public_bytes(
                 serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
             )

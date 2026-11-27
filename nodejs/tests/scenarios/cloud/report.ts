@@ -48,15 +48,38 @@ const minuteOf = (at: number): number => at - (at % MINUTE_MS)
 
 const iso = (at: number): string => new Date(at).toISOString()
 
-async function hostScorecardOf(
-    evidence: ReturnType<typeof evidenceOf>,
-    runId: string
-): Promise<z.infer<typeof HostScorecard>> {
+type HostScorecard = z.infer<typeof HostScorecard>
+
+type HostRun = { host: HostScorecard; statuses: Status[]; window: number[] }
+
+async function hostScorecardOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<HostRun> {
+    const { runId, controlRunId } = manifest
+    const paired = manifest.pair === true
     const keys = (await evidence.keys(keyOf(runId, 'evidence/run/'))).filter((key) => key.endsWith('/scorecard.json'))
-    if (keys.length !== 1) {
-        throw new Error(`the host uploaded ${keys.length} runner scorecards, not one`)
+    const read = async (key: string): Promise<HostScorecard> => HostScorecard.parse(parseJSON(await evidence.get(key)))
+    if (keys.length !== (paired ? 2 : 1)) {
+        const reason = keys.length === 1 ? (await read(keys[0])).event.pair_reason : undefined
+        throw new Error(
+            `the host uploaded ${keys.length} runner scorecards, not ${paired ? 'two' : 'one'}${typeof reason === 'string' ? `: ${reason}` : ''}`
+        )
     }
-    return HostScorecard.parse(parseJSON(await evidence.get(keys[0])))
+    const saved = await Promise.all(keys.map(read))
+    const ranAs = (role: string, id: string | undefined): HostScorecard | undefined =>
+        saved.find(({ event }) => event.pair_role === role && event.run_id === id)
+    const host = paired ? ranAs('faulted', runId) : saved[0]
+    if (host === undefined || (paired && ranAs('control', controlRunId) === undefined)) {
+        throw new Error(
+            `the host uploaded runner scorecards that are not one control and one faulted run of run ${runId}`
+        )
+    }
+    return {
+        host,
+        statuses: saved.map(({ event }) => event.status),
+        window: [
+            Math.min(...saved.map(({ event }) => Date.parse(event.started_at))),
+            Math.max(...saved.map(({ event }) => Date.parse(event.ended_at))),
+        ],
+    }
 }
 
 async function capacityOf(aws: Aws, readerId: string, from: number, to: number, expected: number[]): Promise<Capacity> {
@@ -103,7 +126,7 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
         }
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
-    const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
+    const ends = [...minutes.map(({ at }) => at), ...expected.map((at) => minuteOf(Math.min(Math.max(at, from), to)))]
     const gaps: number[] = []
     for (let at = Math.min(...ends); at <= Math.max(...ends); at += MINUTE_MS) {
         const minute = byMinute.get(at)
@@ -191,6 +214,16 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
 
 function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
     const { idleMax } = profile.readerAcu
+    const runnerProfile = manifest.inputs['runner-profile.yaml']
+    const alertFiles = Object.entries(manifest.inputs)
+        .filter(([name]) => name.startsWith('alerts/'))
+        .sort(([a], [b]) => a.localeCompare(b))
+    const runnerProfileHash =
+        alertFiles.length === 0
+            ? runnerProfile
+            : createHash('sha256')
+                  .update(JSON.stringify([runnerProfile, alertFiles]))
+                  .digest('hex')
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
@@ -201,7 +234,7 @@ function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest:
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
-        runner_profile_hash: manifest.inputs['runner-profile.yaml'],
+        runner_profile_hash: runnerProfileHash,
         deviations: DEVIATIONS,
     }
     const fingerprint = createHash('sha256')
@@ -230,23 +263,24 @@ export async function report(
     const from = Date.parse(manifest.createdAt)
     const to = controller.now().getTime()
     const reasons = [...end.reasons]
-    const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
-    const exitsOfSaved: number[] = host ? [EXIT_CODE[host.event.status], EXIT_CODE.writeFailed] : []
-    if (host && !exitsOfSaved.includes(end.exitCode)) {
-        reasons.push(`the runner exited ${end.exitCode} after it saved a ${host.event.status} scorecard`)
+    const saved = await attempt(reasons, 'could not read the runner scorecard', () =>
+        hostScorecardOf(evidence, manifest)
+    )
+    const host = saved?.host
+    const worst = saved && Math.max(...saved.statuses.map((status) => EXIT_CODE[status]))
+    if (saved && worst !== end.exitCode && end.exitCode !== EXIT_CODE.writeFailed) {
+        const statuses =
+            saved.statuses.length === 1
+                ? `a ${saved.statuses[0]} scorecard`
+                : `${saved.statuses.join(' and ')} scorecards`
+        reasons.push(`the runner exited ${end.exitCode} after it saved ${statuses}`)
     }
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.intentAt
     if (card.failsOver && host?.event.status === 'passed' && !t0) {
         reasons.push(`the runner recorded no ${FAILOVER_VALVE} request (intentAt), so the reader was not judged`)
     }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
-        capacityOf(
-            controller.aws,
-            `scn-${runId}-reader`,
-            from,
-            to,
-            host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
-        )
+        capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
     const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
     if (judged?.reason) {
@@ -281,6 +315,11 @@ export async function report(
         card_id: card.id,
         adapters: ADAPTERS,
         ...host?.event,
+        ...(manifest.pair &&
+            reasons.length > 0 && {
+                pair_attribution: 'unjudged',
+                pair_reason: 'the cloud run is invalid, so the pair is not judged',
+            }),
         ...environment,
         reader_acu_at_t0: readerAtT0,
         run_id: runId,

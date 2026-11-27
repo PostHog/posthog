@@ -11,7 +11,7 @@ import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup, Univer
 
 import { issueTagDefinitionsLogic } from '../../../components/IssueFilters/issueTagDefinitionsLogic'
 import { errorTrackingTagRulesCreate, errorTrackingTagRulesUpdate } from '../../../generated/api'
-import type { ErrorTrackingIssueTagRuleFiltersApi } from '../../../generated/api.schemas'
+import type { ErrorTrackingIssueTagRuleFiltersApi, IssueTagColorEnumApi } from '../../../generated/api.schemas'
 import { rulesLogic } from '../rules/rulesLogic'
 import { destroyTagRule } from '../rules/tagRuleRequests'
 import { ErrorTrackingRule, ErrorTrackingRuleType, ErrorTrackingTagRule, ErrorTrackingTagRuleNew } from '../rules/types'
@@ -24,6 +24,7 @@ function emptyRule(): ErrorTrackingTagRuleNew {
         id: 'new',
         label: '',
         description: '',
+        color: null,
         filters: { type: FilterLogicalOperator.And, values: [] },
         disabled_data: null,
         order_key: 0,
@@ -161,6 +162,9 @@ export interface tagRuleModalLogicActions {
     saveRule: () => {
         value: true
     }
+    updateColor: (color: IssueTagColorEnumApi | null) => {
+        color: IssueTagColorEnumApi | null
+    }
     updateDescription: (description: string) => {
         description: string
     }
@@ -205,6 +209,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         updateRule: (rule: EditableTagRule) => ({ rule }),
         updateLabel: (label: string) => ({ label }),
         updateDescription: (description: string) => ({ description }),
+        updateColor: (color: IssueTagColorEnumApi | null) => ({ color }),
         increaseDateRange: true,
         saveRule: true,
     }),
@@ -220,6 +225,10 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
                 updateDescription: (state: EditableTagRule, { description }: { description: string }) => ({
                     ...state,
                     description,
+                }),
+                updateColor: (state: EditableTagRule, { color }: { color: IssueTagColorEnumApi | null }) => ({
+                    ...state,
+                    color,
                 }),
             },
         ],
@@ -271,9 +280,9 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
             false,
             {
                 persistRule: async () => {
-                    const { id, label, description, filters } = values.rule
+                    const { id, label, description, color, filters } = values.rule
                     const projectId = String(teamLogic.values.currentTeamId)
-                    const body = { label, description, filters: filters as ErrorTrackingIssueTagRuleFiltersApi }
+                    const body = { label, description, color, filters: filters as ErrorTrackingIssueTagRuleFiltersApi }
                     if (id === 'new') {
                         const order_key = Math.max(-1, ...values.rules.map((rule) => rule.order_key)) + 1
                         await errorTrackingTagRulesCreate(projectId, { ...body, order_key })
@@ -304,7 +313,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
             LemonDialog.open({
                 title: 'Remove this tag from existing issues?',
                 description:
-                    'The filters now read different event properties, so saving removes this tag from every issue that has it. New issues get the tag when their first exception matches the new filters.',
+                    'The filters now read different event properties, so saving removes this tag from every issue that has it. New issues get the tag when their first exception matches the new filters. Other issues get it back in the next daily check if they had a matching exception in the past day. Filters on the exception list check only the first exception.',
                 primaryButton: { children: 'Save', status: 'danger', onClick: () => actions.persistRule() },
                 secondaryButton: { children: 'Cancel' },
             })

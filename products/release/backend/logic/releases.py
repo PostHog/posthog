@@ -207,5 +207,6 @@ def merge_releases(
     return get_release(team_id, target_id)
 
 
-def delete_release(team_id: int, release_id: UUID) -> None:
-    Release.objects.filter(team_id=team_id, id=release_id).delete()
+def delete_release(team_id: int, release_id: UUID) -> bool:
+    deleted, _ = Release.objects.filter(team_id=team_id, id=release_id).delete()
+    return deleted > 0

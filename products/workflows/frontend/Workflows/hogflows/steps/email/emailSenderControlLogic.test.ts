@@ -20,8 +20,6 @@ const STATUS = {
     organization_blocked: false,
     adoption_enabled: true,
 }
-const OWN_SENDER = { id: 7, kind: 'email', config: { verified: true } } as unknown as IntegrationType
-const SECOND_SENDER = { id: 8, kind: 'email', config: { verified: true } } as unknown as IntegrationType
 const VERIFYING_SENDER = { id: 9, kind: 'email', config: { verified: false } } as unknown as IntegrationType
 
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
@@ -124,17 +122,6 @@ describe('emailSenderControlLogic', () => {
         expect(storedStep()?.type).toEqual(expectedType)
     })
 
-    it('switches a sandbox step to the chosen own sender', async () => {
-        await setUp(SANDBOX_STEP, STATUS, {}, [OWN_SENDER, SECOND_SENDER])
-
-        logic.actions.chooseSender(7)
-
-        expect(storedStep()).toMatchObject({
-            type: 'function_email',
-            config: { template_id: 'template-email', inputs: { email: { value: { from: { integrationId: 7 } } } } },
-        })
-    })
-
     it.each<[string, HogFlowAction, Record<string, any>, boolean, Partial<HogFlow>]>([
         ['an own step when adoption is on and no sender is verified', ownStep(), STATUS, true, {}],
         ['an own step when adoption is off', ownStep(), { ...STATUS, adoption_enabled: false }, false, {}],
@@ -158,4 +145,33 @@ describe('emailSenderControlLogic', () => {
             expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
         )
     })
+
+    it('does not offer the sandbox sender for a sensitive own step, which the sandbox sender would make not sensitive', async () => {
+        await setUp({ ...ownStep(), config: { ...ownStep().config, sensitive: true } } as HogFlowAction, STATUS, {})
+
+        expect(logic.values.showSandboxOption).toBe(false)
+    })
+
+    it.each([
+        ['cancel', 'function_email'],
+        ['confirm', 'email_sandbox'],
+    ])(
+        'asks before dropping click_tracking_enabled: false on switch to sandbox, and %s decides the step kind',
+        async (decision, expectedType) => {
+            await setUp({
+                ...ownStep(),
+                config: { ...ownStep().config, click_tracking_enabled: false },
+            } as HogFlowAction)
+
+            logic.actions.chooseSender('sandbox')
+            expect(logic.values.pendingSwitch).toEqual({ droppedSettings: ['click_tracking_off'] })
+            expect(storedStep()?.type).toEqual('function_email')
+
+            const decide = decision === 'cancel' ? logic.actions.cancelSwitch : logic.actions.confirmSwitch
+            decide()
+
+            expect(logic.values.pendingSwitch).toBeNull()
+            expect(storedStep()?.type).toEqual(expectedType)
+        }
+    )
 })

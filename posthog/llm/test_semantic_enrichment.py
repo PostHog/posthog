@@ -5,14 +5,13 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.llm.gateway_client import team_distinct_id, team_trace_id
+from posthog.llm.gateway_client import GatewayNotConfiguredError, team_distinct_id, team_trace_id
 from posthog.llm.semantic_enrichment import (
     MAX_COLUMNS_PER_TABLE,
     MAX_ENRICHMENT_BATCHES,
     MAX_OUTPUT_TOKENS,
     MIN_OUTPUT_TOKENS,
     TruncatedCompletionError,
-    _ChatClient,
     _Completion,
     _MessagesClient,
     bound_prompt_over_columns,
@@ -48,20 +47,15 @@ class TestBuildEnrichmentClient:
         # upstream to the provider instead, so without it the spend lands on the shared credential.
         assert headers["X-PostHog-Distinct-Id"] == team_distinct_id(7)
 
-    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
-    @patch("posthog.llm.semantic_enrichment.get_llm_client")
-    def test_fallback_keeps_the_chat_completions_shape(self, mock_get_llm_client):
-        """Clearing the env must restore the pre-cutover wire behaviour, not a new route."""
-        result = build_enrichment_client("warehouse_semantic_enrichment", 7)
-
-        assert isinstance(result, _ChatClient)
-        mock_get_llm_client.assert_called_once_with(product="warehouse_semantic_enrichment", team_id=7)
-
-    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY="")
-    @patch("posthog.llm.semantic_enrichment.get_llm_client")
-    def test_half_applied_env_falls_back_to_chat(self, mock_get_llm_client):
-        assert isinstance(build_enrichment_client("warehouse_semantic_enrichment", 7), _ChatClient)
-        mock_get_llm_client.assert_called_once()
+    @pytest.mark.parametrize(
+        "url, api_key",
+        [("", ""), (AI_GATEWAY_URL, "")],
+        ids=["unset", "half_applied"],
+    )
+    def test_raises_when_the_go_gateway_is_not_configured(self, url, api_key):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
+            with pytest.raises(GatewayNotConfiguredError):
+                build_enrichment_client("warehouse_semantic_enrichment", 7)
 
 
 def _messages_response(text: str, *, stop_reason: str = "end_turn", usage: MagicMock | None = None) -> MagicMock:
@@ -69,15 +63,6 @@ def _messages_response(text: str, *, stop_reason: str = "end_turn", usage: Magic
     response.content = [MagicMock(type="text", text=text)]
     response.usage = MagicMock(input_tokens=10, output_tokens=2) if usage is None else usage
     response.stop_reason = stop_reason
-    return response
-
-
-def _chat_response(text: str | None, *, finish_reason: str = "stop") -> MagicMock:
-    response = MagicMock()
-    choice = MagicMock(finish_reason=finish_reason)
-    choice.message.content = text
-    response.choices = [choice]
-    response.usage = MagicMock(prompt_tokens=10, completion_tokens=2)
     return response
 
 
@@ -129,35 +114,6 @@ class TestMessagesClient:
         assert completion.usage["total_tokens"] is None
 
 
-class TestChatClient:
-    def _sdk(self, response: MagicMock) -> MagicMock:
-        sdk = MagicMock()
-        sdk.chat.completions.create.return_value = response
-        return sdk
-
-    def test_sends_the_pre_cutover_request_shape(self):
-        sdk = self._sdk(_chat_response('{"columns": {"a": "desc"}}'))
-
-        completion = _ChatClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
-
-        kwargs = sdk.chat.completions.create.call_args.kwargs
-        assert kwargs["model"] == "m"
-        assert kwargs["messages"] == [{"role": "user", "content": "p"}]
-        assert kwargs["temperature"] == 0.2
-        assert kwargs["response_format"] == {"type": "json_object"}
-        assert kwargs["user"] == "team-7"
-        assert "max_tokens" not in kwargs
-        # This leg sends no ceiling of ours, so the truncation message must not claim one.
-        assert completion.max_output_tokens is None
-        assert completion.truncated is False
-        assert completion.usage == {"model": "m", "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
-
-    def test_reports_a_length_finish_as_truncated(self):
-        sdk = self._sdk(_chat_response('{"columns": ', finish_reason="length"))
-
-        assert _ChatClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7).truncated is True
-
-
 class TestGenerateJsonCompletion:
     def _client(self, text: str, *, truncated: bool = False) -> MagicMock:
         client = MagicMock()
@@ -207,19 +163,13 @@ class TestRoundTripThroughGenerateJsonCompletion:
     """Drives the real client classes through the real consumer.
 
     The class-level tests build a `_Completion` by hand, so they cannot see how the two halves fit
-    together: whether the truncation guard runs before the parse, or what the chat leg does with a
-    null content field.
+    together: whether the truncation guard runs before the parse.
     """
 
     def _messages_client(self, text: str, *, stop_reason: str) -> _MessagesClient:
         sdk = MagicMock()
         sdk.messages.create.return_value = _messages_response(text, stop_reason=stop_reason)
         return _MessagesClient(sdk)
-
-    def _chat_client(self, content: str | None, *, finish_reason: str = "stop") -> _ChatClient:
-        sdk = MagicMock()
-        sdk.chat.completions.create.return_value = _chat_response(content, finish_reason=finish_reason)
-        return _ChatClient(sdk)
 
     def test_truncated_reply_that_still_parses_is_rejected(self):
         """The guard has to run before the parse: a cut-off reply whose fragment happens to close is
@@ -229,7 +179,6 @@ class TestRoundTripThroughGenerateJsonCompletion:
         with pytest.raises(TruncatedCompletionError) as excinfo:
             generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
 
-        # The message names the ceiling this leg actually sent, not a constant the other leg uses.
         assert "16384" in str(excinfo.value)
 
     def test_untruncated_reply_parses_normally(self):
@@ -242,44 +191,24 @@ class TestRoundTripThroughGenerateJsonCompletion:
         assert parsed == {"columns": {"a": "desc"}}
         assert usage["total_tokens"] == 12
 
-    def test_chat_leg_null_content_raises_value_error_not_attribute_error(self):
-        """OpenAI sends content: null on a refusal or a tool call, and this leg carries all the
-        traffic until the worker env lands."""
-        client = self._chat_client(None)
-
-        # An AttributeError would propagate out of pytest.raises(ValueError) as a test error, so
-        # the raises() is what pins this; dropping `or ""` fails here with exactly that.
-        with pytest.raises(ValueError):
-            generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
-
-    def test_chat_leg_truncation_names_the_provider_default(self):
-        """This leg sends no ceiling of ours, so the message must not name one."""
-        client = self._chat_client('{"columns": ', finish_reason="length")
-
-        with pytest.raises(TruncatedCompletionError) as excinfo:
-            generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
-
-        assert "provider-default" in str(excinfo.value)
-        assert "16384" not in str(excinfo.value)
-
 
 class TestUsageNormalisation:
     def test_one_absent_token_count_is_enough_to_leave_the_total_unset(self):
         """Each conjunct has to be the sole reason for the outcome, or `or` weakens to `and`."""
         sdk = MagicMock()
-        sdk.chat.completions.create.return_value = _chat_response("{}")
-        sdk.chat.completions.create.return_value.usage = MagicMock(prompt_tokens=10, completion_tokens=None)
+        sdk.messages.create.return_value = _messages_response(
+            "{}", usage=MagicMock(input_tokens=10, output_tokens=None)
+        )
 
-        completion = _ChatClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
+        completion = _MessagesClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
 
         assert completion.usage["total_tokens"] is None
 
     def test_the_other_absent_count_also_leaves_it_unset(self):
         sdk = MagicMock()
-        sdk.chat.completions.create.return_value = _chat_response("{}")
-        sdk.chat.completions.create.return_value.usage = MagicMock(prompt_tokens=None, completion_tokens=2)
+        sdk.messages.create.return_value = _messages_response("{}", usage=MagicMock(input_tokens=None, output_tokens=2))
 
-        completion = _ChatClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
+        completion = _MessagesClient(sdk).complete(model="m", prompt="p", temperature=0.2, team_id=7)
 
         assert completion.usage["total_tokens"] is None
 
@@ -301,8 +230,7 @@ def test_the_output_ceiling_stays_under_the_sdk_non_streaming_limit():
 
 
 class TestMessagesTextGuards:
-    """The Messages leg is the one the cutover switches traffic onto, so its null defaults need the
-    same pinning the chat leg's `content or ""` got."""
+    """The Messages client carries all enrichment traffic, so its null defaults need pinning."""
 
     def _completion(self, blocks: list[MagicMock]) -> _Completion:
         sdk = MagicMock()

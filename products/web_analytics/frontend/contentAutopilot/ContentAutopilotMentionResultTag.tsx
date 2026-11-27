@@ -1,4 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { AiVisibilityTag } from './AiVisibilityTag'
 
 /** The result of a check from an engine that answers without search, which can mention the brand but never cite it. */
 export const ContentAutopilotMentionResultTag = ({
@@ -9,9 +9,9 @@ export const ContentAutopilotMentionResultTag = ({
     checkFailed: boolean
 }): JSX.Element =>
     checkFailed ? (
-        <LemonTag type="danger">Failed</LemonTag>
+        <AiVisibilityTag type="danger">Failed</AiVisibilityTag>
     ) : mentioned ? (
-        <LemonTag type="success">Mentioned</LemonTag>
+        <AiVisibilityTag type="success">Mentioned</AiVisibilityTag>
     ) : (
-        <LemonTag type="warning">Not mentioned</LemonTag>
+        <AiVisibilityTag type="warning">Not mentioned</AiVisibilityTag>
     )

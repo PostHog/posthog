@@ -13,7 +13,9 @@ from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.facade.contracts import DashboardTemplateDefinition
 from products.mcp_analytics.backend import custom_harnesses, logic
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, custom_arms_sql, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
@@ -75,6 +77,10 @@ def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:
     )
 
 
+def default_dashboard_template() -> DashboardTemplateDefinition:
+    return get_mcp_analytics_default_template()
+
+
 def list_feedback_submissions(team: Team) -> list[contracts.Submission]:
     return [_to_submission(instance) for instance in logic.list_submissions(team, SubmissionKind.FEEDBACK)]
 
@@ -132,6 +138,7 @@ def list_mcp_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
     has_errors: bool | None = None,
+    feedback_only: bool = False,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -145,6 +152,7 @@ def list_mcp_sessions(
         date_from=date_from,
         date_to=date_to,
         has_errors=has_errors,
+        feedback_only=feedback_only,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
         user=user,

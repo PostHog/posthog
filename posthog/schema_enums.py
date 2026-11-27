@@ -1381,6 +1381,17 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagColor(StrEnum):
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1493,6 +1504,8 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1517,6 +1530,8 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    EVENTS_BILLING_LIMIT = "events_billing_limit"
+    FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1699,6 +1714,7 @@ class FileSystemIconType(StrEnum):
     PIPELINE_STATUS = "pipeline_status"
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_TAGS = "llm_tags"
+    TAG = "tag"
     LLM_DATASETS = "llm_datasets"
     LLM_PLAYGROUND = "llm_playground"
     LLM_PROMPTS = "llm_prompts"
@@ -2126,6 +2142,10 @@ class MCPDashboardSection(StrEnum):
     PROTOCOL_VERSION = "protocolVersion"
     TOOL = "tool"
     ERROR_TYPE = "errorType"
+    TOOL_SHARE = "toolShare"
+    HARNESS = "harness"
+    ERROR_TYPE_SHARE = "errorTypeShare"
+    USER = "user"
     LAB_USERS = "labUsers"
     NAMED_MODEL_USERS = "namedModelUsers"
     RELIABILITY = "reliability"
@@ -2231,6 +2251,12 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     ACCOUNT = "account"
 
 
+class MarketingAnalyticsRecommendationDetectedChange(StrEnum):
+    NEGATIVE_KEYWORD = "negative_keyword"
+    BRAND_NEGATIVE = "brand_negative"
+    KEYWORD_ADDED = "keyword_added"
+
+
 class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
     GOOGLE_ADS = "google_ads"
 
@@ -2272,9 +2298,19 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     KEYWORD_TRACKING = "keyword_tracking"
 
 
+class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):
+    POSTHOG = "posthog"
+    GOOGLE_ADS = "google_ads"
+
+
 class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
     CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
     PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+    POSTHOG_CONVERSIONS_NOT_READY = "posthog_conversions_not_ready"
+    POSTHOG_CONVERSION_GOALS_UNUSABLE = "posthog_conversion_goals_unusable"
+    POSTHOG_CAMPAIGNS_UNMATCHED = "posthog_campaigns_unmatched"
+    POSTHOG_CONVERSIONS_FAILED = "posthog_conversions_failed"
+    HIDDEN_SEARCH_SPEND = "hidden_search_spend"
 
 
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
@@ -3020,6 +3056,9 @@ class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
+    REPEATED_CTE_EXPANSION = "repeated_cte_expansion"
+    CROSS_JOIN_EQUALITY = "cross_join_equality"
+    DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT = "date_arrays_before_breakdown_limit"
 
 
 class QueryScanFixLocation(StrEnum):

@@ -39,6 +39,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, Trigger, bulk_log_activity
 from posthog.models.team import Team
 from posthog.ph_client import ph_background_capture
 from posthog.temporal.common.client import async_connect
@@ -46,6 +47,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedul
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.facade.contracts import PlanFloorRefusalError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.cadence_changes import cadence_changes
 from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_WEEK,
     ScheduleReconcilePlan,
@@ -95,6 +97,7 @@ tracer = trace.get_tracer(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
+PLAN_FLOOR_CLAMP_ACTIVITY = "sync_frequency_plan_floor"
 
 
 class StaleScheduleDeleteError(Exception):
@@ -449,6 +452,7 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             stage_plan_floor_clamp(node, plan_floor=floor, at=timezone.now())
             node.save(update_fields=["properties"])
             rewritten.append((node, previous))
+        bulk_log_activity(_plan_floor_clamp_activity(dag, rewritten, floor))
         maybe_reconcile_dag(dag)
     capture = ph_background_capture()
     for node, previous in rewritten:
@@ -463,6 +467,28 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             groups=groups(team=dag.team),
         )
     return len(rewritten)
+
+
+def _plan_floor_clamp_activity(
+    dag: DAG, rewritten: list[tuple[Node, timedelta]], floor: timedelta
+) -> list[LogActivityEntry]:
+    return [
+        LogActivityEntry(
+            organization_id=dag.team.organization_id,
+            team_id=dag.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(node.saved_query_id),
+            scope="DataWarehouseSavedQuery",
+            activity=PLAN_FLOOR_CLAMP_ACTIVITY,
+            detail=Detail(
+                name=node.saved_query.name if node.saved_query is not None else None,
+                changes=cadence_changes((previous, floor)),
+                trigger=Trigger(job_type="plan_floor_clamp", job_id=str(dag.id), payload={}),
+            ),
+        )
+        for node, previous in rewritten
+    ]
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:

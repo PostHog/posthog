@@ -5,6 +5,7 @@ import { ZodError } from 'zod'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { RedisClientPipeline, RedisPipelineResults } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
@@ -21,10 +22,45 @@ const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 const sesNotificationRecordedKey = (snsMessageId: string): string =>
     `@posthog/ses-notification-recorded/${snsMessageId}`
-// Counted from the last batch that wrote or read the mark. Long enough to cover SNS retries and Kafka redeliveries,
-// short enough to cap the key count and to let a replay after an outage record again.
-const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 60 * 60
+// The workflow email health detector uses clock-hour buckets, so keep bounce and complaint marks beyond its longest
+// window. Keep other SES events at the short TTL to bound their residency in shared Redis.
+const WORKFLOW_EMAIL_HEALTH_LONGEST_WINDOW_SECONDS = 24 * 60 * 60
+const SES_NOTIFICATION_DEFAULT_TTL_SECONDS = 60 * 60
+const SES_HEALTH_NOTIFICATION_TTL_SECONDS = WORKFLOW_EMAIL_HEALTH_LONGEST_WINDOW_SECONDS + 60 * 60
 const SES_NOTIFICATION_RECORDED_DEADLINE_MS = 500
+
+const recordedTtlSeconds = (envelope: SnsEnvelope): number => {
+    if (envelope.Type === 'Notification') {
+        try {
+            const event: unknown = parseJSON(envelope.Message)
+            if (
+                event &&
+                typeof event === 'object' &&
+                'eventType' in event &&
+                (event.eventType === 'Bounce' || event.eventType === 'Complaint')
+            ) {
+                return SES_HEALTH_NOTIFICATION_TTL_SECONDS
+            }
+        } catch {
+            // SNS can publish a plain-text notification. The recording service handles those too.
+        }
+    }
+    return SES_NOTIFICATION_DEFAULT_TTL_SECONDS
+}
+
+type QueuedNotification = { message: Message } & (
+    | { envelope: SnsEnvelope; ttlSeconds: number }
+    | { parseError: 'unparseable' | 'not_an_sns_envelope' }
+)
+
+const parseQueuedNotification = (message: Message): QueuedNotification => {
+    try {
+        const envelope = parseSnsEnvelope(message.value?.toString() ?? '')
+        return { message, envelope, ttlSeconds: recordedTtlSeconds(envelope) }
+    } catch (error) {
+        return { message, parseError: error instanceof ZodError ? 'not_an_sns_envelope' : 'unparseable' }
+    }
+}
 
 const sesRecordedMarksUnavailableCounter = new Counter({
     name: 'email_tracking_ses_recorded_marks_unavailable_total',
@@ -32,7 +68,8 @@ const sesRecordedMarksUnavailableCounter = new Counter({
     labelNames: ['operation'],
 })
 
-type BatchMarks = { skip: Set<string>; recorded: string[] }
+type RecordedMark = { id: string; ttlSeconds: number }
+type BatchMarks = { skip: Set<string>; recorded: RecordedMark[] }
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
 // partition. Any other error fails the batch so Kafka redelivers it once the datastore recovers, which can count
@@ -51,14 +88,16 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        const marks: BatchMarks = { skip: await this.recordedEarlier(messages), recorded: [] }
+        const notifications = messages.map(parseQueuedNotification)
+        const marks: BatchMarks = { skip: await this.recordedEarlier(notifications), recorded: [] }
         let next = 0
         const errors: unknown[] = []
         const recordNext = async (): Promise<void> => {
-            while (next < messages.length && errors.length === 0) {
-                const message = messages[next++]
+            while (next < notifications.length && errors.length === 0) {
+                const notification = notifications[next++]
+                const { message } = notification
                 try {
-                    const skipReason = await this.record(message, marks)
+                    const skipReason = await this.record(notification, marks)
                     if (skipReason) {
                         logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that can never record', {
                             topic: message.topic,
@@ -90,14 +129,12 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         }
     }
 
-    private async record(message: Message, marks: BatchMarks): Promise<SkipReason | null> {
-        let envelope: SnsEnvelope
-        try {
-            envelope = parseSnsEnvelope(message.value?.toString() ?? '')
-        } catch (error) {
+    private async record(notification: QueuedNotification, marks: BatchMarks): Promise<SkipReason | null> {
+        if ('parseError' in notification) {
             counterParseError.labels({ error: 'unparseable_ses_notification' }).inc()
-            return error instanceof ZodError ? 'not_an_sns_envelope' : 'unparseable'
+            return notification.parseError
         }
+        const { message, envelope, ttlSeconds } = notification
         if (marks.skip.has(envelope.MessageId)) {
             sesQueuedNotificationsCounter.inc({ stage: 'redelivered' })
             return null
@@ -108,7 +145,7 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
             if (recording.outcome !== 'recorded') {
                 return 'rejected'
             }
-            marks.recorded.push(envelope.MessageId)
+            marks.recorded.push({ id: envelope.MessageId, ttlSeconds })
             return null
         } catch (error) {
             // A ZodError is an SES event that does not match the schema, so every retry fails the same way.
@@ -127,27 +164,35 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     // The queue keys each message by its SNS MessageId.
-    private async recordedEarlier(messages: Message[]): Promise<Set<string>> {
-        const ids = [...new Set(messages.flatMap((message) => (message.key ? [message.key.toString()] : [])))]
-        if (ids.length === 0) {
+    private async recordedEarlier(notifications: QueuedNotification[]): Promise<Set<string>> {
+        const refreshes = new Map<string, number>()
+        for (const notification of notifications) {
+            if (
+                'envelope' in notification &&
+                notification.message.key?.toString() === notification.envelope.MessageId
+            ) {
+                refreshes.set(notification.envelope.MessageId, notification.ttlSeconds)
+            }
+        }
+        if (refreshes.size === 0) {
             return new Set()
         }
         const results = await this.recordedMarksPipeline('read', (pipeline) => {
             // One command per key, because a multi-key command fails with CROSSSLOT across cluster slots.
-            for (const id of ids) {
-                pipeline.getex(sesNotificationRecordedKey(id), 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
+            for (const [id, ttlSeconds] of refreshes) {
+                pipeline.getex(sesNotificationRecordedKey(id), 'EX', ttlSeconds)
             }
         })
-        return new Set(ids.filter((_, index) => results?.[index]?.[1] != null))
+        return new Set([...refreshes.keys()].filter((_, index) => results?.[index]?.[1] != null))
     }
 
-    private async markRecorded(snsMessageIds: string[]): Promise<void> {
-        if (snsMessageIds.length === 0) {
+    private async markRecorded(marks: RecordedMark[]): Promise<void> {
+        if (marks.length === 0) {
             return
         }
         await this.recordedMarksPipeline('write', (pipeline) => {
-            for (const id of snsMessageIds) {
-                pipeline.set(sesNotificationRecordedKey(id), '1', 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
+            for (const { id, ttlSeconds } of marks) {
+                pipeline.set(sesNotificationRecordedKey(id), '1', 'EX', ttlSeconds)
             }
         })
     }

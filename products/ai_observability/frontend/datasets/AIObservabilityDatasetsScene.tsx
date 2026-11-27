@@ -18,6 +18,7 @@ import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { ResourceTags } from '../components/ResourceTags'
 import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
@@ -78,10 +79,14 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
             className: '@max-[50rem]/datasets:hidden [&_.profile-package]:max-w-full [&_.profile-name]:truncate',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
-                const { created_by } = item
+                const { created_by, created_by_project_key_id } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
+                        {created_by ? (
+                            <ProfilePicture user={created_by as UserBasicType} size="md" showName />
+                        ) : (
+                            created_by_project_key_id && <ProjectKeyLabel id={created_by_project_key_id} />
+                        )}
                     </div>
                 )
             },

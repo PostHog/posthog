@@ -4,8 +4,9 @@ from uuid import UUID
 from products.business_knowledge.backend import (
     billing,
     citations as run_citations,
+    docs_library,
 )
-from products.business_knowledge.backend.facade.contracts import KnowledgeHit, KnowledgeUsageByTeam
+from products.business_knowledge.backend.facade.contracts import DocsPage, KnowledgeHit, KnowledgeUsageByTeam
 from products.business_knowledge.backend.models import (
     KnowledgeGapSuggestion,
     KnowledgeLearningRun,
@@ -65,3 +66,12 @@ def search_knowledge(*, team_id: int, query: str, limit: int = 5) -> list[Knowle
         )
         for result in logic.search_knowledge(team_id, query, limit=limit)
     ]
+
+
+async def search_docs_library(*, query: str, organization_id: str) -> list[DocsPage]:
+    """PostHog documentation pages for `query`, from the docs library.
+
+    Returns an empty list when the library is off for this organization, is not configured, fails, or finds
+    nothing. The caller then uses its other docs search.
+    """
+    return await docs_library.search_docs_library(query, organization_id=organization_id)

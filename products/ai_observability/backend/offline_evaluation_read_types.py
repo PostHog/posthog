@@ -91,7 +91,41 @@ class OfflineExperimentAuthor:
 
 
 @frozen
+class ExperimentScoreSource:
+    version_id: UUID
+    version: int
+    successful_items: int
+    value: float | None
+
+
+@frozen
+class ExperimentScoreInput:
+    alias: str
+    statistic: str
+    version_policy: str
+    status: str
+    value: float | None
+    sources: list[ExperimentScoreSource]
+
+
+@frozen
+class ExperimentScore:
+    definition_id: UUID
+    kind: str
+    config: dict[str, JSONValue]
+    scorer_version_id: UUID
+    version: int
+    name: str
+    status: str
+    value: ResultValue | None
+    passed: bool | None
+    inputs: list[ExperimentScoreInput]
+
+
+@frozen
 class OfflineExperimentRead:
+    experiment_score: ExperimentScore | None = None
+    suite_has_score: bool | None = None
     updated_at: datetime | None = None
     closed_item_count: int | None = None
     tags: tuple[str, ...] = ()
@@ -237,5 +271,5 @@ class OfflineScorerSummary:
 @frozen
 class OfflineHistoryPoint:
     experiment: OfflineExperimentRead
-    summary: OfflineScorerSummary
+    summary: OfflineScorerSummary | None
     breakdown_value: str | None = None

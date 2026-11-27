@@ -233,6 +233,9 @@ class ExperimentSubmissionSerializer(_StrictDataclassSerializer[ExperimentSubmis
         help_text="Expected number of distinct item/scorer-version results, including non-success statuses.",
     )
     suite_key = _identifier_field("Stable identifier for comparing executions of the same evaluation suite.")
+    experiment_scorer_version_id = _UUIDField(
+        required=False, allow_null=True, help_text="Exact experiment scorer version. Omit to use the suite default."
+    )
     dataset_source = _identifier_field(
         "Source of an external dataset. Hosted dataset provenance is derived from its revision."
     )
@@ -280,7 +283,7 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     scorer_version_id = _UUIDField(help_text="Exact UUID of an existing scorer version in this project.")
     calculate = serializers.BooleanField(
         required=False,
-        help_text="Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result.",
+        help_text="Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include every pinned input result, or reuse stored inputs with evaluation:read and llm_analytics:read. For reported scorers, omit this flag or set false and supply the result.",
     )
     status = serializers.ChoiceField(
         choices=OfflineEvaluationResult.Status.choices, default="ok", help_text="Outcome of this scorer execution."

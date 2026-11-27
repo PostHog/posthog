@@ -34,7 +34,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.models.user import User
 
     from products.actions.backend.facade.contracts import ActionNotFound
-    from products.autoresearch.backend.access import has_autoresearch_access
+    from products.autoresearch.backend.access import access_refusal, has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
     from products.autoresearch.backend.inference.failures import (
@@ -53,7 +53,12 @@ with workflow.unsafe.imports_passed_through():
         run_inference_for_pipeline,
         score_shadow_set_for_run,
     )
-    from products.autoresearch.backend.limits import check_training_run_cap, limits_for_team, training_run_usage
+    from products.autoresearch.backend.limits import (
+        check_training_budget,
+        check_training_run_cap,
+        limits_for_team,
+        training_run_usage,
+    )
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -74,8 +79,6 @@ with workflow.unsafe.imports_passed_through():
         scheduled_kickoff_reason,
     )
     from products.autoresearch.backend.training.stale import fail_stale_training_runs
-    from products.tasks.backend.facade.access import get_desktop_access_decision
-    from products.tasks.backend.facade.usage import task_run_usage_limited
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
@@ -744,8 +747,8 @@ def evaluate_pipeline_outcome(
 class KickoffTrainingResult:
     kicked_off: bool
     # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
-    # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
-    # | "team_daily_cap"
+    # | "not_eligible" | "access_refused" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # | "team_daily_cap" | "team_monthly_budget"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -918,11 +921,11 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     that come first in ``kickoff_rank()``, whichever kickoff runs first.
     """
     fail_stale_training_runs(team_id=inp.team_id, pipeline_id=inp.pipeline_id)
-    # The gates can call out to billing and flags, so they run before the row lock is taken.
+    # The access gate can call out to flags, so it runs before the row lock is taken.
     with team_scope(inp.team_id):
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
-    if loaded.created_by is not None and (gate := _tasks_gate(loaded)):
-        return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
+    if loaded.created_by is not None and (blocked := _sweep_access_block(loaded)):
+        return KickoffTrainingResult(kicked_off=False, reason="access_refused", detail=blocked)
     gated_creators = _gated_creators_of_other_pipelines(loaded)
     limits = limits_for_team(inp.team_id)
 
@@ -983,6 +986,12 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if cap := check_training_run_cap(inp.team_id, limits):
             detail = f"The project has used {cap.used} of its daily limit of {cap.limit} training runs"
             return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
+        if spent := check_training_budget(inp.team_id, limits):
+            detail = (
+                f"The project has used ${spent.spent_usd:,.2f} of its ${spent.limit_usd:,} monthly training budget, "
+                f"which resets at {spent.resets_at.isoformat()}"
+            )
+            return KickoffTrainingResult(kicked_off=False, reason="team_monthly_budget", detail=detail)
 
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
@@ -1018,7 +1027,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
 
 def _gated_creators_of_other_pipelines(pipeline: AutoresearchPipeline) -> set[int]:
-    """The creators of the team's other pipelines whose kickoff ``_tasks_gate()`` refuses now.
+    """The creators of the team's other pipelines whose kickoff ``_sweep_access_block()`` refuses now.
 
     One gate per creator, because the gate reads only the creator and the team. Call before the row
     lock, as for the pipeline's own gate. A gate that cannot be resolved counts as a refusal,
@@ -1038,7 +1047,7 @@ def _gated_creators_of_other_pipelines(pipeline: AutoresearchPipeline) -> set[in
     gated: set[int] = set()
     for other in others:
         try:
-            refused = _tasks_gate(other) is not None
+            refused = _sweep_access_block(other) is not None
         except Exception:
             logger.warning("autoresearch_kickoff_gate_unresolved", pipeline_id=str(other.pk), exc_info=True)
             refused = True
@@ -1132,35 +1141,12 @@ def activity_fail_lost_inference_runs(inp: FailLostInferenceRunsInput) -> int:
 def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:
     """Why the sweep may no longer act on this pipeline, or None.
 
-    Each activity checks again, because a child can start hours after discovery checked. Load the
-    pipeline with ``team__organization`` and ``created_by``.
+    The creator gets the gate ``/train`` applies (``access_refusal()``). Each activity checks again,
+    because a child can start hours after discovery checked. Load the pipeline with
+    ``team__organization`` and ``created_by``.
     """
-    organization = pipeline.team.organization
-    if not organization.is_active or organization.is_pending_deletion:
-        return "The organization is deactivated or pending deletion"
-    if pipeline.created_by is None or not has_autoresearch_access(
-        pipeline.created_by, team_id=pipeline.team_id, organization_id=str(organization.id)
-    ):
-        return "Outside the autoresearch rollout"
-    return None
-
-
-def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
-    """Why the creator may not launch a paid Tasks sandbox now, or None. Mirrors the `/train` gates.
-
-    An unresolvable Desktop access decision raises, so the activity retries instead of launching.
-    """
-    if blocked := _sweep_access_block(pipeline):
-        return blocked
-    creator = cast(User, pipeline.created_by)
-    organization = pipeline.team.organization
-    team_id = pipeline.team_id
-    decision = get_desktop_access_decision(creator, organization)
-    if not decision.allowed:
-        return f"PostHog Desktop access: {decision.value}"
-    if task_run_usage_limited(creator, team_id):
-        return "The Tasks usage limit is reached"
-    return None
+    refusal = access_refusal(pipeline.created_by, pipeline.team.organization, team_id=pipeline.team_id)
+    return refusal.detail if refusal else None
 
 
 # ── Coordinator workflow ──────────────────────────────────────────────────────

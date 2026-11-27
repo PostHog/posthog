@@ -3,10 +3,13 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getReactRouterInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getReactRouterInstallSteps = (
+    ctx: OnboardingComponentsContext,
+    { includeProvider = true }: { includeProvider?: boolean } = {}
+): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    return [
+    const steps: StepDefinition[] = [
         {
             title: 'Install the package',
             badge: 'required',
@@ -80,21 +83,22 @@ export const getReactRouterInstallSteps = (ctx: OnboardingComponentsContext): St
                 </>
             ),
         },
-        {
-            title: 'Add the PostHogProvider',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        Initialize PostHog and wrap your app with the `PostHogProvider` in your `app/entry.client.tsx`
-                        file:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'typescript',
-                                file: 'app/entry.client.tsx',
-                                code: dedent`
+    ]
+
+    const providerStep: StepDefinition = {
+        title: 'Add the PostHogProvider',
+        badge: 'required',
+        content: (
+            <>
+                <Markdown>
+                    Initialize PostHog and wrap your app with the `PostHogProvider` in your `app/entry.client.tsx` file:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'typescript',
+                            file: 'app/entry.client.tsx',
+                            code: dedent`
                                     import { startTransition, StrictMode } from "react";
                                     import { hydrateRoot } from "react-dom/client";
                                     import { HydratedRouter } from "react-router/dom";
@@ -117,13 +121,14 @@ export const getReactRouterInstallSteps = (ctx: OnboardingComponentsContext): St
                                       );
                                     });
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
+
+    return includeProvider ? [...steps, providerStep] : steps
 }
 
 export const getReactRouterEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
