@@ -43,16 +43,9 @@ const tile = (id: string, x: number, y: number, w: number, h: number, panel: Til
     place: { x, y, w, h },
     panel,
 })
-const section = (
-    id: string,
-    x: number,
-    y: number,
-    w: number,
-    title: string,
-    tiles: Tile[],
-    collapsed = false,
-    description?: string
-): Tile => tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, description, tiles, collapsed })
+const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
+    tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
+const described = (tile: Tile, description: string): Tile => ({ ...tile, panel: { ...tile.panel, description } })
 
 const METRIC_ROWS = metricSpec.size.h
 // Spreads the leftover columns over the row, so five metrics still fill 24 columns.
@@ -222,13 +215,13 @@ export const kitchenSinkDashboard: Dashboard = {
                 tile('ks-metric-3', 18, 0, 6, METRIC_ROWS, { ...metric('Revenue', SQL.revenue, 'currency'), refreshedAt: REFRESHED_AT }),
                 tile('ks-trend', 0, 8, 16, 16, { ...line('Signups over time', SQL.signupsOverTime), description: 'New accounts per day', refreshedAt: REFRESHED_AT }),
                 tile('ks-notes', 16, 8, 8, 16, text('## Notes\n\nDrag a tile by its title. Resize it from its left, right or bottom edge.')),
-                section('ks-section', 0, 24, 24, 'Section with tiles', [
+                described(section('ks-section', 0, 24, 24, 'Section with tiles', [
                     tile('ks-s-bar', 0, 0, 12, 14, {
                         ...bar('Signups by country', SQL.signupsByCountry),
                         description: 'A longer description wraps inside the tooltip, so the header keeps its height whatever the text says.',
                     }),
                     tile('ks-s-line', 12, 0, 12, 14, line('Activation', SQL.activation)),
-                ]),
+                ]), 'Tiles in a section move, fold and export together.'),
                 section('ks-nested', 0, 42, 24, 'Section with a section inside', [
                     tile('ks-n-metric', 0, 0, 6, METRIC_ROWS, metric('Errors', SQL.errors)),
                     tile('ks-n-metric2', 6, 0, 6, METRIC_ROWS, metric('Error rate', SQL.sessionErrorRate, 'percentage')),
@@ -237,8 +230,8 @@ export const kitchenSinkDashboard: Dashboard = {
                     ]),
                 ]),
                 section('ks-left', 0, 66, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 12, bar('Revenue by product', SQL.revenueByProduct))]),
-                section('ks-right', 12, 66, 12, 'Half width, empty', [], false, 'A section can carry a description too.'),
-                section('ks-closed', 0, 86, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 12, line('Hidden', SQL.pageviewsOverTime))], true),
+                described(section('ks-right', 12, 66, 12, 'Half width, empty', []), 'A section can carry a description too.'),
+                described(section('ks-closed', 0, 86, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 12, line('Hidden', SQL.pageviewsOverTime))], true), 'A closed section keeps its description in the header.'),
                 tile('ks-headless', 0, 90, 8, 8, text('A tile without a title is dragged by its body.')),
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
                     tile('ks-q-hogql', 0, 0, 8, 14, line('HogQL query', SQL.pageviewsOverTime)),
@@ -361,12 +354,12 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ts-good-markdown', 0, METRIC_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
                     tile('ts-good-custom', 0, METRIC_ROWS + 26, 24, 4, { type: 'custom', config: { content: 'kitchen-sink/setup-prompt' }, parts: { header: false } }),
                 ]),
-                section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
+                described(section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
                     tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
                     tile('ts-slow-metric', 12, 0, 6, METRIC_ROWS, metric('Slow total', SAMPLE.slowTotal)),
                     tile('ts-stale', 18, 0, 6, 12, { ...line('Stale result', SAMPLE.stale), refreshedAt: REFRESHED_AT }),
-                ]),
-                section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
+                ]), 'Tiles that wait on a slow query, and one that shows an old result while a new one loads.'),
+                described(section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
                     tile('ts-empty-line', 0, 0, 8, 12, line('Empty result', SAMPLE.empty)),
                     tile('ts-empty-metric', 8, 0, 4, METRIC_ROWS, metric('Empty total', SAMPLE.emptyTotal)),
                     tile('ts-error-metric', 12, 0, 4, METRIC_ROWS, metric('Failed total', SAMPLE.error)),
@@ -382,7 +375,7 @@ export const kitchenSinkDashboard: Dashboard = {
                             viz: { type: 'line' },
                         },
                     }),
-                ]),
+                ]), 'Each tile here has no data or a query that failed. A total and a chart say so in their own way, and a tile with two queries still draws the one that ran. This description is long so that the tooltip shows where it cuts off, which is after a few lines: the rest of this text only pads it out until it runs past the limit and ends in an ellipsis.'),
                 section('ts-broken', 0, 82, 24, 'Broken tiles', [
                     tile('ts-throws', 0, 0, 8, 10, { ...line('Panel throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
                     tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown panel type', config: {} }),
