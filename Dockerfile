@@ -87,14 +87,17 @@ RUN bin/turbo --filter=@posthog/frontend build
 #
 # ---------------------------------------------------------
 #
-# The frontend/dist that ships. This build uploads nothing and keeps the .map files. CI exports this
-# stage with `--target frontend-dist --output type=local` and uploads the sourcemaps from the job, where
-# its credentials never enter a build (see .github/scripts/upload-frontend-sourcemaps.sh). hog deletes
-# each map it uploaded and the reference to it, and CI passes that tree back as a build context named
-# frontend-dist, which replaces this stage.
+# The frontend/dist that ships, and products.json. This build uploads nothing and keeps the .map files.
+# CI exports this stage with `--target frontend-dist --output type=local` and uploads the sourcemaps
+# from the job, where its credentials never enter a build (see
+# .github/scripts/upload-frontend-sourcemaps.sh). hog deletes each map it uploaded and the reference to
+# it, and CI passes that tree back as a build context named frontend-dist, which replaces this stage.
+# Later stages read the frontend only from this stage, so with that context the image build never runs
+# frontend-build, for any platform.
 #
 FROM scratch AS frontend-dist
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
 
 
 #
@@ -217,7 +220,7 @@ COPY ee ee/
 # Copy the frontend assets and also the products.json file. hog injects chunk IDs into the JS before it
 # uploads the maps, so the runtime JS must come from the same processed tree.
 COPY --from=frontend-dist /code/frontend/dist /code/frontend/dist
-COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/products.json
+COPY --from=frontend-dist /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
@@ -356,8 +359,8 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 # so it is the tree collectstatic read.
 COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
-# Copy products.json from the frontend-build stage
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
+# Copy products.json from the frontend-dist stage
+COPY --from=frontend-dist --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
