@@ -20,7 +20,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
  * offered.
  */
 export function NewSurveyActions(): JSX.Element {
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isAiAvailable } = useValues(maxGlobalLogic)
     const { openMax } = useMaxTool({
         identifier: 'create_survey',
         initialMaxPrompt: 'Create a survey to collect ',
@@ -31,7 +31,7 @@ export function NewSurveyActions(): JSX.Element {
         },
         // `openMax` is null only when the tool is inactive, so without this the button stays
         // enabled on an instance without PostHog AI and opens a panel saying it isn't set up.
-        active: isMaxAvailable,
+        active: isAiAvailable,
     })
 
     return (
@@ -54,7 +54,7 @@ export function NewSurveyActions(): JSX.Element {
                     Create your first survey
                 </LemonButton>
             </AccessControlAction>
-            {isMaxAvailable ? (
+            {isAiAvailable ? (
                 <AccessControlAction
                     resourceType={AccessControlResourceType.Survey}
                     minAccessLevel={AccessControlLevel.Editor}
