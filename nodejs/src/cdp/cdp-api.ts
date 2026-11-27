@@ -95,6 +95,7 @@ import {
     TRANSACTIONAL_PUSH_RUN_SCOPE,
     TransactionalPushOutcome,
     TransactionalPushRequestSchema,
+    expiresBeforeItsUseRecord,
     isTokenForPerson,
     sendsOnlyPush,
     transactionalPushFingerprints,
@@ -1915,7 +1916,12 @@ export class CdpApi {
                 return reply('invalid_request', 400, { error: 'invalid_request' })
             }
             const unauthorized = { error: 'Unauthorized: Invalid transactional push token' }
-            if (!isTokenForPerson(claims, parsed.data.distinct_id) || typeof claims.jti !== 'string' || !claims.jti) {
+            if (
+                !isTokenForPerson(claims, parsed.data.distinct_id) ||
+                !expiresBeforeItsUseRecord(claims) ||
+                typeof claims.jti !== 'string' ||
+                !claims.jti
+            ) {
                 return reply('unauthorized', 401, unauthorized)
             }
             let tokenUse: 'first_use' | 'used'

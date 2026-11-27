@@ -6803,7 +6803,8 @@ describe('CDP API', () => {
             {
                 secret = 'local-dev-workflows-transactional-push-jwt',
                 audience = 'posthog:workflows:send_transactional_push',
-            }: { secret?: string; audience?: string } = {}
+                expiresIn = '2m',
+            }: { secret?: string; audience?: string; expiresIn?: string | null } = {}
         ) =>
             jwt.sign(
                 {
@@ -6814,7 +6815,7 @@ describe('CDP API', () => {
                     ...claims,
                 },
                 secret,
-                { audience, expiresIn: '2m' }
+                expiresIn === null ? { audience } : { audience, expiresIn }
             )
         const pushFlow = (status: HogFlow['status'] = 'active', stepType = 'function_push'): HogFlow =>
             new FixtureHogFlowBuilder()
@@ -6925,6 +6926,12 @@ describe('CDP API', () => {
                 (id) => mintToken(id, { distinct_id_sha256: undefined }),
             ],
             ['a token without an id', 'transactional_push', (id) => mintToken(id, { jti: undefined })],
+            [
+                'a token that outlives the record of its use',
+                'transactional_push',
+                (id) => mintToken(id, {}, { expiresIn: '20m' }),
+            ],
+            ['a token that never expires', 'transactional_push', (id) => mintToken(id, {}, { expiresIn: null })],
         ])('refuses %s', async (_name, route, tokenFor) => {
             const hogFlow = await insertHogFlow(pushFlow())
 

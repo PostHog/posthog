@@ -19,6 +19,10 @@ const TOKEN_USE_TTL_SECONDS = 10 * 60
 // Below Django's request timeout, so a stalled Redis can't queue a push Django already reported as failed.
 const TOKEN_USE_DEADLINE_MS = 2000
 
+// The record of a token's use lasts TOKEN_USE_TTL_SECONDS, so a token that lives longer could be used again after it.
+export const expiresBeforeItsUseRecord = (claims: Record<string, unknown>, nowMs = Date.now()): boolean =>
+    typeof claims.exp === 'number' && claims.exp * 1000 <= nowMs + TOKEN_USE_TTL_SECONDS * 1000
+
 export const isTokenForPerson = (claims: Record<string, unknown>, distinctId: string): boolean =>
     claims.distinct_id_sha256 === createHash('sha256').update(distinctId).digest('hex')
 
