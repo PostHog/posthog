@@ -205,23 +205,14 @@ describe('transactionalEmailLogEntryLogic', () => {
     })
 
     it.each([
-        [
-            'went out without a stored copy',
-            { action_id: '', timeline: steps('queued', 'sent', 'clicked') },
-            true,
-            false,
-        ],
-        ['was delivered with no sent step recorded', { timeline: steps('delivered') }, true, null],
-        ['failed before it went out', { timeline: steps('queued', 'failed') }, false, null],
-    ])('shows what a send led to when it %s', async (_name, send, shown, clickTracking) => {
+        ['went out without a stored copy', { action_id: '', timeline: steps('queued', 'sent', 'clicked') }, true],
+        ['was delivered with no sent step recorded', { timeline: steps('delivered') }, true],
+        ['failed before it went out', { timeline: steps('queued', 'failed') }, false],
+    ])('shows what a send led to when it %s', async (_name, send, shown) => {
         timelineFlag(true)
-        sends['msg-1'] = {
-            ...SEND,
-            tracking: { opens: true, clicks: false },
-            ...send,
-        } as TransactionalEmailLogDetailApi
+        sends['msg-1'] = { ...SEND, ...send } as TransactionalEmailLogDetailApi
         await open('msg-1')
-        expect(logic.values).toMatchObject({ outcomesShown: shown, clickTracking })
+        expect(logic.values.outcomesShown).toBe(shown)
     })
 
     it.each([

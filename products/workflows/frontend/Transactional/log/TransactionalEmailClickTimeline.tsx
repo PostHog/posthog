@@ -13,7 +13,7 @@ export interface TransactionalEmailClickTimelineProps {
     failed: boolean
     denied: boolean
     onRetry: () => void
-    clickTracking: boolean | null
+    clickTracking: boolean
 }
 
 export function TransactionalEmailClickTimeline({
@@ -71,11 +71,9 @@ export function TransactionalEmailClickTimeline({
                 ))}
                 {!clicked && (
                     <li className="text-sm text-secondary">
-                        {clickTracking === null
-                            ? 'No clicks recorded.'
-                            : clickTracking
-                              ? 'No clicks yet. Each click shows here with the page it opened.'
-                              : 'Click tracking was off for this email, so clicks are not recorded.'}
+                        {clickTracking
+                            ? 'No clicks yet. Each click shows here with the page it opened.'
+                            : 'Click tracking was off for this email, so clicks are not recorded.'}
                     </li>
                 )}
             </ol>
