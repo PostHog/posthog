@@ -88,7 +88,7 @@ function inTimeOrder(a: string, b: string): number {
 }
 
 /** Joins times by the instant they name, so a date-only `2026-11-01` meets a full `2026-11-01T00:00:00.000Z`. */
-function timeKey(value: unknown): string {
+export function timeKey(value: unknown): string {
     const text = String(value)
     const ms = timeOf(text)
     return Number.isFinite(ms) ? String(ms) : text

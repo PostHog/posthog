@@ -1,6 +1,7 @@
 import Papa from 'papaparse'
 
 import type { DataFrame } from '../../../query/queryTypes'
+import { timeKey } from './timeSeriesFrames'
 
 type Field = DataFrame['fields'][number]
 type Cell = unknown
@@ -17,35 +18,48 @@ function columnName(frame: DataFrame, field: Field, valueFields: number): string
     return valueFields === 1 ? frame.name : `${frame.name} ${field.name}`
 }
 
+// Times join by the instant they name, as the chart joins them.
+function rowKeys(field: Field): string[] {
+    return field.values.map(field.type === 'time' ? timeKey : String)
+}
+
+// Papa writes an array or object cell as its bare text, which `escapeFormulae` does not check.
+function cellOf(value: unknown): Cell {
+    return value !== null && typeof value === 'object' ? JSON.stringify(value) : value
+}
+
 function hasRepeatedKeys(frame: DataFrame): boolean {
-    const keys = keyFieldOf(frame)?.values.map(String) ?? []
+    const keyField = keyFieldOf(frame)
+    const keys = keyField ? rowKeys(keyField) : []
     return new Set(keys).size !== keys.length
 }
 
 // One column per series, joined on the shared key, which is how a time series reads in a spreadsheet.
 function wideRows(frames: DataFrame[]): Cell[][] {
-    const keys: string[] = []
-    const seen = new Set<string>()
+    // Each key's row is labelled with the first value seen for it.
+    const labels = new Map<string, Cell>()
     const columns: { name: string; byKey: Map<string, Cell> }[] = []
     for (const frame of frames) {
         const keyField = keyFieldOf(frame)!
         const valueFields = frame.fields.filter((field) => field !== keyField)
-        const frameKeys = keyField.values.map(String)
-        for (const key of frameKeys) {
-            if (!seen.has(key)) {
-                seen.add(key)
-                keys.push(key)
+        const frameKeys = rowKeys(keyField)
+        frameKeys.forEach((key, row) => {
+            if (!labels.has(key)) {
+                labels.set(key, cellOf(keyField.values[row]))
             }
-        }
+        })
         for (const field of valueFields) {
             columns.push({
                 name: columnName(frame, field, valueFields.length),
-                byKey: new Map(frameKeys.map((key, row) => [key, field.values[row]])),
+                byKey: new Map(frameKeys.map((key, row) => [key, cellOf(field.values[row])])),
             })
         }
     }
     const header = [keyFieldOf(frames[0])!.name, ...columns.map((column) => column.name)]
-    return [header, ...keys.map((key) => [key, ...columns.map((column) => column.byKey.get(key) ?? '')])]
+    return [
+        header,
+        ...[...labels].map(([key, label]) => [label, ...columns.map((column) => column.byKey.get(key) ?? '')]),
+    ]
 }
 
 // One row per row of each frame, for frames that share no key to join on.
@@ -54,8 +68,15 @@ function longRows(frames: DataFrame[]): Cell[][] {
     const named = frames.some((frame) => frame.name)
     const rows = frames.flatMap((frame) => {
         const length = Math.max(0, ...frame.fields.map((field) => field.values.length))
+        const byName = new Map<string, Field>()
+        for (const field of frame.fields) {
+            if (!byName.has(field.name)) {
+                byName.set(field.name, field)
+            }
+        }
+        const fields = names.map((name) => byName.get(name))
         return Array.from({ length }, (_, row) => {
-            const cells = names.map((name) => frame.fields.find((field) => field.name === name)?.values[row] ?? '')
+            const cells = fields.map((field) => cellOf(field?.values[row] ?? ''))
             return named ? [frame.name ?? '', ...cells] : cells
         })
     })
