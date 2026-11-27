@@ -267,12 +267,16 @@ class TestAdventCalendarDoorOpenRace(TransactionTestCase):
                 row = cursor.fetchone()
             return row is not None and bool(row[0])
 
-        with transaction.atomic():
-            racer.delete()
-            opener = threading.Thread(target=open_door)
-            opener.start()
-            wait_until(lambda: opened.is_set() or opener_waits_on_the_deletion())
-        opener.join()
+        opener = threading.Thread(target=open_door)
+        try:
+            with transaction.atomic():
+                racer.delete()
+                opener.start()
+                wait_until(lambda: opened.is_set() or opener_waits_on_the_deletion())
+        finally:
+            if opener.ident is not None:
+                opener.join(timeout=10)
+        assert not opener.is_alive()
 
         assert results == [None]
         assert not AdventCalendarDoorOpen.objects.exists()
