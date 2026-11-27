@@ -2,7 +2,7 @@ import './AdventCalendar.scss'
 
 import { ReactFlowProvider } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useLayoutEffect, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -20,13 +20,14 @@ import { useAdventEscape } from './useAdventEscape'
 import { AdventRevealPhase, useAdventReveal } from './useAdventReveal'
 import { AdventStageFit, useAdventStageFit } from './useAdventStageFit'
 
-function faceOf(door: AdventDoor, { zoom, box }: AdventStageFit): AdventCardFace {
+function faceOf(door: AdventDoor, { zoom, box }: AdventStageFit, scrollLeft: number): AdventCardFace {
+    const left = box.left - scrollLeft
     if (door.status !== 'open') {
-        return { left: box.left + door.x * zoom, top: box.top + door.y * zoom, size: ADVENT_DOOR_SIZE * zoom, zoom }
+        return { left: left + door.x * zoom, top: box.top + door.y * zoom, size: ADVENT_DOOR_SIZE * zoom, zoom }
     }
     const ground = adventDoorGround(door)
     const size = adventHogSize(door) * zoom
-    return { left: box.left + ground.x * zoom - size / 2, top: box.top + ground.y * zoom - size, size, zoom }
+    return { left: left + ground.x * zoom - size / 2, top: box.top + ground.y * zoom - size, size, zoom }
 }
 
 function castReveal(
@@ -42,7 +43,8 @@ export function AdventStage(): JSX.Element {
     const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip, clearSnowPuffs } =
         useActions(adventCalendarLogic)
     const fit = useAdventStageFit()
-    const { ref, zoom, box, stage } = fit
+    const { ref, zoom, box, stage, scrollsSideways } = fit
+    const track = useRef<HTMLDivElement>(null)
     const revealingDoorId = revealingDoor?.id ?? null
     const selectedDoorId = selectedDoor?.id ?? null
     const reveal = useAdventReveal(revealingDoorId, finishReveal)
@@ -56,6 +58,13 @@ export function AdventStage(): JSX.Element {
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
 
+    const todayX = graph.doors.find((door) => door.day === today)?.x ?? 0
+    useLayoutEffect(() => {
+        if (scrollsSideways && track.current) {
+            track.current.scrollLeft = todayX * zoom - stage.width / 2
+        }
+    }, [scrollsSideways, todayX, zoom, stage.width])
+
     return (
         <div
             ref={ref}
@@ -65,23 +74,43 @@ export function AdventStage(): JSX.Element {
         >
             {zoom > 0 && (
                 <>
-                    <div className="AdventPicture" style={box}>
-                        <AdventPictureBackdrop graph={graph} hasTracks={false} />
-                    </div>
-                    <div className="AdventStage__workflow" {...(reveal.phase ? { inert: '' } : {})}>
-                        <ReactFlowProvider>
-                            <AdventCanvas
-                                graph={graph}
-                                viewport={{ x: box.left, y: box.top, zoom }}
-                                today={today}
-                                selectedDoorId={selectedDoorId}
-                                openingDoorId={revealingDoorId}
-                                onActivateDoor={activateDoor}
-                                onEnterDoor={card.onEnterDoor}
-                                onLeaveDoor={card.onLeaveDoor}
-                                onPaneClick={dismiss}
-                            />
-                        </ReactFlowProvider>
+                    <div
+                        ref={track}
+                        className={cn('AdventStage__track', scrollsSideways && 'AdventStage__track--scrolls')}
+                        data-attr="advent-stage-track"
+                        onScroll={cardDoor ? dismiss : undefined}
+                    >
+                        <div className="relative h-full" style={{ width: Math.max(stage.width, box.width) }}>
+                            <div className="AdventPicture" style={box}>
+                                <AdventPictureBackdrop graph={graph} hasTracks={false} />
+                            </div>
+                            <div className="AdventStage__workflow" {...(reveal.phase ? { inert: '' } : {})}>
+                                <ReactFlowProvider>
+                                    <AdventCanvas
+                                        graph={graph}
+                                        viewport={{ x: box.left, y: box.top, zoom }}
+                                        today={today}
+                                        selectedDoorId={selectedDoorId}
+                                        openingDoorId={revealingDoorId}
+                                        onActivateDoor={activateDoor}
+                                        onEnterDoor={card.onEnterDoor}
+                                        onLeaveDoor={card.onLeaveDoor}
+                                        onPaneClick={dismiss}
+                                    />
+                                </ReactFlowProvider>
+                            </div>
+                            <div className="AdventPicture AdventPicture--cast" style={box}>
+                                <AdventPictureCast
+                                    graph={graph}
+                                    shares={pollShares}
+                                    reveal={castReveal(revealingDoor, reveal.phase, zoom)}
+                                    onActivateDoor={activateDoor}
+                                    onEnterDoor={card.onEnterDoor}
+                                    onLeaveDoor={card.onLeaveDoor}
+                                />
+                                <AdventSnowPuffs puffs={snowPuffs} onDone={clearSnowPuffs} />
+                            </div>
+                        </div>
                     </div>
                     {reveal.phase && (
                         <button
@@ -91,23 +120,12 @@ export function AdventStage(): JSX.Element {
                             onClick={reveal.advance}
                         />
                     )}
-                    <div className="AdventPicture AdventPicture--cast" style={box}>
-                        <AdventPictureCast
-                            graph={graph}
-                            shares={pollShares}
-                            reveal={castReveal(revealingDoor, reveal.phase, zoom)}
-                            onActivateDoor={activateDoor}
-                            onEnterDoor={card.onEnterDoor}
-                            onLeaveDoor={card.onLeaveDoor}
-                        />
-                        <AdventSnowPuffs puffs={snowPuffs} onDone={clearSnowPuffs} />
-                    </div>
                     {cardDoor && (
                         <AdventDoorCard
                             key={cardDoor.id}
                             door={cardDoor}
                             shares={pollShares[cardDoor.day]}
-                            face={faceOf(cardDoor, fit)}
+                            face={faceOf(cardDoor, fit, track.current?.scrollLeft ?? 0)}
                             stage={stage}
                             isOpen={card.isOpen}
                             isPinned={card.isPinned}
