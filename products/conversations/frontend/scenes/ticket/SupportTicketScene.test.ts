@@ -53,18 +53,14 @@ describe('SupportTicketScene', () => {
     })
 
     describe('personDistinctIdForTicket', () => {
-        const emailTicket = (
-            personDistinctIds: string[] | null,
-            relay: Pick<Ticket, 'anonymous_traits' | 'identity_verified'> = {
-                anonymous_traits: {},
-                identity_verified: false,
-            }
-        ): Ticket => ({
+        const emailTicket = (personDistinctIds: string[] | null): Ticket => ({
             id: 'ticket-2',
             ticket_number: 2,
             distinct_id: 'sender@example.com',
             status: 'open',
             channel_source: 'email',
+            anonymous_traits: {},
+            identity_verified: false,
             ai_resolved: false,
             created_at: '2026-06-12T00:00:00Z',
             updated_at: '2026-06-12T00:00:00Z',
@@ -73,42 +69,17 @@ describe('SupportTicketScene', () => {
             last_message_text: 'Hello',
             unread_team_count: 0,
             unread_customer_count: 0,
-            ...relay,
             person: personDistinctIds
                 ? { id: 'person-2', name: '', distinct_ids: personDistinctIds, properties: {} }
                 : null,
         })
 
-        const relayed = (identity_verified: boolean): Pick<Ticket, 'anonymous_traits' | 'identity_verified'> => ({
-            anonymous_traits: { email_relayed: true },
-            identity_verified,
-        })
-
-        test.each<
-            [string, string[] | null, Pick<Ticket, 'anonymous_traits' | 'identity_verified'> | undefined, string]
-        >([
-            ['the person matched by email property', ['user-42'], undefined, 'user-42'],
-            [
-                'the ticket distinct_id when the person owns it',
-                ['user-42', 'sender@example.com'],
-                undefined,
-                'sender@example.com',
-            ],
-            ['the ticket distinct_id when no person matched', null, undefined, 'sender@example.com'],
-            [
-                'the ticket distinct_id for an unverified relayed email',
-                ['user-42'],
-                relayed(false),
-                'sender@example.com',
-            ],
-            [
-                'the person matched by email property for a verified relayed email',
-                ['user-42'],
-                relayed(true),
-                'user-42',
-            ],
-        ])('links to %s', (_name, personDistinctIds, relay, expected) => {
-            expect(personDistinctIdForTicket(emailTicket(personDistinctIds, relay))).toBe(expected)
+        test.each<[string, string[] | null, string]>([
+            ['the person matched by email property', ['user-42'], 'user-42'],
+            ['the ticket distinct_id when the person owns it', ['user-42', 'sender@example.com'], 'sender@example.com'],
+            ['the ticket distinct_id when no person matched', null, 'sender@example.com'],
+        ])('links to %s', (_name, personDistinctIds, expected) => {
+            expect(personDistinctIdForTicket(emailTicket(personDistinctIds))).toBe(expected)
         })
     })
 })

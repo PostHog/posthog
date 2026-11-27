@@ -11,9 +11,7 @@ import { relatedGroupsLogic } from 'products/groups/frontend/logics/relatedGroup
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 
 import { GroupRevenue } from '../../components/GroupRevenue/GroupRevenue'
-import type { Ticket } from '../../types'
 import { creationGroupLogic } from './creationGroupLogic'
-import { isEmailPersonMatchTrusted } from './emailPersonMatch'
 import { resolveGroupRevenue } from './groupRevenue'
 import { groupRevenueLogic } from './groupRevenueLogic'
 
@@ -32,19 +30,6 @@ interface RelatedGroupsPanelProps {
     organizationId?: string | null
     // How organization_id was resolved ("person" or "slack_channel_account").
     organizationIdSource?: string | null
-}
-
-export function relatedGroupsPersonUuid(
-    ticket: Pick<Ticket, 'person' | 'anonymous_traits' | 'identity_verified'> | null,
-    loadedPersonUuid: string | undefined
-): string | undefined {
-    if (loadedPersonUuid) {
-        return loadedPersonUuid
-    }
-    if (!ticket || !isEmailPersonMatchTrusted(ticket)) {
-        return undefined
-    }
-    return ticket.person?.id
 }
 
 // Append the creation group as its own row only when it exists but isn't already in the person's live
