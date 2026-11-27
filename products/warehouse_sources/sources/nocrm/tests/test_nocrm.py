@@ -304,3 +304,24 @@ class TestFanout:
         child_requests = [r for r in result.requests if r.path != "/api/v2/spreadsheets"]
         assert [r.path for r in child_requests] == ["/api/v2/spreadsheets/31", "/api/v2/spreadsheets/32"]
         assert all("limit" not in r.query for r in child_requests)
+
+    @parameterized.expand(
+        [
+            ("missing_key", {"id": 31, "title": "List A"}, True),
+            ("empty_list", {"id": 31, "spreadsheet_rows": []}, False),
+        ]
+    )
+    def test_spreadsheet_rows_selector_must_be_present(self, _name: str, detail: dict, raises: bool) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/spreadsheets":
+                return ScriptedResponse(json=[{"id": 31}])
+            return ScriptedResponse(json=detail)
+
+        result = _driver().run("spreadsheet_rows", respond)
+
+        assert result.rows == []
+        if raises:
+            assert isinstance(result.raised, ValueError)
+            assert "spreadsheet_rows" in str(result.raised)
+        else:
+            assert result.raised is None

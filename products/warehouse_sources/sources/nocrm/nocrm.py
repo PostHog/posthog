@@ -192,6 +192,8 @@ def _fanout_source(
     child_endpoint_extra: Endpoint = {"paginator": _paginator(config)}
     if config.data_selector:
         child_endpoint_extra["data_selector"] = config.data_selector
+        # A missing key must fail loudly: a full refresh of zero rows would empty the table.
+        child_endpoint_extra["data_selector_required"] = True
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
