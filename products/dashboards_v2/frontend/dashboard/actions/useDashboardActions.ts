@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import type { MenuAction } from '../../menu/menuAction'
 import { showAction } from '../../tiles/menu/appearanceActions'
+import { contentTilesInOrder } from '../../tiles/TileSlideshow'
 import { useDashboard } from '../core/dashboardContext'
 import { gridTabs } from '../document/dashboardTypes'
 import { everyTile } from '../document/tileTree'
@@ -23,22 +24,37 @@ export function useDashboardActions(): MenuAction[] {
         downloadingImage,
         dashboardActions,
         filters,
+        showSlideshow,
     } = useDashboard()
     const hasFilterTypes = !!filters && filters.types.length > 0
     const allowFilters = !!dashboard.allowFilters
-    // The image shows only the tab on screen, so with several tabs the menu names it.
+    // The image shows only the tab on screen, so with several tabs the menu says it is the tab.
     const severalTabs = gridTabs(dashboard).length > 1
-    const downloadLabel = severalTabs ? `Download "${activeTab.title}" tab as image` : 'Download image'
-    const copyLabel = severalTabs ? `Copy "${activeTab.title}" tab as image` : 'Copy image'
+    const downloadLabel = severalTabs ? 'Download tab as' : 'Download as'
+    const copyLabel = severalTabs ? 'Copy tab as image' : 'Copy as image'
+    const firstSlide = contentTilesInOrder(activeTab.tiles)[0]?.id
     return useMemo(() => {
-        const actions: MenuAction[] = imageActions({
-            downloadLabel,
-            copyLabel,
-            dataAttrPrefix: 'dashboard-v2',
-            making: downloadingImage,
-            download: (format) => downloadImage(format),
-            copy: () => copyImage(),
-        })
+        const actions: MenuAction[] = []
+        if (firstSlide) {
+            actions.push({
+                key: 'slideshow',
+                label: 'Slideshow',
+                dataAttr: 'dashboard-v2-slideshow-open',
+                group: 'view',
+                disabledReason: null,
+                onSelect: () => showSlideshow(firstSlide),
+            })
+        }
+        actions.push(
+            ...imageActions({
+                downloadLabel,
+                copyLabel,
+                dataAttrPrefix: 'dashboard-v2',
+                making: downloadingImage,
+                download: (format) => downloadImage(format),
+                copy: () => copyImage(),
+            })
+        )
         const appearance = showAction(
             { key: 'tab-appearance', label: 'All tiles', dataAttr: 'dashboard-v2-tab-appearance' },
             everyTile(activeTab.tiles),
@@ -61,6 +77,8 @@ export function useDashboardActions(): MenuAction[] {
         }
         return dashboardActions ? dashboardActions(actions) : actions
     }, [
+        firstSlide,
+        showSlideshow,
         downloadLabel,
         copyLabel,
         downloadImage,
