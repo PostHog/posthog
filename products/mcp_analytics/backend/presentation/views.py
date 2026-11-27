@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cached_property
 from typing import Any, cast
 
 from django.db.models import QuerySet
@@ -8,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -16,9 +18,11 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import BoundedLimitOffsetPagination, page_link, previous_offset
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
@@ -431,6 +435,21 @@ class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
         return self._list_response(request, enums.SubmissionKind.MISSING_CAPABILITY)
 
 
+class DataTeamAccessPermission(BasePermission):
+    """Rows under an environment URL belong to its parent project, so access must hold on that project too."""
+
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        data_team = cast(MCPCustomHarnessViewSet, view).data_team
+        if data_team.id == view.team.id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and data_team.id not in scoped_team_ids:
+            return False
+        return view.user_permissions.team(data_team).effective_membership_level is not None
+
+
 class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """A team's own harness names, shown in place of "Other" in MCP analytics."""
 
@@ -438,10 +457,24 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "mcp_analytics"
     queryset = MCPCustomHarness.objects.unscoped()
     pagination_class = None
+    permission_classes = [DataTeamAccessPermission]
+
+    @cached_property
+    def data_team(self) -> Team:
+        """The team that owns the rows: the parent project when the URL names one of its environments."""
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        # The resource-level `mcp_analytics` check reads its rules from here. Bind it to the team that owns the
+        # rows, so a child environment's own grant can't reach rules its parent denies.
+        return UserAccessControl(
+            user=cast(User, self.request.user), team=self.data_team, organization_id=self.organization_id
+        )
 
     def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
         # Rows save under the parent team (`TeamScopedRootMixin.save()`), so a child environment filters on it too.
-        return queryset.filter(team_id=self.team.parent_team_id or self.team.pk)
+        return queryset.filter(team_id=self.data_team.pk)
 
     def _should_skip_parents_filter(self) -> bool:
         # The default parent-lookup filter adds the raw URL team id, which hides the rows a child environment
