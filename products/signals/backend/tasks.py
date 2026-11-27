@@ -68,6 +68,7 @@ from products.signals.backend.models import (
     SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
     SignalScoutEmission,
+    SignalScoutMessageDelivery,
     SignalScoutRun,
     SignalScratchpad,
     SignalScratchpadRevision,
@@ -108,7 +109,9 @@ from products.signals.backend.scout_harness.slack_delivery import (
     _slack_integration_for_project,
     clear_latest_scout_report_delivery,
     mark_latest_scout_report_delivery,
+    mark_scout_message_delivery_failed,
     post_scout_emission_to_slack,
+    post_scout_message_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
 )
@@ -839,10 +842,29 @@ def deliver_scout_slack_output(
                 edit_note=edit_note,
                 thread_reports=thread_reports,
             )
+        elif output_type == "message":
+            delivery = (
+                SignalScoutMessageDelivery.all_teams.select_related(
+                    "message__run__team", "message__run__scout_config", "message__report"
+                )
+                .filter(id=output_id, team_id=team_id, message__run_id=run_id)
+                .first()
+            )
+            if delivery is None:
+                logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                return
+            post_scout_message_to_slack(
+                delivery,
+                delivery_id=delivery_id,
+                integration_id=integration_id,
+                channel=channel,
+            )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
             return
     except ScoutSlackPermanentDeliveryError as exc:
+        if output_type == "message":
+            mark_scout_message_delivery_failed(team_id=team_id, delivery_id=output_id, error_code=exc.error_code)
         capture_exception(exc, {**context, "error_code": exc.error_code})
         logger.warning(
             "signals_scout.slack_delivery_permanent_failure",
@@ -862,6 +884,12 @@ def deliver_scout_slack_output(
             )
             raise self.retry(exc=exc, countdown=countdown)
 
+        if output_type == "message":
+            mark_scout_message_delivery_failed(
+                team_id=team_id,
+                delivery_id=output_id,
+                error_code=(slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None) or "exhausted",
+            )
         capture_exception(
             exc,
             {

@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.schematic._config import SchematicSourceConfig
 from products.warehouse_sources.sources.schematic.schematic import SchematicResumeConfig
@@ -37,6 +38,7 @@ _SINGLE_PASS = [
     ("company_overrides", "/company-overrides", {}),
     ("billing_customers", "/billing/customers", {}),
     ("billing_meters", "/billing/meter", {}),
+    ("billing_credits", "/billing/credits", {}),
 ]
 _TWO_PASS = [
     ("billing_products", "/billing/products"),
@@ -114,6 +116,176 @@ class TestSchematicPagination:
 
         assert result.raised is not None
         assert {request.origin for request in result.requests} == {"https://api.schematichq.com"}
+
+
+class TestSchematicFeatureUsage:
+    def test_reads_each_company_and_keeps_its_id(self) -> None:
+        companies = [{"id": "comp_1"}, {"id": "comp_2"}]
+        result = _driver().run(
+            "feature_usage",
+            [
+                _page(companies),
+                _page([{"entitlement_id": f"ent_{index}"} for index in range(PAGE_SIZE)]),
+                _page([{"entitlement_id": "ent_last"}]),
+                _page([{"entitlement_id": "ent_0"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/companies", "/feature-usage", "/feature-usage", "/feature-usage"]
+        assert result.params("company_id") == [None, "comp_1", "comp_1", "comp_2"]
+        assert result.params("offset") == ["0", "0", "100", "0"]
+        assert result.requests[0].param("sort_order_column") == "created_at"
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert {row["company_id"] for row in result.rows} == {"comp_1", "comp_2"}
+        assert all("_companies_id" not in row for row in result.rows)
+
+    def test_resume_skips_the_companies_already_read(self) -> None:
+        companies = [{"id": "comp_1"}, {"id": "comp_2"}]
+        first = _driver().run(
+            "feature_usage",
+            [_page(companies), _page([{"entitlement_id": "ent_1"}]), ScriptedResponse(status=401, json={})],
+        )
+        assert first.raised is not None
+        assert first.final_state is not None and first.final_state.fanout_state is not None
+
+        resumed = _driver().run(
+            "feature_usage",
+            [_page(companies), _page([{"entitlement_id": "ent_2"}])],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.params("company_id") == [None, "comp_2"]
+        assert [row["company_id"] for row in resumed.rows] == ["comp_2"]
+
+
+HISTORY_PAGE_SIZE = 250
+_NOW = "2026-11-26T10:30:00Z"
+
+
+def _history_rows(count: int) -> list[dict[str, Any]]:
+    return [
+        {"company_id": f"comp_{index}", "feature_id": "feat_1", "event_subtype": "api_call", "usage": 1}
+        for index in range(count)
+    ]
+
+
+class TestSchematicFeatureUsageHistory:
+    @pytest.fixture(autouse=True)
+    def _freeze_time(self):
+        with time_machine.travel(_NOW, tick=False):
+            yield
+
+    def test_full_refresh_walks_yearly_windows_up_to_the_current_hour(self) -> None:
+        result = _driver().run(
+            "feature_usage_history",
+            [_page(_history_rows(HISTORY_PAGE_SIZE)), _page(_history_rows(1)), _page([]), _page([]), _page([])],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/feature-usage-history"] * 5
+        assert [(r.param("start_time"), r.param("end_time"), r.param("offset")) for r in result.requests] == [
+            ("2023-01-01T00:00:00Z", "2024-01-01T00:00:00Z", "0"),
+            ("2023-01-01T00:00:00Z", "2024-01-01T00:00:00Z", "250"),
+            ("2024-01-01T00:00:00Z", "2024-12-31T00:00:00Z", "0"),
+            ("2024-12-31T00:00:00Z", "2025-12-31T00:00:00Z", "0"),
+            ("2025-12-31T00:00:00Z", "2026-11-26T10:00:00Z", "0"),
+        ]
+        assert set(result.params("granularity")) == {"daily"}
+        assert set(result.params("limit")) == {"250"}
+        assert len(result.rows) == HISTORY_PAGE_SIZE + 1
+        assert result.saved_states == [
+            SchematicResumeConfig(offset=offset, window_start=start, history_end="2026-11-26T10:00:00Z")
+            for offset, start in [
+                (HISTORY_PAGE_SIZE, "2023-01-01T00:00:00Z"),
+                (0, "2024-01-01T00:00:00Z"),
+                (0, "2024-12-31T00:00:00Z"),
+                (0, "2025-12-31T00:00:00Z"),
+            ]
+        ]
+
+    @pytest.mark.parametrize(
+        ("last_value", "expected_start"),
+        [
+            ("2026-11-20T00:00:00Z", "2026-11-13T00:00:00Z"),
+            ("2026-11-20T15:00:00+00:00", "2026-11-13T00:00:00Z"),
+            ("2023-01-03T00:00:00Z", "2023-01-01T00:00:00Z"),
+        ],
+    )
+    def test_incremental_starts_a_week_before_the_cursor_at_midnight(
+        self, last_value: str, expected_start: str
+    ) -> None:
+        result = _driver().run(
+            "feature_usage_history",
+            [_page([])] * 4,
+            incremental_field="period_start",
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("start_time") == expected_start
+
+    def test_incremental_from_today_reads_one_window(self) -> None:
+        result = _driver().run(
+            "feature_usage_history",
+            [_page(_history_rows(2))],
+            incremental_field="period_start",
+            db_incremental_field_last_value="2026-11-26T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert [(r.param("start_time"), r.param("end_time")) for r in result.requests] == [
+            ("2026-11-19T00:00:00Z", "2026-11-26T10:00:00Z")
+        ]
+        assert len(result.rows) == 2
+
+    @pytest.mark.parametrize(
+        ("history_end", "expected_windows"),
+        [
+            # The saved end keeps the resumed offset on the window it was taken from.
+            (
+                "2026-11-25T23:00:00Z",
+                [
+                    ("2024-12-31T00:00:00Z", "2025-12-31T00:00:00Z", "500"),
+                    ("2025-12-31T00:00:00Z", "2026-11-25T23:00:00Z", "0"),
+                ],
+            ),
+            # A state saved before the end was kept falls back to the current hour.
+            (
+                None,
+                [
+                    ("2024-12-31T00:00:00Z", "2025-12-31T00:00:00Z", "500"),
+                    ("2025-12-31T00:00:00Z", "2026-11-26T10:00:00Z", "0"),
+                ],
+            ),
+        ],
+    )
+    def test_resume_continues_the_saved_window_then_the_later_ones(
+        self, history_end: str | None, expected_windows: list[tuple[str, str, str]]
+    ) -> None:
+        result = _driver().run(
+            "feature_usage_history",
+            [_page(_history_rows(1)), _page([])],
+            resume_state=SchematicResumeConfig(
+                offset=500, window_start="2024-12-31T00:00:00Z", history_end=history_end
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r.param("start_time"), r.param("end_time"), r.param("offset")) for r in result.requests] == (
+            expected_windows
+        )
+
+
+class TestSchematicSchemas:
+    def test_feature_usage_history_offers_merge_but_not_append(self) -> None:
+        (schema,) = SchematicSource().get_schemas(
+            SchematicSourceConfig(api_key="sch_test_key"), team_id=1, names=["feature_usage_history"]
+        )
+
+        assert schema.supports_incremental is True
+        assert schema.supports_append is False
 
 
 class TestSchematicValidateCredentials:

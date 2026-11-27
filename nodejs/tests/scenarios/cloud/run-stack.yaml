@@ -10,6 +10,9 @@ Parameters:
         AllowedPattern: '[0-9a-f]{40}'
     EvidenceBucket:
         Type: String
+    InputManifestSha256:
+        Type: String
+        AllowedPattern: '[0-9a-f]{64}'
     ExpiresAt:
         Type: String
     EngineVersion:
@@ -170,4 +173,5 @@ Resources:
                         git fetch -q --depth 1 https://github.com/PostHog/posthog.git '${Commit}'
                         git checkout -q FETCH_HEAD
                         export AWS_REGION='${AWS::Region}' SCENARIO_RUN_ID='${RunId}' SCENARIO_EVIDENCE_BUCKET='${EvidenceBucket}'
+                        export SCENARIO_INPUT_MANIFEST_SHA256='${InputManifestSha256}'
                         exec bash nodejs/tests/scenarios/cloud/host-bootstrap.sh

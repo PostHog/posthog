@@ -5854,6 +5854,33 @@ class TestPrinter(BaseTest):
             self._expr("accurateCast('1', concat('Int', '64'))")
         self.assertIn("constant string type name", str(ctx.exception))
 
+    @parameterized.expand(
+        [
+            ("json_extract_nested", "JSONExtract(properties, 'content', 1, 'Array(Int64)')"),
+            ("json_extract_no_path", "JSONExtract('[1]', 'Array(Nullable(Int64))')"),
+            ("json_extract_keys_and_values", "JSONExtractKeysAndValues(properties, 'content', 'String')"),
+        ]
+    )
+    def test_json_extract_type_names_print(self, _name, expr):
+        assert "JSONExtract" in self._expr(expr)
+
+    @parameterized.expand(
+        [
+            ("json_extract_words", "JSONExtract(properties.content, 1, 'content class years')", "JSONExtract"),
+            ("json_extract_empty", "JSONExtract('{}', 'a', '')", "JSONExtract"),
+            ("json_extract_unbalanced", "JSONExtract('{}', 'a', 'Array(Int64')", "JSONExtract"),
+            (
+                "json_extract_keys_and_values_words",
+                "JSONExtractKeysAndValues(properties, 'content', 'key value')",
+                "JSONExtractKeysAndValues",
+            ),
+        ]
+    )
+    def test_json_extract_invalid_type_name_rejected(self, _name, expr, function_name):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        assert f"The last argument of {function_name} must be a ClickHouse data type" in str(ctx.exception)
+
     def test_cte_materialization_hint_materialized(self):
         self.assertEqual(
             self._select(

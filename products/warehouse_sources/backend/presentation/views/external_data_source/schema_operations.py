@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     WEBHOOK_ISSUES_CONTEXT_KEY,
     ExternalDataSchemaSerializer,
     RowFiltersField,
+    xmin_unavailable_errors,
 )
 
 from . import base, credential_store, helpers
@@ -862,6 +863,25 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             defaulted_schema_ids.add(str(schema.id))
         return failures, defaulted_schema_ids
 
+    def _seed_xmin_checks(
+        self,
+        source: ExternalDataSource,
+        serialized: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer]],
+    ) -> None:
+        """Check every table that moves to xmin with one discovery call per API version, before the
+        per-schema transactions, so a bulk switch does not connect to the source once per table."""
+        if not base.SourceRegistry.get_source(source.source_type).supports_xmin:
+            return
+        by_api_version: dict[str | None, list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer]]] = {}
+        for schema, schema_serializer in serialized:
+            if schema_serializer.xmin_check_applies():
+                api_version = schema_serializer.xmin_probe_api_version(schema)
+                by_api_version.setdefault(api_version, []).append((schema, schema_serializer))
+        for api_version, group in by_api_version.items():
+            errors = xmin_unavailable_errors(source, [schema for schema, _ in group], api_version)
+            for schema, schema_serializer in group:
+                schema_serializer.seed_xmin_check(errors[str(schema.id)])
+
     @extend_schema(
         request=ExternalDataSourceBulkUpdateSchemasSerializer,
         responses={200: ExternalDataSchemaSerializer(many=True)},
@@ -944,12 +964,15 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 # Defaults discovery already confirmed these tables aren't webhook-only; seed the
                 # cache so the warm step below doesn't re-probe the source once per schema.
                 schema_serializer.seed_webhook_only_check(False)
+            prepared.append((schema, schema_serializer, schema_post_commit_actions))
+
+        self._seed_xmin_checks(source, [(schema, schema_serializer) for schema, schema_serializer, _ in prepared])
+        for schema, schema_serializer, _ in prepared:
             # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.
             schema_serializer.warm_webhook_only_check(schema)
-            prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch
         # meant one schema's failure rolled back every schema and failed the request, so the user

@@ -25,6 +25,7 @@ from rest_framework import status
 from social_core.exceptions import AuthFailed
 from social_django.models import Partial
 
+from posthog.api.email_verification import EmailVerificationCodeUndeliverable
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
@@ -177,10 +178,12 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
         self.assertEqual(event_props["$set"]["referral_source_influencer"], "The Hedgehog Dev channel")
 
+    @parameterized.expand([("code_sent", None), ("address_refused", EmailVerificationCodeUndeliverable())])
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     @patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL})
-    def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
+    def test_api_sign_up_requires_verification(self, _name, send_error, mock_email_verifier, mock_is_email_available):
+        mock_email_verifier.side_effect = send_error
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 

@@ -7,149 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface AttachmentUploadFileApi {
-    /**
-     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
-     * @pattern ^[0-9a-f]{64}$
-     */
-    sha256: string
-    /**
-     * Size of the file in bytes.
-     * @minimum 1
-     */
-    size: number
-}
-
-export interface AttachmentUploadsRequestApi {
-    /**
-     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
-     * @minItems 1
-     * @maxItems 10
-     */
-    files: AttachmentUploadFileApi[]
-}
-
-/**
- * * `present` - Present
- * * `upload` - Upload
- */
-export type AttachmentUploadStatusEnumApi =
-    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
-
-export const AttachmentUploadStatusEnumApi = {
-    Present: 'present',
-    Upload: 'upload',
-} as const
-
-/**
- * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
- */
-export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
-
-export interface AttachmentUploadSlotApi {
-    /** SHA-256 of the file, as sent. */
-    sha256: string
-    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
-     *
-     * * `present` - Present
-     * * `upload` - Upload */
-    status: AttachmentUploadStatusEnumApi
-    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
-    expires_at?: string
-    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
-    url?: string
-    /** For an `upload` file: the HTTP method, `PUT`. */
-    method?: string
-    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
-    headers?: AttachmentUploadSlotApiHeaders
-    /** For an `upload` file: when `url` stops accepting the upload. */
-    url_expires_at?: string
-}
-
-export interface AttachmentUploadsResponseApi {
-    /** One answer per requested file, in request order. */
-    files: AttachmentUploadSlotApi[]
-}
-
-/**
- * * `scheduled` - Scheduled
- * * `queued` - Queued
- * * `failed` - Failed
- * * `sent` - Sent
- * * `delivered` - Delivered
- * * `bounced` - Bounced
- * * `complained` - Complained
- */
-export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
-
-export const EmailSendStatusEnumApi = {
-    Scheduled: 'scheduled',
-    Queued: 'queued',
-    Failed: 'failed',
-    Sent: 'sent',
-    Delivered: 'delivered',
-    Bounced: 'bounced',
-    Complained: 'complained',
-} as const
-
-export interface EmailStatusApi {
-    /** The `message_id` that the send returned. */
-    id: string
-    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
-     *
-     * * `scheduled` - Scheduled
-     * * `queued` - Queued
-     * * `failed` - Failed
-     * * `sent` - Sent
-     * * `delivered` - Delivered
-     * * `bounced` - Bounced
-     * * `complained` - Complained */
-    status: EmailSendStatusEnumApi
-    /** When PostHog accepted the send. */
-    created_at: string
-    /** When the email reached its current status. */
-    status_at: string
-    /**
-     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
-     * @nullable
-     */
-    reason: string | null
-}
-
-/**
- * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
- */
-export type SetPreferencesApiTopics = { [key: string]: boolean }
-
-export interface SetPreferencesApi {
-    /**
-     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
-     * @maxLength 512
-     */
-    identifier: string
-    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
-    all_marketing?: boolean
-    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
-    topics?: SetPreferencesApiTopics
-}
-
-/**
- * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
- */
-export type TopicPreferencesApiTopics = { [key: string]: boolean }
-
-export interface TopicPreferencesApi {
-    /** The recipient the preferences belong to. */
-    identifier: string
-    /**
-     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
-     * @nullable
-     */
-    all_marketing: boolean | null
-    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
-    topics: TopicPreferencesApiTopics
-}
-
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
@@ -308,6 +165,149 @@ export interface SendTransactionalEmailResponseApi {
      * @nullable
      */
     scheduled_at?: string | null
+}
+
+/**
+ * * `scheduled` - Scheduled
+ * * `queued` - Queued
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailSendStatusEnumApi = (typeof EmailSendStatusEnumApi)[keyof typeof EmailSendStatusEnumApi]
+
+export const EmailSendStatusEnumApi = {
+    Scheduled: 'scheduled',
+    Queued: 'queued',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The `message_id` that the send returned. */
+    id: string
+    /** What happened to the email. `scheduled` means it waits for the time it was scheduled for. `queued` means it waits to go out. `sent` means PostHog handed it to the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.
+     *
+     * * `scheduled` - Scheduled
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailSendStatusEnumApi
+    /** When PostHog accepted the send. */
+    created_at: string
+    /** When the email reached its current status. */
+    status_at: string
+    /**
+     * Why a failed email was not sent, or the bounce type of a bounced email. A failed send has `provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, `missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface AttachmentUploadFileApi {
+    /**
+     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * Size of the file in bytes.
+     * @minimum 1
+     */
+    size: number
+}
+
+export interface AttachmentUploadsRequestApi {
+    /**
+     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+     * @minItems 1
+     * @maxItems 10
+     */
+    files: AttachmentUploadFileApi[]
+}
+
+/**
+ * * `present` - Present
+ * * `upload` - Upload
+ */
+export type AttachmentUploadStatusEnumApi =
+    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
+
+export const AttachmentUploadStatusEnumApi = {
+    Present: 'present',
+    Upload: 'upload',
+} as const
+
+/**
+ * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+ */
+export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
+
+export interface AttachmentUploadSlotApi {
+    /** SHA-256 of the file, as sent. */
+    sha256: string
+    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+     *
+     * * `present` - Present
+     * * `upload` - Upload */
+    status: AttachmentUploadStatusEnumApi
+    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+    expires_at?: string
+    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+    url?: string
+    /** For an `upload` file: the HTTP method, `PUT`. */
+    method?: string
+    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+    headers?: AttachmentUploadSlotApiHeaders
+    /** For an `upload` file: when `url` stops accepting the upload. */
+    url_expires_at?: string
+}
+
+export interface AttachmentUploadsResponseApi {
+    /** One answer per requested file, in request order. */
+    files: AttachmentUploadSlotApi[]
+}
+
+/**
+ * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+ */
+export type SetPreferencesApiTopics = { [key: string]: boolean }
+
+export interface SetPreferencesApi {
+    /**
+     * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+     * @maxLength 512
+     */
+    identifier: string
+    /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+    all_marketing?: boolean
+    /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+    topics?: SetPreferencesApiTopics
+}
+
+/**
+ * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+ */
+export type TopicPreferencesApiTopics = { [key: string]: boolean }
+
+export interface TopicPreferencesApi {
+    /** The recipient the preferences belong to. */
+    identifier: string
+    /**
+     * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+     * @nullable
+     */
+    all_marketing: boolean | null
+    /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+    topics: TopicPreferencesApiTopics
 }
 
 /**
@@ -630,6 +630,8 @@ export interface ImportStepProgressApi {
     warnings_omitted: number
     /** How many more objects there were than `items` holds. In the list of runs, this counts every object. */
     items_omitted: number
+    /** True when the step completed without reading anything, because the key can't read it. `warnings` says why. */
+    skipped: boolean
 }
 
 export interface ProviderImportRunApi {

@@ -5,12 +5,13 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { PluginsServerConfig } from '~/types'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
+import { createSandboxSesSender } from '../ses-transport'
 import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, createSandboxEmailService } from './sandbox-email.service'
 import { sandboxRecipientReads } from './sandbox-recipient-checks'
 import { SandboxSesBucket, sandboxWorkerSesBucket } from './sandbox-ses-bucket'
-import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
+import { SandboxSesClient } from './sandbox-ses-client'
 
 export type SandboxEmailRuntime = {
     service: SandboxEmailService
@@ -104,7 +105,7 @@ export function createSandboxEmailRuntime(
         },
         pubSub,
         ses: new SandboxSesClient(
-            createSandboxSesV2Client({ region: config.SES_REGION, endpoint: config.SES_ENDPOINT }),
+            createSandboxSesSender({ region: config.SES_REGION, endpoint: config.SES_ENDPOINT || undefined }),
             { configurationSet: config.SES_SANDBOX_CONFIGURATION_SET, tenantName: config.SES_SANDBOX_TENANT_NAME }
         ),
         fromAddress: config.SES_SANDBOX_FROM_ADDRESS,

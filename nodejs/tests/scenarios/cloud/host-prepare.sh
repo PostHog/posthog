@@ -11,6 +11,13 @@ log=$root/prepare.log
 exec >"$log" 2>&1
 trap 'aws s3 cp --only-show-errors "$log" "$prefix/host/prepare.log" || true' EXIT
 
+source "$repo/nodejs/tests/scenarios/cloud/host-input-checksums.sh"
+alerts=$(manifest_input_checksums "$input" 'alerts/')
+if [ -n "$alerts" ]; then
+    (cd "$input" && sha256sum --check --strict <<<"$alerts")
+    pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/alerts/images.ts
+fi
+
 cluster=$(aws rds describe-db-clusters --db-cluster-identifier "scn-${SCENARIO_RUN_ID}" --query 'DBClusters[0]' --output json)
 endpoint=$(jq -r .Endpoint <<<"$cluster")
 secret=$(jq -r .MasterUserSecret.SecretArn <<<"$cluster")

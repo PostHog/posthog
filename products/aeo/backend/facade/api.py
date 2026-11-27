@@ -51,6 +51,7 @@ from products.aeo.backend import (
     movers,
     prompt_limit,
     rankings,
+    run_stop,
     suggestions,
 )
 from products.aeo.backend.brand import (
@@ -61,6 +62,7 @@ from products.aeo.backend.brand import (
     mention_filter,
     segment_filter,
 )
+from products.aeo.backend.credits import raise_if_out_of_ai_credits
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     DEFAULT_DATE_FROM,
@@ -131,7 +133,7 @@ from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, A
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params, scope_without_segment
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.stored_results import stored_result
+from products.aeo.backend.stored_results import bump_data_version_on_commit, stored_result
 from products.aeo.backend.tasks.tasks import (
     enrich_aeo_check_brands_task,
     recompute_aeo_own_citations_task,
@@ -703,34 +705,49 @@ def get_prompt_set_overview(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    current_prompts: bool = False,
     refresh: bool = False,
 ) -> PromptSetOverview:
     """Web-search checks across the whole prompt set from `date_from` to `date_to` in the team's timezone, the
     same counts for the window of the same length before, the current window split per engine and per topic, and
     how often each engine names the brand without search against with it. Raises InvalidDateRangeError.
     `branded` keeps the checks, and the active prompts, on one side of the branded split. `engine` and `topic`
-    keep the checks of one engine or one topic, and `topic` also keeps the active prompts that have it now."""
+    keep the checks of one engine or one topic, and `topic` also keeps the active prompts that have it now.
+    `current_prompts` leaves out the checks of archived prompts."""
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
         # The name changes with the fields of `PromptSetOverview`, because a result stored by a release with
         # other fields loads without the new ones.
         "overview_v2",
-        _window_key(timezone_name, window, branded, engine, topic),
+        _window_key(timezone_name, window, branded, engine, topic, current_prompts),
         lambda: _compute_prompt_set_overview(
-            team_id, timezone_name=timezone_name, window=window, branded=branded, engine=engine, topic=topic
+            team_id,
+            timezone_name=timezone_name,
+            window=window,
+            branded=branded,
+            engine=engine,
+            topic=topic,
+            current_prompts=current_prompts,
         ),
         refresh=refresh,
     )
 
 
 def _window_key(
-    timezone_name: str, window: CheckWindow, branded: BrandedSegment, engine: str | None, topic: str | None
+    timezone_name: str,
+    window: CheckWindow,
+    branded: BrandedSegment,
+    engine: str | None,
+    topic: str | None,
+    current_prompts: bool = False,
 ) -> tuple[Any, ...]:
     """The `stored_result` parameters of a read over `window`. A relative range resolves to its days
     first, so a new day is a new result, and a default request and one that spells the same days out
     share one."""
-    return (timezone_name, window.window_from, window.window_to, branded.value, engine, topic)
+    key = (timezone_name, window.window_from, window.window_to, branded.value, engine, topic)
+    # Appended only when set, so the results stored before the option existed keep their keys.
+    return (*key, "current_prompts") if current_prompts else key
 
 
 def _compute_prompt_set_overview(
@@ -741,8 +758,9 @@ def _compute_prompt_set_overview(
     branded: BrandedSegment,
     engine: str | None,
     topic: str | None,
+    current_prompts: bool = False,
 ) -> PromptSetOverview:
-    scope = CheckScope(segment=branded, engine=engine, topic=topic)
+    scope = CheckScope(segment=branded, engine=engine, topic=topic, current_prompts=current_prompts)
     target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     counts = _check_counts(prompts=True)
@@ -848,23 +866,24 @@ def get_prompt_set_rankings(
     branded: BrandedSegment = BrandedSegment.ALL,
     engine: str | None = None,
     topic: str | None = None,
+    current_prompts: bool = False,
     refresh: bool = False,
 ) -> PromptSetRankings:
     """How often answers named the project against the brands behind the domains the engines cite
     most, from `date_from` to `date_to` in the team's timezone, with the domains and pages cited most.
     `branded`, `engine` and `topic` keep the checks on one side of the branded split, of one engine, or of
-    one topic. Raises InvalidDateRangeError."""
+    one topic, and `current_prompts` leaves out the checks of archived prompts. Raises InvalidDateRangeError."""
     window = _window(timezone_name, date_from, date_to)
     return stored_result(
         team_id,
         "rankings",
-        _window_key(timezone_name, window, branded, engine, topic),
+        _window_key(timezone_name, window, branded, engine, topic, current_prompts),
         lambda: rankings.get_rankings(
             team_id,
             target_domains=catalog.own_domains(team_id),
             timezone_name=timezone_name,
             window=window,
-            scope=CheckScope(segment=branded, engine=engine, topic=topic),
+            scope=CheckScope(segment=branded, engine=engine, topic=topic, current_prompts=current_prompts),
         ),
         refresh=refresh,
     )
@@ -1079,6 +1098,8 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
     if catalog.counts_as_own(brand.kind, brand.status):
         _recompute_own_citations_on_commit(brand.team_id)
     _enrich_check_brands_on_commit(brand.team_id)
+    # Rankings read the catalog's competitors, so a stored ranking from before the new brand is stale.
+    bump_data_version_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1104,6 +1125,8 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
     if "kind" in changed or "status" in changed:
         _recompute_own_citations_on_commit(brand.team_id)
+        # Rankings read the catalog's competitors, so a stored ranking from before the edit is stale.
+        bump_data_version_on_commit(brand.team_id)
     # Kind and status only label the brand rows, which reads join to the catalog. A new name or alias
     # changes which answers name the brand.
     if "name" in changed or "aliases" in changed:
@@ -1243,7 +1266,9 @@ def get_keyword_modifiers(
 
 def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -> KeywordSuggestionJob:
     """Queue keyword suggestions and return the pending job. Poll get_keyword_suggestions for the result.
-    Raises KeywordLimitError when the keyword list is already full."""
+    Raises KeywordLimitError when the keyword list is already full, and OutOfAICreditsError when the organization
+    has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     if keyword_suggestions.suggestion_count(request.count, len(keyword_suggestions.existing_keywords(team_id))) == 0:
         raise KeywordLimitError(keyword_suggestions.NO_ROOM_ERROR)
     job = keyword_suggestions.create_job(team_id)
@@ -1275,7 +1300,9 @@ def get_keyword_suggestions(team_id: int, job_id: str) -> KeywordSuggestionJob:
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
-    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
+    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result.
+    Raises OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     job = suggestions.create_job(team_id)
     try:
         suggest_aeo_prompts_task.delay(
@@ -1585,7 +1612,9 @@ def get_setup_context(team_id: int) -> SetupContext:
 
 def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
     """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
-    domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
+    domain or the engines cannot be used, SetupAlreadyRunningError while another setup job is pending, and
+    OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     domain = ""
     engine_changes: dict[str, bool] = {}
     if not request.only_first_run:
@@ -1611,6 +1640,7 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
                     "run_first_check": request.run_first_check,
                     "only_first_run": request.only_first_run,
                     "activate_paused_prompts": request.activate_paused_prompts,
+                    "prompt_count": request.prompt_count,
                 },
             ),
             expires=auto_setup.SETUP_START_WINDOW_SECONDS,
@@ -1620,6 +1650,20 @@ def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
         auto_setup.fail_job(team_id, job.id, "Setup could not start. Try again in a minute.")
         raise
     return job
+
+
+def reset_setup(team_id: int) -> None:
+    auto_setup.reset(team_id)
+
+
+def cancel_setup(team_id: int, job_id: str) -> SetupJob:
+    return auto_setup.cancel_job(team_id, job_id)
+
+
+def stop_checks(team_id: int) -> None:
+    """Stop the project's check run. Checks already in flight finish and are kept; the rest are dropped. A run that a
+    setup job has yet to queue is skipped when it starts."""
+    run_stop.request_stop(team_id)
 
 
 def get_setup(team_id: int, job_id: str) -> SetupJob:

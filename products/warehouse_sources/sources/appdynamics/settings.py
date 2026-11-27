@@ -4,6 +4,7 @@ from typing import Any
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 APPLICATIONS_PATH = "/controller/rest/applications"
+DATABASE_SERVERS_PATH = "/controller/rest/databases/servers"
 
 # Metric paths synced when the user leaves the "Metric paths" field empty. App-level KPIs
 # (calls per minute, average response time, error rate, ...) broken out per tier.
@@ -81,6 +82,9 @@ MAX_PAGES_PER_TIME_WINDOW = 64
 METRIC_TREE_MAX_DEPTH = 3
 METRIC_TREE_MAX_REQUESTS_PER_APPLICATION = 100
 
+# The Controller audit history rejects a range longer than 24 hours.
+AUDIT_HISTORY_WINDOW_DAYS = 1
+
 
 # The Controller's time-windowed endpoints filter server-side on epoch-ms `start-time` /
 # `end-time` (`time-range-type=BETWEEN_TIMES`), so each endpoint's own epoch-ms start field
@@ -110,6 +114,8 @@ class AppdynamicsEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     fan_out_over_applications: bool = False
     """Iterate every application and query this endpoint once per application."""
+    fan_out_over_database_servers: bool = False
+    """Iterate every monitored database server. Paths carry a `{server_id}` placeholder."""
     time_windowed: bool = False
     """Endpoint requires `time-range-type=BETWEEN_TIMES` with epoch-ms start/end params."""
     is_metric_data: bool = False
@@ -120,6 +126,10 @@ class AppdynamicsEndpointConfig:
     """Walk the metric hierarchy folder by folder instead of reading one list response."""
     uses_epoch_time_params: bool = False
     """Window bounds ride as bare epoch-ms `startTime`/`endTime` instead of the `time-range-type` triple."""
+    uses_iso_time_params: bool = False
+    """Window bounds ride as `startTime`/`endTime` in `yyyy-MM-dd'T'HH:mm:ss.SSSZ` format."""
+    hour_aligned_windows: bool = False
+    """Snap window bounds to full hours, for endpoints that return partial data for partial-hour ranges."""
     data_selector: str | None = None
     """Key holding the row list, for endpoints that wrap it in an object instead of returning an array."""
     page_size: int | None = None
@@ -128,6 +138,8 @@ class AppdynamicsEndpointConfig:
     """Rows the endpoint returns per request at most. A window at the cap is bisected."""
     extra_params: dict[str, Any] = field(default_factory=dict)
     """Static query params this endpoint always sends."""
+    hashed_id_column: str | None = None
+    """Column to fill with a hash of the whole row, for endpoints whose rows carry no ID."""
     sends_output_json_param: bool = True
     """Controller REST defaults to XML; the alerting API serves JSON and has no such param."""
     default_lookback_days: int = 30
@@ -135,6 +147,23 @@ class AppdynamicsEndpointConfig:
     window_chunk_days: int = 7
     """Time-windowed fetches are chunked so responses stay bounded and resumable."""
     description: str | None = None
+
+    @property
+    def fans_out(self) -> bool:
+        return self.fan_out_over_applications or self.fan_out_over_database_servers
+
+    @property
+    def parent_id_column(self) -> str:
+        """Column that carries the fan-out parent's ID on every row."""
+        return "server_id" if self.fan_out_over_database_servers else "application_id"
+
+    @property
+    def parent_path(self) -> str:
+        return DATABASE_SERVERS_PATH if self.fan_out_over_database_servers else APPLICATIONS_PATH
+
+    @property
+    def parent_label(self) -> str:
+        return "database servers" if self.fan_out_over_database_servers else "applications"
 
 
 APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
@@ -224,6 +253,23 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
             "Only syncs the last 7 days on initial sync."
         ),
     ),
+    "metric_data_v2": AppdynamicsEndpointConfig(
+        name="metric_data_v2",
+        path="/controller/rest/applications/{application_id}/metric-data-v2",
+        primary_keys=["application_id", "metricId", "startTimeInMillis"],
+        fan_out_over_applications=True,
+        time_windowed=True,
+        is_metric_data=True,
+        hour_aligned_windows=True,
+        incremental_fields=TIME_WINDOW_INCREMENTAL_FIELDS,
+        # The v2 method returns one-minute data only for 24-hour ranges in the last 8 days.
+        default_lookback_days=7,
+        window_chunk_days=1,
+        description=(
+            "Metric time series from the v2 metric data method, for the metric paths configured on "
+            "the source. One row per metric per minute. Only syncs the last 7 days on initial sync."
+        ),
+    ),
     "events": AppdynamicsEndpointConfig(
         name="events",
         path="/controller/rest/applications/{application_id}/events",
@@ -286,6 +332,37 @@ APPDYNAMICS_ENDPOINTS: dict[str, AppdynamicsEndpointConfig] = {
         description=(
             "Database servers monitored by AppDynamics Database Visibility. Joins to the "
             "database backends that applications call."
+        ),
+    ),
+    "database_health_rule_violations": AppdynamicsEndpointConfig(
+        name="database_health_rule_violations",
+        path=DATABASE_SERVERS_PATH + "/healthrule-violations/{server_id}",
+        primary_keys=["server_id", "id"],
+        fan_out_over_database_servers=True,
+        time_windowed=True,
+        incremental_fields=TIME_WINDOW_INCREMENTAL_FIELDS,
+        default_lookback_days=30,
+        window_chunk_days=7,
+        description=(
+            "Health rule violations on database servers monitored by Database Visibility, synced by "
+            "their start time. Status changes to previously synced violations are only picked up on "
+            "a full refresh. Only syncs the last 30 days on initial sync."
+        ),
+    ),
+    "controller_audit_history": AppdynamicsEndpointConfig(
+        name="controller_audit_history",
+        path="/controller/ControllerAuditHistory",
+        primary_keys=["audit_id"],
+        hashed_id_column="audit_id",
+        time_windowed=True,
+        uses_iso_time_params=True,
+        sends_output_json_param=False,
+        incremental_fields=time_window_incremental_fields("timeStamp"),
+        default_lookback_days=30,
+        window_chunk_days=AUDIT_HISTORY_WINDOW_DAYS,
+        description=(
+            "Controller audit log of user logins and configuration changes, synced by their time. "
+            "Only syncs the last 30 days on initial sync."
         ),
     ),
 }

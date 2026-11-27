@@ -12,6 +12,7 @@ from requests import Session
 from products.warehouse_sources.sources.scarf.settings import (
     BASE_URL,
     BOOLEAN_COLUMNS,
+    DATE_COLUMNS,
     DEFAULT_BACKFILL_DAYS,
     ENDPOINTS,
     FLOAT_COLUMNS,
@@ -19,6 +20,7 @@ from products.warehouse_sources.sources.scarf.settings import (
     LIST_PAGE_SIZE,
     MAX_BACKFILL_DAYS,
     MAX_EXPORT_BYTES,
+    MAX_WINDOW_DAYS,
     REQUEST_TIMEOUT,
     TIMESTAMP_COLUMNS,
     ScarfEndpointConfig,
@@ -44,6 +46,8 @@ BACKFILL_MESSAGE = f"Enter between 0 and {MAX_BACKFILL_DAYS} days of event histo
 EXPORT_TOO_LARGE_MESSAGE = (
     "One day of Scarf events is larger than PostHog can import in one piece. Contact PostHog support."
 )
+
+ExportItem = pa.Table | list[dict[str, Any]]
 
 
 @frozen
@@ -120,6 +124,8 @@ def csv_to_table(source: BinaryIO) -> pa.Table:
             column = pc.cast(column, pa.int64())
         elif name in TIMESTAMP_COLUMNS:
             column = _to_utc_timestamp(column)
+        elif name in DATE_COLUMNS:
+            column = pc.cast(pc.utf8_slice_codeunits(column, 0, 10), pa.date32())
         columns[name] = column
     return pa.table(columns)
 
@@ -135,6 +141,15 @@ def _read_export(session: Session, url: str, params: dict[str, str]) -> pa.Table
                 spool.write(chunk)
             spool.seek(0)
             return csv_to_table(spool)
+
+
+def _read_json_rows(session: Session, url: str, params: dict[str, str]) -> list[dict[str, Any]]:
+    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    rows: list[dict[str, Any]] = response.json()["data"]
+    for row in rows:
+        row["date"] = date.fromisoformat(str(row["date"])[:10])
+    return rows
 
 
 def _watermark_day(value: Any) -> date | None:
@@ -170,6 +185,32 @@ def iter_daily_events(
         manager.save_state(ScarfResumeConfig(day=day.isoformat()))
         if table.num_rows:
             yield table
+        else:
+            manager.safe_point()
+
+
+def iter_windowed_export(
+    session: Session,
+    url: str,
+    endpoint: ScarfEndpointConfig,
+    first_day: date,
+    last_day: date,
+    manager: ResumableSourceManager[ScarfResumeConfig],
+) -> Iterator[ExportItem]:
+    resume = manager.load_state() if manager.can_resume() else None
+    start = max(first_day, date.fromisoformat(resume.day)) if resume and resume.day else first_day
+    while start <= last_day:
+        end = min(start + timedelta(days=MAX_WINDOW_DAYS - 1), last_day)
+        params = {
+            **dict(endpoint.params),
+            "start_date": start.isoformat(),
+            "end_date": (end + timedelta(days=1) if endpoint.end_date_exclusive else end).isoformat(),
+        }
+        rows = _read_export(session, url, params) if endpoint.csv_export else _read_json_rows(session, url, params)
+        start = end + timedelta(days=1)
+        manager.save_state(ScarfResumeConfig(day=start.isoformat()))
+        if len(rows):
+            yield rows
         else:
             manager.safe_point()
 
@@ -239,7 +280,7 @@ def scarf_source(
     if endpoint.daily:
         incremental = inputs.should_use_incremental_field
 
-        def items() -> Iterator[pa.Table]:
+        def items() -> Iterator[ExportItem]:
             today = datetime.now(UTC).date()
             cursor = cursor_manager.load() if incremental and cursor_manager is not None else None
             watermark = _watermark_day(inputs.db_incremental_field_last_value) if incremental else None
@@ -257,9 +298,20 @@ def scarf_source(
                 # Today is still filling up, so the next run exports it again and merges on id.
                 cursor_manager.stage(ScarfExportCursor(next_day=today.isoformat()))
 
+    elif endpoint.windowed:
+        incremental = inputs.should_use_incremental_field
+
+        def items() -> Iterator[ExportItem]:
+            today = datetime.now(UTC).date()
+            # The watermark day may have been partial when it was read, so it is read again and merged on the key.
+            first_day = _watermark_day(inputs.db_incremental_field_last_value) if incremental else None
+            if first_day is None:
+                first_day = today - timedelta(days=DEFAULT_BACKFILL_DAYS if backfill_days is None else backfill_days)
+            yield from iter_windowed_export(_session(api_token), url, endpoint, first_day, today, manager)
+
     elif endpoint.csv_export:
 
-        def items() -> Iterator[pa.Table]:
+        def items() -> Iterator[ExportItem]:
             yield _read_export(_session(api_token), url, {})
 
     else:
@@ -276,7 +328,8 @@ def scarf_source(
         partition_keys=[endpoint.partition_key] if endpoint.partition_key else None,
         partition_mode="datetime" if endpoint.partition_key else None,
         partition_format="month" if endpoint.partition_key else None,
-        sort_mode="asc",
+        # Rows inside one rollup window come in no documented order.
+        sort_mode="asc" if endpoint.daily else None,
     )
 
 
