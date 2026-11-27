@@ -132,10 +132,10 @@ def _event_definitions_source_sql(
     conditions: str,
 ) -> str:
     """FROM/JOIN/WHERE shared by the page fetch and the count that pages it."""
-    # LEFT, not FULL OUTER. The join starts from the definition table, so a metadata row without a
-    # definition row never reaches the result. Such a row can exist, because the link column has no
-    # database constraint. The scope filter below also reads only definition-table columns, so it
-    # removes that row regardless of join type.
+    # LEFT, not FULL OUTER. A metadata row without a base row can exist, because its link has no
+    # database constraint. But the scope
+    # filter below reads base-table columns, so that row's `COALESCE(project_id, team_id)` would be
+    # NULL and it would be filtered out regardless of join type.
     # The join type does change the plan. A full join can be neither a nested loop nor a filter
     # pushed into the scan, which leaves a sequential scan of the whole table available to the
     # planner — and it picked that plan in production once statistics shifted.

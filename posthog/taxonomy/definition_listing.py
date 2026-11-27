@@ -35,9 +35,8 @@ def definition_list_select_column(field: Field, definition_model: type[Model], m
     # Qualified by table, so a column name both joined tables carry stays unambiguous.
     if field.model is definition_model:
         return f'{definition_table}."{field.column}"'
-    # The enterprise model's primary key is its link to the definition row. The metadata table names
-    # that link differently. The definition id fills it even where no metadata row exists, so every
-    # row of the list is a saved instance with a primary key.
+    # The metadata table names the primary key of the enterprise model differently. The definition id
+    # fills it, so a row without a metadata row still has a primary key.
     if field.primary_key:
         return f'{definition_table}."id" AS "{field.column}"'
     return f'{metadata_table}."{field.column}"'
