@@ -359,7 +359,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
         with patch("posthoganalytics.feature_enabled", return_value=False):
-            with pytest.raises(UserAccessControlError):
+            with pytest.raises(UserAccessControlError, match="`metrics` feature flag is not enabled"):
                 self._runner(query).validate_query_runner_access(self.user)
 
     def test_calculate_denied_for_shared_link_viewer_without_feature_flag(self) -> None:
