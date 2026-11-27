@@ -37,7 +37,7 @@ interface SaveStatus {
 function SaveIndicator({ status }: { status: SaveStatus }) {
   if (status.error) {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-destructive">
+      <span className="flex items-center gap-1 text-[11px] text-destructive-foreground">
         <WarningCircle size={12} />
         Not saved
       </span>
@@ -195,7 +195,7 @@ function Library({
 }
 
 const NOTICE_TONES = {
-  error: { surface: "bg-destructive/5", icon: "text-destructive" },
+  error: { surface: "bg-destructive/5", icon: "text-destructive-foreground" },
   warning: { surface: "bg-muted/40", icon: "text-warning-foreground" },
 };
 

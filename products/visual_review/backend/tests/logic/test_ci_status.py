@@ -22,6 +22,8 @@ from products.visual_review.backend.facade.enums import (
     ActorType,
     BaselineApprovalState,
     BaselineMode,
+    DecisionAction,
+    DecisionChannel,
     NoRunNeededOutcome,
     ReviewState,
     RunGate,
@@ -769,6 +771,33 @@ class TestStatusVerdict:
                 _verdict("failure", "1 approved change(s) not finalized. Finalize the run to pass this check"),
                 id="pull_request_run_with_approved_changes_not_finalized",
             ),
+            pytest.param(
+                _facts(changes_summary="20 changed", unresolved=2, accepted=18, awaiting_finalize=18),
+                _verdict("failure", "18 of 20 changes accepted, 2 need review"),
+                id="partly_accepted",
+            ),
+            pytest.param(
+                _facts(changes_summary="2 changed", awaiting_finalize=2, accepted=2),
+                _verdict("failure", "All 2 changes accepted. Finalize the run to pass"),
+                id="all_accepted_not_finalized",
+            ),
+            pytest.param(
+                _facts(
+                    changes_summary="2 changed", unresolved=1, rejected=1, rejected_by="bob", rejected_identifier="x"
+                ),
+                _verdict("failure", "Rejected by bob: x"),
+                id="a_rejection_comes_before_open_changes",
+            ),
+            pytest.param(
+                _facts(hidden_by_quarantine=1, rejected=2),
+                _verdict("failure", "2 changes rejected"),
+                id="rejections_of_quarantined_snapshots_fail_too",
+            ),
+            pytest.param(
+                _facts(is_partial=True, rejected=1, rejected_by="bob", rejected_identifier="s" * 200),
+                _verdict("failure", f"Rejected by bob: {'s' * 108}… (partial run)"),
+                id="a_long_story_name_is_cut_to_fit_the_status",
+            ),
             pytest.param(_facts(), _verdict("success", "No visual changes"), id="clean_pull_request_run"),
             pytest.param(
                 _facts(hidden_by_quarantine=2),
@@ -899,8 +928,13 @@ def _create_a_run_on_every_post(sender, repo: Repo) -> None:
 
 
 def _approve_button(run: Run, snapshot: RunSnapshot, user_id: int) -> None:
-    approvals.approve_snapshots(
-        run_id=run.id, user_id=user_id, approved_snapshots=[{"identifier": "Button", "new_hash": "Button-new"}]
+    approvals.decide(
+        run.id,
+        user_id,
+        DecisionAction.ACCEPT,
+        [approvals.DecisionRequest(identifier="Button", new_hash="Button-new")],
+        via=DecisionChannel.WEB,
+        team_id=run.team_id,
     )
 
 
@@ -1277,7 +1311,7 @@ class TestStatusByCommit:
         [
             pytest.param(
                 _approve_button,
-                ("failure", "1 approved change(s) not finalized. Finalize the run to pass this check"),
+                ("failure", "1 change accepted. Finalize the run to pass"),
                 id="approve",
             ),
             pytest.param(_tolerate_button, ("success", "No visual changes"), id="tolerate"),
@@ -1291,7 +1325,7 @@ class TestStatusByCommit:
     ) -> None:
         run = _run(repo, status=RunStatus.COMPLETED, changed_count=1)
         snapshot = _snapshot(run, "Button", SnapshotResult.CHANGED)
-        finalized = _run(repo, commit_sha="c2", branch="other", status=RunStatus.COMPLETED, approved=True)
+        finalized = _run(repo, commit_sha="c2", branch="other", pr_number=2, status=RunStatus.COMPLETED, approved=True)
         _snapshot(finalized, "Button", SnapshotResult.CHANGED, review_state=ReviewState.APPROVED)
         artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="Button-new", storage_path="p/new")
 

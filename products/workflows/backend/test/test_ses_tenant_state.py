@@ -207,7 +207,51 @@ class TestReconcileSesTenantStates(BaseTest):
             patch("products.workflows.backend.tasks.ses_tenant_state._RECONCILE_PAGE_SIZE", 1),
             patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider"),
             patch("products.workflows.backend.tasks.ses_tenant_state.sync_ses_tenant_state") as sync,
+            patch("products.workflows.backend.tasks.ses_tenant_state.time", FakeClock()),
         ):
             reconcile_ses_tenant_states()
 
         assert [call.args[0] for call in sync.call_args_list] == sorted([self.team.id, other_team.id])
+
+    def test_sweep_leaves_ses_api_headroom_between_teams(self) -> None:
+        teams = [self.team, *(Team.objects.create(organization=self.organization, name=f"T{i}") for i in range(3))]
+        for team in teams:
+            Integration.objects.create(
+                team=team, kind="email", integration_id=f"{team.id}.example.com", config={"provider": "ses"}
+            )
+        clock = FakeClock()
+        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4], failing_call=2)
+
+        with (
+            patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider", return_value=ses),
+            patch("products.workflows.backend.tasks.ses_tenant_state.time", clock),
+        ):
+            reconcile_ses_tenant_states()
+
+        assert ses.called_at == [0.0, 1.5, 3.5, 5.0]
+        assert clock.now == 5.4
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class FakeSesTenantReader:
+    def __init__(self, clock: FakeClock, *, call_seconds: list[float], failing_call: int) -> None:
+        self.clock = clock
+        self.call_seconds = iter(call_seconds)
+        self.failing_call = failing_call
+        self.called_at: list[float] = []
+
+    def get_tenant_reputation(self, team_id: int) -> None:
+        self.called_at.append(self.clock.now)
+        self.clock.now += next(self.call_seconds)
+        if len(self.called_at) - 1 == self.failing_call:
+            raise RuntimeError("TooManyRequestsException")

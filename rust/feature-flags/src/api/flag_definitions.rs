@@ -982,8 +982,9 @@ async fn authenticate_flag_definitions(
 
     // Try personal API key (with scope validation)
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        let pak_id =
-            auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        let pak_id = auth::validate_personal_api_key_with_scopes_for_team(state, &key, team)
+            .await?
+            .key_id;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
             &[("method".to_string(), "personal_api_key".to_string())],

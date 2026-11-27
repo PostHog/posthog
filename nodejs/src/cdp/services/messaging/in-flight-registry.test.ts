@@ -1,15 +1,28 @@
+import { Registry, register } from 'prom-client'
+
+import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { CyclotronJobInvocation } from '~/cdp/types'
+
 import { settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
 import {
+    Admission,
+    AttachmentsNotAdmittedError,
     InFlightLimits,
     InFlightRegistry,
     MachineMemory,
     deferralDelayMs,
     estimateSend,
+    filesOf,
     inFlightLimitsFor,
+    requireAdmission,
 } from './in-flight-registry'
 
 const MIB = 1024 * 1024
 const GIB = 1024 * MIB
+
+const oneFileOf = (sizeBytes: number, sha256 = 'a'.repeat(64)): EmailAttachmentMetadata[] => [
+    { sha256, filename: 'report.pdf', sizeBytes },
+]
 
 const pending = (): { promise: Promise<void>; resolve: () => void } => {
     let resolve!: () => void
@@ -37,16 +50,36 @@ describe('InFlightRegistry', () => {
         const registry = new InFlightRegistry(limits, heapUsed)
         const first = pending()
 
-        const started = registry.tryStart(MIB, () => first.promise)
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: reason })
+        const started = registry.tryStart(oneFileOf(MIB), () => first.promise)
+        expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toEqual({ deferred: reason })
         first.resolve()
         await (started as { started: Promise<void> }).started
 
-        expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+        expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toHaveProperty('started')
+    })
+
+    it('serves every deferral reason at zero on the first scrape after the module loads', async () => {
+        let registry: Registry | undefined
+        jest.isolateModules(() => {
+            registry = require('prom-client').register
+            require('./in-flight-registry')
+        })
+
+        const scrape = await registry!.metrics()
+        const samples = scrape
+            .split('\n')
+            .filter((line) => line.startsWith('cdp_email_attachments_deferral_tokens_total{'))
+        expect(samples.sort()).toEqual(
+            ['at_cap', 'over_budget', 'over_heap', 'refused'].map(
+                (reason) => `cdp_email_attachments_deferral_tokens_total{reason="${reason}"} 0`
+            )
+        )
     })
 
     it('defers every send when the worker refused sends with files', () => {
-        expect(new InFlightRegistry(null).tryStart(1, () => Promise.resolve())).toEqual({ deferred: 'refused' })
+        expect(new InFlightRegistry(null).tryStart(oneFileOf(1), () => Promise.resolve())).toEqual({
+            deferred: 'refused',
+        })
     })
 
     it.each([
@@ -72,16 +105,131 @@ describe('InFlightRegistry', () => {
             const registry = new InFlightRegistry(roomFor(1, MIB))
             const download = pending()
 
-            const { started } = registry.tryStart(MIB, () =>
+            const { started } = registry.tryStart(oneFileOf(MIB), () =>
                 abandon(new AbortController(), download.promise).catch(() => undefined)
             ) as { started: Promise<unknown> }
             await started
-            expect(registry.tryStart(MIB, () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
+            expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toEqual({ deferred: 'over_budget' })
             download.resolve()
             await new Promise(setImmediate)
-            expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+            expect(registry.tryStart(oneFileOf(MIB), () => Promise.resolve())).toHaveProperty('started')
         }
     )
+
+    describe('requireAdmission', () => {
+        const unadmittedLoads = async (reason: string): Promise<number> =>
+            (await register.getSingleMetric('cdp_email_attachments_unadmitted_loads_total')!.get()).values.find(
+                (sample) => sample.labels.reason === reason
+            )?.value ?? 0
+
+        const admissionHeldBy = async (
+            files: EmailAttachmentMetadata[],
+            during: (admission: Admission) => void = () => undefined
+        ): Promise<Admission> => {
+            const { started } = new InFlightRegistry(roomFor(1, 4 * MIB)).tryStart(files, () => {
+                const admission = requireAdmission(files)
+                during(admission)
+                return Promise.resolve(admission)
+            }) as { started: Promise<Admission> }
+            return await started
+        }
+
+        it('gives a send the admission for exactly the files it was admitted with', async () => {
+            const files = [...oneFileOf(MIB), ...oneFileOf(2 * MIB, 'b'.repeat(64))]
+
+            expect((await admissionHeldBy(files)).files).toEqual(files)
+        })
+
+        const changedAfterAdmission = (edit: Partial<EmailAttachmentMetadata>) => (): Promise<Admission> => {
+            const files = oneFileOf(MIB)
+            return admissionHeldBy(files, () => {
+                Object.assign(files[0], edit)
+                requireAdmission(files)
+            })
+        }
+
+        it.each([
+            ['outside any send', 'outside_any_admission', () => requireAdmission(oneFileOf(MIB))],
+            [
+                'for files other than the admitted ones',
+                'other_files',
+                () => admissionHeldBy(oneFileOf(MIB), () => requireAdmission(oneFileOf(MIB + 1))),
+            ],
+            [
+                'for the admitted files and one more',
+                'other_files',
+                () => {
+                    const files = oneFileOf(MIB)
+                    return admissionHeldBy(files, () => requireAdmission([...files, ...oneFileOf(MIB)]))
+                },
+            ],
+            [
+                'for files the caller rehashed after their admission',
+                'other_files',
+                changedAfterAdmission({ sha256: 'f'.repeat(64) }),
+            ],
+            [
+                'for files the caller resized after their admission',
+                'other_files',
+                changedAfterAdmission({ sizeBytes: 64 * MIB }),
+            ],
+            [
+                'for files the caller renamed after their admission',
+                'other_files',
+                changedAfterAdmission({ filename: 'other.pdf' }),
+            ],
+            [
+                'for files the caller retyped after their admission',
+                'other_files',
+                changedAfterAdmission({ contentType: 'text/html' }),
+            ],
+            [
+                'for files the caller inlined after their admission',
+                'other_files',
+                changedAfterAdmission({ contentId: 'logo' }),
+            ],
+            [
+                'once the admitted send ended',
+                'released',
+                async () => {
+                    let loadAfterTheSend!: Promise<Admission>
+                    await admissionHeldBy(oneFileOf(MIB), () => {
+                        loadAfterTheSend = new Promise(setImmediate).then(() => requireAdmission(oneFileOf(MIB)))
+                    })
+                    return await loadAfterTheSend
+                },
+            ],
+        ])('refuses and counts a load %s', async (_, reason, load) => {
+            const before = await unadmittedLoads(reason)
+
+            await expect(Promise.resolve().then(load)).rejects.toThrow(AttachmentsNotAdmittedError)
+            expect(await unadmittedLoads(reason)).toBe(before + 1)
+        })
+    })
+})
+
+describe('filesOf', () => {
+    const queued = oneFileOf(MIB, 'q'.repeat(64))
+    const saved = oneFileOf(2 * MIB, 's'.repeat(64))
+    const jobWith = (queueParameters: unknown, send: unknown): CyclotronJobInvocation =>
+        ({ queueParameters, state: { send } }) as unknown as CyclotronJobInvocation
+
+    it.each([
+        [
+            'the queued email files over a saved send that disagrees',
+            jobWith({ type: 'email', attachments: queued }, { attachments: saved }),
+            queued,
+        ],
+        [
+            'no files when the queued email has none, whatever the saved send holds',
+            jobWith({ type: 'email' }, { attachments: saved }),
+            null,
+        ],
+        ['the saved send files when nothing is queued', jobWith(undefined, { attachments: saved }), saved],
+        ['no files for an empty list', jobWith({ type: 'email', attachments: [] }, undefined), null],
+    ])('reads %s', (_, job, files) => {
+        expect(filesOf(job)).toEqual(files)
+    })
 })
 
 describe('inFlightLimitsFor', () => {

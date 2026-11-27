@@ -117,6 +117,91 @@ def is_flat_route(request: HttpRequest) -> bool:
     return getattr(request, _FLAT_ROUTE_ATTR, False)
 
 
+# Views outside TeamAndOrgViewSetMixin that take their project or organization from the user's stored state instead of
+# the request. They count as flat routes. Each entry is the dotted path of a view class or function, or of a viewset
+# followed by one action, so this module imports none of them; a test checks that every entry is still routed.
+STATE_DEPENDENT_VIEWS = frozenset(
+    {
+        "posthog.api.debug_ch_queries.DebugCHQueries",
+        "posthog.api.project.RootProjectViewSet.create",
+        "posthog.api.sdk_health.sdk_health",
+        "posthog.api.sso.saml_metadata_view",
+        "posthog.api.user.ToolbarEntitlementsView",
+        "posthog.api.user.UserViewSet.scene_personalisation",
+        "posthog.api.user.get_toolbar_preloaded_flags",
+        "posthog.api.user.prepare_toolbar_preloaded_flags",
+        "posthog.api.user.redirect_to_site",
+        "posthog.api.user.redirect_to_website",
+        "posthog.api.user_facet_settings.UserFacetSettingsViewSet",
+        "posthog.api.user_home_settings.UserHomeSettingsViewSet",
+        "posthog.api.user_integration.UserIntegrationViewSet.codex",
+        "posthog.api.user_integration.UserIntegrationViewSet.github_start",
+        "posthog.api.user_integration.UserIntegrationViewSet.slack_start",
+        "products.ai_observability.backend.api.proxy.LLMProxyViewSet",
+        "products.conversations.backend.api.email_settings.EmailConfirmForwardingView",
+        "products.conversations.backend.api.email_settings.EmailConnectView",
+        "products.conversations.backend.api.email_settings.EmailDisconnectView",
+        "products.conversations.backend.api.email_settings.EmailSendTestView",
+        "products.conversations.backend.api.email_settings.EmailSetDefaultView",
+        "products.conversations.backend.api.email_settings.EmailSetTrustedRelayView",
+        "products.conversations.backend.api.email_settings.EmailStatusView",
+        "products.conversations.backend.api.email_settings.EmailVerifyDomainView",
+        "products.conversations.backend.api.email_settings.EmailVerifyForwardingView",
+        "products.conversations.backend.api.github_setup.GithubConnectView",
+        "products.conversations.backend.api.github_setup.GithubCreateIssueView",
+        "products.conversations.backend.api.github_setup.GithubDisconnectView",
+        "products.conversations.backend.api.github_setup.GithubReposView",
+        "products.conversations.backend.api.github_setup.GithubSelectReposView",
+        "products.conversations.backend.api.github_setup.GithubStatusView",
+        "products.conversations.backend.api.slack_channels.SlackChannelsView",
+        "products.conversations.backend.api.slack_oauth.SupportSlackAuthorizeView",
+        "products.conversations.backend.api.slack_oauth.SupportSlackDisconnectView",
+        "products.conversations.backend.api.teams_channels.TeamsChannelsView",
+        "products.conversations.backend.api.teams_channels.TeamsInstallAppView",
+        "products.conversations.backend.api.teams_channels.TeamsSelectChannelView",
+        "products.conversations.backend.api.teams_channels.TeamsTeamsView",
+        "products.conversations.backend.api.teams_oauth.TeamsAuthorizeView",
+        "products.conversations.backend.api.teams_oauth.TeamsDisconnectView",
+        "products.signals.backend.views.SignalUserAutonomyConfigView",
+        "products.tasks.backend.presentation.views.api.LegacyDesktopAccessViewSet.check_access",
+    }
+)
+
+
+def view_name(callback: Any) -> str:
+    """The dotted path STATE_DEPENDENT_VIEWS lists a URL pattern's view under."""
+    view = getattr(callback, "cls", None) or getattr(callback, "view_class", None) or callback
+    return f"{view.__module__}.{view.__name__}"
+
+
+# These fall back to the user's current project only when the body names no team_id.
+_STATE_DEPENDENT_WITHOUT_BODY_TEAM = frozenset(
+    {
+        "posthog.api.user_integration.UserIntegrationViewSet.github_start",
+        "posthog.api.user_integration.UserIntegrationViewSet.slack_start",
+    }
+)
+
+
+def reads_user_state(request: HttpRequest, drf_request: object | None = None) -> bool:
+    """Whether a view in STATE_DEPENDENT_VIEWS served the request. `drf_request` is the view's DRF request, which
+    holds the parsed body."""
+    match = getattr(request, "resolver_match", None)
+    if match is None:
+        return False
+    name = view_name(match.func)
+    if name in STATE_DEPENDENT_VIEWS:
+        return True
+    actions = getattr(match.func, "actions", None) or {}
+    action = actions.get((request.method or "").lower())
+    if action is None or f"{name}.{action}" not in STATE_DEPENDENT_VIEWS:
+        return False
+    if f"{name}.{action}" in _STATE_DEPENDENT_WITHOUT_BODY_TEAM:
+        body = getattr(drf_request, "data", None)
+        return not (isinstance(body, Mapping) and body.get("team_id") not in (None, ""))
+    return True
+
+
 def scope_resolution(request: HttpRequest) -> ScopeResolution | None:
     return getattr(request, _SCOPE_RESOLUTION_ATTR, None)
 
@@ -135,11 +220,11 @@ def _resolve(request: Request, *, token_decides: bool) -> ScopeResolution:
             credential_pins_scope=reachable_organizations is not None and len(reachable_organizations) == 1,
         )
     return ScopeResolution(
-        source=source, credential_pins_scope=_pins_one_project(getattr(request, "successful_authenticator", None))
+        source=source, credential_pins_scope=pins_one_project(getattr(request, "successful_authenticator", None))
     )
 
 
-def _pins_one_project(authenticator: object) -> bool:
+def pins_one_project(authenticator: object) -> bool:
     scoped_teams = get_authenticator_scoped_team_ids(authenticator) or []
     scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
     if len(scoped_teams) <= 1 or scoped_organizations is None:

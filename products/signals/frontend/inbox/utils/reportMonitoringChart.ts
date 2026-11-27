@@ -68,6 +68,7 @@ export function monitoringChartQuery(
             date_from: new Date(from).toISOString(),
             date_to: new Date(to).toISOString(),
             explicitDate: true,
+            excludeIncompletePeriods: false,
         },
         compareFilter: undefined,
         interval: monitoringChartInterval(from, to),
