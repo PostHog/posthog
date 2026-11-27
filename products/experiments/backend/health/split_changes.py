@@ -8,7 +8,7 @@ assigns variants.
 
 from collections import Counter
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -121,7 +121,12 @@ def describe_split(split: Split) -> str:
     )
 
 
+def format_day(day: date) -> str:
+    return f"{day:%B} {day.day}, {day.year}"
+
+
 def format_change_time(value: datetime, team_timezone: str) -> str:
     # The format of the alert messages (posthog/tasks/alerts/utils.py). The time matters, because a start
     # date moved to the change must not keep the hours before it.
-    return value.astimezone(ZoneInfo(team_timezone)).strftime("%B %-d, %Y at %-I:%M %p %Z")
+    local = value.astimezone(ZoneInfo(team_timezone))
+    return f"{format_day(local.date())} at {local:%-I:%M %p %Z}"
