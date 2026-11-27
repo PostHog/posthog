@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
+    RepartitionUnpartitionableError,
     _rewrite_into_temp,
     is_temp_uri_of,
     measure_partition_bytes,
@@ -58,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     SourceReader,
     StreamBudget,
     TempTableCommitter,
+    UnboundedStringStatsError,
     copied_source_files,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_swap import (
@@ -660,6 +662,38 @@ class TestMeasurePartitionBytes:
 
 
 class TestRewriteIntoTemp:
+    def test_a_string_max_with_no_valid_bound_is_unpartitionable(self, tmp_path):
+        table = pa.table(
+            {
+                "id": pa.array([1, 2], pa.int64()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, 5), datetime.datetime(2024, 1, 9)], pa.timestamp("us")
+                ),
+                "v": pa.array([b"normal", b"\xfe\xffabc"], pa.binary()).view(pa.string()),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        temp_uri = str(tmp_path / "tmp")
+
+        with pytest.raises(RepartitionUnpartitionableError):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=deltalake.DeltaTable(str(tmp_path / "src")),
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    budget=_budget(),
+                    logger=logger,
+                )
+            )
+
+        assert glob.glob(os.path.join(temp_uri, "**", "*.parquet"), recursive=True) == []
+
     def test_rebuckets_finer_preserving_all_rows(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -1514,6 +1548,18 @@ def _write_streamed(uri: str, chunks: list[pa.Table]) -> None:
         committer.commit(writer.finish(), [f"source-{chunk.column('id')[0].as_py()}"])
 
 
+def _invalid_utf8_table(raw_values: list[bytes | None], large: bool) -> pa.Table:
+    # A cast from binary checks UTF-8, so a view is the only way to hold invalid bytes in a string column.
+    binary_type, string_type = (pa.large_binary(), pa.large_string()) if large else (pa.binary(), pa.string())
+    return pa.table(
+        {
+            "id": pa.array(range(len(raw_values)), pa.int64()),
+            "v": pa.array(raw_values, binary_type).view(string_type),
+            PARTITION_KEY: pa.array(["p"] * len(raw_values)),
+        }
+    )
+
+
 def _raw_add_stats(uri: str) -> list[dict]:
     # Decimals parse exactly, so a bound that is off in its last digit cannot pass as equal.
     stats = []
@@ -1657,8 +1703,6 @@ class TestAddActionStats:
     @pytest.mark.parametrize(
         "values,low,high",
         [
-            pytest.param([b"a", b"\xfeabc"], "a", None, id="max_invalid_at_its_first_byte"),
-            pytest.param([b"\xfe", b"\xff", None], "", None, id="every_value_invalid"),
             pytest.param([b"a\xe0b", b"zz"], "a", "zz", id="min_invalid_after_a_valid_prefix"),
             pytest.param([b"a", b"b\xe0c"], "a", "c", id="max_invalid_after_a_valid_prefix"),
             pytest.param([b"a\x80\xc3\xa9", b"b"], "a", "b", id="min_valid_again_after_the_invalid_byte"),
@@ -1686,9 +1730,23 @@ class TestAddActionStats:
         assert stats["nullCount"]["v"] == len(values) - len(present)
         assert stats["minValues"]["v"] == low
         assert stats["minValues"]["v"].encode("utf-8") <= min(present)
-        assert stats["maxValues"].get("v") == high
-        if high is not None:
-            assert high.encode("utf-8") >= max(present)
+        assert stats["maxValues"]["v"] == high
+        assert high.encode("utf-8") >= max(present)
+
+    @pytest.mark.parametrize(
+        "raw_values,large",
+        [
+            pytest.param([b"\xfe\xffabc"], False, id="byte_order_mark_start"),
+            pytest.param([b"\xfe\xffabc"], True, id="byte_order_mark_start_large_string"),
+            pytest.param([b"a", b"\xfeabc"], False, id="max_invalid_at_its_first_byte"),
+            pytest.param([b"\xfe", b"\xff", None], False, id="every_value_invalid"),
+            pytest.param([b"\xf4\x8f\xbf\xbf\xff"], False, id="prefix_cannot_be_raised"),
+        ],
+    )
+    def test_a_string_max_above_every_valid_utf8_string_stops_the_write(self, raw_values, large, tmp_path):
+        # A file with no max is dropped from every filtered pyarrow read, valid rows included.
+        with pytest.raises(UnboundedStringStatsError):
+            _write_streamed(str(tmp_path / "streamed"), [_invalid_utf8_table(raw_values, large)])
 
     @staticmethod
     def _typed_table() -> pa.Table:

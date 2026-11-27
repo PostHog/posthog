@@ -71,6 +71,15 @@ class UnsupportedSourceTableError(Exception):
     """The live table uses a Delta feature that a file-by-file copy would get wrong."""
 
 
+class UnboundedStringStatsError(UnsupportedSourceTableError):
+    """A string column holds bytes that sort above every valid UTF-8 string, so no Add-action max
+    can cover them.
+
+    A file with no max on a column is skipped by delta-rs's pyarrow reader for every filter on it.
+    The rewrite would gather other rows into that file and hide them from reads, so it stops instead.
+    """
+
+
 @frozen
 class StreamBudget:
     """Byte limits for one rewrite. Every in-memory term of the rewrite is bounded by one of these."""
@@ -379,7 +388,7 @@ def _string_upper_bound(value: str, *, complete: bool = True) -> str | None:
 
     A truncated prefix sorts below the value, so its last character is raised by one. With
     `complete=False`, `value` is only the valid UTF-8 prefix of a longer value, so it is raised too.
-    None when no character can be raised, which leaves the column without a max.
+    None when no character can be raised.
     """
     prefix = _truncate_utf8(value, STRING_STATS_MAX_BYTES)
     if complete and prefix == value:
@@ -411,10 +420,9 @@ class _ColumnStats:
     that row from reads and turns its merge into a duplicate insert. Each bound is exact or looser,
     and matches what delta-rs writes where delta-rs is safe.
 
-    A bound is left out only where JSON cannot hold it (infinity, or a string max that is not valid
-    UTF-8 and has no valid prefix to raise). That is not free: delta-rs's pyarrow reader turns a
-    missing bound into a null guarantee and skips the file for every filter on the column, the same
-    as it does for delta-rs's own stats in that case.
+    A bound is left out only where JSON cannot hold it (infinity). That is not free: delta-rs's
+    pyarrow reader turns a missing bound into a null guarantee and skips the file for every filter
+    on the column, the same as it does for delta-rs's own stats in that case.
     """
 
     __slots__ = ("kind", "minimum", "maximum", "null_count", "min_unbounded", "max_unbounded")
@@ -457,11 +465,10 @@ class _ColumnStats:
             high_text, complete = _utf8_prefix(high)
             # With no short upper bound the exact value is kept, as delta-rs does.
             high = _string_upper_bound(high_text, complete=complete) or (high_text if complete else None)
+            if high is None:
+                raise UnboundedStringStatsError("a string column holds a value above every valid UTF-8 string")
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
-        if high is None:
-            self.max_unbounded = True
-        elif self.maximum is None or high > self.maximum:
-            self.maximum = high
+        self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
 
     def json_values(self) -> StatBounds:
         if self.kind is None or self.minimum is None:
