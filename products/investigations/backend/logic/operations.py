@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Func, IntegerField, QuerySet
 from django.db.models.fields.json import KT
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import filter_visible_project_objects
 
 from ..facade.contracts import (
@@ -39,7 +40,8 @@ def saved(obj: Investigation) -> SavedInvestigation:
 def list_investigations(
     team_id: int, search: str, offset: int, limit: int, *, user_id: int | None
 ) -> tuple[list[InvestigationSummary], int]:
-    queryset: QuerySet[Investigation] = Investigation.objects.for_team(team_id).filter(deleted=False)
+    team_id = resolve_effective_team_id(team_id)
+    queryset: QuerySet[Investigation] = Investigation.objects.for_team(team_id, canonical=True).filter(deleted=False)
     if user_id is not None:
         queryset = filter_visible_project_objects(
             queryset, team_id=team_id, include_all_if_admin=False, user_id=user_id
