@@ -380,8 +380,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             )
             record.appliedAt = now()
             journal()
-            const holdEnded = AbortSignal.timeout(durationMs(entry.for))
-            const held = AbortSignal.any([released.signal, holdEnded])
+            const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
             const observed = await actuation.observed(held)
             journal()
             if (!observed) {
@@ -402,15 +401,6 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             }
             if (!held.aborted) {
                 await new Promise((resolve) => held.addEventListener('abort', resolve, { once: true }))
-            }
-            if (
-                entry.valve === 'role.terminate' &&
-                entry.when?.name === 'edge_accepted' &&
-                record.observedAt !== undefined &&
-                !holdEnded.aborted
-            ) {
-                delete record.observedAt
-                record.error = `released before its ${entry.for} hold ended`
             }
         } catch (error) {
             record.error = (error as Error).message
