@@ -19,7 +19,7 @@ export const THREAD_JOIN_OPTIONS: { value: SlackThreadJoinModeEnumApi; label: st
 
 export const CHANNEL_WELCOME_OPTIONS: { value: SlackChannelWelcomeModeEnumApi; label: string }[] = [
     { value: 'channel', label: 'Post in the channel' },
-    { value: 'inviter', label: 'Only the person who added the app' },
+    { value: 'inviter', label: 'Only the person who added it' },
     { value: 'off', label: 'No greeting' },
 ]
 

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import type { SlackUntaggedModeEnumApi } from '../generated/api.schemas'
 import { SlackAppSettingRow } from './SlackAppSettingRow'
 import { SlackAppSettingsGroup } from './SlackAppSettingsGroup'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
@@ -30,6 +31,11 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
     }
 
     const workspace = settings.workspace
+    const defaultUntaggedOption = {
+        value: NO_DEFAULT,
+        label: 'Default',
+        tooltip: `PostHog default: ${replyModeLabel(UNTAGGED_MODE_OPTIONS, POSTHOG_DEFAULT_UNTAGGED_MODE)}`,
+    }
 
     return (
         <div className="flex flex-col gap-4 max-w-200">
@@ -39,7 +45,7 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                     description="The project PostHog uses when someone tags it and hasn't picked their own."
                 >
                     <LemonSelect
-                        className="w-72"
+                        className="w-64"
                         value={workspace.default_integration_id ?? NO_DEFAULT}
                         onChange={(value) =>
                             updateWorkspaceSettings({
@@ -68,7 +74,7 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                     description="Where PostHog says hello when someone adds it to a channel."
                 >
                     <LemonSelect
-                        className="w-72"
+                        className="w-64"
                         value={workspace.channel_welcome_mode}
                         onChange={(value) => updateWorkspaceSettings({ channel_welcome_mode: value })}
                         options={CHANNEL_WELCOME_OPTIONS}
@@ -86,19 +92,16 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                     label="Replies in threads"
                     description="Someone replies in a thread started with PostHog, without tagging it."
                 >
-                    <LemonSelect
-                        className="w-72"
+                    <LemonSegmentedButton
+                        size="small"
                         value={workspace.untagged_followup_mode ?? NO_DEFAULT}
                         onChange={(value) =>
-                            updateWorkspaceSettings({ untagged_followup_mode: value === NO_DEFAULT ? null : value })
+                            updateWorkspaceSettings({
+                                untagged_followup_mode:
+                                    value === NO_DEFAULT ? null : (value as SlackUntaggedModeEnumApi),
+                            })
                         }
-                        options={[
-                            {
-                                value: NO_DEFAULT,
-                                label: `PostHog default (${replyModeLabel(UNTAGGED_MODE_OPTIONS, POSTHOG_DEFAULT_UNTAGGED_MODE)})`,
-                            },
-                            ...UNTAGGED_MODE_OPTIONS,
-                        ]}
+                        options={[defaultUntaggedOption, ...UNTAGGED_MODE_OPTIONS]}
                         disabledReason={workspaceSettingsDisabledReason}
                         data-attr="slack-app-settings-workspace-untagged-replies"
                     />
@@ -107,19 +110,16 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                     label="Questions in channels"
                     description="Someone asks a question in a channel without tagging PostHog."
                 >
-                    <LemonSelect
-                        className="w-72"
+                    <LemonSegmentedButton
+                        size="small"
                         value={workspace.untagged_question_mode ?? NO_DEFAULT}
                         onChange={(value) =>
-                            updateWorkspaceSettings({ untagged_question_mode: value === NO_DEFAULT ? null : value })
+                            updateWorkspaceSettings({
+                                untagged_question_mode:
+                                    value === NO_DEFAULT ? null : (value as SlackUntaggedModeEnumApi),
+                            })
                         }
-                        options={[
-                            {
-                                value: NO_DEFAULT,
-                                label: `PostHog default (${replyModeLabel(UNTAGGED_MODE_OPTIONS, POSTHOG_DEFAULT_UNTAGGED_MODE)})`,
-                            },
-                            ...UNTAGGED_MODE_OPTIONS,
-                        ]}
+                        options={[defaultUntaggedOption, ...UNTAGGED_MODE_OPTIONS]}
                         disabledReason={workspaceSettingsDisabledReason}
                         data-attr="slack-app-settings-workspace-untagged-questions"
                     />
@@ -129,7 +129,7 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                     description="Someone else tags PostHog in a thread another person started."
                 >
                     <LemonSelect
-                        className="w-72"
+                        className="w-64"
                         value={workspace.thread_join_mode ?? NO_DEFAULT}
                         onChange={(value) =>
                             updateWorkspaceSettings({ thread_join_mode: value === NO_DEFAULT ? null : value })
@@ -137,7 +137,7 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                         options={[
                             {
                                 value: NO_DEFAULT,
-                                label: `PostHog default (${replyModeLabel(THREAD_JOIN_OPTIONS, POSTHOG_DEFAULT_THREAD_JOIN_MODE)})`,
+                                label: `Default (${replyModeLabel(THREAD_JOIN_OPTIONS, POSTHOG_DEFAULT_THREAD_JOIN_MODE)})`,
                             },
                             ...THREAD_JOIN_OPTIONS,
                         ]}
