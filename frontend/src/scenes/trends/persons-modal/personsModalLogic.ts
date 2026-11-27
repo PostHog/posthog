@@ -54,6 +54,7 @@ import {
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { asDisplay } from 'products/persons/frontend/person-utils'
+import { captureFunnelDropOffAudienceChecked } from 'products/workflows/frontend/MessageAudience/funnelDropOffAudience'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { InsightQueryNode } from '../../../queries/schema/schema-general'
@@ -525,6 +526,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadActors: () => {
             if (values.query && !values.insightActorsQueryOptions) {
                 actions.loadActorsQueryOptions(values.query)
+            }
+        },
+        loadActorsSuccess: ({ actorsResponse, payload }) => {
+            const isOpeningRequest = !payload?.clear && payload?.offset === undefined
+            if (isOpeningRequest && values.isModalOpen) {
+                captureFunnelDropOffAudienceChecked(values.query, actorsResponse?.results?.[0]?.people ?? [])
             }
         },
         updateActorsQuery: ({ query: q }) => {
