@@ -16978,6 +16978,22 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 50
 
+    def test_save_succeeds_when_sending_the_event_fails(self):
+        flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
+
+        def fail_launch_event(**kwargs: Any) -> None:
+            if kwargs["event"] == "feature flag launch checked":
+                raise ConnectionError("capture down")
+
+        with patch("posthog.event_usage.posthoganalytics.capture", side_effect=fail_launch_event) as capture:
+            response = self._patch(flag, {"filters": FULL})
+
+        assert "feature flag launch checked" in [call.kwargs["event"] for call in capture.call_args_list]
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
+
     def test_save_succeeds_when_the_stored_flag_cannot_be_described(self):
         flag = self._flag({"groups": [{"properties": [], "rollout_percentage": 50}]})
         FeatureFlag.objects.filter(pk=flag.pk).update(filters=Value(None, JSONField()))
