@@ -157,12 +157,14 @@ export function shellListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     )
 }
 
-// Home keeps its own dates in the URL under the navigation flag too.
+// Home and the errors list keep their own dates in the URL under the navigation flag too.
+const SHELL_BODY_PATHS: ReadonlySet<string> = new Set([urls.aiObservabilityDashboard(), urls.aiObservabilityErrors()])
+
 function shellBodyOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
         shellListOwnsUrl(featureFlags) ||
         (!!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN] &&
-            removeProjectIdIfPresent(router.values.location.pathname) === urls.aiObservabilityDashboard())
+            SHELL_BODY_PATHS.has(removeProjectIdIfPresent(router.values.location.pathname)))
     )
 }
 
@@ -741,8 +743,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             markTrackCostsTaskCompleted()
         }
 
-        // Session links carry `timestamp`, so unlike the traces path nothing is stripped here.
-        function applySessions(searchParams: Record<string, unknown>): void {
+        // Session links carry `timestamp`, so unlike the traces path nothing is stripped on the paths this handles.
+        function applyShellBody(searchParams: Record<string, unknown>): void {
             if (shellBodyOwnsUrl(values.featureFlags)) {
                 enterShellList()
                 return
@@ -807,11 +809,11 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyNonDashboard(searchParams)
             },
             [urls.aiObservabilityUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilityErrors()]: (_, searchParams) => applyShellBody(searchParams),
             [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilitySessions()]: (_, searchParams) => applySessions(searchParams),
-            '/ai-observability/sessions/:id': (_, searchParams) => applySessions(searchParams),
+            [urls.aiObservabilitySessions()]: (_, searchParams) => applyShellBody(searchParams),
+            '/ai-observability/sessions/:id': (_, searchParams) => applyShellBody(searchParams),
             [urls.aiObservabilityPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.

@@ -185,7 +185,9 @@ describe('aiObservabilitySharedLogic', () => {
                 false,
             ],
             ['follows the sessions path with the flag off', [], urls.aiObservabilitySessions(), true],
-            ['follows the errors path with the flag on', [NAV], urls.aiObservabilityErrors(), true],
+            ['leaves its range alone on the errors path with the flag on', [NAV], urls.aiObservabilityErrors(), false],
+            ['follows the errors path with the flag off', [], urls.aiObservabilityErrors(), true],
+            ['follows the tools path with the flag on', [NAV], urls.aiObservabilityTools(), true],
         ])('%s', async (_name, flags, path, follows) => {
             const logic = mountWithFlags(flags)
             const { dateFrom } = logic.values.dateFilter
@@ -224,19 +226,19 @@ describe('aiObservabilitySharedLogic', () => {
         it('keeps an explicit test account choice of false when it syncs the range on another path', async () => {
             const logic = mountWithFlags([NAV])
 
-            router.actions.push(`${urls.aiObservabilityErrors()}?date_from=-30d&filter_test_accounts=false`)
+            router.actions.push(`${urls.aiObservabilityTools()}?date_from=-30d&filter_test_accounts=false`)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.shouldFilterTestAccounts).toBe(false)
             expect(router.values.location.search).toContain('filter_test_accounts=false')
         })
 
-        it('hands a test account choice of false made on the errors path to the shell', async () => {
+        it('hands a test account choice of false made on the tools path to the shell', async () => {
             router.actions.push(urls.aiObservabilityTraces())
             shellScopeLogic.mount()
             shellScopeLogic.actions.setFilterTestAccounts(true)
             const logic = mountWithFlags([NAV])
-            router.actions.push(urls.aiObservabilityErrors(), router.values.searchParams)
+            router.actions.push(urls.aiObservabilityTools(), router.values.searchParams)
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.shouldFilterTestAccounts).toBe(true)
 
@@ -254,6 +256,7 @@ describe('aiObservabilitySharedLogic', () => {
                 { session: 'abc', timestamp: '2026-09-01T10:00:00Z' },
             ],
             ['a session page', urls.aiObservabilitySession('abc'), { timestamp: '2026-09-01T10:00:00Z', trace: 't1' }],
+            ['the errors list', urls.aiObservabilityErrors(), { order: 'users', view: 'new' }],
         ])('does not rewrite the URL of %s', async (_name, path, params) => {
             router.actions.push(path, params)
             const logic = mountWithFlags([NAV])
@@ -271,7 +274,7 @@ describe('aiObservabilitySharedLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.shouldFilterTestAccounts).toBe(false)
 
-            router.actions.push(urls.aiObservabilityErrors())
+            router.actions.push(urls.aiObservabilityTools())
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.shouldFilterTestAccounts).toBe(true)

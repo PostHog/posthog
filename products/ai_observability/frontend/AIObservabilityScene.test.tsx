@@ -18,6 +18,7 @@ import { initKeaTests } from '~/test/init'
 import { AIObservabilityGenerations, AIObservabilityScene } from './AIObservabilityScene'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { aiObservabilityTracesList } from './generated/api'
+import { makeErrorListPage } from './redesign/errors/testFixtures'
 import {
     SESSION_TURNS_URL,
     makeSessionListItem,
@@ -133,6 +134,7 @@ describe('AIObservabilityScene', () => {
             get: {
                 '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])],
                 '/api/projects/:team_id/ai_observability/sessions/': () => [200, makeSessionListPage([])],
+                '/api/projects/:team_id/ai_observability/errors/': () => [200, makeErrorListPage([])],
             },
         })
     })
@@ -152,13 +154,19 @@ describe('AIObservabilityScene', () => {
 
     describe('with the navigation flag on', () => {
         it.each([
-            ['aiObservabilityTraces', 'ai-observability-scope-traces', 'ai-observability-traces-list'],
-            ['aiObservabilitySessions', 'ai-observability-scope-sessions', 'ai-observability-sessions-list'],
-        ])('wraps the body of %s in the frame', (sceneKey, scope, body) => {
+            ['aiObservabilityTraces', 'activity', 'ai-observability-scope-traces', 'ai-observability-traces-list'],
+            [
+                'aiObservabilitySessions',
+                'activity',
+                'ai-observability-scope-sessions',
+                'ai-observability-sessions-list',
+            ],
+            ['aiObservabilityErrors', 'diagnostics', 'ai-observability-scope-errors', 'errors-list'],
+        ])('wraps the body of %s in the frame', (sceneKey, tab, scope, body) => {
             const container = renderScene({ sceneKey })
 
             expect(container.querySelector(TABBED_BAR)).toBeNull()
-            expect(activeFrameTabs(container)).toEqual(['ai-observability-tab-activity'])
+            expect(activeFrameTabs(container)).toEqual([`ai-observability-tab-${tab}`])
             expect(activeScopes(container)).toEqual([scope])
             expect(container.querySelector(`[data-attr="${body}"]`)).not.toBeNull()
         })
