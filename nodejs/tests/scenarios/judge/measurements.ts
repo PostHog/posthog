@@ -22,7 +22,6 @@ export type MetricSample = {
     startedAt: number
     cpuSeconds: number
     rssBytes: number
-    eventLoopLagP99Seconds?: number
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
@@ -524,39 +523,6 @@ const meanBackendsOf = (
         .map(([key, total]) => ({ key, ...measuredOf(total / read.length, read.length < taken.length) }))
 }
 
-function stepLagOf(ofRole: readonly MetricSample[], missed: readonly MissedScrape[], step: Phase): Measured[] {
-    const serving = replicasOf(ofRole).filter((ofReplica) =>
-        ofReplica.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds !== undefined)
-    )
-    if (serving.length === 0) {
-        return []
-    }
-    const sinceOf = (ofReplica: readonly MetricSample[], i: number): number => {
-        const previous = ofReplica[i - 1]
-        return previous === undefined || previous.startedAt !== ofReplica[i].startedAt
-            ? ofReplica[i].startedAt * 1000
-            : previous.at
-    }
-    const covering = serving.map((ofReplica) =>
-        ofReplica.filter((sample, i) => sinceOf(ofReplica, i) < step.to && sample.at > step.from)
-    )
-    const lags = covering.flat().flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
-    if (lags.length === 0) {
-        return [{ value: null, censored: true, unmeasured: 'no event loop lag reading covers the step' }]
-    }
-    const incomplete = covering.some(
-        (window, i) =>
-            window.length === 0 ||
-            gappedIn(window, step) ||
-            window.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds === undefined) ||
-            missed.some(
-                ({ role, replica, at }) =>
-                    role === serving[i][0].role && replica === serving[i][0].replica && within(step, at)
-            )
-    )
-    return [measuredOf(maxOf(lags) * 1000, incomplete)]
-}
-
 const perWriterStep =
     (keyOf: (backend: WriterBackends[number]) => string | undefined): MeasurementDefinition['measure'] =>
     ({ activity = [], drive, steps }) =>
@@ -750,13 +716,6 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
             }),
     },
     {
-        name: 'step_eventloop_lag_p99_ms',
-        params: z.object({}).strict(),
-        unit: 'ms',
-        measure: ({ samples, missed, drive, steps }) =>
-            perRoleStep(samples, drive, steps, (ofRole, step) => stepLagOf(ofRole, missed, step)),
-    },
-    {
         name: 'baseline_new_jobs_per_second',
         params: z.object({}).strict(),
         unit: 'jobs/s',
@@ -834,7 +793,6 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
-    const eventLoopLagP99Seconds = gauge(text, 'nodejs_eventloop_lag_p99_seconds')
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
         : {
@@ -844,7 +802,6 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               startedAt,
               cpuSeconds,
               rssBytes,
-              ...(eventLoopLagP99Seconds !== undefined && { eventLoopLagP99Seconds }),
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),

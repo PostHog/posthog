@@ -235,7 +235,6 @@ describe('measurements', () => {
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
-                eventLoopLagP99Seconds: expect.any(Number),
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
@@ -816,26 +815,20 @@ describe('measurements', () => {
         ])
     })
 
-    it("reads each step's host busy share, each role's CPU cores, busiest replica and worst event-loop lag since the scrape before, and the writer's mean backends", () => {
+    it("reads each step's host busy share, each role's CPU cores and busiest replica, and the writer's mean backends", () => {
         const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
         const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
         const cpuAt = (second: number, coresBefore: number, coresAfter: number): number =>
             Math.min(second, 60) * coresBefore + Math.max(second - 60, 0) * coresAfter
-        const worker = (
-            role: string,
-            replica: number,
-            cores: [number, number],
-            lagAt?: (second: number) => number
-        ): MetricSample[] =>
+        const worker = (role: string, replica: number, cores: [number, number]): MetricSample[] =>
             every5s.map((second) => ({
                 ...sample(second, -60, cpuAt(second, ...cores), 100, replica),
                 role,
-                ...(lagAt && { eventLoopLagP99Seconds: lagAt(second) }),
             }))
         const recorded = evidence({
             samples: [
-                ...worker(HOGFLOW, 0, [0.5, 1], (second) => (second === 90 ? 0.25 : second === 60 ? 0.5 : 0.03125)),
-                ...worker(HOGFLOW, 1, [0.25, 0.5], () => 0.125),
+                ...worker(HOGFLOW, 0, [0.5, 1]),
+                ...worker(HOGFLOW, 1, [0.25, 0.5]),
                 ...worker(ROLE, 0, [0.25, 0.25]),
             ],
             host: every5s.map((second) => ({
@@ -875,7 +868,6 @@ describe('measurements', () => {
                     { name: 'step_host_busy_percent', params: {} },
                     { name: 'step_role_cpu_cores', params: {} },
                     { name: 'step_role_busiest_cpu_cores', params: {} },
-                    { name: 'step_eventloop_lag_p99_ms', params: {} },
                 ],
                 recorded
             )
@@ -903,32 +895,13 @@ describe('measurements', () => {
             { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_1x`, unit: 'cores', value: 0.5 },
             { name: 'step_role_busiest_cpu_cores', key: `${ROLE}_10x`, unit: 'cores', value: 0.25 },
             { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_10x`, unit: 'cores', value: 1 },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_1x`, unit: 'ms', value: 500 },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_10x`, unit: 'ms', value: 250 },
         ])
     })
 
-    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, marks one whose reads failed in part, and counts a lag reading for each step its interval reaches, unmeasured when no reading covers the step, or incomplete when a serving replica missed a scrape", () => {
-        const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, and marks one whose reads failed in part", () => {
         const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
-        const lagging = (replica: number, lag: number): MetricSample[] =>
-            every5s.map((second) => ({
-                ...sample(second, -60, second, 100, replica),
-                role: HOGFLOW,
-                eventLoopLagP99Seconds: lag,
-            }))
         const recorded = evidence({
-            samples: [
-                ...lagging(0, 0.0625).filter(({ at }) => at !== atS(30)),
-                ...lagging(1, 0.125).filter(({ at }) => at < atS(70) || at > atS(100)),
-                ...every5s.map((second) => ({
-                    ...sample(second + 2, -60, second, 100, 2),
-                    role: HOGFLOW,
-                    eventLoopLagP99Seconds: second + 2 === 62 ? 0.5 : 0.03125,
-                })),
-                ...every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
-            ],
-            missed: [{ role: HOGFLOW, replica: 0, at: atS(30) }],
+            samples: every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
             activity: every5s.map((second) =>
                 second < 60 && second !== 25
                     ? { at: atS(second), backends: [{ state: 'idle', wait: 'client', count: 3 }] }
@@ -961,7 +934,6 @@ describe('measurements', () => {
                 [
                     { name: 'step_writer_backends', params: {} },
                     { name: 'step_writer_active_waits', params: {} },
-                    { name: 'step_eventloop_lag_p99_ms', params: {} },
                 ],
                 recorded
             )
@@ -972,16 +944,6 @@ describe('measurements', () => {
             { name: 'step_writer_active_waits', key: '1x', unit: 'backends', value: 0, incomplete: true },
             { name: 'step_writer_active_waits', ...unread },
             { name: 'step_writer_active_waits', ...unlanded },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_1x`, unit: 'ms', value: 500, incomplete: true },
-            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_10x`, unit: 'ms', value: 500, incomplete: true },
-            {
-                name: 'step_eventloop_lag_p99_ms',
-                key: `${HOGFLOW}_100x`,
-                unit: 'ms',
-                value: null,
-                censored: true,
-                unmeasured: 'no event loop lag reading covers the step',
-            },
         ])
     })
 
