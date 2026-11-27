@@ -8138,8 +8138,6 @@ export interface DataWarehouseSourceRowCount {
     billing_period_start: string
     materialized_rows_in_billing_period: number
     total_rows: number
-    tracked_billing_rows: number
-    pending_billing_rows: number
 }
 
 export interface DataWarehouseActivityRecord {
