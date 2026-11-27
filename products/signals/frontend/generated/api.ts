@@ -107,6 +107,8 @@ import type {
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
     SelfDrivingTrialStatusApi,
+    SendScoutMessageRequestApi,
+    SendScoutMessageResponseApi,
     SignalReportActionabilityUpdateApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -3322,6 +3324,28 @@ export const signalsScoutReportChecksList = async (
     return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportChecksListUrl(projectId, runId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutSendMessageUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/send_message/`
+}
+
+/**
+ * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key sent in the last 30 days is refused as a duplicate.
+ * @summary Send a message through an owner-set route
+ */
+export const signalsScoutSendMessage = async (
+    projectId: string,
+    runId: string,
+    sendScoutMessageRequestApi: SendScoutMessageRequestApi,
+    options?: RequestInit
+): Promise<SendScoutMessageResponseApi> => {
+    return apiMutator<SendScoutMessageResponseApi>(getSignalsScoutSendMessageUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sendScoutMessageRequestApi),
     })
 }
 

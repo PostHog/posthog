@@ -181,11 +181,13 @@ from products.dashboards.backend.facade.api import (
     CannotRemoveFromDashboard,
     DashboardNotFound,
     InsightTilePlacement,
+    can_access_dashboard,
     check_insight_tile_limit,
+    create_planned_insight_tiles,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
-    insight_ids_on_dashboard,
+    insight_ids_on_dashboards,
     insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
@@ -196,6 +198,7 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
+from products.dashboards.backend.facade.contracts import InsightTileOnDashboard
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
@@ -946,7 +949,8 @@ class InsightSerializer(InsightBasicSerializer):
         record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
-            for dashboard in placement.create_tiles(insight):
+            create_planned_insight_tiles(placement, insight_id=insight.id)
+            for dashboard in placement.dashboards:
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -1128,7 +1132,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         try:
             change = update_insight_dashboard_membership(
-                insight=instance,
+                insight_id=instance.id,
+                insight_team_id=instance.team_id,
                 dashboard_ids=dashboard_ids,
                 query=query,
                 user=self.context["request"].user,
@@ -1730,7 +1735,7 @@ class InsightSerializer(InsightBasicSerializer):
             dashboard_tile = None
 
         if not dashboard_tile and dashboard:
-            dashboard_tile = tile_for_render(insight=insight, dashboard=dashboard)
+            dashboard_tile = tile_for_render(insight_id=insight.id, dashboard_id=dashboard.id)
 
         return dashboard_tile
 
@@ -2700,9 +2705,19 @@ class InsightViewSet(
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
-                    for dashboard_id in dashboards_ids:
-                        # filter by dashboards one at a time so the filter is AND not OR
-                        queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
+                    if not isinstance(dashboards_ids, list) or not all(
+                        (isinstance(dashboard_id, int) and not isinstance(dashboard_id, bool))
+                        or (isinstance(dashboard_id, str) and dashboard_id.isascii() and dashboard_id.isdigit())
+                        for dashboard_id in dashboards_ids
+                    ):
+                        raise ValidationError(
+                            {"dashboards": "Dashboards must be a list of dashboard IDs, such as [1, 2]."}
+                        )
+                    dashboards_ids = [int(dashboard_id) for dashboard_id in dashboards_ids]
+                    if dashboards_ids:
+                        # An insight must be on every listed dashboard, so the filter is AND, not OR.
+                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids, team_id=self.team.id)
+                        queryset = queryset.filter(id__in=frozenset.intersection(*insight_ids_by_dashboard.values()))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
@@ -2776,7 +2791,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Any = None
+        dashboard_tile: InsightTileOnDashboard | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = tile_for_insight_on_dashboard(insight_id=instance.id, dashboard_id=dashboard_id)
@@ -2787,10 +2802,10 @@ When set, the specified dashboard's filters and date range override will be appl
                     authenticator,
                     SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
                 ):
-                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard.id
                 else:
-                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
-                        dashboard_tile.dashboard, "viewer"
+                    can_view_dashboard = can_access_dashboard(
+                        dashboard_tile.dashboard, user_access_control=self.user_access_control
                     )
 
                 if not can_view_dashboard:
@@ -2815,12 +2830,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
-            layouts = dashboard_tile.layouts
-            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-            if isinstance(layouts, str):
-                layouts = json.loads(layouts)
-
-            serialized_data["layouts"] = layouts
+            serialized_data["layouts"] = dashboard_tile.layouts
 
         response = Response(serialized_data)
 

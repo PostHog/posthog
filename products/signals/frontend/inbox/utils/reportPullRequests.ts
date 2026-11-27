@@ -58,3 +58,20 @@ export function hasApprovedOpenReportPullRequest(report: ReportWithPullRequests 
         (pr) => pr.state === 'open' && !pr.merged && pr.review_decision === 'approved'
     )
 }
+
+const PR_MONITORING_HORIZON_MS = 90 * 24 * 60 * 60 * 1000
+
+export function prMonitoringWindowExpiredReason(
+    report: Pick<SignalReport, 'pull_requests'>,
+    prUrl: string,
+    nowMs = Date.now()
+): string | undefined {
+    const pr = (report.pull_requests ?? []).find((entry) => entry.url === prUrl)
+    if (!pr || (!pr.merged && pr.state !== 'merged')) {
+        return undefined
+    }
+    const mergedAtMs = pr.merged_at ? Date.parse(pr.merged_at) : Number.NaN
+    return Number.isNaN(mergedAtMs) || mergedAtMs <= nowMs - PR_MONITORING_HORIZON_MS
+        ? 'Pull requests merged more than 90 days ago are outside the monitoring window'
+        : undefined
+}

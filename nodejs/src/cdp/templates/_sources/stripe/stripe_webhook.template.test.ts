@@ -131,6 +131,28 @@ describe('stripe webhook template', () => {
         })
     })
 
+    it.each([
+        [
+            'diagnostic fields and a second v1 signature',
+            (t: number, v1: string) =>
+                `t=${t},v1=${v1},v1=${OTHER_SIGNATURE},v0=${OTHER_SIGNATURE},secret=whsec_test,destination=we_test,payload=a1b2c3d4`,
+        ],
+        ['the matching v1 signature last', (t: number, v1: string) => `t=${t},v1=${OTHER_SIGNATURE},v1=${v1}`],
+        ['the signature before the timestamp', (t: number, v1: string) => `v1=${v1},t=${t}`],
+    ])('should accept a stripe-signature header with %s', async (_, formatHeader) => {
+        const response = await tester.invoke(
+            {
+                signing_secret: 'whsec_testsecret',
+            },
+            {
+                request: createStripeWebhook('whsec_testsecret', undefined, formatHeader),
+            }
+        )
+
+        expect(response.execResult).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+    })
+
     it.each([null, '', undefined])(
         'should return 400 if signing_secret is %s and bypass_signature_check is false',
         async (signing_secret) => {
@@ -195,7 +217,13 @@ describe('stripe webhook template', () => {
     })
 })
 
-const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
+const OTHER_SIGNATURE = 'f'.repeat(64)
+
+const createStripeWebhook = (
+    secret: string,
+    body?: Record<string, any>,
+    formatHeader = (timestamp: number, signature: string): string => `t=${timestamp},v1=${signature}`
+) => {
     const payload = JSON.stringify({
         ...(body ? body : stripeWebhook),
     })
@@ -203,7 +231,7 @@ const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
     const timestamp = Math.floor(Date.now() / 1000)
     const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${payload}`, 'utf8').digest('hex')
 
-    const sigHeader = `t=${timestamp},v1=${signature}`
+    const sigHeader = formatHeader(timestamp, signature)
 
     return {
         method: 'POST',

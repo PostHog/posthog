@@ -14,8 +14,7 @@ import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOvervi
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSettings } from './ContentAutopilotSettings'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
-import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import {
     type ContentAutopilotWorkspaceTabDefinition,
     ContentAutopilotWorkspaceTabs,
@@ -37,9 +36,10 @@ const FilteredTab = ({
 export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
-    const { profile, workspaceTab, onboardingOpen, siteProfilesLoading, workspaceError } =
-        useValues(contentAutopilotLogic)
-    const { loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { workspaceTab } = useValues(contentAutopilotLogic)
+    const { onboarding, setupContext, setupContextError, setupContextLoading } = useValues(contentAutopilotSetupLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { loadSetupContext } = useActions(contentAutopilotSetupLogic)
 
     const tabs: ContentAutopilotWorkspaceTabDefinition[] = [
         {
@@ -74,46 +74,38 @@ export const ContentAutopilot = (): JSX.Element => {
                 </FilteredTab>
             ),
         },
-        // Settings belong to a site, so the tab waits until one is set up.
-        ...(profile
-            ? [
-                  {
-                      key: 'settings' as const,
-                      label: 'Settings',
-                      // pinned: was the settings gear's data-attr
-                      'data-attr': 'content-autopilot-settings',
-                      content: (
-                          <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
-                              <ContentAutopilotSitePicker />
-                              <ContentAutopilotSettings />
-                          </div>
-                      ),
-                  },
-              ]
-            : []),
+        {
+            key: 'settings',
+            label: 'Settings',
+            // pinned: was the settings gear's data-attr
+            'data-attr': 'content-autopilot-settings',
+            content: (
+                <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
+                    <ContentAutopilotSettings />
+                </div>
+            ),
+        },
     ]
 
     return (
         <div className="flex flex-col gap-4 pb-4" data-quill>
-            {workspaceError ? (
-                <AiVisibilityBanner
-                    type="error"
-                    action={{ children: 'Try again', onClick: loadWorkspace, loading: siteProfilesLoading }}
-                >
-                    Some AI visibility data could not be loaded. {workspaceError}
-                </AiVisibilityBanner>
-            ) : null}
-
-            {profile && onboardingOpen ? (
-                <ContentAutopilotSetup onboarding />
-            ) : promptId ? (
+            {promptId ? (
                 <ContentAutopilotPromptDetail />
+            ) : setupContextError && !setupContext ? (
+                // Without the context neither the setup wizard nor the overview can tell what to show.
+                <div data-attr="content-autopilot-setup-context-error">
+                    <AiVisibilityBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+                    >
+                        Couldn't load AI visibility. Try again, and if it keeps happening contact support.
+                    </AiVisibilityBanner>
+                </div>
+            ) : onboarding && workspaceTab === 'overview' ? (
+                // Setup runs as a wizard in place of the tabs, until the first results are in.
+                <ContentAutopilotPromptsOverview />
             ) : (
-                <ContentAutopilotWorkspaceTabs
-                    tabs={tabs}
-                    activeKey={workspaceTab === 'settings' && !profile ? 'overview' : workspaceTab}
-                    onChange={setWorkspaceTab}
-                />
+                <ContentAutopilotWorkspaceTabs tabs={tabs} activeKey={workspaceTab} onChange={setWorkspaceTab} />
             )}
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />

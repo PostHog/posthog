@@ -16,7 +16,8 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.dataclasses import frozen
 
-from products.dashboards.backend.query_sharing_debug import DashboardSharingOutcome, sharing_debug
+from products.dashboards.backend.facade.enums import DashboardSharingOutcome
+from products.dashboards.backend.query_sharing_debug import sharing_debug
 
 SHARING_EXECUTIONS = Counter(
     "posthog_dashboard_sharing_executions_total",

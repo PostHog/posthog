@@ -1,5 +1,5 @@
 import { CardError, LoadedCard, Target, load, loadText } from '.'
-import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -825,14 +825,31 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
-    it("finds a profile's alert files next to the profile, wherever the runner starts", () => {
+    it("finds a profile's alert files relative to the profile, wherever the runner starts", () => {
         const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+        mkdirSync(path.join(dir, 'runner', 'alerts'), { recursive: true })
+        const rules = write('runner/alerts/rules.yaml', 'groups: []\n')
+        const labels = write('labels.yaml', 'labels: {}\n')
+        const profilePath = write('runner/profile.yaml', { ...profile, alerts })
 
-        expect(loadCard(card, { ...profile, alerts }).alerts).toEqual({
-            rules: path.join(dir, 'alerts', 'rules.yaml'),
-            labels: path.join(path.dirname(dir), 'labels.yaml'),
+        expect(load(write('card.yaml', card), { profilePath }).alerts).toEqual({
+            rules,
+            labels,
             exclude: ['SyntheticLeftOut'],
         })
+    })
+
+    it.each(['rules', 'labels'] as const)('changes the profile hash when the alert %s file changes', (kind) => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml' }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
+        const before = loadCard(card, { ...profile, alerts })
+
+        write(alerts[kind], kind === 'rules' ? 'groups: []\n\n' : 'labels: { stage: test }\n')
+        const after = loadCard(card, { ...profile, alerts })
+
+        expect(after.profileHash).not.toBe(before.profileHash)
+        expect(after.cardHash).not.toBe(before.cardHash)
     })
 
     it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {

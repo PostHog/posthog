@@ -10,7 +10,7 @@ import { Manifest, evidenceOf, keyOf, release } from './lease'
 import { CloudProfile } from './profile'
 import { POLL_MS, RUN_TAG, settledStatus, stackStatus } from './stack'
 
-type Resource = { type: string; id: string }
+type Resource = { type: string; id: string; madeBy?: string }
 
 export type Receipt = {
     runId: string
@@ -26,7 +26,12 @@ const DELETE_ATTEMPTS = 2
 const CLUSTER = 'AWS::RDS::DBCluster'
 const RDS_CLUSTER_TAG = 'aws:rds:primaryDBClusterArn'
 const STACK = 'AWS::CloudFormation::Stack'
+const EC2_SNAPSHOT = 'AWS::EC2::Snapshot'
 const UNKNOWN = 'unknown'
+const AWS_RESERVED_MAKER_PREFIXES: [string, string][] = [
+    ['aws:backup:', 'AWS Backup'],
+    ['aws:dlm:', 'Data Lifecycle Manager'],
+]
 
 const ARN_TYPES: [RegExp, string][] = [
     [/^arn:aws:cloudformation:[^:]*:[^:]*:stack\/([^/]+)\/.+$/, STACK],
@@ -35,6 +40,7 @@ const ARN_TYPES: [RegExp, string][] = [
     [/^arn:aws:rds:[^:]*:[^:]*:cluster-snapshot:(.+)$/, 'AWS::RDS::DBClusterSnapshot'],
     [/^arn:aws:ec2:[^:]*:[^:]*:instance\/(.+)$/, 'AWS::EC2::Instance'],
     [/^arn:aws:ec2:[^:]*:[^:]*:volume\/(.+)$/, 'AWS::EC2::Volume'],
+    [/^arn:aws:ec2:[^:]*:[^:]*:snapshot\/(.+)$/, EC2_SNAPSHOT],
     [/^(arn:aws:secretsmanager:.+)$/, 'AWS::SecretsManager::Secret'],
 ]
 
@@ -47,6 +53,19 @@ function resourceOfArn(arn: string): Resource {
     }
     return { type: UNKNOWN, id: arn }
 }
+
+function makerOf(tags: { Key: string }[]): string | undefined {
+    return AWS_RESERVED_MAKER_PREFIXES.find(([prefix]) => tags.some(({ Key }) => Key.startsWith(prefix)))?.[1]
+}
+
+function resourceOfTagMapping({ ResourceARN, Tags = [] }: { ResourceARN: string; Tags?: { Key: string }[] }): Resource {
+    const resource = resourceOfArn(ResourceARN)
+    const madeBy = resource.type === EC2_SNAPSHOT ? makerOf(Tags) : undefined
+    return madeBy ? { ...resource, madeBy } : resource
+}
+
+export const leftBehind = ({ state, madeBy }: { state: string; madeBy?: string }): boolean =>
+    state !== GONE && madeBy === undefined
 
 const notFound = (error: unknown, ...codes: string[]): boolean =>
     error instanceof AwsError && codes.includes(error.code ?? '')
@@ -168,8 +187,8 @@ async function discover(
             'get-resources',
             '--tag-filters',
             `Key=${RUN_TAG},Values=${manifest.runId}`,
-        ])) as { ResourceTagMappingList: { ResourceARN: string }[] }
-        return ResourceTagMappingList.map(({ ResourceARN }) => resourceOfArn(ResourceARN))
+        ])) as { ResourceTagMappingList: { ResourceARN: string; Tags?: { Key: string }[] }[] }
+        return ResourceTagMappingList.map(resourceOfTagMapping)
     })
     for (const { id } of [...inventory.values()].filter(({ type }) => type === CLUSTER)) {
         await list(`the secret and backups of cluster ${id}`, async () => {
@@ -273,6 +292,20 @@ async function deleteStack(controller: Controller, profile: CloudProfile, manife
     }
 }
 
+const TAG_ONLY_TYPES = new Set([UNKNOWN, EC2_SNAPSHOT])
+
+function tagStateOf(resource: Resource, tagged: Set<string>): string {
+    if (!tagged.has(keyOfResource(resource))) {
+        return GONE
+    }
+    if (resource.madeBy) {
+        return `made outside the run, by ${resource.madeBy}`
+    }
+    return resource.type === EC2_SNAPSHOT
+        ? 'still tagged, with no AWS Backup or Data Lifecycle Manager tag'
+        : 'still tagged, of a type teardown does not judge'
+}
+
 async function receiptOf(
     controller: Controller,
     profile: CloudProfile,
@@ -285,15 +318,12 @@ async function receiptOf(
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
         const resources: Receipt['resources'] = []
         for (const resource of inventory.values()) {
-            const state =
-                resource.type === UNKNOWN
-                    ? tagged.has(keyOfResource(resource))
-                        ? 'still tagged, of a type teardown does not judge'
-                        : GONE
-                    : await stateOf(controller, resource).catch((error: Error) => `unreadable (${error.message})`)
+            const state = TAG_ONLY_TYPES.has(resource.type)
+                ? tagStateOf(resource, tagged)
+                : await stateOf(controller, resource).catch((error: Error) => `unreadable (${error.message})`)
             resources.push({ ...resource, state })
         }
-        const gone = resources.every(({ state }) => state === GONE)
+        const gone = !resources.some(leftBehind)
         if ((gone && failures.length === 0) || controller.now().getTime() >= until) {
             const unlisted = [...lost, ...failures]
             return {
@@ -348,13 +378,20 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         )
         return false
     }
+    const outside = receipt.resources.filter((resource) => resource.state !== GONE && resource.madeBy)
+    if (outside.length > 0) {
+        controller.warn(
+            [
+                `Teardown of run ${manifest.runId} found its tag on these, made outside the run and left to their owner:`,
+                ...outside.map(({ type, id, state }) => `- ${type} ${id}: ${state}`),
+            ].join('\n')
+        )
+    }
     if (!receipt.clean) {
         controller.warn(
             [
                 `Run ${manifest.runId} left these behind, so its stack-delete schedules stay:`,
-                ...receipt.resources
-                    .filter(({ state }) => state !== GONE)
-                    .map(({ type, id, state }) => `- ${type} ${id}: ${state}`),
+                ...receipt.resources.filter(leftBehind).map(({ type, id, state }) => `- ${type} ${id}: ${state}`),
                 ...receipt.unlisted.map((source) => `- could not list ${source}`),
                 finishOf(manifest),
             ].join('\n')
