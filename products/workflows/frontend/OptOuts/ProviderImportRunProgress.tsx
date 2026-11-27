@@ -56,6 +56,17 @@ function timeLeft(seconds: number): string {
     return `About ${hours} hours left`
 }
 
+function StepTimeLeft({ step }: { step: ImportStepProgressApi }): JSX.Element | null {
+    if (typeof step.seconds_left !== 'number') {
+        return null
+    }
+    return (
+        <div className="ml-6 text-xs text-secondary" data-attr={`${step.key}-import-time-left`}>
+            {timeLeft(step.seconds_left)}
+        </div>
+    )
+}
+
 function ItemRow({ item, onOpenLink }: { item: ImportStepItemApi; onOpenLink?: () => void }): JSX.Element {
     return (
         <li className="flex flex-col gap-0.5 py-1.5">
@@ -175,11 +186,7 @@ function ProviderImportStep({
                     {stepCounts(step)}
                 </span>
             </div>
-            {typeof step.seconds_left === 'number' && (
-                <div className="ml-6 text-xs text-secondary" data-attr={`${step.key}-import-time-left`}>
-                    {timeLeft(step.seconds_left)}
-                </div>
-            )}
+            <StepTimeLeft step={step} />
             {step.last_error && (
                 <div className={`ml-6 text-xs ${step.status === 'failed' ? 'text-danger' : 'text-warning'}`}>
                     {step.status === 'failed' ? step.last_error : `Retrying after an error: ${step.last_error}`}

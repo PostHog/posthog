@@ -124,8 +124,6 @@ class ImportStepProgress:
     # How many warnings and items didn't fit in the run's stored progress.
     warnings_omitted: int = 0
     items_omitted: int = 0
-    # While the step runs: about how many records it reads in all, when an earlier step of the run counted them, and
-    # how long the rest should take at its pace so far.
     total: int | None = None
     seconds_left: int | None = None
     skipped: bool = False

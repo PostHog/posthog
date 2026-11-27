@@ -690,7 +690,6 @@ class TestResendImport(BaseTest):
         assert state is not None
         opt_outs, topic_opt_outs = state.steps
         assert (opt_outs.total, opt_outs.seconds_left) == (None, None)
-        # Half of the contacts the opt-outs step read took a minute, so the other half should too.
         assert (topic_opt_outs.processed, topic_opt_outs.total, topic_opt_outs.seconds_left) == (2, 4, 60)
 
         # A worker from before this field existed still shows the total, with no time left.
@@ -725,7 +724,6 @@ class TestResendImport(BaseTest):
 
         assert state is not None
         opt_outs, topic_opt_outs = state.steps
-        # The resumed step counted only the contacts after its checkpoint, so it can't give the total.
         assert (opt_outs.processed, topic_opt_outs.processed) == (3, 2)
         assert (topic_opt_outs.total, topic_opt_outs.seconds_left) == (None, None)
 

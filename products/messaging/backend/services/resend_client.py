@@ -250,7 +250,6 @@ def read_ahead(pages: Iterator[ResendPage], read: Callable[[ResendPage], R]) -> 
     reader = threading.Thread(target=produce, name="resend-read-ahead", daemon=True)
     reader.start()
     try:
-        # The end of the pages, or the thread's error, once it was taken off the queue.
         ending: BaseException | None = None
         ended = False
         while not ended:
