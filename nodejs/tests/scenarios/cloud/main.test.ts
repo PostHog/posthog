@@ -1379,7 +1379,7 @@ describe('cloud controller', () => {
     })
 
     it('keeps the schedules while a snapshot with a tag anyone can set stays, and cleanup releases the run once it is gone', async () => {
-        const { controller } = prepare()
+        const { controller } = prepare({ env: api.credentials })
         cloud.hostVolumeSnapshots.push({ 'aws:backup:source-resource': 'vol-0' }, { 'dlm:managed': 'true' })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
@@ -1387,15 +1387,23 @@ describe('cloud controller', () => {
         const runId = leasedRunId()
         const unmarked = cloud.resources.find(({ tags }) => tags?.['dlm:managed'])!
         expect(err.join('\n')).toContain(`- AWS::EC2::Snapshot ${unmarked.id}: still tagged`)
+        expect(published()).toMatchObject({
+            teardown_clean: false,
+            teardown_leftovers: [
+                `AWS::EC2::Snapshot ${unmarked.id}: still tagged, with no AWS Backup or Data Lifecycle Manager tag`,
+            ],
+        })
         expect(cloud.schedules.size).toBe(2)
         expect(lastReceipt(runId)).toMatchObject({ clean: false })
 
+        now = new Date(now.getTime() + 60_000)
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(2)
         expect(cloud.schedules.size).toBe(2)
         expect(released(runId)).toBe(0)
         expect(lastReceipt(runId)).toMatchObject({ clean: false })
 
         cloud.resources.splice(cloud.resources.indexOf(unmarked), 1)
+        now = new Date(now.getTime() + 60_000)
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
 
         expect(cloud.schedules.size).toBe(0)
