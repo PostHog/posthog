@@ -159,6 +159,9 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 # Anyone can send these headers, and each extra id weakens the bloom index. References lists the newest ids last, and
 # those name the reply's parent, so only the last few of each header are read.
 _MAX_WIRE_IDS_PER_HEADER = 10
+# A reply needs In-Reply-To and References, and References keeps its newest ids at the end.
+_MAX_HEADERS = 2
+_MAX_HEADER_CHARS = 10_000
 
 # SES writes `<MessageId@email.amazonses.com>` or `@<region>.amazonses.com`, and the sent row keeps only the MessageId.
 _SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
@@ -195,9 +198,9 @@ def _without_comments(header: str) -> str:
 def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
     """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
     wire_ids: dict[str, str] = {}
-    for header in headers:
+    for header in headers[:_MAX_HEADERS]:
         newest: dict[str, str] = {}
-        for match in _SES_WIRE_MESSAGE_ID.finditer(_without_comments(header)):
+        for match in _SES_WIRE_MESSAGE_ID.finditer(_without_comments(header[-_MAX_HEADER_CHARS:])):
             newest.pop(match[1], None)
             newest[match[1]] = match[0]
             if len(newest) > _MAX_WIRE_IDS_PER_HEADER:
