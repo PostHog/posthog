@@ -115,15 +115,26 @@ describe('workflow webhook triggers per ramp step', () => {
         ])
     })
 
-    it('leaves a step with no answered attempt untimed and incomplete', () => {
+    it.each<[string, IntakeAnswer, Record<string, unknown>]>([
+        [
+            'leaves a step untimed when no attempt in it got an answer',
+            { accepted: false, transportError: 'ECONNRESET' },
+            { value: null, censored: true },
+        ],
+        [
+            'keeps the 503 timing when the retry after it timed out',
+            { accepted: false, transportError: 'TimeoutError', retries: 1, attemptsMs: [60] },
+            { value: 60 },
+        ],
+    ])('%s, and marks the step incomplete', (_, answer, timed) => {
         const rows = measure(
             [{ name: 'webhook_trigger_answer_ms', params: {} }],
-            evidence({ journal: [triggered('run-7', 0, 1000, { accepted: false, transportError: 'ECONNRESET' })] })
+            evidence({ journal: [triggered('run-7', 0, 1000, answer)] })
         )
 
         expect(rows.filter(({ key }) => key?.endsWith('_1x'))).toEqual([
-            expect.objectContaining({ key: 'p50_1x', value: null, censored: true, incomplete: true }),
-            expect.objectContaining({ key: 'p99_1x', value: null, censored: true, incomplete: true }),
+            expect.objectContaining({ key: 'p50_1x', ...timed, incomplete: true }),
+            expect.objectContaining({ key: 'p99_1x', ...timed, incomplete: true }),
         ])
     })
 
