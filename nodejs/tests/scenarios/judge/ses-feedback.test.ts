@@ -123,7 +123,7 @@ describe('SES feedback per ramp step', () => {
         expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
     })
 
-    it('censors the latency of a step where a post got no answer, keeping it as a lower bound', () => {
+    it('censors the latency of a step where a post got no status, leaving that post out', () => {
         const measured = measure([{ name: 'ses_feedback_ms', params: {} }], evidence(truth))
 
         expect(measured.map(({ key, value, censored, unmeasured }) => ({ key, value, censored, unmeasured }))).toEqual([
@@ -131,7 +131,7 @@ describe('SES feedback per ramp step', () => {
                 key,
                 value: key === 'p50_1x' ? 30 : 60,
                 censored: true,
-                unmeasured: '1 SES feedback post in this step got no answer, so its latency reads low',
+                unmeasured: '1 SES feedback post in this step got no status, so its latency leaves it out',
             })),
             ...[
                 ['p50_2x', 5],

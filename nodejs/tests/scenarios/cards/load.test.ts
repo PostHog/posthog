@@ -490,7 +490,7 @@ describe('load', () => {
             'a card that measures SES feedback on a profile without feedback shares',
             { ...card, measure: [{ name: 'ses_feedback_posts', params: {} }] },
             profile,
-            'profile.feedback: ses_feedback_posts measures SES feedback, so the profile needs shares that post some',
+            'profile.feedback: ses_feedback_posts measures SES feedback, so the profile needs shares that post some or the card a ses.reject bounce',
         ],
         [
             'a card that measures SES feedback on a profile whose shares post none',
@@ -499,7 +499,7 @@ describe('load', () => {
                 ...profile,
                 feedback: { delivery: 0, hardBounce: 0, softBounce: 0, complaint: 0, open: 0, click: 0 },
             },
-            'profile.feedback: ses_feedback_ms measures SES feedback, so the profile needs shares that post some',
+            'profile.feedback: ses_feedback_ms measures SES feedback, so the profile needs shares that post some or the card a ses.reject bounce',
         ],
         [
             'feedback shares on a profile with more than one cdp-api replica',
@@ -856,6 +856,17 @@ describe('load', () => {
 
     it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
         expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
+    })
+
+    it('accepts a card that measures SES feedback from a bounce fault on a profile without feedback shares', () => {
+        const measure = [{ name: 'ses_feedback_posts', params: {} }]
+        const bounces = {
+            ...card,
+            valves: [{ ...emailWorkerKill, valve: 'ses.reject', target: 'ses', dose: { type: 'bounce' } }],
+            measure,
+        }
+
+        expect(loadCard(bounces, profile).card.measure).toEqual(measure)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {

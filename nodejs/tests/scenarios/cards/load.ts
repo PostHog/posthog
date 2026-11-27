@@ -158,14 +158,15 @@ function checkIntakeProfile(profile: Profile): string[] {
 const FEEDBACK_MEASUREMENTS = ['ses_feedback_ms', 'ses_feedback_posts']
 
 function checkFeedbackProfile(card: Card, { feedback }: Profile): string[] {
-    const posts = feedback !== undefined && feedback.delivery + feedback.hardBounce + feedback.softBounce > 0
-    return posts
+    const sharesPost = feedback !== undefined && feedback.delivery + feedback.hardBounce + feedback.softBounce > 0
+    const faultsPost = card.valves.some(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
+    return sharesPost || faultsPost
         ? []
         : card.measure
               .filter(({ name }) => FEEDBACK_MEASUREMENTS.includes(name))
               .map(
                   ({ name }) =>
-                      `profile.feedback: ${name} measures SES feedback, so the profile needs shares that post some`
+                      `profile.feedback: ${name} measures SES feedback, so the profile needs shares that post some or the card a ses.reject bounce`
               )
 }
 

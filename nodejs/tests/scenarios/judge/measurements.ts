@@ -209,7 +209,7 @@ const unansweredOf = (posts: FeedbackPost[]): { censored?: true; unmeasured?: st
         ? {}
         : {
               censored: true,
-              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no answer, so its latency reads low`,
+              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no status, so its latency leaves ${unanswered === 1 ? 'it' : 'them'} out`,
           }
 }
 
