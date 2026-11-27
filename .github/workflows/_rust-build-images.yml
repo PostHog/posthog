@@ -294,15 +294,53 @@ jobs:
                   # hog runs hog-worker from its own folder, so the archive is extracted whole.
                   tar -xzf "$hog_dir/hog.tar.gz" -C "$hog_dir"
 
+                  # The build produced the archive, so its members are untrusted: a dependency's build
+                  # script can name any path in a dep-info file. This unpacks it unprivileged into an
+                  # empty folder, and refuses anything but regular files and folders under app/.
+                  unpack_sources() {
+                      python3 - "$1" "$2" <<'PY'
+                  import os, shutil, sys, tarfile
+
+                  archive, root = sys.argv[1], sys.argv[2]
+                  os.makedirs(root)
+                  with tarfile.open(archive) as tar:
+                      for member in tar:
+                          parts = member.name.split("/")
+                          safe = (
+                              parts[0] == "app"
+                              and len(parts) > 1
+                              and not any(part in ("", ".", "..") for part in parts)
+                              and (member.isfile() or member.isdir())
+                          )
+                          if not safe:
+                              sys.exit(f"refusing archive member {member.name!r}")
+                          target = os.path.join(root, *parts)
+                          if member.isdir():
+                              os.makedirs(target, exist_ok=True)
+                              continue
+                          os.makedirs(os.path.dirname(target), exist_ok=True)
+                          with tar.extractfile(member) as source, open(target, "xb") as destination:
+                              shutil.copyfileobj(source, destination)
+                  PY
+                  }
+
+                  sudo mkdir -p /app
                   for platform_dir in "$RUNNER_TEMP"/symbols/linux_*; do
-                      sudo rm -rf /app
-                      sudo tar -xf "$platform_dir/sources.tar" -C /
+                      platform=$(basename "$platform_dir")
+                      sources="$RUNNER_TEMP/symbol-sources/$platform"
+                      unpack_sources "$platform_dir/sources.tar" "$sources"
+                      # The bind mount puts only the unpacked app/ folder at the /app paths DWARF records.
+                      sudo mount --bind "$sources/app" /app
                       mkdir -p "$platform_dir/binary"
                       mv "$platform_dir/$BIN" "$platform_dir/binary/"
-                      env -u GITHUB_SHA "$hog_dir/hog" error-tracking upload "$platform_dir/binary" --include-source
-                      echo "Native debug symbols uploaded for $BIN ($(basename "$platform_dir"))"
+                      status=0
+                      env -u GITHUB_SHA "$hog_dir/hog" error-tracking upload "$platform_dir/binary" --include-source || status=$?
+                      sudo umount /app
+                      if [ "$status" -ne 0 ]; then
+                          exit "$status"
+                      fi
+                      echo "Native debug symbols uploaded for $BIN ($platform)"
                   done
-                  sudo rm -rf /app
 
             - name: Build failure properties
               if: failure()
