@@ -131,7 +131,7 @@ function copyCsv(panel: ContentPanel<ChartConfig>): void {
 
 // CSV joins the image formats under the tile's `download` and `copy` entries, so a tile has one entry for each.
 function withCsv(action: MenuAction, panel: ContentPanel<ChartConfig>): MenuAction {
-    const csv = { label: 'CSV', section: 'Data', disabledReason: null }
+    const csv = { label: '.csv', section: 'Data', disabledReason: null }
     if (action.key === 'download' && action.submenu) {
         const download = { ...csv, key: 'csv', dataAttr: 'dashboard-v2-chart-download-csv' }
         return { ...action, submenu: [...action.submenu, { ...download, onSelect: () => downloadCsv(panel) }] }
@@ -144,7 +144,7 @@ function withCsv(action: MenuAction, panel: ContentPanel<ChartConfig>): MenuActi
             submenu: [
                 {
                     key: 'png',
-                    label: 'PNG',
+                    label: '.png',
                     section: 'Image',
                     dataAttr: `${action.dataAttr}-png`,
                     disabledReason: action.disabledReason,
