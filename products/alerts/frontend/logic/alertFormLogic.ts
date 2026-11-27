@@ -313,6 +313,7 @@ export interface alertFormLogicValues {
     isAlertFormSubmitting: boolean
     isAlertFormValid: boolean
     metricsAlertPreview: MetricsAlertPreviewSeries | null
+    metricsPreviewFailed: boolean
     metricsPreviewResponse: MetricsQueryResponse | null
     metricsPreviewResponseLoading: boolean
     showAlertFormErrors: boolean
@@ -525,6 +526,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
     }),
 
     reducers({
+        metricsPreviewFailed: [
+            false,
+            {
+                loadMetricsPreviewResponse: () => false,
+                loadMetricsPreviewResponseFailure: () => true,
+            },
+        ],
         simulationDateFrom: [
             null as string | null,
             {
@@ -1106,8 +1114,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
             },
             loadMetricsPreviewResponseSuccess: () => {
-                const bounds = values.alertForm.threshold?.configuration?.bounds
-                if (props.alert || bounds?.lower != null || bounds?.upper != null) {
+                const { condition, threshold } = values.alertForm
+                const bounds = threshold?.configuration?.bounds
+                const untouched =
+                    condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
+                    threshold?.configuration?.type === InsightThresholdType.ABSOLUTE &&
+                    bounds?.lower == null &&
+                    bounds?.upper == null
+                if (props.alert || !untouched) {
                     return
                 }
                 const p95 = metricsPreviewP95(values.metricsAlertPreview)

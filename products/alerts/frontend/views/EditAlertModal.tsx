@@ -187,6 +187,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         funnelAlertPreview,
         metricsAlertPreview,
         metricsPreviewResponseLoading,
+        metricsPreviewFailed,
         hogqlResultColumns,
         hogqlValueColumnOptions,
         hogqlLabelColumnOptions,
@@ -199,6 +200,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         clearSimulation,
         setSimulationDateFrom,
         setAlertFormSubmitAttempted,
+        loadMetricsPreviewResponse,
     } = useActions(formLogic)
     const { setAlertFormValue } = useActions(formLogic)
 
@@ -507,6 +509,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             metricsPreview={metricsPreviewSeries}
+            metricsPreviewFailed={metricsPreviewFailed}
+            onRetryMetricsPreview={loadMetricsPreviewResponse}
             checkPreview={checkPreview}
             previewHistoryTooShort={previewHistoryTooShort}
             loading={!useAlertCheckPreview && (insightLoading || insightDataLoading || metricsPreviewResponseLoading)}

@@ -82,6 +82,41 @@ describe('AlertPreviewCard', () => {
         expect(within(container).getByText(title)).toBeTruthy()
     })
 
+    it('charts a metrics preview too large to spread into Math.max', () => {
+        const metricsForm = { ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType
+        const data = Array.from({ length: 200_000 }, (_, i) => i % 100)
+
+        expect(() =>
+            render(
+                <AlertPreviewCard
+                    alertForm={metricsForm}
+                    trendsValues={null}
+                    funnelPreview={null}
+                    hogqlPreview={null}
+                    metricsPreview={{ rows: [{ key: '0', label: 'latency', data }], labels: [] }}
+                />
+            )
+        ).not.toThrow()
+    })
+
+    it('offers a retry when the metrics preview fails to load', () => {
+        const onRetry = jest.fn()
+        const { container } = render(
+            <AlertPreviewCard
+                alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType}
+                trendsValues={null}
+                funnelPreview={null}
+                hogqlPreview={null}
+                metricsPreview={null}
+                metricsPreviewFailed
+                onRetryMetricsPreview={onRetry}
+            />
+        )
+
+        within(container).getByText('Try again').click()
+        expect(onRetry).toHaveBeenCalled()
+    })
+
     it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {
         const { container } = render(
             <AlertPreviewCard

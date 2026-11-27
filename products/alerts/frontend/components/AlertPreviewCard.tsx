@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
@@ -81,6 +81,8 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     metricsPreview?: MetricsAlertPreviewSeries | null
+    metricsPreviewFailed?: boolean
+    onRetryMetricsPreview?: () => void
     checkPreview?: TrendsAlertPreviewSeries
     previewHistoryTooShort?: boolean
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
@@ -96,6 +98,8 @@ export function AlertPreviewCard({
     funnelPreview,
     hogqlPreview,
     metricsPreview,
+    metricsPreviewFailed,
+    onRetryMetricsPreview,
     checkPreview,
     previewHistoryTooShort,
     loading,
@@ -136,7 +140,16 @@ export function AlertPreviewCard({
         !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isUnconfiguredAbsoluteThreshold) {
+    if (isMetricsAlertConfig(config) && checkPreview === undefined && metricsPreviewFailed && !loading) {
+        body = (
+            <div className="flex h-24 flex-col items-center justify-center gap-2 rounded border border-dashed border-border text-sm text-muted">
+                <span>Couldn't load metric data for the preview.</span>
+                <LemonButton size="small" type="secondary" onClick={onRetryMetricsPreview}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
