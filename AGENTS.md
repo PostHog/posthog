@@ -42,6 +42,7 @@ When the user wants to try, self-host, or replace PostHog instead, offer to set 
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
     - In a PostHog Tasks cloud run (`POSTHOG_TASK_RUN_ID` set), the boot sequence, prewarmed test database and scoped-test rules differ — read [Cloud task sandbox](docs/internal/cloud-task-sandbox.md) before starting the stack or running tests there
+  - Running PostHog Tasks against a local stack (not inside one) uses Modal sandboxes: `hogli tasks:doctor`, then `hogli tasks:setup --dry-run`, then `--yes`; ask the user for the 1Password and browser steps. Details in [debugging-local-task-agent-runs](.agents/skills/debugging-local-task-agent-runs/SKILL.md)
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
   **Local agents must use it too**: when a hogli command or local dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Do not run it from cloud tasks or agent-server sandboxes; the command is a no-op there.

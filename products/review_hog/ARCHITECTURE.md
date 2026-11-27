@@ -202,13 +202,9 @@ Check these four things before a local `run_review`; don't re-derive them from c
    (phrocs MCP `get_process_status`, or the `hogli` TUI). It hot-reloads via nodemon on any
    `products/**/*.py` edit — **never start a second worker** (it dies on port 8001 already-in-use).
    The `backend` process must be running too.
-2. **ngrok tunnels up** (only the user can start ngrok): `curl -s http://localhost:4040/api/tunnels`
-   must list all three — `django` → :8010, `gateway` → :3308 (LLM gateway), `mcp` → :8787.
-   Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
-   A tunnel can be up while its local service is down: the `llm-gateway` process can crash at stack
-   boot (exit 127), which shows as HTTP 502 on the gateway tunnel while django/mcp answer 200.
-   Probe all three from Modal's network, and on a 502 check the process in phrocs and restart it —
-   the tunnel itself is fine.
+2. **Sandbox setup healthy**: `hogli tasks:doctor` passes and the Funnel is up (only the user can
+   start it on their laptop when the stack runs on a devbox). See the
+   [sandboxes setup guide](../../docs/internal/sandboxes-setup-guide.md).
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
    draft. Private repos outside PostHog work: fetch, clone, and publish all resolve the team's
@@ -241,9 +237,9 @@ docker exec posthog-temporal-1 tctl --address temporal:7233 --ns default workflo
 ```
 
 **Stall check — confirm the sandboxes are alive after the fan-out.** Within ~15–20 minutes of the
-perspective wave starting, the ngrok request log (`curl -s "http://localhost:4040/api/requests/http?limit=5"`,
-or the ngrok terminal dashboard) must show task fetches from the sandboxes. Open `issues-review`
-process-task workflows with **zero** tunnel traffic means the sandboxes never started — the worker
+perspective wave starting, the backend request log (the `backend` process in phrocs) must show
+task fetches from the sandboxes. Open `issues-review` process-task workflows with **zero** sandbox
+traffic means the sandboxes never started — the worker
 can wedge before sandbox provisioning while its heartbeat signals keep flowing, so Temporal looks
 alive and artefact-count polling can't tell "slow agents" from "nothing running" (perspective units
 normally finish in ~8–15 min). A run in that state does not recover on its own: restart the

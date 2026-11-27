@@ -516,7 +516,9 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 
 ### Sandbox isolation
 
-|           | Production (Modal)                     | Local dev (Docker)                      |
+Local development uses Modal too (`SANDBOX_PROVIDER=MODAL_DOCKER`). The Docker provider is a local backup:
+
+|           | Production (Modal)                     | Local backup (Docker)                   |
 | --------- | -------------------------------------- | --------------------------------------- |
 | Isolation | gVisor container or VM microVM         | Standard Docker container               |
 | Network   | Configurable via `SandboxEnvironment`  | Host network via `host.docker.internal` |
@@ -875,22 +877,8 @@ No dedicated evidence tables, prompt archive, or dispatch receipts are required.
 
 ## Local development
 
-To set up sandboxed agents for local development:
-
-1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md#github-app) for details)
-2. Run `python manage.py setup_background_agents`
-3. Run `hogli start`
-
-The setup command is idempotent and handles:
-
-- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`, `SANDBOX_MCP_URL`) to your `.env`
-- Creating the Array OAuth application
-- Enabling the `tasks` feature flag for all teams
-- Building the agent skills bundle
-
-For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
-
-**Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
+Local sandboxed agents are for PostHog staff, because they use a staff AI gateway dev mode token.
+They run on Modal sandboxes, set up with `hogli tasks:setup` and `hogli tasks:funnel up`; follow the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
 
 ### Workflow integration tests
 

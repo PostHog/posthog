@@ -1,15 +1,118 @@
 # Cloud runs: local setup guide
 
+> **PostHog staff only.** This flow runs model calls through a staff AI gateway dev mode token.
+
 ## Quickstart
+
+Local task runs use Modal sandboxes (`SANDBOX_PROVIDER=MODAL_DOCKER`), the same sandboxes production uses.
+Run these from your devbox (or your laptop, if the stack runs there):
 
 1. Create a personal dev GitHub App (see [GitHub App](#github-app) below)
 2. Run `python manage.py setup_background_agents`
-3. Run `hogli start`
-4. Open Tasks in PostHog and create a task
+3. Run `hogli tasks:setup` to write the sandbox env (see [What `hogli tasks:setup` does](#what-hogli-taskssetup-does))
+4. Run `hogli tasks:funnel up` to expose the API and MCP to Modal. On a devbox, run this one on your laptop (see [Devbox](#devbox))
+5. Re-activate flox, then run `hogli stop && hogli up -d`
+6. Open Tasks in PostHog and create a task
 
-The setup command is idempotent — re-run it anytime. It writes the dev JWT keys
+When something is off, run `hogli tasks:doctor`.
+
+`setup_background_agents` is idempotent — re-run it anytime. It writes the dev JWT keys
 to your `.env`, creates the Array OAuth application, enables the `tasks` feature
 flag for every team, and builds the agent skills bundle.
+
+### Why Modal (`MODAL_DOCKER`)
+
+- It runs on the same Modal sandboxes as production, under separate `posthog-sandbox-modal-docker-*` apps, so it never touches the production apps or their image cache.
+- It builds the sandbox image from your branch's local Dockerfiles, so the image follows your branch.
+- It only works with `DEBUG` on, which the flox env sets.
+
+Gotchas:
+
+- The first run after an image change builds the image on Modal and takes minutes. Later runs reuse Modal's layer cache.
+- After editing a sandbox Dockerfile, restart the Temporal worker: the build context is cached for the life of the worker process.
+- Switching branches switches the image with it.
+
+### What `hogli tasks:setup` does
+
+It writes these keys:
+
+| Key                                     | Value                                                     |
+| --------------------------------------- | --------------------------------------------------------- |
+| `SANDBOX_PROVIDER`                      | `MODAL_DOCKER`                                            |
+| `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` | The shared Modal token (see [Modal token](#modal-token))  |
+| `SANDBOX_AI_GATEWAY_URL`                | `https://gateway.us.posthog.com`                          |
+| `SANDBOX_AI_GATEWAY_PRODUCTS`           | The local run products, including `posthog_code`          |
+| `SANDBOX_AI_GATEWAY_DEV_TOKEN`          | Your staff dev mode token (see [AI gateway](#ai-gateway)) |
+| `SANDBOX_API_URL`                       | `https://<machine>.<tailnet>.ts.net`                      |
+| `SANDBOX_MCP_URL`                       | `https://<machine>.<tailnet>.ts.net:10000/mcp`            |
+
+It changes your env safely:
+
+- It shows the plan first. `--dry-run` prints the plan and writes nothing.
+- It needs `--yes` when there is no terminal to confirm in, and `--force` to overwrite a value you already set.
+- It writes each key to the file where it wins. `flox activate` sources `.env` into the shell, so `.env` beats `.env.local`.
+- It backs up the file before writing, and comments out stale keys instead of deleting them.
+- It masks secrets in its output.
+- It ends with the steps left for you, and a reminder to re-activate flox and run `hogli stop && hogli up -d`.
+
+### Modal token
+
+Use only the shared **"Modal Development Token"** in the **General** vault of PostHog's 1Password.
+`hogli tasks:setup` reads it with the 1Password CLI (`op`). If `op` isn't installed or signed in, it points you to that item.
+
+Do not create a personal Modal token (`modal token new`): we keep to one shared token to avoid token sprawl.
+
+### AI gateway
+
+Sandbox runs call the production gateway at `https://gateway.us.posthog.com` with your staff dev mode token. You don't need to run the Go ai-gateway locally.
+
+- `hogli tasks:setup` gets the token with `hogli gateway:token --ttl 7d`. Approve it in your browser at `https://us.posthog.com/settings/user-ai-gateway-dev-mode`.
+- The token has a spend cap, lasts at most 7 days, and its usage is attributed to you.
+- It is stored in `SANDBOX_AI_GATEWAY_DEV_TOKEN`, a dev-only setting. With `DEBUG` on the worker passes it straight to the sandbox; with `DEBUG` off the worker refuses it.
+- When it expires, run `hogli tasks:setup --refresh-token`, then re-activate flox and run `hogli stop && hogli up -d`. Restarting only the worker keeps the old token, because the stack takes its env from the flox shell.
+- A sandbox that gets no gateway token derives its gateway from its API URL (`SANDBOX_API_URL`, else `SITE_URL`). For any host other than localhost, including the Funnel URL, that falls through to the production gateway, and the agent hangs silently after its first prompt.
+
+### Tailscale Funnel
+
+Modal sandboxes run in the cloud and can't reach `localhost`. `hogli tasks:funnel up` exposes your API and MCP server through [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
+It needs Tailscale installed and connected to the PostHog tailnet, with Funnel and HTTPS certificates enabled for your machine:
+
+| Public port | Service | Local target         |
+| ----------- | ------- | -------------------- |
+| `443`       | API     | Caddy on `8010`      |
+| `10000`     | MCP     | MCP server on `8787` |
+
+On a devbox it also runs the laptop-to-devbox port forwards, and carries the gateway token over.
+
+Funnel URLs are stable per machine, so `SANDBOX_API_URL` and `SANDBOX_MCP_URL` only need writing once. Funnel can only serve ports `443`, `8443` and `10000`.
+Anyone who learns the URL can reach these services, so run `hogli tasks:funnel down` when you're done.
+A Funnel that answers HTTP 502 is up while its local service is down: restart that service.
+
+### Devbox
+
+Most of us work on [Coder devboxes](coder-workspaces.md). The stack runs on the box, while the Funnel runs on your laptop:
+
+1. On the devbox: `hogli tasks:setup --funnel-host <laptop>.<tailnet>.ts.net`, so the Funnel URLs point at your laptop
+2. On your laptop: `hogli tasks:funnel up`
+3. On the devbox: re-activate flox, then `hogli stop && hogli up -d`
+
+`<machine>` in the Funnel URLs is the machine that runs the Funnel. Find your laptop's name with `tailscale status --json | jq -r .Self.DNSName` on the laptop.
+
+### `hogli tasks:doctor`
+
+It checks:
+
+- the sandbox provider
+- that the Modal token is present
+- that the dev token is live, and its remaining budget
+- that the Funnel is reachable
+- keys in `.env` that shadow `.env.local`
+
+### Docker provider (backup)
+
+`SANDBOX_PROVIDER=docker` runs sandboxes as local Docker containers. It does not reflect production.
+Use it only for foundational changes that need a fully local loop, such as the sandbox base image or agent-server internals.
+It needs `DEBUG` on, and it reaches the host through `host.docker.internal`, so comment out the `SANDBOX_API_URL` that `tasks:setup` wrote.
 
 > To trigger runs from Slack (`@PostHog <task>`) instead of the UI, set up a dev Slack
 > workspace and app once this guide is working — see
@@ -87,7 +190,7 @@ orchestrates these activities:
    validates the GitHub integration and repository, and builds a
    `TaskProcessingContext` carrying all the IDs needed by later activities
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a
-   Docker sandbox (reusing a snapshot if one exists), clones the repository, and
+   sandbox (reusing a snapshot if one exists), clones the repository, and
    stores the sandbox URL in `TaskRun.state`
 3. **start_agent_server** — Prepares and starts the agent server inside the sandbox, then polls `/health` until it responds.
    Modal uploads one preparation script to install the shell environment hook and GitHub CLI shim.
@@ -202,61 +305,7 @@ is happening with a background cloud run and for debugging. You can also use Pos
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## Testing with local agent packages (you only need to do this if you are making changes to the agent package, otherwise ignore this)
-
-To test changes to `@posthog/agent` before publishing:
-
-### Modal credentials
-
-Both `MODAL_DOCKER` and `modal` providers require a Modal API token.
-Look up **"Modal Development Token"** in 1Password and add the values to your `.env`:
-
-```bash
-MODAL_TOKEN_ID=<token_id>
-MODAL_TOKEN_SECRET=<token_secret>
-```
-
-> **Docker sandboxes derive the LLM gateway from `SITE_URL`.** It reaches the sandbox as
-> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
-> `host.docker.internal` to the local gateway on 3308. Any other host — an ngrok domain set for
-> Slack or webhook testing, for instance — falls through to the production gateway, which a local
-> run token cannot authenticate against. The failure is silent: the agent boots, sends its first
-> prompt, and idles until its inactivity window closes it, with nothing in the gateway or agent
-> logs. If `SITE_URL` is not localhost, set
-> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` as well.
-
-### Tunnel gateway, API, and MCP
-
-If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
-you'll need to expose the Django API, LLM gateway, and MCP server publicly. We use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel).
-
-The eval harness sets Funnel up and tears it down automatically on a Modal run, so for evals you don't need to do any of this by hand — it only needs the daemon running and Funnel enabled (below). This section is for driving a Modal sandbox manually (e.g. from a task run).
-
-First, install Tailscale, start the daemon, and sign in:
-
-```bash
-tailscale up
-```
-
-Then enable Funnel for the tailnet and this node in the [admin console](https://login.tailscale.com/admin/acls) (grant the `funnel` node attribute) and make sure HTTPS certificates are enabled for the tailnet. Funnel only serves three public ports — `443`, `8443`, and `10000` — which is exactly enough for the three services. Point each one at the corresponding local port:
-
-```bash
-tailscale funnel --bg --https=443 8000    # Django API
-tailscale funnel --bg --https=8443 3308   # LLM gateway
-tailscale funnel --bg --https=10000 8787  # MCP server
-```
-
-Find your node's public hostname (the MagicDNS name) with `tailscale status --json | jq -r .Self.DNSName`, then set the resulting URLs in your `.env` (the `443` service drops the port):
-
-```bash
-SANDBOX_API_URL=https://<node>.<tailnet>.ts.net
-SANDBOX_LLM_GATEWAY_URL=https://<node>.<tailnet>.ts.net:8443
-SANDBOX_MCP_URL=https://<node>.<tailnet>.ts.net:10000/mcp
-```
-
-Funnel exposes these services to anyone on the internet who learns the URL, so turn the mappings off when you're done: `tailscale funnel --https=443 off` (and likewise for `8443` and `10000`).
-
-`SANDBOX_MCP_URL` overrides the `host.docker.internal` default (which only resolves from local Docker sandboxes, not Modal). Without it, sandbox agents can't reach the MCP server and lose access to the PostHog `execute-sql`, query, and tool-calling stack.
+## Reference
 
 ### AI gateway token caps
 
@@ -439,30 +488,27 @@ It does not inspect script files: invoke validation directly or through a suppor
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.
 
-For local Docker, the worker builds the packages inside the sandbox image. The first build installs the workspace dependencies. Later source changes reuse those dependencies from the Docker build cache.
-
 ```bash
 # In your .env:
-SANDBOX_PROVIDER=docker
 # The agent workspace lives in this repo at packages/agent
 LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./packages/agent
 ```
 
-Restart the temporal worker after changing `.env`.
-
-For local Modal, set `SANDBOX_PROVIDER=MODAL_DOCKER`, build the packages, and restart the temporal worker:
+After setting it, re-activate flox and run `hogli stop && hogli up -d`. With `MODAL_DOCKER`, build the packages, then restart the temporal worker after each change (see [How `MODAL_DOCKER` works](#how-modal_docker-works)):
 
 ```bash
 pnpm --dir packages/agent build
 ```
 
+With the Docker provider, the worker builds the packages inside the sandbox image. The first build installs the workspace dependencies. Later source changes reuse those dependencies from the Docker build cache.
+
 ### Sandbox providers
 
-| Provider          | `.env` value                    | When to use                                                                                                                                                                                                                                                                                                                                           |
-| ----------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                                                                                      |
-| `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, each local package's external runtime dependencies are installed and its compiled output is overlaid onto the image. |
-| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. Uses the published agent by default and builds local agent packages when `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set. This is the recommended option for local development.                                                                                              |
+| Provider          | `.env` value                    | When to use                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                                                                                                                                                   |
+| `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development (recommended).** Same sandboxes as `modal`, but in separate Modal apps (`posthog-sandbox-modal-docker-*`), so local image builds from your branch's Dockerfiles don't pollute the production app cache. `DEBUG` required. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, each local package's external runtime dependencies are installed and its compiled output is overlaid onto the image. |
+| `docker`          | `SANDBOX_PROVIDER=docker`       | Backup: local-only Docker containers (`DEBUG` required) that do not reflect production. For foundational changes that need a fully local loop, such as the sandbox base image or agent-server internals. Uses the published agent by default and builds local agent packages when `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set.                                                                                       |
 
 ### Modal apps
 
@@ -614,19 +660,19 @@ cd packages/agent/packages/agent && pnpm build
 
 | Problem                                                                                                      | Solution                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker not running                                                                                           | Start Docker Desktop or the Docker daemon                                                                                                                                                                                                                                                                                                                                                                              |
+| Docker not running (Docker provider)                                                                         | Start Docker Desktop or the Docker daemon                                                                                                                                                                                                                                                                                                                                                                              |
 | Temporal not reachable                                                                                       | Ensure Temporal is running on `127.0.0.1:7233`. Check with `temporal server start-dev`                                                                                                                                                                                                                                                                                                                                 |
 | Feature flag not enabled                                                                                     | Re-run `python manage.py setup_background_agents` to (re-)create the `tasks` flag at 100% rollout                                                                                                                                                                                                                                                                                                                      |
 | Array OAuth app missing                                                                                      | Re-run `python manage.py setup_background_agents`                                                                                                                                                                                                                                                                                                                                                                      |
 | `PostHog AI app not found for region ...`                                                                    | The PostHog AI OAuth app is missing. Run `python manage.py setup_tasks_oauth`, which creates both the Array and PostHog AI dev apps. Deploys run it from `bin/migrate`; it no-ops in the US/EU regions                                                                                                                                                                                                                 |
 | GitHub token expired                                                                                         | Tokens from GitHub App installations expire after ~1 hour. Re-run the task to get a fresh token                                                                                                                                                                                                                                                                                                                        |
 | "Task workflow execution blocked"                                                                            | The `tasks` feature flag is not enabled for this user/org                                                                                                                                                                                                                                                                                                                                                              |
-| Sandbox image build fails                                                                                    | Check Docker has enough disk space. Delete old images with `docker system prune`                                                                                                                                                                                                                                                                                                                                       |
-| Agent server health check fails                                                                              | Check sandbox logs: `docker exec <container_id> cat /tmp/agent-server.log`                                                                                                                                                                                                                                                                                                                                             |
+| Sandbox image build fails                                                                                    | With `MODAL_DOCKER`, read the build logs under the `posthog-sandbox-modal-docker-*` apps in the Modal dashboard. With Docker, check disk space and delete old images with `docker system prune`                                                                                                                                                                                                                        |
+| Agent server health check fails                                                                              | Read `/tmp/agent-server.log` inside the sandbox, as described in the [debugging-local-task-agent-runs](../../.agents/skills/debugging-local-task-agent-runs/SKILL.md) skill                                                                                                                                                                                                                                            |
+| Model calls fail with an auth error                                                                          | The dev mode token expired or ran out of budget. `hogli tasks:doctor` shows which. Run `hogli tasks:setup --refresh-token`, then re-activate flox and run `hogli stop && hogli up -d`                                                                                                                                                                                                                                  |
 | `SANDBOX_JWT_PRIVATE_KEY` missing                                                                            | Re-run `python manage.py setup_background_agents` — it will auto-fill from `.env.example`                                                                                                                                                                                                                                                                                                                              |
-| Port conflict on sandbox host port                                                                           | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker                                                                                                                                                                                                                             |
-| Sandbox can't reach PostHog API                                                                              | Don't set `SANDBOX_API_URL` with Docker — auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                                                                                                                                                                                                                                                         |
+| Port conflict on sandbox host port (Docker provider)                                                         | DockerSandbox maps container port 47821 to a dynamic host port. Check sandbox logs or TaskRun state for the assigned port; if another process uses it, stop that process or restart Docker                                                                                                                                                                                                                             |
+| Sandbox can't reach PostHog API or MCP                                                                       | With `MODAL_DOCKER`, check `hogli tasks:funnel up` is running and `hogli tasks:doctor` reports the Funnel reachable. With Docker, leave `SANDBOX_API_URL` unset: the auto-transform handles it. If overriding, use port 8000, not 8010 (Caddy returns empty responses from inside Docker)                                                                                                                              |
 | MCP Store connectors don't mount in local sandbox runs (agent lists only `posthog` and `posthog-code-tools`) | Known local-dev gap: store-connector proxy URLs are built from `SANDBOX_API_URL`/`SITE_URL` and, unlike sandbox env vars, are not rewritten to `host.docker.internal` for Docker. The agent SDK drops unreachable servers silently. Affects loop and workflow connectors locally; prod URLs are public so it never applies there                                                                                       |
-| `DEBUG` not set                                                                                              | `SANDBOX_PROVIDER=docker` requires `DEBUG=1`. Re-run `python manage.py setup_background_agents` to write it                                                                                                                                                                                                                                                                                                            |
 | `... sandbox is for local development only` (RuntimeError at import)                                         | The `docker` / `MODAL_DOCKER` providers require `DEBUG=1` (or `TEST=1`, which pytest sets). `DEBUG=1` is normally injected by the flox env (`.flox/env/manifest.toml` `[vars]`) — this fires when you're outside `flox activate` or explicitly unset `DEBUG` (e.g. to escape the cloud-DEBUG guard). Keep `DEBUG` on and use `CLOUD_DEPLOYMENT=E2E` for cloud-mode dev instead. See [dev-env-vars.md](dev-env-vars.md) |
 | `git commit is disabled in PostHog Desktop`                                                                  | A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) blocks `git commit` and `git push` so unsigned commits can't leave the sandbox. Stage changes with `git add`, then use the `git_signed_commit` tool. To bypass during debugging, set `POSTHOG_ALLOW_UNSIGNED_GIT=1`                                                                                                                                             |

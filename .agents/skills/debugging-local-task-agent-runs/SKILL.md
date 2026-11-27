@@ -1,54 +1,45 @@
 ---
 name: debugging-local-task-agent-runs
-description: 'Debug the output of local PostHog task runs: the wizard cloud-run path that executes inside a Docker sandbox under the local Temporal `process-task` workflow (the wizard that integrates PostHog, then the coding agent that commits and opens the PR). Use when a local run looks stuck, failed, or silent, or when you need to read the wizard or agent logs. Covers the `.env.local` keys and the `ai_gateway` capability required for cloud runs locally, finding the task UUID (docker ps, temporal CLI, Temporal UI at localhost:8081), tailing live logs inside the sandbox container (`/tmp/posthog-wizard.log`, `/tmp/agent-server.log`), and reading the durable per-run console log from object storage after the sandbox is torn down. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, AI_GATEWAY, cloud_run, posthog-wizard.log.'
+description: 'Set up and debug local PostHog task runs: the Temporal `process-task` workflow that runs the agent (and, for the wizard cloud-run path, the setup wizard first) inside a Modal sandbox (`SANDBOX_PROVIDER=MODAL_DOCKER`). Use when setting up local task sandboxes, when a local run looks stuck, failed, or silent, or when you need the wizard or agent logs, live from the sandbox or from object storage after teardown. Trigger terms: task-sandbox, run_wizard, agent-server, process-task, SANDBOX_PROVIDER, MODAL_DOCKER, AI_GATEWAY, cloud_run, posthog-wizard.log, tasks:setup, tasks:funnel, tasks:doctor.'
 ---
 
 # Debugging local task/agent runs
 
-A "cloud run" of the Tasks product (e.g. the setup-wizard `cloud_run` endpoint) executes as the Temporal **`process-task`** workflow on the `development-task-queue`. Locally (`SANDBOX_PROVIDER=docker`) each run gets a **Docker sandbox container** in which two things happen in sequence:
+A "cloud run" of the Tasks product executes as the Temporal **`process-task`** workflow on the `development-task-queue`. Locally each run gets a **Modal sandbox** (`SANDBOX_PROVIDER=MODAL_DOCKER`), in which:
 
-1. **`run_wizard`** activity — runs the published `@posthog/wizard` to integrate PostHog (writes `/tmp/posthog-wizard.log`).
-2. **`agent-server`** — the coding agent that commits the wizard's changes, opens the PR, and keeps it green (writes `/tmp/agent-server.log`).
+1. **`run_wizard`** activity — wizard cloud runs only: runs the published `@posthog/wizard` to integrate PostHog (writes `/tmp/posthog-wizard.log`).
+2. **`agent-server`** — the coding agent that does the task, commits, opens the PR, and keeps it green (writes `/tmp/agent-server.log`).
 
 The hard part of debugging is that **the Temporal UI doesn't show this output** — workflow result/failure payloads are `binary/encrypted`, and the activity captures the wizard/agent output to the run's logs, not to the timeline. This skill is how you actually read it.
 
-## Prerequisites: env for local cloud runs
+The full setup guide is [docs/internal/sandboxes-setup-guide.md](../../../docs/internal/sandboxes-setup-guide.md). This flow is for PostHog staff only.
 
-Cloud runs only work locally if **all** of these are set in `.env.local` (values shown are the local targets — never commit real secrets). Inside the Docker sandbox, `localhost` is the container itself, so PostHog URLs use `host.docker.internal`.
+## Step 0 — check the setup
 
-| Key                             | Purpose / local value                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `SANDBOX_PROVIDER`              | `"docker"` — route sandboxes to local Docker instead of Modal                                          |
-| `SANDBOX_MCP_URL`               | `"http://host.docker.internal:8787/mcp"` — MCP server the agent uses                                   |
-| `SANDBOX_AI_GATEWAY_URL`        | `"http://host.docker.internal:8080"`: local Go AI gateway the agent routes model calls through         |
-| `SANDBOX_AI_GATEWAY_WORKER_URL` | `"http://localhost:8080"`: the same gateway as the Tasks worker reaches it, for token minting          |
-| `SANDBOX_AI_GATEWAY_PRODUCTS`   | comma-separated `ai_product` values to route; must list the run's product or the run fails to start    |
-| `SANDBOX_AI_GATEWAY_MINT_KEY`   | the dev `phs_` key that `bin/setup-gateway-e2e` mints (`DEV_GATEWAY_PHS`); the worker mints run tokens |
-| `SANDBOX_JWT_PRIVATE_KEY`       | signs the scoped sandbox tokens                                                                        |
-| `GITHUB_APP_CLIENT_ID`          | your local GitHub App (clone + PR)                                                                     |
-| `GITHUB_APP_CLIENT_SECRET`      | ""                                                                                                     |
-| `GITHUB_APP_SLUG`               | ""                                                                                                     |
-| `GITHUB_APP_PRIVATE_KEY`        | ""                                                                                                     |
-
-Two non-env requirements, or the keys above are inert:
-
-- **The Go AI gateway must actually be running on `:8080`.** Enable the `ai_gateway` capability so the `ai-gateway` proc runs `bin/start-ai-gateway`. It needs a sibling clone of `PostHog/ai-gateway` (default `~/Development/ai-gateway`) and its own provider keys. `SANDBOX_AI_GATEWAY_URL` pointing at a dead port yields `ConnectionRefused` from the agent.
-- **The wizard OAuth app must exist** — `bin/ensure-local-setup` provisions it and sets `WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`; without it the `cloud_run` endpoint returns 404 "not available".
-
-After editing `.env.local`, **restart the stack** — env is read at process start, not hot-reloaded.
-
-## Step 1 — find the task UUID
-
-You need the **task UUID** for the container, and sometimes the **run UUID** for the durable log. The workflow id encodes both: `task-processing-<task_id>-<run_id>`.
-
-Fastest (no Temporal needed — the sandbox container name carries the task UUID):
+Run these in order:
 
 ```bash
-docker ps --format '{{.Names}}' | grep task-sandbox
-# task-sandbox-<TASK_ID>-<suffix>
+hogli tasks:doctor             # provider, Modal token, dev token and budget, Funnel, .env/.env.local shadowing
+hogli tasks:setup --dry-run    # the plan; writes nothing
+hogli tasks:setup --yes        # apply it (add --force only to overwrite a value the user set)
 ```
 
-From the Temporal CLI (lists running/recent `process-task` workflows with both UUIDs):
+On a devbox, pass `--funnel-host <laptop>.<tailnet>.ts.net` to both `tasks:setup` calls so the URLs point at the laptop that runs the Funnel.
+
+Stop and ask the user when a remaining step needs a human:
+
+- **The Modal token.** `tasks:setup` reads the shared "Modal Development Token" from the General vault of PostHog's 1Password with `op`. If `op` isn't installed or signed in, the user has to fix that. Never create a personal Modal token (`modal token new`).
+- **The gateway token.** Approving `hogli gateway:token` happens in the user's browser.
+
+Then make sure the Funnel is up (`hogli tasks:funnel up`, on the laptop when the stack runs on a devbox). After any env change, re-activate flox and run `hogli stop && hogli up -d` — env is read at process start, not hot-reloaded.
+
+For wizard cloud runs, **the wizard OAuth app must exist** — `bin/ensure-local-setup` provisions it and sets `WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID`; without it the `cloud_run` endpoint returns 404 "not available". Clone and PR need the [GitHub App](../../../docs/internal/sandboxes-setup-guide.md#github-app).
+
+## Step 1 — find the task and run UUIDs
+
+The workflow id encodes both: `task-processing-<task_id>-<run_id>`.
+
+From the Temporal CLI (lists running/recent `process-task` workflows):
 
 ```bash
 docker exec posthog-temporal-admin-tools-1 \
@@ -61,24 +52,28 @@ From the **Temporal UI** — http://localhost:8081, open the `process-task` work
 
 ## Step 2 — tail live logs inside the sandbox (while it's running)
 
-The wizard and agent write line-by-line to files in the container **as they run**, so this is the only way to watch progress live (the activity buffers stdout and only flushes to the durable log when it finishes).
+The wizard and agent write line-by-line to files in the sandbox **as they run**, so this is the only way to watch progress live (the activity buffers stdout and only flushes to the durable log when it finishes).
+
+Local sandboxes live in the `posthog-sandbox-modal-docker-*` Modal apps and carry `task_id` and `task_run_id` tags:
 
 ```bash
-TASK_ID=<task-uuid-from-step-1>
-CID=$(docker ps -q --filter "name=task-sandbox-$TASK_ID")
-
-docker exec "$CID" tail -f /tmp/posthog-wizard.log   # wizard stage (full agent SDK detail)
-docker exec "$CID" tail -f /tmp/agent-server.log     # agent stage (commit + PR + CI loop)
+RUN_ID=<run-uuid-from-step-1>
+flox activate -- bash -c "python - <<'PY'
+import modal
+for name in ('posthog-sandbox-modal-docker-default', 'posthog-sandbox-modal-docker-self-driving'):
+    try:
+        app = modal.App.lookup(name)
+    except modal.exception.NotFoundError:
+        continue
+    for sb in modal.Sandbox.list(app_id=app.app_id, tags={'task_run_id': '$RUN_ID'}):
+        print(name, sb.object_id)
+        print(sb.exec('tail', '-n', '200', '/tmp/agent-server.log').stdout.read())
+PY"
 ```
 
-Both files are JSON-heavy. For just the readable activity:
+Self-driving origins (scouts, ReviewHog, Signals) land in the `-self-driving` app. Swap in `/tmp/posthog-wizard.log` for the wizard stage. Both files are JSON-heavy; pipe through `grep -iE '"text"|tool_use|error|commit|PR|CI'` for the readable activity.
 
-```bash
-docker exec "$CID" tail -f /tmp/agent-server.log \
-  | grep -iE '"text"|tool_use|error|✔|✖|commit|PR|CI'
-```
-
-These files vanish when the sandbox is torn down (on run completion/failure), so grab them while the container is up.
+These files vanish when the sandbox is torn down (on run completion/failure), so grab them while the sandbox is up.
 
 ## Step 3 — read the durable per-run console log (after teardown)
 
@@ -106,12 +101,17 @@ PY"
 Notes on what you'll (not) see here:
 
 - **Wizard stdout/verbose** lands as `_posthog/console` debug events, but only **after `run_wizard` finishes** (buffered `sandbox.execute`). Mid-run, use Step 2.
-- **Agent prose is filtered out.** `append_log` drops `agent_message_chunk` events to keep the log lean, so the durable log shows _what the agent did_ (tool calls, commits, progress) but not its narration. For the agent's reasoning, read `/tmp/agent-server.log` in the container (Step 2) before teardown.
+- **Agent prose is filtered out.** `append_log` drops `agent_message_chunk` events to keep the log lean, so the durable log shows _what the agent did_ (tool calls, commits, progress) but not its narration. For the agent's reasoning, read `/tmp/agent-server.log` in the sandbox (Step 2) before teardown.
 
 ## Common failure signatures
 
 - **`Could not determine cloud region from access token`** — the wizard hit cloud auth instead of your local instance. Local needs the wizard pointed at the local base URL; see `run_wizard._build_wizard_command` (`--base-url`, DEBUG-gated).
-- **`Unable to connect to API (ConnectionRefused)`** from the agent: the Go gateway isn't on `:8080`. Check `SANDBOX_AI_GATEWAY_URL` and the `ai-gateway` proc.
-- **Run fails with `gateway_token_unavailable`**: the worker minted no token. `SANDBOX_AI_GATEWAY_MINT_KEY` or `SANDBOX_AI_GATEWAY_PRODUCTS` is unset, the run's product is not listed, or the mint was refused. Re-run `bin/setup-gateway-e2e` if the dev `phs_` key or ledger is missing.
-- **Auth/4xx from the gateway**: the gateway is reachable but has no upstream provider key, its ledger is unfunded, or the token lacks `llm_gateway:read`.
+- **Agent boots but never reaches PostHog or MCP**: the Funnel is down or `SANDBOX_API_URL` / `SANDBOX_MCP_URL` are stale. `hogli tasks:doctor` checks the Funnel; `hogli tasks:funnel up` restarts it.
+- **Auth/4xx from the gateway, or `gateway_token_unavailable`**: the dev mode token expired, ran out of budget, or is unset, or `SANDBOX_AI_GATEWAY_PRODUCTS` doesn't list the run's product. `hogli tasks:doctor` shows which. Run `hogli tasks:setup --refresh-token` (the user approves it in the browser), then re-activate flox and run `hogli stop && hogli up -d`.
+- **`... sandbox is for local development only`** at import: `DEBUG` is off, usually because the process runs outside `flox activate`.
+- **The run uses an old image after a Dockerfile change**: the build context is cached per worker process. Restart the Temporal worker. The first run after an image change builds on Modal and takes minutes.
 - **Workflow "running" but nothing happening** — it's in the wait loop (CI follow-up / inactivity). The workflow's Temporal **Current Details** field names what it's waiting on.
+
+## Docker provider (backup)
+
+With `SANDBOX_PROVIDER=docker` (see the [guide](../../../docs/internal/sandboxes-setup-guide.md#docker-provider-backup)), the sandbox is a local container named `task-sandbox-<TASK_ID>-<suffix>`. Tail logs with `docker exec "$(docker ps -q --filter "name=task-sandbox-$TASK_ID")" tail -f /tmp/agent-server.log`.
