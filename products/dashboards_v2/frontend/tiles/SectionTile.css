@@ -7,6 +7,13 @@
     width: 100%;
     height: 100%;
     padding-block: 0;
+
+    /* The grid takes 200ms to change the section's height, so the space above a closed header arrives with it. */
+    transition: padding-top 200ms;
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
 }
 
 /* A closed section's rows are 10px taller than its header, so half of that goes above the header. A fixed space, not
