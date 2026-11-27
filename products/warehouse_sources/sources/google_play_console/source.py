@@ -115,7 +115,13 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
         # the activity's classifier (import_data_sync.py) treats the 503 as an unclassified failure
         # and reports it to error tracking on every attempt instead of retrying quietly.
         # A 502 "Bad Gateway" is the same gateway-level outage, raised from the same place.
+        # A 429 reaches here only after the shared session's own retries run out. Google lifts the
+        # limit on its own, so it is retryable like the outages above.
         return {
+            "429 Client Error": (
+                "Google Play's reporting API is limiting requests for this connection, so this sync couldn't finish. "
+                "The next sync runs on schedule."
+            ),
             "500 Server Error": (
                 "Google Play's reporting API had an internal error, so this sync couldn't finish. "
                 "This is on Google's side, and the next sync runs on schedule."
