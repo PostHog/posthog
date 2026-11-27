@@ -37,11 +37,12 @@ const IMPACT: TransactionalEmailImpactApi = {
     untracked: 0,
     clicks_untracked: 0,
     window_days: 7,
-    sessions: null,
+    sessions: 1,
     link_tagging_enabled: true,
     after_click: { sends: 1, converted: 0 },
     without_click: { sends: 7, converted: 1 },
 }
+const IMPACT_UNTAGGED: TransactionalEmailImpactApi = { ...IMPACT, sessions: null, link_tagging_enabled: false }
 
 const teamWithLinkTagging = (enabled: boolean | undefined): TeamType => ({
     ...MOCK_DEFAULT_TEAM,
@@ -86,8 +87,8 @@ describe('ImpactFunnelCard', () => {
 
     it.each([
         ['tagging is off', false, false, 'Link tracking is off', true],
-        ['tagging is on', true, false, 'Not measured yet', false],
-        ['the project never set tagging', undefined, false, 'Not measured yet', false],
+        ['tagging is on', true, false, 'From sends with link tracking on', false],
+        ['the project never set tagging', undefined, false, 'From sends with link tracking on', false],
         ['the email protects sensitive data', false, true, 'Not measured', false],
         ['the email protects sensitive data while tagging is on', true, true, 'Not measured', false],
     ])(
@@ -194,7 +195,7 @@ describe('ImpactFunnelCard', () => {
     })
 
     it.each([
-        ['turns it on for the project and shows both steps again', [200, null], 'Not measured yet', true],
+        ['turns it on for the project and shows both steps again', [200, null], 'Counting from now', true],
         [
             'says why when saving fails, and offers it again',
             [500, { detail: 'Saving failed' }],
@@ -233,7 +234,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         renderCard()
 
         fireEvent.click(await screen.findByText('Turn on for project'))
@@ -307,7 +308,7 @@ describe('ImpactFunnelCard', () => {
             },
         })
         initKeaTests(true, team)
-        answer = [200, IMPACT]
+        answer = [200, IMPACT_UNTAGGED]
         const tab = (shown: boolean): JSX.Element => (
             <Provider>{shown ? <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} /> : <></>}</Provider>
         )
@@ -322,7 +323,7 @@ describe('ImpactFunnelCard', () => {
         )
         rerender(tab(true))
 
-        expect(await screen.findByText('Not measured yet')).toBeInTheDocument()
+        expect(await screen.findByText('Counting from now')).toBeInTheDocument()
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(patches).toHaveLength(1)
     })

@@ -127,6 +127,46 @@ describe('impactSteps', () => {
     })
 
     it.each([
+        ['counts the sessions', { ...impact, sessions: 7 }, 'on', 7, undefined, 'From sends with link tracking on'],
+        [
+            'shows no sessions as zero',
+            { ...impact, sessions: 0 },
+            'on',
+            0,
+            undefined,
+            'From sends with link tracking on',
+        ],
+        [
+            'counts from now when the funnel loaded with link tracking off',
+            { ...impact, link_tagging_enabled: false },
+            'on',
+            null,
+            'Counting from now',
+            'From sends with link tracking on',
+        ],
+        [
+            'says why when the count is missing',
+            impact,
+            'on',
+            null,
+            "Couldn't count",
+            'It needs access to query events. Reload to try again.',
+        ],
+        [
+            'leaves a sensitive email unmeasured',
+            { ...impact, sessions: 7 },
+            'sensitive-email',
+            null,
+            'Not measured',
+            undefined,
+        ],
+    ] as const)('shows the session step: %s', (_, data, linkTagging, value, missing, note) => {
+        const sessionStep = impactSteps(data, null, linkTagging)[4]
+
+        expect([sessionStep.value, sessionStep.missing, sessionStep.note]).toEqual([value, missing, note])
+    })
+
+    it.each([
         [
             'every send went out untracked',
             untracked,

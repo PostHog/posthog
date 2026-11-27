@@ -14,6 +14,7 @@ export interface ImpactStep {
     missingDetail?: string
     missingFixedByLinkTagging?: boolean
     missingFixedByEvent?: boolean
+    note?: string
     share: number | null
     shareOf?: string
     shareDetail?: string
@@ -26,8 +27,7 @@ export interface ImpactLift {
     notClicked: number | null
 }
 
-const SESSIONS_NOT_MEASURED_DETAIL =
-    "Link tagging connects clicks to the sessions they start, but this funnel doesn't count those sessions yet. Conversions still count, because they go through the person on each send."
+const TAGGED_SENDS_NOTE = 'From sends with link tracking on'
 
 const SENSITIVE_EMAIL_DETAIL =
     "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
@@ -39,7 +39,14 @@ function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTaggi
     }
     switch (linkTagging) {
         case 'on':
-            return { ...step, missing: 'Not measured yet', missingDetail: SESSIONS_NOT_MEASURED_DETAIL }
+            if (impact.sessions !== null) {
+                return { ...step, value: impact.sessions, note: TAGGED_SENDS_NOTE }
+            }
+            // The funnel loaded while link tracking was off, so none of its sends carry the tag yet.
+            if (!impact.link_tagging_enabled) {
+                return { ...step, missing: 'Counting from now', note: TAGGED_SENDS_NOTE }
+            }
+            return { ...step, missing: "Couldn't count", note: 'It needs access to query events. Reload to try again.' }
         case 'off':
             return { ...step, missingFixedByLinkTagging: true }
         case 'sensitive-email':
