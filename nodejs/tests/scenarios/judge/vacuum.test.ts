@@ -261,6 +261,23 @@ describe('soak measurements', () => {
         ])
     })
 
+    it('names each autovacuum setting that differs from the profile, and each relation with storage options', () => {
+        const vacuumSettings = {
+            settings: { autovacuum: 'on', autovacuum_naptime: '1min', autovacuum_vacuum_scale_factor: '0.2' },
+            storage: { cyclotron_jobs: null, cyclotron_jobs_pkey: ['fillfactor=80'] },
+        }
+        const autovacuumProfile = { autovacuum: 'on', autovacuum_naptime: '5s' }
+
+        expect(measured('autovacuum_settings_differ', { vacuumSettings, autovacuumProfile })).toEqual([
+            { key: 'count', value: 2 },
+            { key: 'autovacuum_naptime', value: 1 },
+            { key: 'storage_cyclotron_jobs_pkey', value: 1 },
+        ])
+        expect(measured('autovacuum_settings_differ', { vacuumSettings })).toEqual([
+            { value: null, censored: true, unmeasured: 'the profile names no autovacuum settings' },
+        ])
+    })
+
     it('keeps the writer CPU peak of each window, and says why when the target has no writer CPU', () => {
         const writerCpu: CpuPoint[] = Array.from({ length: 20 }, (_, minute) => ({
             at: atS(minute * 60),

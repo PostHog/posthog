@@ -273,6 +273,25 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                 : []
         )
     ),
+    soakMeasure('autovacuum_settings_differ', 'settings', ({ vacuumSettings, autovacuumProfile }) => {
+        if (autovacuumProfile === undefined) {
+            return [unmeasured('the profile names no autovacuum settings')]
+        }
+        if (vacuumSettings === undefined || 'error' in vacuumSettings) {
+            return [
+                unmeasured(`the autovacuum settings were not read${vacuumSettings ? `: ${vacuumSettings.error}` : ''}`),
+            ]
+        }
+        const differ = [
+            ...Object.entries(autovacuumProfile)
+                .filter(([name, value]) => vacuumSettings.settings[name] !== value)
+                .map(([name]) => name),
+            ...Object.entries(vacuumSettings.storage)
+                .filter(([, options]) => options !== null)
+                .map(([relation]) => `storage_${relation}`),
+        ].sort()
+        return [{ key: 'count', value: differ.length }, ...differ.map((key) => ({ key, value: 1 }))]
+    }),
     seriesMeasure('writer_cpu_percent', '%', (evidence, params) => {
         const { writerCpu } = evidence
         if (writerCpu === undefined || !Array.isArray(writerCpu)) {

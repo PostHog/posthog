@@ -68,6 +68,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         converged?: boolean
         unsettled?: string
         writerCpu?: WriterCpu
+        autovacuumProfile?: Readonly<Record<string, string>>
     }
 
 export type MeasurementDefinition = Definition & {

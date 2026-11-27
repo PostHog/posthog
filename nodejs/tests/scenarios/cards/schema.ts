@@ -215,6 +215,10 @@ export const AlertsProfile = z
     .strict()
 export type AlertsProfile = z.infer<typeof AlertsProfile>
 
+const VacuumSettingName = z.string().regex(/^(autovacuum|vacuum)[a-z_]*$|^maintenance_work_mem$/, {
+    message: 'an autovacuum or vacuum setting, or maintenance_work_mem',
+})
+
 export const Profile = z
     .object({
         name: z.string(),
@@ -228,6 +232,10 @@ export const Profile = z
         load: Load.optional(),
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
+        postgres: z
+            .object({ autovacuum: z.record(VacuumSettingName, z.string()) })
+            .strict()
+            .optional(),
     })
     .strict()
     .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {

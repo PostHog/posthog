@@ -1,0 +1,48 @@
+id: cyclotron-autovacuum-soak
+version: 1
+clock: real
+profile: synthetic
+seed: 8
+setup:
+    teams: 8
+drive:
+    for: 80m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+    ramp:
+        - scale: 10
+          for: 80m
+convergeWithin: 15m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: resident_backlog_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+bars:
+    - name: writer_cpu_under
+      params:
+          percent: 70
+    - name: pickup_p99_under
+      params:
+          seconds: 5
+          queues:
+              - hogflow
+              - email
+measure:
+    - name: autovacuum_settings_differ
+    - name: cyclotron_jobs_tuples
+    - name: dead_tuple_share
+    - name: heap_bytes_per_row
+    - name: index_bytes_per_row
+    - name: bloat_growth
+    - name: autovacuum_runs
+    - name: autovacuum_seconds
+    - name: seconds_since_autovacuum
+    - name: pickup_p99_seconds
+    - name: writer_cpu_percent
+unpaired: it applies no valve, so the soak is its own fault-free control

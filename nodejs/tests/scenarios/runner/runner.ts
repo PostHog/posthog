@@ -813,6 +813,7 @@ export function createRunner(
                     steps,
                     timeline: valves.timeline(),
                     writerCpu: await readWriterCpu(driveWindow, signal),
+                    autovacuumProfile: profile.postgres?.autovacuum,
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
