@@ -1,13 +1,13 @@
 import { createContext, useContext } from 'react'
 
-import type { TimeRangeController } from '../filters/time/useTimeRangeController'
-import type { FiltersController } from '../filters/useFiltersController'
-import type { MenuAction } from '../menu/menuAction'
-import type { PanelType } from '../panels/core/panelDefinition'
-import type { AutoRefreshProps } from './actions/AutoRefreshButton'
-import type { ImageFormat } from './actions/dashboardImage'
-import type { Dashboard, GridTab, SizeOf, Panel } from './document/dashboardTypes'
-import type { DashboardEdit, View } from './edits/dashboardEdits'
+import type { TimeRangeController } from '../../filters/time/useTimeRangeController'
+import type { FiltersController } from '../../filters/useFiltersController'
+import type { MenuAction } from '../../menu/menuAction'
+import type { PanelType } from '../../panels/core/panelDefinition'
+import type { AutoRefreshProps } from '../actions/AutoRefreshButton'
+import type { ImageFormat } from '../actions/dashboardImage'
+import type { Dashboard, GridTab, SizeOf, Panel } from '../document/dashboardTypes'
+import type { DashboardEdit, View } from '../edits/dashboardEdits'
 
 /** Everything a person can do to a dashboard. A host's `disabledReasonFor` can give each one its own answer. */
 export type DashboardAction = DashboardEdit['edit'] | 'undo' | 'redo'

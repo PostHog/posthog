@@ -3,8 +3,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
+import type { Dashboard } from '../document/dashboardTypes'
 import { DashboardUnavailable } from './DashboardUnavailable'
-import type { Dashboard } from './document/dashboardTypes'
 
 type DashboardErrorState = {
     failed: boolean

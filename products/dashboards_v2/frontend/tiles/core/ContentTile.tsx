@@ -1,4 +1,4 @@
-import './PanelCard.css'
+import './ContentTile.css'
 
 import clsx from 'clsx'
 import { type CSSProperties, useMemo } from 'react'
@@ -21,10 +21,10 @@ import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
-import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from '../../presentation/tileAppearance'
-import { isPartShown } from '../../presentation/tileParts'
-import { TileActions } from '../menu/TileActions'
-import { TileContextMenu, hasTileMenu } from '../menu/TileContextMenu'
+import { TileActions } from './TileActions'
+import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from './tileAppearance'
+import { TileContextMenu, hasTileMenu } from './TileContextMenu'
+import { isPartShown } from './tileParts'
 
 const NO_ACTIONS: MenuAction[] = []
 
@@ -36,9 +36,9 @@ function cardLook(
     const tint = color === NO_BACKGROUND ? null : color
     return {
         className: clsx(
-            color === NO_BACKGROUND && 'dash-PanelCard--no-background',
-            !showsBorder(panel) && 'dash-PanelCard--no-border',
-            tint && 'dash-PanelCard--tinted'
+            color === NO_BACKGROUND && 'dash-ContentTile--no-background',
+            !showsBorder(panel) && 'dash-ContentTile--no-border',
+            tint && 'dash-ContentTile--tinted'
         ),
         // A saved color can be any CSS color, so no class can carry it.
         style: tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined,
@@ -47,9 +47,9 @@ function cardLook(
 
 /**
  * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
- * its own. Inside a dashboard, `ContentTile` passes both kinds of actions.
+ * its own. Inside a dashboard, `DashboardContentTile` passes both kinds of actions.
  */
-export function PanelCard({
+export function ContentTile({
     panel,
     panels,
     actions = NO_ACTIONS,
@@ -84,7 +84,7 @@ export function PanelCard({
             <Card
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
-                className={clsx('dash-PanelCard', look.className, editable && !showHeader && 'TileGrid__handle')}
+                className={clsx('dash-ContentTile', look.className, editable && !showHeader && 'TileGrid__handle')}
                 style={look.style}
             >
                 {showHeader && (
@@ -119,13 +119,13 @@ export function PanelCard({
                         )}
                     </CardHeader>
                 )}
-                {!showHeader && hasMenu && <TileActions menu className="dash-PanelCard__float-toolbar" />}
+                {!showHeader && hasMenu && <TileActions menu className="dash-ContentTile__float-toolbar" />}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <PanelView panel={panel} definition={definition} setConfig={setConfig} />
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
-                    <CardFooter className="dash-PanelCard__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
+                    <CardFooter className="dash-ContentTile__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
                         {Footer && (
                             <PanelErrorBoundary panel={panel} fallback={null}>
                                 <Footer panel={panel} />

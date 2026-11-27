@@ -1,10 +1,10 @@
-import type { Dashboard, Tile } from '../dashboard/document/dashboardTypes'
-import { findTile } from '../dashboard/document/tileTree'
-import { everyTile } from '../dashboard/document/tileTree'
-import type { MenuAction } from '../menu/menuAction'
-import { DEFAULT_PANELS } from '../panels/defaultPanels'
-import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
-import { backgroundColorAction, showAction } from './tileAppearance'
+import type { Dashboard, Tile } from '../../dashboard/document/dashboardTypes'
+import { findTile } from '../../dashboard/document/tileTree'
+import { everyTile } from '../../dashboard/document/tileTree'
+import { type PresentationEdit, applyPresentationEdit } from '../../dashboard/edits/presentationEdits'
+import type { MenuAction } from '../../menu/menuAction'
+import { DEFAULT_PANELS } from '../../panels/defaultPanels'
+import { backgroundColorAction, showAction } from './appearanceActions'
 
 const text = (id: string): Tile => ({
     id,
