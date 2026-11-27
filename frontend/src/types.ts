@@ -5492,6 +5492,7 @@ export interface InstanceSetting {
     description?: string
     editable: boolean
     is_secret: boolean
+    is_set_in_database: boolean
 }
 
 export enum FunnelMathType {

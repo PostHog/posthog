@@ -3,7 +3,6 @@ import { Button, Heading, Text } from '@posthog/quill'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -79,16 +78,9 @@ export function QuillSlackIntegration({
                             </li>
                             <li>Create an App using the provided template</li>
                             <li>
-                                <Button
-                                    variant="link"
-                                    size="inline"
-                                    nativeButton={false}
-                                    render={<LinkPrimitive to={urls.instanceSettings()} />}
-                                >
-                                    Go to Instance Settings
-                                </Button>{' '}
-                                and update the <code>"SLACK_"</code> properties using the values from the{' '}
-                                <b>App Credentials</b> section of your Slack Apps
+                                Set the <code>SLACK_APP_CLIENT_ID</code>, <code>SLACK_APP_CLIENT_SECRET</code> and{' '}
+                                <code>SLACK_APP_SIGNING_SECRET</code> environment variables to the values in the{' '}
+                                <b>App Credentials</b> section of your Slack app, then restart PostHog
                             </li>
                         </Text>
                         <CodeSnippet language={Language.JSON}>{slackAppManifest}</CodeSnippet>

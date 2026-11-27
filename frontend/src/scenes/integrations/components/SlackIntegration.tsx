@@ -10,7 +10,6 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SLACK_INTEGRATION_SCOPES } from '~/types'
@@ -151,9 +150,10 @@ export function SlackIntegration({
                                         </li>
                                         <li>Create an App using the provided template</li>
                                         <li>
-                                            <Link to={urls.instanceSettings()}>Go to Instance Settings</Link> and update
-                                            the <code>"SLACK_"</code> properties using the values from the{' '}
-                                            <b>App Credentials</b> section of your Slack Apps
+                                            Set the <code>SLACK_APP_CLIENT_ID</code>,{' '}
+                                            <code>SLACK_APP_CLIENT_SECRET</code> and{' '}
+                                            <code>SLACK_APP_SIGNING_SECRET</code> environment variables to the values in
+                                            the <b>App Credentials</b> section of your Slack app, then restart PostHog
                                         </li>
                                     </ol>
 

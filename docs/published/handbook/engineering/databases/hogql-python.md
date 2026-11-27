@@ -73,10 +73,10 @@ The persons V2 deduplication optimization only pushes a limit into the inner per
 
 ## Disabling projection optimization
 
-Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
+Set the `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` environment variable to `false` to disable unused-column pruning and exported event-property narrowing for every project.
 The setting defaults to `true` and overrides the `optimizeProjections` query modifier when disabled.
-Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
-Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
+Workers pick up the change when they restart; it affects newly compiled queries, not running queries or cached results.
+Disabling these optimizations can increase query time and memory use. Set the variable back to `true` to restore the normal per-query behavior.
 
 ## Experimental count-query batching
 

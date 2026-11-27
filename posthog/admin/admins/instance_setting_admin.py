@@ -1,5 +1,3 @@
-import json
-
 from django.contrib import admin
 
 from posthog.models import InstanceSetting
@@ -12,13 +10,11 @@ class InstanceSettingAdmin(admin.ModelAdmin):
         "key",
         "value",
     )
+    readonly_fields = ("key", "raw_value")
 
-    def save_model(self, request, obj, form, change):
-        # Ensure raw_value is valid JSON before saving.
-        # set_instance_setting() does json.dumps() but Django admin bypasses it,
-        # so bare strings like "abc123" get saved instead of '"abc123"'.
-        try:
-            json.loads(obj.raw_value)
-        except (json.JSONDecodeError, ValueError):
-            obj.raw_value = json.dumps(obj.raw_value)
-        super().save_model(request, obj, form, change)
+    # Deletion stays: removing a stored row is how an instance moves that setting to its environment variable.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

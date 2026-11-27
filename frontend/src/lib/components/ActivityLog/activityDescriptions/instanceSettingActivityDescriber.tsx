@@ -9,7 +9,7 @@ import {
 
 import { ActivityScope } from '~/types'
 
-// Kept in sync with the sentinels the backend records in posthog/api/instance_settings.py.
+// Sentinels that secret updates recorded before secrets stopped being editable. Old log rows still carry them.
 const REDACTED = '<redacted>'
 const UNSET = '<unset>'
 

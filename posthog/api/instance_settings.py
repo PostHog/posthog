@@ -3,11 +3,11 @@ import json
 from typing import Any, Optional, Union, cast, get_args, get_origin
 
 import structlog
-from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from drf_spectacular.utils import extend_schema
+from rest_framework import exceptions, mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
+from rest_framework.response import Response
 
-from posthog.cloud_utils import is_cloud
-from posthog.email import is_email_available
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -19,46 +19,26 @@ from posthog.models.instance_setting import (
 from posthog.permissions import IsStaffUser
 from posthog.settings import (
     CONSTANCE_CONFIG,
+    CONSTANCE_DATABASE_PREFIX,
     SECRET_SETTINGS,
     SETTINGS_ALLOWING_API_OVERRIDE,
-    SKIP_ASYNC_MIGRATIONS_SETUP,
 )
-from posthog.tasks.email import send_canary_email
 from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
 
-REDACTED = "<redacted>"
 RAW_VALUE_MAX_LENGTH = cast(int, InstanceSetting._meta.get_field("raw_value").max_length)
-UNSET = "<unset>"
-
-
-def _redact_if_secret(key: str, value: Any) -> Any:
-    if key not in SECRET_SETTINGS:
-        return value
-    if value is None or value == "":
-        return UNSET
-    return REDACTED
-
-
-def cast_str_to_desired_type(value: Any, target_type: type) -> Any:
-    if target_type is int:
-        return int(value)
-
-    if target_type is bool:
-        return str_to_bool(value)
-
-    if get_origin(target_type) is list:
-        return _parse_list_value(value, target_type)
-
-    return value
 
 
 def _parse_for_storage(key: str, value: Any) -> Any:
     target_type: type = CONSTANCE_CONFIG[key][2]
-    if target_type is bool and isinstance(value, bool):
-        return value
-    return cast_str_to_desired_type(value, target_type)
+    if target_type is bool:
+        return value if isinstance(value, bool) else str_to_bool(value)
+    if target_type is int:
+        return int(value)
+    if get_origin(target_type) is list:
+        return _parse_list_value(value, target_type)
+    return value
 
 
 def _parse_list_value(value: Any, target_type: type) -> list:
@@ -97,6 +77,7 @@ class InstanceSettingHelper:
     description: str = ""
     editable: bool = False
     is_secret: bool = False
+    is_set_in_database: bool = False
 
     def __init__(self, **kwargs):
         for field in (
@@ -106,14 +87,28 @@ class InstanceSettingHelper:
             "description",
             "editable",
             "is_secret",
+            "is_set_in_database",
         ):
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> InstanceSettingHelper:
+def _keys_set_in_database() -> set[str]:
+    return {
+        key.removeprefix(CONSTANCE_DATABASE_PREFIX)
+        for key in InstanceSetting.objects.filter(key__startswith=CONSTANCE_DATABASE_PREFIX).values_list(
+            "key", flat=True
+        )
+    }
+
+
+def get_instance_setting(
+    key: str, setting_config: Optional[tuple] = None, keys_set_in_database: Optional[set[str]] = None
+) -> InstanceSettingHelper:
     setting_config = setting_config or CONSTANCE_CONFIG[key]
     is_secret = key in SECRET_SETTINGS
     value = get_instance_setting_raw(key)
+    if keys_set_in_database is None:
+        keys_set_in_database = _keys_set_in_database()
 
     return InstanceSettingHelper(
         key=key,
@@ -122,148 +117,130 @@ def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> In
         description=setting_config[1],
         editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
         is_secret=is_secret,
+        is_set_in_database=key in keys_set_in_database,
     )
 
 
 class InstanceSettingsSerializer(serializers.Serializer):
-    key = serializers.CharField(read_only=True)
-    value = serializers.JSONField()  # value can be bool, int, or str
-    value_type = serializers.CharField(read_only=True)
-    description = serializers.CharField(read_only=True)
-    editable = serializers.BooleanField(read_only=True)
-    is_secret = serializers.BooleanField(read_only=True)
+    key = serializers.CharField(read_only=True, help_text="Name of the setting and of its environment variable.")
+    value = serializers.JSONField(help_text="Value in effect. Secret values are masked.")
+    value_type = serializers.CharField(read_only=True, help_text="Python type of the value.")
+    description = serializers.CharField(read_only=True, help_text="What the setting controls.")
+    editable = serializers.BooleanField(
+        read_only=True, help_text="Whether staff can still change this setting from PostHog."
+    )
+    is_secret = serializers.BooleanField(
+        read_only=True, help_text="Whether the value is a credential and never returned."
+    )
+    is_set_in_database = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a deprecated database value overrides the environment variable for this setting.",
+    )
 
     def validate_value(self, value: Any) -> Any:
-        if self.instance is not None and self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
+        if self.instance is None or self.instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
+            raise serializers.ValidationError(
+                "This setting can only be changed with its environment variable.", code="no_api_override"
+            )
+        if value is None:
+            raise serializers.ValidationError("This field is required.", code="required")
+        if self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
             # Every query parses this list, so a value that fails to parse would fail every query on the instance.
             if not isinstance(value, str) or not re.fullmatch(r"\s*(\d+\s*(,\s*\d+\s*)*)?", value):
                 raise serializers.ValidationError(
                     "Enter project IDs separated by commas, or leave it empty to switch no project."
                 )
-        if self.instance is not None and self.instance.key == "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES":
-            if not isinstance(value, str) or not re.fullmatch(r"\s*([0-9a-f]{16}\s*(,\s*[0-9a-f]{16}\s*)*)?", value):
-                raise serializers.ValidationError(
-                    "Enter 16-character query signatures separated by commas, or leave it empty to approve none."
-                )
-        stored_value = value
-        if self.instance is not None and self.instance.key in SETTINGS_ALLOWING_API_OVERRIDE and value is not None:
-            try:
-                stored_value = _parse_for_storage(self.instance.key, value)
-            except (ValueError, TypeError) as e:
-                raise serializers.ValidationError(str(e))
+        try:
+            stored_value = _parse_for_storage(self.instance.key, value)
+        except (ValueError, TypeError) as e:
+            raise serializers.ValidationError(str(e))
         if len(json.dumps(stored_value)) > RAW_VALUE_MAX_LENGTH:
             raise serializers.ValidationError(
                 f"This value is too long. Stored values can be at most {RAW_VALUE_MAX_LENGTH} characters."
             )
-        return value
+        return stored_value
 
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
-        if instance.key not in SETTINGS_ALLOWING_API_OVERRIDE:
-            raise serializers.ValidationError("This setting cannot be updated from the API.", code="no_api_override")
+        before_value = get_instance_setting_raw(instance.key)
+        new_value = validated_data["value"]
 
-        if validated_data["value"] is None:
-            raise serializers.ValidationError({"value": "This field is required."}, code="required")
+        set_instance_setting_raw(instance.key, new_value)
+        instance.value = new_value
+        instance.is_set_in_database = True
 
         request = self.context.get("request")
-
-        before_value = get_instance_setting_raw(instance.key)
-
-        try:
-            new_value_parsed = _parse_for_storage(instance.key, validated_data["value"])
-        except (ValueError, TypeError) as e:
-            raise serializers.ValidationError({"value": str(e)})
-
-        if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
-            if is_cloud():
-                # On cloud the TTL is set on the performance_events_sharded table,
-                # so this command should never be run
-                raise serializers.ValidationError("This setting cannot be updated on cloud.")
-
-            # TODO: Move to top-level imports once CH is moved out of `ee`
-            from posthog.clickhouse.client import sync_execute
-            from posthog.models.performance.sql import UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL
-
-            sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
-
-        set_instance_setting_raw(instance.key, new_value_parsed)
-        instance.value = new_value_parsed
-
-        if request is not None:
-            self._log_setting_change(request, instance.key, before_value, new_value_parsed)
-
-            if instance.key.startswith("EMAIL_"):
-                # Partial EMAIL_* updates (e.g. setting EMAIL_HOST_PASSWORD before EMAIL_HOST)
-                # would otherwise raise ImproperlyConfigured and fail the request with a 500.
-                if is_email_available(with_absolute_urls=True):
-                    send_canary_email.apply_async(kwargs={"user_email": request.user.email})
-
-        if instance.key.startswith("ASYNC_MIGRATION") and not SKIP_ASYNC_MIGRATIONS_SETUP:
-            from posthog.async_migrations.setup import setup_async_migrations
-
-            setup_async_migrations()
-
-        return instance
-
-    def _log_setting_change(self, request: Request, key: str, before_value: Any, new_value: Any) -> None:
-        if before_value == new_value:
-            return
-
-        # IsAuthenticated + IsStaffUser permission classes guarantee this is a real User.
-        user = cast(User, request.user)
-        organization = user.organization
-        if organization is None:
-            logger.warning(
-                "instance_settings_audit_log_skipped_no_organization",
-                user_id=user.id,
-                key=key,
-            )
-            return
-
-        log_activity(
-            organization_id=organization.id,
-            team_id=None,
-            user=user,
-            was_impersonated=is_impersonated(request),
-            item_id=key,
-            scope="InstanceSetting",
-            activity="updated",
-            detail=Detail(
-                name=key,
+        if request is not None and before_value != new_value:
+            _log_setting_activity(
+                request,
+                key=instance.key,
+                activity="updated",
                 changes=[
                     Change(
                         type="InstanceSetting",
-                        field=key,
+                        field=instance.key,
                         action="changed",
-                        before=_redact_if_secret(key, before_value),
-                        after=_redact_if_secret(key, new_value),
+                        before=before_value,
+                        after=new_value,
                     )
                 ],
-            ),
-        )
+            )
+        return instance
 
 
-class InstanceSettingsViewset(
-    viewsets.GenericViewSet,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
-):
+def _log_setting_activity(request: Request, *, key: str, activity: str, changes: list[Change]) -> None:
+    # IsAuthenticated + IsStaffUser permission classes guarantee this is a real User.
+    user = cast(User, request.user)
+    organization = user.organization
+    if organization is None:
+        logger.warning("instance_settings_audit_log_skipped_no_organization", user_id=user.id, key=key)
+        return
+
+    log_activity(
+        organization_id=organization.id,
+        team_id=None,
+        user=user,
+        was_impersonated=is_impersonated(request),
+        item_id=key,
+        scope="InstanceSetting",
+        activity=activity,
+        detail=Detail(name=key, changes=changes),
+    )
+
+
+class InstanceSettingsViewset(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.UpdateModelMixin):
+    """Deprecated. Lists settings, updates the few in SETTINGS_ALLOWING_API_OVERRIDE, and deletes stored values."""
+
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
+    http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        output = []
-        for key, setting_config in CONSTANCE_CONFIG.items():
-            output.append(get_instance_setting(key, setting_config))
-        return output
+        keys_set_in_database = _keys_set_in_database()
+        return [
+            get_instance_setting(key, setting_config, keys_set_in_database)
+            for key, setting_config in CONSTANCE_CONFIG.items()
+        ]
 
     def get_object(self) -> InstanceSettingHelper:
-        # Perform the lookup filtering.
-        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
-        key = self.kwargs[lookup_url_kwarg]
+        key = self.kwargs[self.lookup_url_kwarg or self.lookup_field]
+        if key not in SETTINGS_ALLOWING_API_OVERRIDE:
+            raise serializers.ValidationError(
+                {"value": "This setting can only be changed with its environment variable."}, code="no_api_override"
+            )
+        return get_instance_setting(key)
 
+    @extend_schema(responses={204: None})
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        key = self.kwargs[self.lookup_url_kwarg or self.lookup_field]
         if key not in CONSTANCE_CONFIG:
             raise exceptions.NotFound(f"Setting with key `{key}` does not exist.")
 
-        return get_instance_setting(key)
+        deleted, _ = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).delete()
+        if not deleted:
+            raise exceptions.NotFound(f"No value is stored for `{key}`.")
+        get_instance_setting_raw.cache_clear()  # type: ignore[attr-defined]
+
+        # No before value, so a deleted secret never reaches the activity log.
+        _log_setting_activity(request, key=key, activity="deleted", changes=[])
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -3,31 +3,24 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
-# Warning: Dynamically updating these settings should only be done through the API.
-# CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
-#
-# To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
+# Deprecated: configure these with environment variables. A row stored in posthog_instancesetting
+# still overrides the environment until it is deleted.
 
 CONSTANCE_CONFIG = {
     "STATIC_COHORT_RECONCILIATION_ENABLED": (
-        True,
+        get_from_env("STATIC_COHORT_RECONCILIATION_ENABLED", True, type_cast=str_to_bool),
         "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
         bool,
     ),
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
-        True,
+        get_from_env("AI_OBSERVABILITY_DATASET_RETENTION_ENABLED", True, type_cast=str_to_bool),
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
-        5000,
+        get_from_env("WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC", 5000, type_cast=int),
         "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "
         "events to capture. Throttles the shared ingestion person-write path; ops can retune live.",
-        int,
-    ),
-    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
-        3,
-        "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED": (
@@ -82,7 +75,7 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES": (
-        "",
+        get_from_env("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", ""),
         "Comma-separated benchmark-approved TrendsQueryBuilder.ranked_breakdown_query_signature values, up to 60. "
         "An empty list keeps the original breakdown plan. The trends-breakdown-rank-before-arrays "
         "team flag must also be enabled. Changes reach workers within the instance-setting cache TTL.",
@@ -99,7 +92,7 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
-        "",
+        get_from_env("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ""),
         "Comma-separated project IDs that read the native JSON events table (events_json) in insights, SQL, cohorts and the background jobs that run per project. Changes reach workers within about a minute.",
         str,
     ),
@@ -125,11 +118,6 @@ CONSTANCE_CONFIG = {
         get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
         "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
         bool,
-    ),
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": (
-        get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int),
-        "The timeout for completing the full rollback of an async migration.",
-        int,
     ),
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK": (
         get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),
@@ -303,16 +291,6 @@ CONSTANCE_CONFIG = {
         "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
         str,
     ),
-    "PARALLEL_DASHBOARD_ITEM_CACHE": (
-        get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
-        "user to determine how many insight cache updates to run at a time",
-        int,
-    ),
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
-        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
-        "Used to enable the running of experimental async migrations",
-        bool,
-    ),
     "RATE_LIMIT_ENABLED": (
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
         "Whether rate limiting is enabled",
@@ -415,11 +393,6 @@ CONSTANCE_CONFIG = {
         "2 covers every shape a user returned to; misses cost only a live serve (warm-behind).",
         int,
     ),
-    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
-        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
-        "Teams that will have web analytics cache warming enabled",
-        list[int],
-    ),
     "WEB_ANALYTICS_WARMING_MAX_SHAPES": (
         get_from_env("WEB_ANALYTICS_WARMING_MAX_SHAPES", default=400000, type_cast=int),
         "Cap on the number of hot query shapes web analytics warming selects fleet-wide per run. "
@@ -467,7 +440,7 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "REALTIME_COHORT_JOIN_OPEN": (
-        False,
+        get_from_env("REALTIME_COHORT_JOIN_OPEN", False, type_cast=str_to_bool),
         "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
         "Turning it off stops new joins within about a minute. Projects already in keep access. "
         "Turn it on only once ingestion's PERSON_MERGE_EVENTS_TEAM_ALLOWLIST is * (every team) in this region, because "
@@ -475,13 +448,13 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "WORKOS_RADAR_LOGIN_MODE": (
-        "off",
+        get_from_env("WORKOS_RADAR_LOGIN_MODE", "off"),
         "Whether password logins go to WorkOS Radar. 'off' skips Radar. 'shadow' records the verdict "
         "and never refuses a login. 'enforce' refuses a login that Radar blocks.",
         str,
     ),
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT": (
-        100,
+        get_from_env("WORKOS_RADAR_LOGIN_SAMPLE_PERCENT", 100, type_cast=int),
         "Percentage of email addresses whose password logins go to WorkOS Radar, from 0 to 100. An "
         "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
         int,
@@ -495,86 +468,17 @@ CONSTANCE_CONFIG = {
     ),
 }
 
+# Staff can still edit these from the instance settings page, because they are changed live during
+# incidents and rollouts. Every other key is read-only and configured with its environment variable.
 SETTINGS_ALLOWING_API_OVERRIDE = (
-    "STATIC_COHORT_RECONCILIATION_ENABLED",
-    "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
-    "GROWTH_ICP_REENRICH_DAILY_CAP",
-    "GROWTH_RESCORE_WEBHOOK_SECRET",
-    "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
-    "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
-    "HOGQL_PROPERTIES_NARROWING_ENABLED",
-    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
-    "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
-    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
-    "AUTO_START_ASYNC_MIGRATIONS",
-    "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
-    "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES",
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
-    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
-    "ASYNC_MIGRATIONS_AUTO_CONTINUE",
-    "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
-    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
-    "EMAIL_ENABLED",
-    "EMAIL_HOST",
-    "EMAIL_PORT",
-    "EMAIL_HOST_USER",
-    "EMAIL_HOST_PASSWORD",
-    "EMAIL_USE_TLS",
-    "EMAIL_USE_SSL",
-    "EMAIL_DEFAULT_FROM",
-    "EMAIL_REPLY_TO",
-    "EMAIL_TIMEOUT",
-    "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "PERSON_ON_EVENTS_ENABLED",
-    "PERSON_ON_EVENTS_V2_ENABLED",
-    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
-    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
-    "STRICT_CACHING_TEAMS",
-    "GITHUB_APP_SLUG",
-    "SLACK_APP_CLIENT_ID",
-    "SLACK_APP_CLIENT_SECRET",
-    "SLACK_APP_SIGNING_SECRET",
-    "SUPPORT_SLACK_APP_CLIENT_ID",
-    "SUPPORT_SLACK_APP_CLIENT_SECRET",
-    "SUPPORT_SLACK_SIGNING_SECRET",
-    "SUPPORT_TEAMS_APP_ID",
-    "SUPPORT_TEAMS_APP_SECRET",
-    "SUPPORT_TEAMS_APP_TENANT_ID",
-    "SUPPORT_TEAMS_CATALOG_APP_ID",
-    "CONVERSATIONS_HMAC_SIGNING_SECRET",
-    "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
-    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
-    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
-    "GITHUB_WEBHOOK_SECRET",
-    "PARALLEL_DASHBOARD_ITEM_CACHE",
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
-    "RATE_LIMIT_ENABLED",
-    "RATE_LIMITING_ALLOW_LIST_TEAMS",
-    "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS",
-    "FLAGS_LOG_BODIES_TEAMS",
-    "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
-    "FLAG_EVALUATIONS_UNION_DISABLED",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
-    "REDIRECT_APP_TO_US",
-    "WEB_ANALYTICS_WARMING_DAYS",
-    "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
-    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
-    "WEB_ANALYTICS_WARMING_MAX_SHAPES",
-    "WEB_ANALYTICS_WARMING_SHARD_THREADS",
-    "WEB_ANALYTICS_WARMING_SHARDS",
-    "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
-    "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED",
-    "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT",
-    "REALTIME_COHORT_JOIN_OPEN",
-    "WORKOS_RADAR_LOGIN_MODE",
-    "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
-    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
+    "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
 )
 
-# SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
-# On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
+# Never returned by the API. Rows stored in the database hold these in plain text.
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",

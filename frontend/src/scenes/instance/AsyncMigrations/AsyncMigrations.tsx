@@ -25,6 +25,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
+import { AsyncMigrationSetting } from './AsyncMigrationSetting'
 import {
     AsyncMigration,
     AsyncMigrationStatus,
@@ -32,7 +33,6 @@ import {
     asyncMigrationsLogic,
     migrationStatusNumberToMessage,
 } from './asyncMigrationsLogic'
-import { SettingUpdateField } from './SettingUpdateField'
 
 export const scene: SceneExport = {
     component: AsyncMigrations,
@@ -321,7 +321,7 @@ export function AsyncMigrations(): JSX.Element {
                             {asyncMigrationSettings.map((setting) => {
                                 return (
                                     <div key={setting.key}>
-                                        <SettingUpdateField setting={setting} />
+                                        <AsyncMigrationSetting setting={setting} />
                                     </div>
                                 )
                             })}

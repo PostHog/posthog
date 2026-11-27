@@ -61,21 +61,21 @@ def test_override_constance_config(db):
 
 def test_can_retrieve_multiple_settings(db):
     set_instance_setting("MATERIALIZED_COLUMNS_ENABLED", True)
-    set_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 20000)
+    set_instance_setting("WEB_ANALYTICS_WARMING_DAYS", 20000)
 
     assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is True
-    assert get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT") == 20000
+    assert get_instance_setting("WEB_ANALYTICS_WARMING_DAYS") == 20000
 
     returned = get_instance_settings(
         [
             "MATERIALIZED_COLUMNS_ENABLED",
-            "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            "WEB_ANALYTICS_WARMING_DAYS",
             "ASYNC_MIGRATIONS_AUTO_CONTINUE",
         ]
     )
 
     assert returned == {
-        "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": 20000,
+        "WEB_ANALYTICS_WARMING_DAYS": 20000,
         "MATERIALIZED_COLUMNS_ENABLED": True,
         "ASYNC_MIGRATIONS_AUTO_CONTINUE": True,
     }
@@ -108,44 +108,6 @@ def test_value_property_handles_bare_strings(db):
 
     instance6 = InstanceSetting.objects.create(key="constance:posthog:TEST_VALID_JSON_INT", raw_value="42")
     assert instance6.value == 42
-
-
-def test_admin_save_model_wraps_bare_strings(db):
-    """Django admin save_model should auto-wrap bare strings with json.dumps()."""
-
-    from django.contrib.admin.sites import AdminSite
-    from django.test import RequestFactory
-
-    from posthog.admin.admins.instance_setting_admin import InstanceSettingAdmin
-
-    site = AdminSite()
-    admin = InstanceSettingAdmin(InstanceSetting, site)
-    factory = RequestFactory()
-    request = factory.post("/admin/posthog/instancesetting/add/")
-
-    # Bare string should be wrapped
-    obj = InstanceSetting(key="constance:posthog:TEST_ADMIN_BARE", raw_value="abc123")
-    admin.save_model(request, obj, form=None, change=False)
-    assert obj.raw_value == '"abc123"'
-    assert obj.value == "abc123"
-
-    # Already-valid JSON string should be preserved
-    obj2 = InstanceSetting(key="constance:posthog:TEST_ADMIN_VALID_STR", raw_value='"already_valid"')
-    admin.save_model(request, obj2, form=None, change=False)
-    assert obj2.raw_value == '"already_valid"'
-    assert obj2.value == "already_valid"
-
-    # Valid JSON boolean should be preserved
-    obj3 = InstanceSetting(key="constance:posthog:TEST_ADMIN_VALID_BOOL", raw_value="true")
-    admin.save_model(request, obj3, form=None, change=False)
-    assert obj3.raw_value == "true"
-    assert obj3.value is True
-
-    # Valid JSON number should be preserved
-    obj4 = InstanceSetting(key="constance:posthog:TEST_ADMIN_VALID_NUM", raw_value="42")
-    admin.save_model(request, obj4, form=None, change=False)
-    assert obj4.raw_value == "42"
-    assert obj4.value == 42
 
 
 def test_db_change_propagates_after_ttl(db, monkeypatch):
