@@ -13,7 +13,6 @@ import { TodayMoreMenu } from './TodayMoreMenu'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import type { TodayRailPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
-import { TodayRailBetaButton } from './TodayRailBetaButton'
 import { TODAY_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
@@ -116,7 +115,6 @@ export function TodayRail(): JSX.Element {
                             </Suspense>
                         </PostHogErrorBoundary>
                     )}
-                <TodayRailBetaButton />
                 <TodayMoreMenu overflowPanes={overflowPanes} renderTile={renderTile} />
                 <TodayAccountMenu />
                 {chatsPreviewed && <TodaySpacesLogicMount />}
