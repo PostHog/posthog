@@ -102,6 +102,7 @@ class TestAdventCalendarAPI(APIBaseTest):
         self._answer_as(leaver, self.team, 18, "no")
         self._open_door_as(leaver, 18, "hoggy-santa", 60)
         self._answer_as(self.user, self.team, 18, "yes")
+        self._open_door_as(self.user, 18, "hoggy-elf", 0)
         leaver.organization_memberships.all().delete()
         self.client.force_login(leaver)
 
@@ -116,6 +117,9 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert deletion.status_code == status.HTTP_204_NO_CONTENT
         assert not AdventCalendarAnswer.objects.filter(user_id=leaver.id).exists()
         assert not AdventCalendarDoorOpen.objects.filter(user_id=leaver.id).exists()
+        assert list(AdventCalendarDoorOpen.objects.values_list("user_id", "day", "hoggy")) == [
+            (self.user.id, 18, "hoggy-elf")
+        ]
         day_18 = next(question for question in self._results() if question["day"] == 18)
         assert day_18["shares"] == [{"option": "yes", "share": 100}, {"option": "no", "share": 0}]
 
