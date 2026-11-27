@@ -309,7 +309,9 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             // half-applied state would strip the params this pass has not consumed yet.
             actions.setRestoringFromUrl(true)
             try {
-                const requested = params.activeTab
+                // Links to the removed SQL tab open the viewer in SQL mode.
+                const legacySqlTabLink = params.activeTab === 'sql'
+                const requested = legacySqlTabLink ? 'viewer' : params.activeTab
                 if (
                     typeof requested === 'string' &&
                     VALID_ACTIVE_TABS.includes(requested as MetricsSceneActiveTab) &&
@@ -317,7 +319,9 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
                 ) {
                     actions.setActiveTab(requested as MetricsSceneActiveTab)
                 }
-                const textLanguage = TEXT_LANGUAGES.find((language) => language === params.language)
+                const textLanguage =
+                    TEXT_LANGUAGES.find((language) => language === params.language) ??
+                    (legacySqlTabLink ? 'sql' : undefined)
                 if (!textLanguage && values.language !== 'builder') {
                     // A builder link leaves PromQL or SQL; the clause params below then fill the builder.
                     actions.applyQuery({ kind: NodeKind.MetricsQuery, clauses: [] })

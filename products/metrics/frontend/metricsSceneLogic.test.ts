@@ -340,6 +340,12 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
             expect(metricsViewerLogic.values.language).toEqual('sql')
             expect(metricsViewerLogic.values.queryText).toEqual('SELECT 1')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { activeTab: 'sql' })
+            }).toFinishAllListeners()
+            expect(logic.values.activeTab).toEqual('viewer')
+            expect(metricsViewerLogic.values.language).toEqual('sql')
         })
 
         // The two URL encodings must never disagree: multi-series/formula state writes
