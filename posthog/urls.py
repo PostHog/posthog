@@ -40,6 +40,7 @@ from posthog.ingress.views import build_webhook_view
 from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
+from posthog.session.dbsc import views as dbsc_views
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
@@ -385,6 +386,8 @@ urlpatterns = [
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
     opt_slash_path("reauth/complete", authentication.sso_reauth_complete, name="sso_reauth_complete"),
+    path("dbsc/start", dbsc_views.start_session, name="dbsc_start"),
+    path("dbsc/refresh", dbsc_views.refresh_session, name="dbsc_refresh"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license

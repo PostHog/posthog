@@ -37,6 +37,7 @@ _AUTHENTICATION_ACTIVITIES = {
     "logged_out": 2,
     "share_login_success": 1,
     "share_login_failed": 1,
+    "session_refused_unbound": ACTIVITY_ID_OTHER,
 }
 
 _ACCOUNT_CHANGE_ACTIVITIES = {
@@ -64,7 +65,13 @@ _ENTITY_MANAGEMENT_ACTIVITIES = {
 }
 
 # Rejected writes, failed exports, and failed share logins are attempts, not completed changes.
-_FAILURE_ACTIVITIES = {"share_login_failed", "save_rejected_conflict", "save_rejected_stale", "export_fail"}
+_FAILURE_ACTIVITIES = {
+    "share_login_failed",
+    "session_refused_unbound",
+    "save_rejected_conflict",
+    "save_rejected_stale",
+    "export_fail",
+}
 
 
 def _classify(activity: str) -> tuple[int, int]:

@@ -9,6 +9,8 @@ from django.http import HttpRequest
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session, restore_original_login
 
+from posthog.session.dbsc.binding import carry_binding, current_binding
+
 if TYPE_CHECKING:
     from posthog.models.user import User
 
@@ -48,7 +50,11 @@ def end_impersonation(request: HttpRequest) -> None:
     # next admin page. Without this, that page shows the stale message next to "logged back in".
     for _ in messages.get_messages(request):
         pass
+    binding = current_binding(request.session)
     restore_original_login(request)
+    # loginas logs nobody back in once its signed flag expired, and an anonymous session must not keep the key.
+    if binding is not None and request.user.is_authenticated:
+        carry_binding(request.session, binding)
 
 
 def get_original_user_id_from_session(request) -> int | None:

@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 # and must not be reset to NULL by a routine session save.
 _SESSION_OWNED_FIELDS = ["session_data", "expire_date", "user_id"]
 
+# Holds a carried device binding until the next save moves it into the `dbsc_binding` column.
+DBSC_CARRY_SESSION_KEY = "_dbsc_carry"
+
 
 def _auth_user_id(data: dict[str, Any]) -> int | None:
     if USER_SESSION_FLAG in data:
@@ -26,6 +29,13 @@ def _auth_user_id(data: dict[str, Any]) -> int | None:
         return int(data[SESSION_KEY])
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _split_carry(data: dict[str, Any]) -> tuple[dict[str, Any], object]:
+    """The session data to encode, and the carried binding that goes to the column instead."""
+    return {key: value for key, value in data.items() if key != DBSC_CARRY_SESSION_KEY}, data.get(
+        DBSC_CARRY_SESSION_KEY
+    )
 
 
 class SessionStore(DBStore):
@@ -59,11 +69,41 @@ class SessionStore(DBStore):
         self.loaded_row = obj
         return obj
 
+    def _locked_dbsc_binding(self) -> object:
+        model = cast("type[Session]", self.model)
+        return (
+            model.objects.select_for_update()
+            .filter(session_key=self.session_key)
+            .values_list("dbsc_binding", flat=True)
+            .first()
+        )
+
+    def cycle_key(self) -> None:
+        """A login on the same browser rotates the key, and the device key stays in that browser."""
+        if self.session_key is None:
+            super().cycle_key()
+            return
+        # The row lock carries a binding that a concurrent registration commits, or makes that registration fail.
+        with transaction.atomic(using=router.db_for_write(self.model)):
+            binding = self._locked_dbsc_binding()
+            if binding is not None:
+                self[DBSC_CARRY_SESSION_KEY] = binding
+            super().cycle_key()
+
+    async def acycle_key(self) -> None:
+        await sync_to_async(self.cycle_key)()
+
+    def _model_instance_for_save(self, data: dict[str, Any]) -> "Session":
+        stored, carried = _split_carry(data)
+        obj = self.create_model_instance(stored)
+        obj.dbsc_binding = carried
+        return obj
+
     def save(self, must_create: bool = False) -> None:
         if self.session_key is None:
             return self.create()
         data = self._get_session(no_load=must_create)  # type: ignore[attr-defined]  # private SessionBase method, not in django-stubs
-        obj = self.create_model_instance(data)
+        obj = self._model_instance_for_save(data)
         using = router.db_for_write(self.model, instance=obj)
         try:
             with transaction.atomic(using=using):
@@ -76,6 +116,7 @@ class SessionStore(DBStore):
             if not must_create:
                 raise UpdateError
             raise
+        data.pop(DBSC_CARRY_SESSION_KEY, None)
 
     async def acreate_model_instance(self, data: dict[str, Any]) -> "Session":
         obj = cast("Session", await super().acreate_model_instance(data))
@@ -87,7 +128,9 @@ class SessionStore(DBStore):
         if self.session_key is None:
             return await self.acreate()
         data = await self._aget_session(no_load=must_create)  # type: ignore[attr-defined]  # private SessionBase method, not in django-stubs
-        obj = await self.acreate_model_instance(data)
+        stored, carried = _split_carry(data)
+        obj = await self.acreate_model_instance(stored)
+        obj.dbsc_binding = carried
         using = router.db_for_write(self.model, instance=obj)
 
         @sync_to_async
@@ -105,10 +148,15 @@ class SessionStore(DBStore):
             if not must_create:
                 raise UpdateError
             raise
+        data.pop(DBSC_CARRY_SESSION_KEY, None)
 
     def _persist(self, obj: "Session", must_create: bool, using: str) -> None:
         # On UPDATE, touch only the session-owned columns so middleware-written metadata survives.
         if must_create:
             obj.save(force_insert=True, using=using)
-        else:
-            obj.save(force_update=True, using=using, update_fields=_SESSION_OWNED_FIELDS)
+            return
+        update_fields = list(_SESSION_OWNED_FIELDS)
+        # A login can insert the row before the binding is carried, so the carry also lands on an update.
+        if obj.dbsc_binding is not None:
+            update_fields.append("dbsc_binding")
+        obj.save(force_update=True, using=using, update_fields=update_fields)

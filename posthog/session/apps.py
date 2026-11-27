@@ -8,3 +8,4 @@ class PostHogSessionConfig(AppConfig):
 
     def ready(self) -> None:
         import posthog.session.signals  # noqa: F401, PLC0415 — registers the post_delete session cleanup
+        import posthog.session.dbsc.signals  # noqa: F401, PLC0415 — registers the device-binding offer on login

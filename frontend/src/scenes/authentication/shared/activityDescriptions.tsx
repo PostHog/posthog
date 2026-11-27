@@ -34,6 +34,18 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
+    if (logItem.activity === 'session_refused_unbound') {
+        return {
+            summary: activityLogSummary(logItem, 'Session ended', 'Account', 'Used without its device'),
+            description: (
+                <>
+                    PostHog ended a session for <ActivityLogUserName logItem={logItem} /> because it was used without
+                    the device it was signed in on
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'logged_out') {
         return {
             summary: activityLogSummary(logItem, 'Logged out', 'Account'),
