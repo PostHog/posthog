@@ -1,10 +1,6 @@
-import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function OfflineEvaluationsGate({
     children,
@@ -15,10 +11,5 @@ export function OfflineEvaluationsGate({
     isAvailable?: boolean
     unavailableMessage?: string
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && isAvailable ? (
-        <>{children}</>
-    ) : (
-        <LemonBanner type="info">{unavailableMessage}</LemonBanner>
-    )
+    return isAvailable ? <>{children}</> : <LemonBanner type="info">{unavailableMessage}</LemonBanner>
 }

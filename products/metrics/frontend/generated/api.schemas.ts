@@ -37,11 +37,32 @@ export interface _MetricAttributeValuesResponseApi {
     results: _MetricAttributeValueApi[]
 }
 
+/**
+ * * `key` - key
+ * * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
     /** Number of distinct values for this attribute in recent data. */
     value_count: number
+    /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+     *
+     * * `key` - key
+     * * `value` - value */
+    matchedOn?: MatchedOnEnumApi
+    /**
+     * One value that matched the search; only set when matchedOn is 'value'.
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _MetricAttributeKeysResponseApi {
@@ -405,6 +426,63 @@ export interface DashboardImportPanelProgressApi {
     state: PanelProgressStateEnumApi
 }
 
+/**
+ * * `searching_metrics` - Searching Metrics
+ * * `reading_labels` - Reading Labels
+ * * `reading_label_values` - Reading Label Values
+ * * `running_query` - Running Query
+ * * `checking_panels` - Checking Panels
+ * * `exploring_logs` - Exploring Logs
+ * * `exploring_traces` - Exploring Traces
+ * * `reading_dashboard` - Reading Dashboard
+ * * `thinking` - Thinking
+ * * `working` - Working
+ */
+export type AgentActivityKindEnumApi = (typeof AgentActivityKindEnumApi)[keyof typeof AgentActivityKindEnumApi]
+
+export const AgentActivityKindEnumApi = {
+    SearchingMetrics: 'searching_metrics',
+    ReadingLabels: 'reading_labels',
+    ReadingLabelValues: 'reading_label_values',
+    RunningQuery: 'running_query',
+    CheckingPanels: 'checking_panels',
+    ExploringLogs: 'exploring_logs',
+    ExploringTraces: 'exploring_traces',
+    ReadingDashboard: 'reading_dashboard',
+    Thinking: 'thinking',
+    Working: 'working',
+} as const
+
+export interface DashboardImportAgentActivityApi {
+    /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+     *
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working */
+    kind: AgentActivityKindEnumApi
+    /** Seconds since the action started. */
+    seconds: number
+    /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+    idle_seconds: number
+    /**
+     * The search term, metric name or attribute key that the action works on, when it has one.
+     * @nullable
+     */
+    subject: string | null
+    /**
+     * Number of panels that a 'checking_panels' action checks.
+     * @nullable
+     */
+    panel_count: number | null
+}
+
 export interface DashboardImportSummaryApi {
     /** Number of panels in the input. */
     total: number
@@ -477,6 +555,8 @@ export interface DashboardImportApi {
     phase: DashboardImportPhaseEnumApi | null
     /** Where each panel is, while the import runs. */
     panel_progress: DashboardImportPanelProgressApi[]
+    /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+    agent_activity: DashboardImportAgentActivityApi | null
     /**
      * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
      * @nullable
@@ -524,6 +604,34 @@ export interface DashboardImportCreateApi {
      * @maxLength 7340032
      */
     image_base64?: string
+}
+
+export interface DashboardImportInputApi {
+    /** What the failed import read.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * The dashboard name the user gave. Null when the user gave none.
+     * @nullable
+     */
+    name: string | null
+    /**
+     * The Grafana dashboard JSON model, when the source is 'grafana'.
+     * @nullable
+     */
+    grafana_json: string | null
+    /**
+     * The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.
+     * @nullable
+     */
+    image_base64: string | null
+    /**
+     * Media type of `image_base64`, for example 'image/png'. Null without a screenshot.
+     * @nullable
+     */
+    image_content_type: string | null
 }
 
 /**
@@ -1035,6 +1143,12 @@ export interface _MetricClauseApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together for this clause. */
     filters?: _MetricFilterApi[]
     /** Labels to split this clause into separate series by. */
@@ -1093,6 +1207,12 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -1374,6 +1494,10 @@ export interface _MetricNameApi {
      * @nullable
      */
     first_seen?: string | null
+    /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+    series_count?: number
+    /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+    tag_key_count?: number
     /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
     classic_histogram?: _MetricClassicHistogramApi
 }
@@ -1557,6 +1681,10 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean
 }
 
 export type MetricsDashboardTemplatesListParams = {
@@ -1653,6 +1781,10 @@ export type MetricsValuesRetrieveParams = {
      * @minLength 1
      */
     match?: MetricsValuesRetrieveMatch
+    /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean
     /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024

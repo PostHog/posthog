@@ -5,8 +5,8 @@ successful responses and exceptions. The observer:
 
 - emits a structlog log line with the scrubbed full URL, status, latency
   and request/response sizes, plus all `JobContext` labels;
-- updates OTel counters/histograms labelled by `team_id`, `source_type`,
-  `host`, and `status_class`;
+- updates OTel counters/histograms labelled by `source_type` and
+  `status_class` (the request counter also by `team_id` and `host`);
 - delegates to the sampling subsystem, which is a cheap no-op when
   capture is disabled in Redis.
 
@@ -200,11 +200,11 @@ def _emit_metrics(record: RequestRecord, *, host: str, ctx: JobContext | None) -
     if ctx is None:
         return
     try:
-        attrs = {"host": host, "status_class": status_class(record.status_code)}
-        get_http_requests_counter(ctx.team_id, ctx.source_type).add(1, attrs)
-        get_http_latency_histogram(ctx.team_id, ctx.source_type).record(record.latency_ms, attrs)
+        histogram_attrs = {"status_class": status_class(record.status_code)}
+        get_http_requests_counter(ctx.team_id, ctx.source_type).add(1, {**histogram_attrs, "host": host})
+        get_http_latency_histogram(ctx.source_type).record(record.latency_ms, histogram_attrs)
         if record.response_bytes:
-            get_http_response_bytes_histogram(ctx.team_id, ctx.source_type).record(record.response_bytes, attrs)
+            get_http_response_bytes_histogram(ctx.source_type).record(record.response_bytes, histogram_attrs)
     except Exception:
         _fallback_logger.debug("Failed to record HTTP metric", exc_info=True)
 

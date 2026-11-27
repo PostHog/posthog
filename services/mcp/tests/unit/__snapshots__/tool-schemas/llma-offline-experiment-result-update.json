@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "error_code": {
+            "anyOf": [
+                {
+                    "maxLength": 128,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Error code for a failed execution."
+        },
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "result_id": {
+            "description": "Result UUID within the experiment.",
+            "type": "string"
+        },
+        "revision": {
+            "description": "Revision returned by the latest read of this item, result, or payload.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "status": {
+            "description": "Execution status for this reported result.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+            "enum": ["ok", "error", "skipped", "not_applicable"],
+            "type": "string"
+        },
+        "value": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "boolean"
+                },
+                {
+                    "items": {
+                        "maxLength": 128,
+                        "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Score for a successful result, validated against the pinned version."
+        }
+    },
+    "required": ["id", "result_id", "revision"],
+    "type": "object"
+}

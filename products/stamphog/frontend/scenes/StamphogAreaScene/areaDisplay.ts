@@ -51,7 +51,7 @@ const NEEDS_A_LOOK_SHARE = 0.5
 export type AreaGroup = 'needs_a_look' | 'merged_without_team' | 'team_asked' | 'small_part'
 
 const AREA_GROUPS: { key: AreaGroup; title: string }[] = [
-    { key: 'needs_a_look', title: 'Needs a look' },
+    { key: 'needs_a_look', title: 'Needs attention' },
     { key: 'merged_without_team', title: 'Merged without your team' },
     { key: 'team_asked', title: 'Your team was asked' },
     { key: 'small_part', title: "Small parts of other teams' changes" },
@@ -134,6 +134,10 @@ export function statusTag(outcome: RoutingOwnerOutcomeEnumApi): { label: string;
     if (isTeamAsked(outcome)) {
         return { label: 'Your team was asked', type: 'info' }
     }
+    // Not requested means the pull request was auto-approved before the team was asked.
+    if (outcome === RoutingOwnerOutcomeEnumApi.NotRequested) {
+        return { label: 'Auto-approved', type: 'warning' }
+    }
     if (isMergedWithoutTeam(outcome)) {
         return { label: 'Merged without your team', type: 'warning' }
     }
@@ -159,7 +163,8 @@ const REASON_PHRASE: Record<RoutingOwnerReasonEnumApi, string> = {
     [RoutingOwnerReasonEnumApi.CutSkipped]: 'no model checked the change to narrow down the reviewers',
     [RoutingOwnerReasonEnumApi.ModelKept]: "the model judged your team's part worth a review",
     [RoutingOwnerReasonEnumApi.ModelCut]: "the model judged your team's part did not need a review",
-    [RoutingOwnerReasonEnumApi.StamphogApproved]: 'stamphog approved it',
+    [RoutingOwnerReasonEnumApi.StamphogApproved]: 'it was auto-approved',
+    [RoutingOwnerReasonEnumApi.Attested]: 'a verified proof covered every file it changed',
 }
 
 const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: CodeReviewApprovalRoutingRunOwnerApi) => string> = {
@@ -171,10 +176,15 @@ const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: CodeReviewAp
         'The pull request came from a fork, so your team got a label on it instead of a review request.',
     [RoutingOwnerOutcomeEnumApi.Refused]: () =>
         'Your team should have been asked, but GitHub refused the review request.',
-    [RoutingOwnerOutcomeEnumApi.NotRequested]: (decision) =>
-        decision.reason === RoutingOwnerReasonEnumApi.StamphogApproved
-            ? 'Stamphog approved it, so your team was not asked.'
-            : `Your team would have been asked because ${REASON_PHRASE[decision.reason]}, but stamphog approved it first.`,
+    [RoutingOwnerOutcomeEnumApi.NotRequested]: (decision) => {
+        if (decision.reason === RoutingOwnerReasonEnumApi.StamphogApproved) {
+            return 'It was auto-approved, so your team was not asked.'
+        }
+        if (decision.reason === RoutingOwnerReasonEnumApi.Attested) {
+            return 'A verified proof covered every file it changed and it already had a reviewer, so your team was not asked.'
+        }
+        return `Your team would have been asked because ${REASON_PHRASE[decision.reason]}, but it was auto-approved first.`
+    },
     [RoutingOwnerOutcomeEnumApi.Cut]: () =>
         'Your part of the change was small, so a review from your team was not needed.',
 }

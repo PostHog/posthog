@@ -35,7 +35,7 @@ class Command(BaseCommand):
             else hog_functions.filter(team_id=options["team_id"])
         )
 
-        self.stdout.write("\t".join(["hog_function_id", "type", "template_id", "verdict", "risk", *QUESTIONS]))
+        self.stdout.write("\t".join(["hog_function_id", "type", "template_id", "verdict", "risk", "rules", *QUESTIONS]))
         for hog_function in hog_functions.order_by("team_id", "created_at"):
             if not shadow.runs_customer_code(hog_function):
                 continue
@@ -52,10 +52,12 @@ class Command(BaseCommand):
 
     def _columns(self, scored: shadow.ScoredHogFunction) -> list[str]:
         verdict = scored.verdict
+        rule_hits = ",".join(scored.rule_hits) or "-"
         if verdict is None:
-            return [f"error:{scored.failure}", "-", *("-" for _ in QUESTIONS)]
+            return [f"error:{scored.failure}", "-", rule_hits, *("-" for _ in QUESTIONS)]
         return [
-            verdict.label,
+            scored.label,
             f"{verdict.risk_score:.2f}",
+            rule_hits,
             *(f"{verdict.scores[question]:.2f}" for question in QUESTIONS),
         ]

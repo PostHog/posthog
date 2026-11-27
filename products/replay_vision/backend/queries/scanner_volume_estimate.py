@@ -31,6 +31,7 @@ from posthog.utils import get_safe_cache, safe_cache_set
 from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import eligibility_predicates
+from products.replay_vision.backend.scope.load import scope_for
 
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = ESTIMATE_MONTH_DAYS
@@ -500,10 +501,10 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     reference; no launch heals that, so callers keep it on their error path. Both groups raise
     the same DRF ValidationError type inside the recordings query, so this re-resolves the
     linkage to tell them apart. The extra resolution runs on the failure path only."""
-    experiment_scope = scanner.experiment_scope() or {}
-    experiment_id = experiment_scope.get("experiment_id")
-    if experiment_id is None:
+    scope = scope_for(scanner)
+    if scope is None:
         return False
+    experiment_id = scope.settings.experiment_id
     if isinstance(error, PermissionDenied):
         # Only the exposure access check raises PermissionDenied inside the recordings query.
         return True
@@ -515,8 +516,9 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
         resolve_exposure_linkage(
             scanner.team,
             experiment_id=experiment_id,
-            variant=experiment_scope.get("variant"),
-            variants=experiment_scope.get("variants"),
+            # `scope_for` folds a legacy singular `variant` into the plural list.
+            variant=None,
+            variants=scope.settings.variants,
         )
     except ValidationError:
         return True

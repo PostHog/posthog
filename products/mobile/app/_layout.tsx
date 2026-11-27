@@ -17,12 +17,14 @@ import { useDemoHydrated, useDemoMode } from '@/demo/demoMode'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
+import { useLivePreferencesHydrated } from '@/features/live/livePreference'
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
 import { installOfflineCache } from '@/features/offlineCache'
 import { useSnoozeReminderPreferences } from '@/features/snooze/useSnoozeReminderPreferences'
 import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
+import { useViewRangeStore, viewRangesLoaded } from '@/features/views/rangeStore'
 import { useChartWidgetSync } from '@/features/widgets/useChartWidgetSync'
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
@@ -60,9 +62,12 @@ export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
     const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
+    const livePreferencesHydrated = useLivePreferencesHydrated()
     const authStatus = useAuthStore((state) => state.status)
+    const [rangesReady, setRangesReady] = useState(useViewRangeStore.persist.hasHydrated)
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
-    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading'
+    const ready =
+        demoHydrated && appearanceHydrated && livePreferencesHydrated && rangesReady && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
@@ -88,6 +93,12 @@ export default function RootLayout(): ReactElement {
     useEffect(() => {
         void useAuthStore.getState().restore()
     }, [])
+
+    useEffect(() => {
+        if (!rangesReady) {
+            void viewRangesLoaded.then(() => setRangesReady(true))
+        }
+    }, [rangesReady])
 
     useEffect(() => {
         if (!ready) {

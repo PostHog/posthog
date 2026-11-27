@@ -515,6 +515,51 @@ describe('runStreamLogic', () => {
             expect(logic.values.currentMode).toEqual('plan')
         })
 
+        it.each([
+            [
+                'both values',
+                [
+                    { id: 'model', currentValue: 'claude-opus-4-8' },
+                    { id: 'effort', currentValue: 'high' },
+                ],
+                ['claude-opus-4-8', 'high'],
+            ],
+            [
+                'a model alone keeps the last effort',
+                [{ id: 'model', currentValue: 'claude-opus-4-8' }],
+                ['claude-opus-4-8', 'low'],
+            ],
+        ])(
+            'reads the confirmed model and effort off a config_option_update frame: %s',
+            async (_name, configOptions, expected) => {
+                logic.actions.setSessionConfig(null, 'low')
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'config_option_update', configOptions })
+                    )
+                }).toFinishAllListeners()
+
+                expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual(expected)
+            }
+        )
+
+        it('forgets the confirmed model and effort at the next run boundary', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'config_option_update',
+                        configOptions: [
+                            { id: 'model', currentValue: 'claude-opus-4-8' },
+                            { id: 'effort', currentValue: 'high' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toFinishAllListeners()
+
+            expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual([null, null])
+        })
+
         it('replaces availableCommands on each available_commands_update frame', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -3757,10 +3802,12 @@ describe('runStreamLogic', () => {
                     'Saved output.'
                 )
                 await MockStream.latest().emitMessage(saved, '200-0')
+                await new Promise(requestAnimationFrame)
                 expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
                     'Saved output.Saved output.'
                 )
                 await MockStream.latest().emitMessage(saved, 'log-2')
+                await new Promise(requestAnimationFrame)
                 expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
                     'Saved output.Saved output.Saved output.'
                 )
@@ -4963,6 +5010,36 @@ describe('runStreamLogic', () => {
     })
 
     describe('wire frame parsing through the SSE reader', () => {
+        it.each(['turn completion', 'connection close', 'reset'])(
+            'batches live text safely across %s',
+            async (ending) => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+                await source.emitOpen()
+                const log = logic.values.log
+                await source.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Hello ' } })
+                )
+                await source.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'world' } })
+                )
+                expect(logic.values.log).toBe(log)
+                if (ending === 'reset') {
+                    logic.actions.reset()
+                    expect(logic.values.log.entries).toHaveLength(0)
+                    return
+                }
+                if (ending === 'connection close') {
+                    logic.actions.closeSse()
+                } else {
+                    await source.emitMessage(notification('_posthog/turn_complete', {}))
+                    expect(logic.values.turnComplete).toBe(true)
+                }
+                expect(logic.values.threadItems.some((item) => item.text === 'Hello world')).toBe(true)
+            }
+        )
+
         it('reads the snake_case error_message off task_run_state frames', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()

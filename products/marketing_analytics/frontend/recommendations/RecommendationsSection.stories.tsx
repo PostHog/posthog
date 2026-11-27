@@ -15,6 +15,7 @@ import {
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationsQueryResponse,
 } from '~/queries/schema/schema-general'
 
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -204,11 +205,13 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3,800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',
+        minor: true,
     }),
     recommendation({
         rule: 'content_gap',
@@ -234,9 +237,42 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'policy_limited',
         level: 'campaign',
-        subject: 'Performance Max - All products',
-        action: 'Check the affected ads in Policy manager',
-        reason: 'Some asset groups are limited by policy, so they show less often.',
+        subject: 'Search - Product',
+        action: 'Fix or appeal the policy issues in this campaign',
+        reason: "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Product',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. Saving sends the ad to review again. A limited ad may need a certification from Google instead.',
+                url: 'https://ads.google.com/aw/ads',
+                linkText: 'Ads',
+            },
+            {
+                text: 'The ad "Acme alternative for teams" breaks the policy "Trademarks in ad text" (flagged text: "Acme").',
+                copyValue: 'Acme alternative for teams',
+            },
+            {
+                text: 'The ad "Product analytics pricing" breaks the policy "Destination mismatch".',
+                copyValue: 'Product analytics pricing',
+            },
+            {
+                text: 'The ad "Analytics for clinics" is limited by the policy "Healthcare and medicines".',
+                copyValue: 'Analytics for clinics',
+            },
+            {
+                text: 'If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.',
+                url: 'https://ads.google.com/aw/policy/ads/issues',
+                linkText: 'Policy manager',
+            },
+            {
+                text: 'Come back here after Google reviews the changes, usually within a business day.',
+            },
+        ],
     }),
     recommendation({
         rule: 'keyword_tracking',
@@ -247,6 +283,22 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         impactDirection: 'gain',
     }),
 ]
+
+const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
+
+function respondWith(response: Partial<MarketingAnalyticsRecommendationsQueryResponse>): Mocks['post'] {
+    return {
+        [QUERY_URL]: () => [
+            200,
+            {
+                results: RESULTS,
+                disclaimer: DISCLAIMER,
+                conversionSource: { kind: 'google_ads', goalNames: [] },
+                ...response,
+            },
+        ],
+    }
+}
 
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
@@ -267,19 +319,19 @@ const MOCKS: Mocks = {
             previous: null,
         },
     },
-    post: {
-        '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-            200,
-            { results: RESULTS, disclaimer: DISCLAIMER },
-        ],
-    },
+    post: respondWith({}),
 }
+
+const INTRO_SEEN_KEY = 'products.marketingAnalytics.recommendationsLogic.introSeen'
+const resetIntro = (): void => localStorage.removeItem(INTRO_SEEN_KEY)
 
 const meta: Meta<typeof RecommendationsSection> = {
     title: 'Scenes-App/Marketing Analytics/Recommendations',
     component: RecommendationsSection,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        // Opening the recommendations in one story marks the intro as seen for the next ones.
+        localStorage.setItem(INTRO_SEEN_KEY, 'true')
         const originalNow = performance.now
         performance.now = () => 0
         return () => {
@@ -314,19 +366,35 @@ const meta: Meta<typeof RecommendationsSection> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Summary: Story = {}
+export const Summary: Story = {
+    beforeEach: resetIntro,
+    parameters: { testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' } },
+}
+
+export const Loading: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [QUERY_URL]: () => new Promise(() => {}) } } },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="marketing-recommendations"] .Spinner',
+        },
+    },
+}
+
+async function openRecommendations(canvasElement: HTMLElement): Promise<void> {
+    const loaded = 'button:not([aria-disabled="true"]) *'
+    await userEvent.click(await within(canvasElement).findByText('Recommendations', { selector: loaded }))
+}
 
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
     },
 }
 
 export const ModalInstructions: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
@@ -335,8 +403,7 @@ export const ModalInstructions: Story = {
 
 export const ModalKeywordTracking: Story = {
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Keyword tracking', { selector: 'button *' }))
     },
@@ -374,6 +441,21 @@ const SOURCES_WITH_GAPS = [
 
 const MOCKS_WITH_GAPS: Mocks = {
     ...MOCKS,
+    post: respondWith({
+        dataGaps: [
+            {
+                kind: 'posthog_conversions_not_ready',
+                message:
+                    'PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. Check again in a few minutes.',
+            },
+            {
+                kind: 'conversion_action_tables_not_synced',
+                campaignTable: 'example.campaign',
+                message:
+                    'CPAs count the primary conversion actions, because campaign_conversion_action_stats is not synced. Sync it to count only the selected conversion actions.',
+            },
+        ],
+    }),
     get: {
         ...MOCKS.get,
         '/api/environments/:team_id/external_data_sources/': {
@@ -396,56 +478,101 @@ export const MissingTables: Story = {
 export const MissingTablesInModal: Story = {
     parameters: { msw: { mocks: MOCKS_WITH_GAPS } },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
     },
 }
 
+export const PostHogConversionGapsInModal: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: respondWith({
+                    conversionSource: { kind: 'posthog', goalNames: ['Sign ups', 'Purchases'] },
+                    dataGaps: [
+                        {
+                            kind: 'posthog_conversion_goals_unusable',
+                            message:
+                                'CPAs count only the marked goals that can be counted: Demo requests has no event or action to count.',
+                        },
+                        {
+                            kind: 'posthog_campaigns_unmatched',
+                            message:
+                                'PostHog conversions from 2 utm_campaign values match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. The UTM audit lists them; map each one to its campaign in campaign name mappings.',
+                        },
+                    ],
+                }),
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await openRecommendations(canvasElement)
+        // The section has a button with the same label, so the modal's is found by its data-attr.
+        const modal = within(canvasElement.ownerDocument.body)
+        await modal.findByText('CPAs from your PostHog goals: Sign ups, Purchases')
+        const modalButton = canvasElement.ownerDocument.querySelector<HTMLElement>(
+            '[data-attr="marketing-recommendations-modal-data-gaps"]'
+        )
+        await userEvent.click(modalButton as HTMLElement)
+    },
+}
+
 function withResolved(
-    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+    state: (
+        row: MarketingAnalyticsRecommendation
+    ) => MarketingAnalyticsRecommendationResolutionState | 'detected' | null
 ): Mocks {
     const results = RESULTS.map((row) => {
         const resolved = state(row)
-        return resolved
-            ? {
-                  ...row,
-                  resolution: {
-                      id: `resolution-${row.subject}`,
-                      resolution: resolved,
-                      resolved_at: '2025-02-14T12:00:00Z',
-                  },
-              }
-            : row
+        return resolved === 'detected'
+            ? { ...row, detectedChange: 'negative_keyword' as const }
+            : resolved
+              ? {
+                    ...row,
+                    resolution: {
+                        id: `resolution-${row.subject}`,
+                        resolution: resolved,
+                        resolved_at: '2025-02-14T12:00:00Z',
+                    },
+                }
+              : row
     })
     return {
         ...MOCKS,
-        post: {
-            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
-                200,
-                { results, disclaimer: DISCLAIMER },
-            ],
-        },
+        post: respondWith({ results }),
     }
 }
 
 const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+const SPEND_WITHOUT_CONVERSIONS = RESULTS.filter((row) => row.rule === 'spend_without_conversions')
 
 export const ResolvedInModal: Story = {
     parameters: {
         msw: {
             mocks: withResolved((row) =>
-                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+                row === SPEND_WITHOUT_CONVERSIONS[0]
+                    ? 'dismissed'
+                    : row === SPEND_WITHOUT_CONVERSIONS[1]
+                      ? 'detected'
+                      : row === BRAND_OVERLAP[0]
+                        ? 'applied'
+                        : null
             ),
         },
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
-        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
+        await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
+        await modal.findByText('Dismissed and applied')
     },
 }
 
@@ -458,16 +585,14 @@ export const AllDismissed: Story = {
 export const AllDismissedInModal: Story = {
     parameters: { msw: { mocks: ALL_DISMISSED } },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        await openRecommendations(canvasElement)
     },
 }
 
 const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
 
 async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
-    const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    await openRecommendations(canvasElement)
     const modal = within(canvasElement.ownerDocument.body)
     await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
     await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
@@ -510,7 +635,7 @@ export const RuleResolvedInModal: Story = {
     play: async ({ canvasElement }) => {
         await dismissHighCostCampaign(canvasElement)
         await within(canvasElement.ownerDocument.body).findByText(
-            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+            'Every recommendation in this rule is dismissed or applied. Review them to see each one.'
         )
     },
 }

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional, TypeIs
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import ServerException, UnknownTypeError
 from rest_framework.exceptions import APIException
 
 from posthog.hogql import errors as hogql_errors
@@ -11,6 +11,8 @@ from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
 from posthog.errors import (
     CHQueryErrorTooManyBytes,
+    CHQueryErrorUnknownType,
+    InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -21,6 +23,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
     QueryRanConcurrently,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, Budget, FailureKind, QueryFailureRecord
@@ -62,7 +65,7 @@ def shareable_failure(error: Exception) -> Optional[SharedFailure]:
     the code is found on the exception or behind it. An exposed HogQL error travels by its class.
     The candidate is rebuilt here first and shared only when that gives back the leader's own class
     and message, so nothing the app decided on its own, such as an app-side limit, ever travels."""
-    if classify_query_error(error) not in SHAREABLE_FAILURE_CATEGORIES:
+    if classify_query_error(error) not in SHAREABLE_FAILURE_CATEGORIES or isinstance(error, ClickHouseUDFTimeOut):
         return None
     try:
         candidate = _shared_failure_candidate(error)
@@ -86,7 +89,11 @@ def same_failure(rebuilt: Exception, error: Exception) -> bool:
 
 
 def _shared_failure_candidate(error: Exception) -> Optional[SharedFailure]:
+    if isinstance(error, CHQueryErrorUnknownType):
+        return SharedFailure(message=str(error), class_name="CHQueryErrorUnknownType")
     cause: Optional[BaseException] = error
+    if isinstance(error, InternalCHQueryError) and isinstance(error.__cause__, ServerException):
+        cause = error.__cause__
     while cause is not None:
         if isinstance(cause, ServerException) and cause.code is not None:
             return SharedFailure(message=str(cause.message), code=cause.code)
@@ -109,6 +116,8 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
     error: Exception
     if failure.code is not None:
         error = wrap_clickhouse_query_error(ServerException(failure.message, code=failure.code))
+    elif failure.class_name == "CHQueryErrorUnknownType":
+        error = CHQueryErrorUnknownType(failure.message, code=UnknownTypeError.code, code_name="unknown_type")
     else:
         cls = getattr(hogql_errors, failure.class_name or "", None)
         if not _is_shareable_hogql_error(cls):
@@ -117,7 +126,7 @@ def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
             error = cls(failure.message, start=failure.start, end=failure.end, fix=failure.fix)
         except TypeError:
             return None
-    error.served_from_query_single_flight = True  # type: ignore[attr-defined]
+    vars(error)["served_from_query_single_flight"] = True
     return error
 
 
@@ -125,6 +134,9 @@ def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optiona
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "memory_limit" if error.is_per_query_limit else None
+    if isinstance(error, ClickHouseUDFTimeOut):
+        # The funnel UDF runs in a shared process pool, so its timeout also depends on cluster load.
+        return None
     if isinstance(error, ClickHouseQueryTimeOut):
         return "timeout"
     if isinstance(error, ClickHouseEstimatedQueryExecutionTimeTooLong):

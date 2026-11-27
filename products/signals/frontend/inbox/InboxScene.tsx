@@ -3,9 +3,11 @@ import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
+import { QuillScoutSceneTitle } from './components/config/scouts/QuillScoutSceneTitle'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
@@ -21,6 +24,7 @@ import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
+import { InboxSettingsButton } from './components/shell/InboxSettingsButton'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
@@ -43,6 +47,12 @@ export const scene: SceneExport = {
 const LazyScoutCreateModal = React.lazy(async () => {
     const { ScoutCreateModal } = await import('./components/config/scouts/ScoutCreateModal')
     return { default: ScoutCreateModal }
+})
+
+// Behind a feature flag, so its code loads only for people who open the tab.
+const LazyMonitoringTab = React.lazy(async () => {
+    const { MonitoringTab } = await import('./components/monitoring/MonitoringTab')
+    return { default: MonitoringTab }
 })
 
 /** Hosts the `#createScout=` modal at the scene level, so it opens from any tab, not just the roster. */
@@ -72,6 +82,12 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
     switch (tab) {
         case 'reports':
             return <ReportsTab />
+        case 'monitoring':
+            return (
+                <React.Suspense fallback={<LemonSkeleton className="h-64 w-full" />}>
+                    <LazyMonitoringTab />
+                </React.Suspense>
+            )
         case 'scouts':
             return <ScoutsRoster />
         case 'sources':
@@ -85,7 +101,7 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
 }
 
 function InboxListView(): JSX.Element {
-    const { activeTab } = useValues(inboxSceneLogic)
+    const { activeTab, scoutsInAutomate, todayHomePane } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
     // view, tab bar included, so the onboarding is the whole story – just run the one command.
@@ -112,7 +128,8 @@ function InboxListView(): JSX.Element {
     return (
         <div className="flex flex-col min-h-0 flex-1 min-w-0">
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-            {!onboarding && !pending && (
+            {/* The Home pane links each inbox page itself, and its title row keeps Triage at every width. */}
+            {!onboarding && !pending && !scoutsInAutomate && !todayHomePane && (
                 <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar />
                     {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
@@ -144,13 +161,16 @@ function InboxListView(): JSX.Element {
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { reportDetailScrolled } = useActions(inboxSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
     // so a fast native scroll doesn't dispatch an action on every frame.
     const scrolledReportRef = useRef<string | null>(null)
 
     return (
         <div
-            className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto"
+            // The new navigation's title row sits flush with the top, like the list's title, so it cancels all of the
+            // scene's top padding.
+            className={cn('flex flex-col min-h-0 flex-1 overflow-auto', todayRailNav ? '-mt-4' : '-mt-2')}
             onScroll={() => {
                 if (scrolledReportRef.current !== report.id) {
                     scrolledReportRef.current = report.id
@@ -214,10 +234,13 @@ export function InboxScene(): JSX.Element {
         isFindingsOpen,
         isRunsOpen,
         isTriageOpen,
+        todayHomePane,
+        titleName,
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
     // send the not-found state back there rather than the inbox, mirroring `InboxDetailFrame`.
@@ -263,20 +286,31 @@ export function InboxScene(): JSX.Element {
     // Each tab's primary action sits in the scene header rather than inside the tab: one predictable
     // place, and it stays reachable when filters narrow the tab down to nothing. Not while onboarding
     // has the tab locked (or is still deciding): the tab isn't reachable then.
+    // The panels and triage cover a selected scout, so the scout page shows only when none of them is open.
+    const scoutDetailSkillName =
+        !isTriageOpen && !isFindingsOpen && !isScratchpadOpen && !isRunsOpen ? selectedScoutSkillName : null
+
     const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
     const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
         <ScoutsRosterActions />
     ) : activeTab === 'reports' ? (
-        <div className="hidden @2xl/inbox:contents">
-            <InboxTriageButton />
-        </div>
+        todayHomePane ? (
+            <>
+                <InboxTriageButton />
+                <InboxSettingsButton />
+            </>
+        ) : (
+            <div className="hidden @2xl/inbox:contents">
+                <InboxTriageButton />
+            </div>
+        )
     ) : undefined
 
     return (
         <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
-                    name="Self-driving inbox"
+                    name={titleName}
                     // The description explains the active tab so new users can orient themselves.
                     // The welcome takeover leads with its own full-size pitch, so a description here
                     // would say the same thing twice. While the verdict is pending no description is
@@ -302,6 +336,7 @@ export function InboxScene(): JSX.Element {
                 </div>
             </div>
 
+            {todayRailNav && scoutDetailSkillName && <QuillScoutSceneTitle skillName={scoutDetailSkillName} />}
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
                     {isTriageOpen ? (
@@ -318,8 +353,8 @@ export function InboxScene(): JSX.Element {
                         <InboxPanelView onBack={() => setRunsOpen(false)}>
                             <InboxRunsPanel />
                         </InboxPanelView>
-                    ) : selectedScoutSkillName ? (
-                        <ScoutDetailView skillName={selectedScoutSkillName} />
+                    ) : scoutDetailSkillName ? (
+                        <ScoutDetailView skillName={scoutDetailSkillName} />
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />
                     ) : selectedReportLoading ? (

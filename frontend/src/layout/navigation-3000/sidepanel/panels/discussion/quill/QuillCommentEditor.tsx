@@ -95,9 +95,13 @@ export function QuillCommentEditor({
                 }
             }}
             onDrop={(event) => {
+                if (uploadDisabledReason || !event.dataTransfer.types.includes('Files')) {
+                    return
+                }
+                // The drag over accepted the drop, so an unsupported file would otherwise open in the tab and lose the draft.
+                event.preventDefault()
                 const images = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith('image/'))
-                if (!uploadDisabledReason && images.length) {
-                    event.preventDefault()
+                if (images.length) {
                     setFilesToUpload(images.slice(0, 1))
                 }
             }}

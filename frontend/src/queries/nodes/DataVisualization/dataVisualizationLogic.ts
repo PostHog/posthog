@@ -79,7 +79,7 @@ import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
-import { humanizeEventColumnValue } from './eventColumnLabels'
+import { chartAxisValues } from './eventColumnLabels'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -120,10 +120,12 @@ export interface AxisSeriesSettings {
 export interface AxisSeries<T> {
     column: Column
     data: T[]
+    rawData?: unknown[]
     settings?: AxisSeriesSettings
 }
 
 export interface DataVisualizationLogicProps {
+    captureQueryTelemetry?: boolean
     loadQueue?: DataNodeLogicProps['loadQueue']
     key: string
     query: VisualizationNode
@@ -994,10 +996,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
+                captureQueryTelemetry: props.captureQueryTelemetry,
                 loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 key: props.key,
-                query: getBIVisualizationSource(props.query),
+                query: props.query && getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 retainResponseOnUnmount: props.retainResponseOnUnmount,
@@ -1019,11 +1022,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         actions: [
             dataNodeLogic({
+                captureQueryTelemetry: props.captureQueryTelemetry,
                 loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,
-                query: getBIVisualizationSource(props.query),
+                query: props.query && getBIVisualizationSource(props.query),
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
@@ -1633,14 +1637,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
-                return {
-                    column,
-                    data: data.map((n: any) =>
-                        query.kind === NodeKind.BIVisualizationNode
-                            ? n[column.dataIndex]
-                            : humanizeEventColumnValue(column.name, n[column.dataIndex])
-                    ),
-                }
+                const values: string[] = data.map((row: any[]) => row[column.dataIndex])
+                return { column, ...chartAxisValues(column.name, values, query.kind === NodeKind.BIVisualizationNode) }
             },
         ],
         sourceTabularColumns: [

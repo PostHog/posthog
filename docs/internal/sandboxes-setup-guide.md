@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for local and Temporal cloud probes, behavior and limits.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
 
 ## GitHub App
 
@@ -77,15 +77,6 @@ fine — they get converted to newlines.
 
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
-
-The separate `task-management` implementation is not registered with the worker.
-It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
-Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
-Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
-With the `tasks-task-management-durable-ci-checkpoints` Temporal patch, queue and budget changes are staged in a generation-protected checkpoint before application.
-Startup applies any unfinished checkpoint before restoring the queue and counters. Follow-ups wait for their reset and queued message to persist before delivery.
-Exhausted persistence retries stop the orchestrator instead of continuing with an unsaved budget; a new execution can recover a staged checkpoint. A failure before staging does not create a recoverable database checkpoint.
-With `tasks-task-management-checkpoint-recovery-status`, checkpoint read or write failures leave the task run non-terminal so recovery can reattach to its sandbox. `tasks-execute-sandbox-reopen-parent-delivery` resumes sandbox acknowledgements when the restarted orchestrator attaches.
 
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
@@ -283,6 +274,8 @@ reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
+The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
+
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
 worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
@@ -292,7 +285,10 @@ what it derives itself. Both are reserved keys: a sandbox environment cannot set
 Account audit runs use the reserved `account_audit` origin and AI product, and must
 carry the server-set `internal` flag before they can mint a token. Add
 `account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
-Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+Their Python gateway fallback uses `background_agents`. Autoresearch training runs
+follow the same rules with the reserved `autoresearch` origin and AI product, so
+`SANDBOX_AI_GATEWAY_PRODUCTS` must list `autoresearch` or training runs fail to
+start. Signup onboarding stays
 on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
 waits three minutes for cost accounting before reporting the audit result. Audits use an
 internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
@@ -312,6 +308,8 @@ since frontend and backend group keys differ.
 The property identifies the active environment: explicitly include every environment that should have
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
+Requests through an environment URL also require membership of the parent project.
+Project-restricted API keys and OAuth tokens must include both the environment and its parent.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
 the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog
@@ -486,7 +484,7 @@ Use `TaskRun.workflow_id` to recover the full Temporal workflow ID from the run.
 
 ### Sandbox templates
 
-Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+Staff can inspect the agent release pipeline in PostHog Admin at `/admin/console/tools/agent-release-pipeline/` in each region.
 Release reads use the configured GitHub App installation for `PostHog/posthog`, with a temporary token restricted to Contents and Actions reads on that repository. No integration record or installation ID setting is needed. Deployments without GitHub App credentials use `GITHUB_TOKEN` when set.
 The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.

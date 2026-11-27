@@ -121,6 +121,7 @@ export interface canvasEditLogicValues {
     browseVersionId: string | null // canvasHistoryLogic
     canvas: CanvasApi | null // canvasSceneLogic
     currentProjectId: number | null // canvasSceneLogic
+    editAccessDisabledReason: string | null // canvasSceneLogic
     isGenerating: boolean // canvasSceneLogic
     sandboxDocumentUrl: string | null // canvasSceneLogic
     view: CanvasViewResponseApi | null // canvasSceneLogic
@@ -308,7 +309,8 @@ export interface canvasEditLogicMeta {
         editUnavailableReason: (
             view: CanvasViewResponseApi | null,
             sandboxDocumentUrl: string | null,
-            isGenerating: boolean
+            isGenerating: boolean,
+            editAccessDisabledReason: string | null
         ) => string | null
     }
 }
@@ -332,7 +334,7 @@ export const canvasEditLogic = kea<canvasEditLogicType>([
     connect((props: CanvasEditLogicProps) => ({
         values: [
             canvasSceneLogic({ id: props.id }),
-            ['currentProjectId', 'view', 'canvas', 'isGenerating', 'sandboxDocumentUrl'],
+            ['currentProjectId', 'view', 'canvas', 'isGenerating', 'sandboxDocumentUrl', 'editAccessDisabledReason'],
             canvasHistoryLogic({ id: props.id }),
             ['browseVersionId'],
         ],
@@ -466,12 +468,16 @@ export const canvasEditLogic = kea<canvasEditLogicType>([
         ],
         /** Why the Edit toggle is off, or null when the canvas can be edited. */
         editUnavailableReason: [
-            (s) => [s.view, s.sandboxDocumentUrl, s.isGenerating],
+            (s) => [s.view, s.sandboxDocumentUrl, s.isGenerating, s.editAccessDisabledReason],
             (
                 view: CanvasViewResponseApi | null,
                 sandboxDocumentUrl: string | null,
-                isGenerating: boolean
+                isGenerating: boolean,
+                editAccessDisabledReason: string | null
             ): string | null => {
+                if (editAccessDisabledReason) {
+                    return editAccessDisabledReason
+                }
                 if (!view?.current_version_id) {
                     return 'This canvas has no source to edit yet.'
                 }

@@ -69,6 +69,8 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
+    CPUACCT_USAGE_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
@@ -386,6 +388,18 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
         "cpu": (config.effective_cpu_request_cores, cpu_limit),
         "memory": (config.effective_memory_request_mb, memory_limit_mb),
     }
+
+
+def _sandbox_name(config: SandboxConfig) -> str:
+    """A name no earlier create in this provision used, so a retry cannot collide with the sandbox it replaces.
+
+    One provision makes several creates: every image candidate and every readiness recreate.
+    Modal rejects a create when the name is held by a sandbox the same provision just made.
+    Egress probes keep the fixed name because the probe runner looks them up by it.
+    """
+    if config.agent_egress_probe:
+        return config.name
+    return f"{config.name}-{uuid.uuid4().hex[:6]}"
 
 
 LOCAL_MODAL_DOCKERFILES = {
@@ -1079,7 +1093,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
-        if config.agent_egress_probe:
+        if config.agent_egress_probe or config.agent_egress_observation:
             SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
@@ -1215,13 +1229,10 @@ class ModalSandbox(AgentServerLaunchMixin):
                 secret = modal.Secret.from_dict(env_dict)
                 secrets.append(secret)
 
-            sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
-
             region = _get_modal_region()
 
             create_kwargs: dict[str, object] = {
                 "app": app,
-                "name": sandbox_name,
                 "timeout": config.ttl_seconds,
                 **_resource_create_kwargs(config),
                 "region": region,
@@ -1232,8 +1243,9 @@ class ModalSandbox(AgentServerLaunchMixin):
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
-            if config.agent_egress_probe:
+            if config.agent_egress_probe or config.agent_egress_observation:
                 create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+            if config.agent_egress_probe:
                 create_kwargs["outbound_cidr_allowlist"] = []
 
             if config.block_network:
@@ -1396,7 +1408,12 @@ class ModalSandbox(AgentServerLaunchMixin):
         """
         for index, candidate in enumerate(candidates):
             config.dev_stack_present = candidate.has_dev_stack
-            attempt_kwargs = {**create_kwargs, "image": candidate.image, **_resource_create_kwargs(config)}
+            attempt_kwargs = {
+                **create_kwargs,
+                "name": _sandbox_name(config),
+                "image": candidate.image,
+                **_resource_create_kwargs(config),
+            }
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
@@ -2055,13 +2072,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def read_cpu_usage_usec(self) -> int | None:
         try:
-            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+            cpu_stat = self._sandbox.filesystem.read_text(CPU_STAT_PATH)
         except Exception:
             cpu_stat = None
         if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
             return usage
         try:
-            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            cpuacct_usage = self._sandbox.filesystem.read_text(CPUACCT_USAGE_PATH)
             if cpuacct_usage.strip():
                 return int(cpuacct_usage) // 1000
         except Exception:

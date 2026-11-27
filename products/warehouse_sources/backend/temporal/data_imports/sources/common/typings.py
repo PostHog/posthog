@@ -217,3 +217,6 @@ class SourceInputs:
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None
     sync_type: ExternalDataSchemaSyncType | None = None
+    # Set when a webhook-synced schema keeps a history table. Its webhook read then yields every event,
+    # with the event columns, where the source declares `WebhookSource.webhook_events`.
+    webhook_history: bool = False

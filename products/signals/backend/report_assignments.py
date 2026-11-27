@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from functools import partial
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from django.db import transaction
 from django.utils import timezone
@@ -15,6 +15,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.github.attribution import bounded_github_identity_lookup
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
@@ -30,6 +31,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
 )
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import (
     PullRequestStateSource,
     apply_report_completion,
@@ -46,9 +48,14 @@ from products.signals.backend.report_claims import (
     get_active_claim,
     is_claim_of_person,
     is_claim_of_task_creator,
+    responsible_user,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.transition_credit import TransitionCredit
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
 
 logger = structlog.get_logger(__name__)
 
@@ -106,6 +113,7 @@ class PullRequestDetails:
     state: str
     merged: bool
     merged_at: datetime | None = None
+    merged_by: PullRequestMerger | None = None
 
 
 def assignment_snapshot(
@@ -343,6 +351,7 @@ def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = F
         state=pr_state,
         merged=merged,
         merged_at=merged_at if merged_at is not None and timezone.is_aware(merged_at) else None,
+        merged_by=PullRequestMerger.from_github(status.get("merged_by")) if merged else None,
     )
 
 
@@ -367,11 +376,7 @@ def sync_task_pull_request_to_assignments(
     if merged:
         state = SignalReportAssignment.PrState.MERGED
 
-    report_ids = list(
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
     if not report_ids:
         return 0
 
@@ -418,7 +423,86 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
-def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged_at: datetime | None = None) -> None:
+MergerLookups = dict[frozenset[PullRequestMerger], User | None]
+
+
+def _merger_user(team_id: int, prs: Sequence[ImplementationPr], lookups: MergerLookups | None = None) -> User | None:
+    """The active org member whose linked GitHub account merged one of the pull requests.
+
+    `lookups` holds the answers already found for the team. A caller that completes several reports
+    for one pull request passes the same one for all of them, so the lookup runs once.
+    """
+    from products.signals.backend.pr_owner_assignments import (  # noqa: PLC0415 - its reviewer resolver reaches the signals facade, which imports this module
+        github_identity_source,
+    )
+    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415 - same cycle
+        resolve_org_github_login_to_users,
+    )
+
+    mergers = frozenset(pr.merged_by for pr in prs if pr.merged and pr.merged_by is not None)
+    if not mergers:
+        return None
+    if lookups is not None and mergers in lookups:
+        return lookups[mergers]
+    user: User | None = None
+    try:
+        # This runs under the report row lock, and on a webhook delivery that GitHub never retries.
+        with bounded_github_identity_lookup():
+            members = resolve_org_github_login_to_users(team_id, [merger.login for merger in mergers])
+            for merger in sorted(mergers, key=lambda merger: merger.login.lower()):
+                login = merger.login.lower()
+                member = members.get(login)
+                if member is None or not member.is_active:
+                    continue
+                identity = github_identity_source(member, login)
+                # Another GitHub account can register a login that a member gave up, so the member's
+                # linked account must carry the merger's id. A link with no id proves nothing.
+                if identity is None or identity[1] != merger.github_id:
+                    continue
+                user = member
+                break
+    except Exception:
+        logger.warning("signals.assignment.pr_merger_lookup_failed", team_id=team_id, exc_info=True)
+    if lookups is not None:
+        lookups[mergers] = user
+    return user
+
+
+def _pr_work_credit(
+    report: SignalReport, prs: Sequence[ImplementationPr], merger_lookups: MergerLookups | None = None
+) -> TransitionCredit | None:
+    """The person behind the pull request work.
+
+    A person who took the work on comes first: the holder of a person's claim, then who attached a PR.
+    The person who merged it comes next. The creator of a task comes last, because an auto-started
+    task runs as a suggested reviewer who may never have acted on the report.
+    """
+    claim = get_active_claim(team_id=report.team_id, report_id=report.id)
+    if claim is not None and claim.actor_user is not None:
+        return TransitionCredit(user=claim.actor_user, source="claim")
+    for pr in prs:
+        if pr.attached_by_user is not None:
+            return TransitionCredit(user=pr.attached_by_user, source="pr_attacher")
+    if (merger := _merger_user(report.team_id, prs, merger_lookups)) is not None:
+        return TransitionCredit(user=merger, source="pr_merger")
+    if claim is not None and (claim_task_creator := responsible_user(claim)) is not None:
+        return TransitionCredit(user=claim_task_creator, source="task_creator")
+    creators = tasks_facade.get_task_creator_ids([pr.task_id for pr in prs if pr.task_id], [report.team_id])
+    for pr in prs:
+        if pr.task_id and (creator_id := creators.get(pr.task_id)) is not None:
+            creator = User.objects.filter(id=creator_id).first()
+            return TransitionCredit(user=creator, source="task_creator") if creator is not None else None
+    return None
+
+
+def _apply_pr_report_state(
+    report: SignalReport,
+    pr_state: str | None,
+    *,
+    merged_at: datetime | None = None,
+    prs: Sequence[ImplementationPr] = (),
+    merger_lookups: MergerLookups | None = None,
+) -> None:
     target = None
     if pr_state == SignalReportAssignment.PrState.MERGED:
         target = SignalReport.Status.RESOLVED
@@ -434,6 +518,8 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
         SignalReport.Status.MONITORING,
     }:
         return
+    # The transition stays a system one. The owner is credited only in the status-change analytics.
+    credit = _pr_work_credit(report, prs, merger_lookups)
     try:
         if target == SignalReport.Status.RESOLVED:
             complete_implementation(
@@ -441,6 +527,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
                 report_id=report.id,
                 monitoring_started_at=merged_at,
                 attribution=ArtefactAttribution.system(),
+                credit=credit,
                 from_pr_merge=True,
             )
             report.refresh_from_db()
@@ -457,6 +544,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
+    report._transition_credit = credit  # type: ignore[attr-defined]
     with transaction.atomic():
         report.save(update_fields=updated_fields)
         if target == SignalReport.Status.SUPPRESSED:
@@ -546,13 +634,18 @@ def claim_report(
             if not release and _repeats_attach_under_ended_claim(locked_report, claim_id, actor, details):
                 return None
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
+        if (
+            claim_id
+            and assignment is not None
+            and not release
+            and not actor_works_under_claim(assignment, actor, user_id=user.id)
+        ):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_can_release_claim(assignment, actor):
+            if assignment.actor_kind and not actor_can_release_claim(assignment, actor, user_id=user.id):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
             assignment = None
@@ -562,13 +655,18 @@ def claim_report(
                 if (
                     not takeover
                     and assignment is not None
-                    and actor_works_under_claim(assignment, actor)
+                    and actor_works_under_claim(assignment, actor, user_id=user.id)
                     and _all_pull_requests_attached(locked_report, details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
             took_over = False
-            if assignment is not None and not actor_works_under_claim(assignment, actor):
+            # Another actor of the claim holder resumes their claim, unless it asks to take it over, as when a
+            # person turns their agent's claim into their own.
+            if assignment is not None and (
+                not actor_works_under_claim(assignment, actor, user_id=user.id)
+                or (takeover and not actor_owns_claim(assignment, actor))
+            ):
                 if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
                     raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
                 if not takeover:
@@ -594,6 +692,12 @@ def claim_report(
                 assignment = create_claim(locked_report, actor)
                 if on_new_claim is not None:
                     transaction.on_commit(partial(on_new_claim, takeover=took_over))
+            elif actor.task_id:
+                claim_artefact = SignalReportArtefact.objects.filter(
+                    team_id=report.team_id, id=assignment.claim_id
+                ).first()
+                if claim_artefact is not None:
+                    _associate_task_with_claim(locked_report, actor.task_id, claim_artefact)
 
         for pr_details in details:
             link_pull_request(
@@ -604,6 +708,20 @@ def claim_report(
             )
         if details:
             apply_report_completion(locked_report)
+        if actor.task_id:
+            # Function-local: the tasks module imports this one.
+            from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
+
+            for pr_details in details:
+                # Dispatch after commit so a rolled-back attach never edits a pull request body.
+                transaction.on_commit(
+                    partial(
+                        link_report_tracker_issues.delay,
+                        team_id=report.team_id,
+                        task_id=actor.task_id,
+                        pr_url=pr_details.url,
+                    )
+                )
 
         after = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if before == after:
@@ -650,6 +768,7 @@ def update_assignments_for_pull_request(
     pr_number: int,
     pr_state: str,
     merged_at: datetime | None = None,
+    merged_by: PullRequestMerger | None = None,
 ) -> int:
     from products.signals.backend.implementation_pr import (
         fetch_implementation_prs_for_reports,
@@ -687,6 +806,7 @@ def update_assignments_for_pull_request(
                                 state=pr_state,
                                 merged=pr_state == "merged",
                                 merged_at=merged_at,
+                                merged_by=merged_by,
                             ),
                             actor=ArtefactAttribution.from_task(pr.task_id),
                             claim_id=pr.claim_id,
@@ -697,5 +817,6 @@ def update_assignments_for_pull_request(
                 number=pr_number,
                 state=pr_state,
                 merged_at=merged_at,
+                merged_by=merged_by,
             )
     return updated

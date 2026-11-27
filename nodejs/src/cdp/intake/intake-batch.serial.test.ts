@@ -10,7 +10,11 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
 import { CdpOutputs } from '../cdp-services'
-import { CDP_INTAKE_DLQ_OUTPUT, CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, EMAIL_STATUS_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_DLQ_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    EMAIL_STATUS_OUTPUT,
+} from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2/manager'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { createInvocationSanitizer } from '../services/job-queue/shared'
@@ -29,6 +33,7 @@ import { keyedRunId } from './run-intake'
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const FLOW_ID = '0193a7b2-0000-7000-8000-000000000001'
 const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
+const CDP_SEALED_STATE_KEYS = '00feed0000feed0000feed0000feed00'
 const OPTIONS = { kind: 'transactional-email', claimRetry: { initialDelayMs: 0, maxElapsedMs: 0 } } as const
 
 type Recorded = { output: string; message: IngestionOutputMessage }
@@ -162,7 +167,7 @@ describe('insertIntakeBatch', () => {
                 { HOG_INVOCATION_RESULTS_ENABLED: true }
             ),
             emailStatus: new EmailStatusService(outputs, { EMAIL_STATUS_ENABLED: true }),
-            stateOpener: new EncryptedFields(ENCRYPTION_SALT_KEYS),
+            stateOpener: new EncryptedFields(CDP_SEALED_STATE_KEYS),
         }
     })
 
@@ -197,13 +202,13 @@ describe('insertIntakeBatch', () => {
         const code = 'fake-login-code-482913'
         const sealing = createInvocationSanitizer({
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+            CDP_SEALED_STATE_KEYS,
             ENCRYPTION_SALT_KEYS,
         })
         let produced: Buffer | undefined
         const topic = new IngestionOutputs({
-            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: {
-                ...recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
+            [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: {
+                ...recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
                 produce: (message) => {
                     produced = message.value as Buffer
                     return Promise.resolve()
@@ -227,10 +232,11 @@ describe('insertIntakeBatch', () => {
             },
         } as CyclotronJobInvocation
 
-        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce(
-            { kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' },
-            'async'
-        )
+        await new IntakeProducer(topic as IngestionOutputs<IntakeOutput>, undefined, sealing.seal).produce({
+            kind: 'transactional-email',
+            invocation: run,
+            fingerprint: 'fingerprint-a',
+        })
         await insertIntakeBatch([kafkaMessage(produced!)], services, OPTIONS)
 
         expect(produced!.toString()).not.toContain(code)

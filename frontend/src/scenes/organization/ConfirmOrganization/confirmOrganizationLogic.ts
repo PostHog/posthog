@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { initialReferrerSignupFields } from 'scenes/authentication/shared/initialReferrer'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 
 export interface ConfirmOrganizationFormValues {
@@ -168,9 +169,10 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             submit: async (formValues) => {
                 // An answer typed into a follow-up that a later referral source edit hid again must not be sent
                 const followUp = getReferralFollowUp(formValues.referral_source ?? '')
+                let continueUrl: string | null = null
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    await api.create('api/social_signup/', {
+                    const response = await api.create('api/social_signup/', {
                         ...formValues,
                         // Trim rather than reject: surrounding whitespace is still a good signup
                         first_name: formValues.first_name?.trim(),
@@ -178,7 +180,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         referral_source_ai_prompt: followUp === 'ai' ? formValues.referral_source_ai_prompt : '',
                         referral_source_influencer:
                             followUp === 'influencer' ? formValues.referral_source_influencer : '',
+                        ...initialReferrerSignupFields(),
                     })
+                    continueUrl = typeof response?.continue_url === 'string' ? response.continue_url : null
                 } catch (error: any) {
                     const attr = error.attr as keyof ConfirmOrganizationFormValues | undefined
                     if (attr && FIELDS_IN_RENDER_ORDER.includes(attr) && error.detail) {
@@ -194,7 +198,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                     throw error
                 }
 
-                const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+                const nextUrl =
+                    getRelativeNextPath(continueUrl, location) ||
+                    getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
                 // this url is validated in getRelativeNextPath as either being relative or on the same origin
                 // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect

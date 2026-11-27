@@ -7,7 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -43,12 +43,6 @@ def _verification_counter(outcome: str, source: str, team_id: int) -> float:
         )
         or 0.0
     )
-
-
-def _stale_counter() -> float:
-    from prometheus_client import REGISTRY
-
-    return REGISTRY.get_sample_value("conversations_signing_secret_stale_total") or 0.0
 
 
 class TestWidgetAPI(BaseTest):
@@ -923,8 +917,10 @@ class TestWidgetIdentityVerification(BaseTest):
         self.team.conversations_settings = {
             "widget_public_token": self.widget_token,
         }
-        self.team.secret_api_token = self.secret
         self.team.save()
+        # rotated_independently stays False: a backfilled row must verify without ever
+        # being compared to the legacy token column.
+        self.signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
 
         self.distinct_id = "user_123"
         self.identity_hash = compute_identity_hash(self.distinct_id, self.secret)
@@ -959,142 +955,10 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
-    @parameterized.expand(
-        [
-            # Post-cutover state: with the legacy column gone, the signing secret alone has
-            # to verify. Not reachable in production yet, so this locks in the end state.
-            ("signing_secret_only", True, False),
-            # A stale row (rotation sync missed) must fall back to the legacy token rather
-            # than locking the team out.
-            ("stale_signing_secret_falls_back_to_legacy", False, True),
-        ]
-    )
-    def test_list_tickets_verifies_against_signing_secret(self, _name, row_matches_hash, has_legacy_token):
-        SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team,
-            secret=self.secret if row_matches_hash else "a_stale_secret",
-        )
-        self.team.secret_api_token = self.secret if has_legacy_token else None
-        self.team.save()
-        self._create_ticket()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-            },
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-
-    @parameterized.expand(
-        [
-            # setUp signs the hash with the value held in team.secret_api_token; with the
-            # kill switch off (#66179) that column must stop verifying — only a current
-            # SigningSecret row may.
-            ("signing_secret_row_verifies", "matching", "current", status.HTTP_200_OK, 0.0),
-            ("legacy_fallback_is_gone", "none", "current", status.HTTP_403_FORBIDDEN, 0.0),
-            # A stale row holds a retired key; accepting it under the switch would
-            # silently un-revoke that key.
-            ("stale_row_stays_excluded", "stale", "retired", status.HTTP_403_FORBIDDEN, 1.0),
-        ]
-    )
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_list_tickets_with_legacy_tokens_switched_off(
-        self, _name: str, row: str, sign_with: str, expected_status: int, expected_stale_delta: float
-    ) -> None:
-        retired_secret = "a_retired_secret_key"
-        if row != "none":
-            SigningSecret.objects.for_team(self.team.id).create(
-                team=self.team, secret=self.secret if row == "matching" else retired_secret
-            )
-        identity_hash = (
-            self.identity_hash if sign_with == "current" else compute_identity_hash(self.distinct_id, retired_secret)
-        )
-        self._create_ticket()
-        before_stale = _stale_counter()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": identity_hash,
-            },
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, expected_status)
-        self.assertEqual(_stale_counter() - before_stale, expected_stale_delta)
-
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_list_tickets_independently_rotated_secret_verifies(self):
-        # The staleness guard excluding an independently rotated secret locks the team out.
-        independent_secret = "an_independent_secret"
-        SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team, secret=independent_secret, rotated_independently=True
-        )
-        self._create_ticket()
-        before_stale = _stale_counter()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": compute_identity_hash(self.distinct_id, independent_secret),
-            },
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(_stale_counter() - before_stale, 0.0)
-
-    @parameterized.expand(
-        [
-            # A hash signed with the replaced secret keeps verifying inside the grace
-            # window and expires on its own after it, with no manual backup deletion.
-            ("inside_grace_window", timedelta(hours=47), status.HTTP_200_OK, "verified", "signing_secret_previous"),
-            ("after_grace_window", timedelta(hours=49), status.HTTP_403_FORBIDDEN, "invalid_hash", "none"),
-        ]
-    )
-    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_list_tickets_previous_secret_grace_window(
-        self, _name: str, age: timedelta, expected_status: int, outcome: str, source: str
-    ) -> None:
-        replaced_secret = "a_replaced_secret"
-        SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team,
-            secret="the_new_secret",
-            rotated_independently=True,
-            previous_secret=replaced_secret,
-            previous_secret_rotated_at=timezone.now() - age,
-        )
-        self._create_ticket()
-        before_stale = _stale_counter()
-        before_outcome = _verification_counter(outcome, source, self.team.id)
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": compute_identity_hash(self.distinct_id, replaced_secret),
-            },
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, expected_status)
-        self.assertEqual(_stale_counter() - before_stale, 0.0)
-        self.assertEqual(_verification_counter(outcome, source, self.team.id) - before_outcome, 1.0)
-
-    def test_list_tickets_legacy_hash_rejected_after_independent_rotation(self):
-        # Even with the kill switch on, an independent rotation must revoke the legacy
-        # token for verification, or old hashes stay valid forever.
-        SigningSecret.objects.for_team(self.team.id).create(
-            team=self.team, secret="an_independent_secret", rotated_independently=True
-        )
+    def test_list_tickets_without_signing_secret_is_indistinguishable_from_bad_hash(self):
+        # The widget API is AllowAny, so the "no key configured" response must not reveal
+        # config state to anonymous callers — it stays identical to a signature mismatch.
+        self.signing_secret.delete()
         self._create_ticket()
 
         response = self.client.get(
@@ -1107,16 +971,42 @@ class TestWidgetIdentityVerification(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "Forbidden")
 
-    def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
-        # After the backfill both stores hold the same value, so the response is 200 either
-        # way and only the counter shows which one matched. Without this, reordering the
-        # candidates to put legacy first keeps the suite green while the drift metric —
-        # what gates dropping the plaintext column — silently reports legacy forever.
-        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+    @parameterized.expand(
+        [
+            # A hash signed with the replaced secret keeps verifying inside the grace
+            # window and expires on its own after it, with no manual backup deletion.
+            ("inside_grace_window", timedelta(hours=47), status.HTTP_200_OK, "verified", "signing_secret_previous"),
+            ("after_grace_window", timedelta(hours=49), status.HTTP_403_FORBIDDEN, "invalid_hash", "none"),
+        ]
+    )
+    def test_list_tickets_previous_secret_grace_window(
+        self, _name: str, age: timedelta, expected_status: int, outcome: str, source: str
+    ) -> None:
+        replaced_secret = "a_replaced_secret"
+        self.signing_secret.secret = "the_new_secret"
+        self.signing_secret.previous_secret = replaced_secret
+        self.signing_secret.previous_secret_rotated_at = timezone.now() - age
+        self.signing_secret.save()
+        self._create_ticket()
+        before_outcome = _verification_counter(outcome, source, self.team.id)
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": compute_identity_hash(self.distinct_id, replaced_secret),
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(_verification_counter(outcome, source, self.team.id) - before_outcome, 1.0)
+
+    def test_list_tickets_reports_the_signing_secret_as_the_source(self):
         self._create_ticket()
         before_signing = _verification_counter("verified", "signing_secret", self.team.id)
-        before_legacy = _verification_counter("verified", "legacy_token", self.team.id)
 
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
@@ -1129,7 +1019,6 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(_verification_counter("verified", "signing_secret", self.team.id) - before_signing, 1.0)
-        self.assertEqual(_verification_counter("verified", "legacy_token", self.team.id) - before_legacy, 0.0)
 
     def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
         # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
@@ -1145,27 +1034,6 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
-        # Rotating and then deleting the backup revokes the old key. If a rotation sync
-        # didn't land, the signing secret row still holds that key — accepting it would
-        # keep a revoked key signing identities indefinitely.
-        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
-        self.team.secret_api_token = "rotated_new_secret"
-        self.team.secret_api_token_backup = None
-        self.team.save()
-        self._create_ticket()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-            },
-            **self._get_headers(),
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()
         response = self.client.get(
@@ -1177,43 +1045,6 @@ class TestWidgetIdentityVerification(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_list_tickets_without_secret_api_token_is_indistinguishable_from_bad_hash(self):
-        # The widget API is AllowAny, so the "no key configured" response must not reveal
-        # config state to anonymous callers — it stays identical to a signature mismatch.
-        self.team.secret_api_token = None
-        self.team.save()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-            },
-            **self._get_headers(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["error"], "Forbidden")
-
-    def test_list_tickets_with_rotated_backup_token(self):
-        # A hash signed with the old secret keeps verifying after rotation moves it to backup.
-        old_secret = self.secret
-        old_hash = compute_identity_hash(self.distinct_id, old_secret)
-        self.team.secret_api_token = "rotated_new_secret"
-        self.team.secret_api_token_backup = old_secret
-        self.team.save()
-        self._create_ticket()
-
-        response = self.client.get(
-            "/api/conversations/v1/widget/tickets",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": old_hash,
-            },
-            **self._get_headers(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
 
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()

@@ -32,6 +32,7 @@ export interface TraceReview {
     updated_at: string | null
     created_by: UserBasicType | null
     reviewed_by: UserBasicType | null
+    reviewed_by_project_key_id?: string | null
     scores: TraceReviewScore[]
     team: number
 }

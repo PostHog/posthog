@@ -57,10 +57,10 @@ describe('snooze lifecycle', () => {
         const until = new Date(Date.now() + 3600000).toISOString()
         const scope = { host: 'https://example.com', projectId: 1 }
         const key = snoozeKey(scope, 'example-report')
-        act(() => {
-            void result.current.run({ kind: 'until', preset: 'custom', until })
+        await act(async () => {
+            await result.current.run({ kind: 'until', preset: 'custom', until })
         })
-        await waitFor(() => expect(result.current.pending).toBe(false))
+        expect(result.current.pending).toBe(false)
         expect(useSnoozeStore.getState().entries[key]).toMatchObject({ kind: 'until', until })
         if (next === 'wake') await act(async () => wakeSnooze(scope, 'example-report'))
         await act(async () => {

@@ -90,6 +90,14 @@ MAX_RECURRING_INTENTS = 50
 # The exclusion set is fetched wider than the display list, so a team with more
 # recurring texts than the table shows doesn't leak the rest back into the corpus.
 MAX_RECURRING_EXCLUSIONS = 500
+# Cosine distance under which two recurring texts count as one automation worded
+# two ways. Much tighter than DEFAULT_DISTANCE_THRESHOLD: merging hides entries,
+# so only near-paraphrases should join.
+RECURRING_MERGE_DISTANCE = 0.2
+# The merge is optional, so it gives up well inside the compute activity budget
+# when the embedding worker stalls instead of failing the whole recompute.
+RECURRING_MERGE_TIMEOUT_SECONDS = 60
+MAX_SAMPLE_VARIANTS = 5
 
 # Mirrors the capture-side clip in services/mcp (MAX_CAPTURED_DESCRIPTION_LENGTH);
 # re-applied here because external SDKs may stamp longer values.
@@ -180,6 +188,9 @@ class RecurringIntent:
     session_count: int
     call_count: int
     error_count: int
+    # Every wording merged into this entry, most common first, intent_text included.
+    # Empty for an unmerged entry, whose only wording is intent_text.
+    variants: tuple[str, ...] = ()
 
 
 # Intent corpus -----------------------------------------------------------
@@ -609,6 +620,62 @@ def fetch_recurring_intents(
     ]
     out.sort(key=lambda r: (-r.session_count, r.intent_text))
     return out
+
+
+def recurring_exclusion_texts(recurring: Sequence[RecurringIntent]) -> set[str]:
+    """Every wording of every recurring entry, so a merged entry excludes all its variants."""
+    return {text for r in recurring for text in (r.variants or (r.intent_text,))}
+
+
+async def merge_reworded_recurring(
+    team: Team, recurring: list[RecurringIntent], max_distance: float = RECURRING_MERGE_DISTANCE
+) -> list[RecurringIntent]:
+    """Merge recurring texts that word the same automation step differently.
+
+    Greedy, most common first: a text joins the first group whose leading wording is
+    within ``max_distance`` (cosine) of it, otherwise it starts a group. Comparing to the
+    leader only stops near-matches chaining into unrelated texts. Falls back to the
+    exact-text list when embedding fails or runs past ``RECURRING_MERGE_TIMEOUT_SECONDS``, so a
+    worker outage never fails the recompute.
+    """
+    if len(recurring) < 2:
+        return recurring
+    try:
+        embeddings, valid = await asyncio.wait_for(
+            embed_texts_async(team, [r.intent_text for r in recurring]), timeout=RECURRING_MERGE_TIMEOUT_SECONDS
+        )
+    except Exception:
+        logger.warning("mcpa.intent_clustering.recurring_merge_unavailable", team_id=team.id, exc_info=True)
+        return recurring
+    if len(valid) < 2:
+        return recurring
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    unit = embeddings / np.where(norms == 0, 1.0, norms)
+    groups: list[list[int]] = []  # indexes into `recurring`; the first is the leader
+    leader_rows: list[int] = []  # row in `unit` per group
+    unembedded = set(range(len(recurring))) - set(valid)
+    for row, idx in enumerate(valid):
+        distances = 1.0 - unit[leader_rows] @ unit[row] if leader_rows else np.array([])
+        if len(distances) and distances.min() < max_distance:
+            groups[int(distances.argmin())].append(idx)
+        else:
+            groups.append([idx])
+            leader_rows.append(row)
+    groups.extend([i] for i in sorted(unembedded))
+    merged: list[RecurringIntent] = []
+    for members in groups:
+        items = [recurring[i] for i in members]
+        merged.append(
+            RecurringIntent(
+                intent_text=items[0].intent_text,
+                session_count=sum(r.session_count for r in items),
+                call_count=sum(r.call_count for r in items),
+                error_count=sum(r.error_count for r in items),
+                variants=tuple(r.intent_text for r in items),
+            )
+        )
+    merged.sort(key=lambda r: (-r.session_count, r.intent_text))
+    return merged
 
 
 def exclude_recurring_sessions(rows: list[SessionCallRow], recurring_texts: Collection[str]) -> list[SessionCallRow]:
@@ -1727,6 +1794,8 @@ def _serialize_recurring(recurring: list[RecurringIntent] | None) -> list[dict[s
             "call_count": r.call_count,
             "error_count": r.error_count,
             "error_rate_pct": _pct(r.error_count, r.call_count),
+            "variant_count": max(len(r.variants), 1),
+            "sample_variants": list(r.variants[:MAX_SAMPLE_VARIANTS]) if len(r.variants) > 1 else [],
         }
         for r in (recurring or [])[:MAX_RECURRING_INTENTS]
     ]

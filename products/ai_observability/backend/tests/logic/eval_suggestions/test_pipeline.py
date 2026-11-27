@@ -31,6 +31,7 @@ from products.ai_observability.backend.logic.eval_suggestions.coverage import (
     ExistingEval,
     earlier_review_cards,
 )
+from products.ai_observability.backend.logic.eval_suggestions.eligibility import set_suggestions_turned_off
 from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
@@ -41,7 +42,7 @@ from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     screen_stage,
 )
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
-from products.ai_observability.backend.logic.eval_suggestions.ranking import Proposal
+from products.ai_observability.backend.logic.eval_suggestions.ranking import DEFAULT_JUDGE_MODEL, Proposal
 from products.ai_observability.backend.logic.eval_suggestions.runs import create_run, fail_run, publish
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
@@ -82,7 +83,7 @@ def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[
 
 def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, final_answer: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
-    some turns pause for approval, and 3 turns end on a timeout nobody retried."""
+    some turns pause for approval, and 5 turns end on a timeout nobody retried."""
     for index in range(60):
         at = end - timedelta(hours=1 + index * 1.1)
         trace = {"$ai_trace_id": f"turn-{index}", "ai_product": "chat_assistant"}
@@ -112,7 +113,7 @@ def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, fi
             messages = [*messages, assistant, {"role": "tool", "tool_call_id": call["id"], "content": "ok"}]
         # The last action's own span, or the approval pause, comes after the earlier spans, never at the same instant.
         at += timedelta(seconds=1)
-        if index % 20 == 7:
+        if index % 12 == 7:
             _event(
                 team,
                 "$ai_span",
@@ -227,7 +228,7 @@ def _calibration_record(*, caught: int, false_alarms: int, kept: bool) -> dict[s
         "na_on_fails": 0,
         "na_on_passes": 0,
     }
-    return {"status": "ok", "model": "gpt-5-mini", "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
+    return {"status": "ok", "model": DEFAULT_JUDGE_MODEL, "cards": [{"title": REVIEW_TITLE, **counts, "kept": kept}]}
 
 
 def _review_replies(card: dict[str, Any]) -> Callable[..., MagicMock]:
@@ -314,7 +315,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
 
         errors = suggestions["check:unrecovered_errors"]
         assert errors.measured_failure_rate is not None and 0 < errors.measured_failure_rate < 0.1
-        assert errors.headline == "Unrecovered tool or model failures"
+        assert errors.headline == "Tool or model calls that never succeed"
         # The observation and the stored rate come from the same counts.
         observed = re.fullmatch(r"(\d+) of (\d+) sampled traces flagged", errors.draft["observation"])
         assert observed is not None
@@ -737,14 +738,16 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch.object(pipeline, "runs_for_organization", return_value=False)
+    @parameterized.expand([("organization_out_of_the_rollout", False, False), ("project_turned_off", True, True)])
     @patch.object(pipeline.coverage_stage, "fetch_coverage")
-    def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
-        self, fetch_coverage: MagicMock, _flag: MagicMock
+    def test_a_queued_run_that_may_no_longer_run_does_nothing(
+        self, _name: str, in_rollout: bool, turned_off: bool, fetch_coverage: MagicMock
     ) -> None:
         run = create_run(self.team, "scheduled")
+        set_suggestions_turned_off(self.team, turned_off)
 
-        assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
+        with patch.object(pipeline, "runs_for_organization", return_value=in_rollout):
+            assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED
@@ -773,6 +776,16 @@ class TestRunRecords(BaseTest):
                 "no gateway route to calibrate judges on unrouted-model",
                 "unrouted-model",
             ),
+            (
+                "turned_off_while_the_run_works",
+                True,
+                SuggestionSettings(llm_drafting=True),
+                True,
+                None,
+                "turned off by the project",
+                DEFAULT_JUDGE_MODEL,
+                True,
+            ),
         ]
     )
     def test_the_review_runs_only_when_allowed_and_in_time(
@@ -783,10 +796,12 @@ class TestRunRecords(BaseTest):
         consent: bool,
         deadline: float | None,
         detail: str,
-        judge_model: str = "gpt-5-mini",
+        judge_model: str = DEFAULT_JUDGE_MODEL,
+        turned_off: bool = False,
     ) -> None:
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
+        set_suggestions_turned_off(self.team, turned_off)
         run = create_run(self.team, "scheduled")
         handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),

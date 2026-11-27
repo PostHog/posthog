@@ -24,7 +24,7 @@ from products.replay_vision.backend.api.backfills import (
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -71,7 +71,13 @@ from products.replay_vision.backend.temporal.constants import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
-from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend, update_experiment
+from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
+    create_experiment,
+    seed_scanner_spend,
+    unsynced_allowance,
+    update_experiment,
+)
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -149,9 +155,9 @@ class TestBackfillQuotaCommitment:
         scanner = _make_scanner()
         ReplayScanner.objects.filter(pk=scanner.pk).update(free_only=True)
         org_id = scanner.team.organization_id
-        seed_scanner_spend(scanner, FREE_TIER_MONTHLY_CREDITS - 100)
+        seed_scanner_spend(scanner, TEST_FREE_CREDITS - 100)
         _make_backfill(scanner, total_count=100, credits_per_observation=5)
-        with patch.object(quota, "MONTHLY_CREDIT_QUOTA", 1_000_000):
+        with unsynced_allowance(credit_limit=1_000_000):
             assert spend_projection(org_id).backfills_committed_credits == 100
 
     def test_paused_backfill_still_counts_as_committed(self) -> None:
@@ -376,7 +382,7 @@ class TestBackfillTickActivities:
     def test_prepare_pauses_when_org_quota_exhausted(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
-        exhausted = MagicMock()
+        exhausted = MagicMock(awaiting_billing_sync=False)
         exhausted.would_exceed.return_value = True
         with patch(
             "products.replay_vision.backend.temporal.activities.backfill.quota_state",
@@ -386,6 +392,15 @@ class TestBackfillTickActivities:
         assert result.action == BackfillTickAction.PAUSE
         backfill.refresh_from_db()
         assert backfill.status == BackfillStatus.PAUSED_QUOTA
+
+    def test_prepare_holds_without_pausing_while_billing_has_not_synced_the_org(self) -> None:
+        backfill = _make_backfill(_make_scanner())
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+
+        backfill.refresh_from_db()
+        assert (result.action, backfill.status) == (BackfillTickAction.SKIP, BackfillStatus.RUNNING)
 
     def test_prepare_dispatches_with_budget_when_headroom_available(self) -> None:
         scanner = _make_scanner()

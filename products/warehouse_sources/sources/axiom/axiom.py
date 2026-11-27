@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceInputs,
     SourceResponse,
+    format_datetime,
     frozen,
     rest_api_resource,
     schema_for_resource,
@@ -93,10 +94,6 @@ def _parse_time(value: Any) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-def _format_time(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _history_rows(rows: list[dict[str, Any]], start: datetime, end: datetime) -> list[dict[str, Any]]:
     # Windows share their bounds, so a row stays only in the window whose half-open range holds it.
     # All copies of a delivery share a timestamp and so land in the same window, which keeps the
@@ -138,7 +135,7 @@ def axiom_monitor_history_source(
                     pages = list(
                         client.paginate(
                             f"monitors/{monitor['id']}/history",
-                            params={"startTime": _format_time(start), "endTime": _format_time(window_end)},
+                            params={"startTime": format_datetime(start), "endTime": format_datetime(window_end)},
                             data_selector_required=True,
                         )
                     )

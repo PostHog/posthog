@@ -5,6 +5,8 @@ of each label window only, and `metric_series` takes rows only from labelled sam
 overview also reads the newest sample time from `metric_samples`, which takes every sample, and
 keeps the later of the two. The `service_freshness_by_hour` projection answers that read without the
 timestamp arrays.
+
+Capture keeps sample timestamps up to 24 hours ahead of the server clock, so `last_seen` is capped at now.
 """
 
 import datetime as dt
@@ -288,10 +290,11 @@ class MetricsOverviewQueryRunner:
                 if series_last_seen is not None
                 else _NewestSamples(overall=None, by_service={})
             )
+            now = dt.datetime.now(dt.UTC)
             last_seen = _newest(series_last_seen, newest_samples.overall)
 
             return MetricsOverview(
-                last_seen=last_seen.isoformat() if last_seen is not None else None,
+                last_seen=min(last_seen, now).isoformat() if last_seen is not None else None,
                 metric_names=metric_names,
                 series=rollup.series,
                 lookback_seconds=int(self.lookback.total_seconds()),
@@ -300,8 +303,12 @@ class MetricsOverviewQueryRunner:
                         service_name=service.service_name,
                         metric_names=service.metric_names,
                         series=service.series,
-                        last_seen=max(
-                            service.last_seen, newest_samples.by_service.get(service.service_name, service.last_seen)
+                        last_seen=min(
+                            max(
+                                service.last_seen,
+                                newest_samples.by_service.get(service.service_name, service.last_seen),
+                            ),
+                            now,
                         ).isoformat(),
                     )
                     for service in rollup.services

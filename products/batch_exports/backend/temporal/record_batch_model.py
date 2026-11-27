@@ -16,12 +16,9 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -41,6 +38,7 @@ from products.batch_exports.backend.service import (
     BatchExportSessionsModel,
     migrate_batch_export_model,
 )
+from products.batch_exports.backend.temporal.clickhouse import get_batch_exports_client
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.sql.common import (
@@ -94,6 +92,15 @@ class RecordBatchModel(abc.ABC):
             # call.
             values={"log_comment": self.get_log_comment()},
         )
+
+    @abc.abstractmethod
+    def reads_new_events_table(self, context: HogQLContext) -> bool:
+        """Whether this model's queries, printed with `context`, connect to the cluster that stores events_json.
+
+        Only a query that reads events_json goes there. Other tables, such as sessions, are stored on the main
+        cluster.
+        """
+        raise NotImplementedError
 
     def get_log_comment(self) -> str:
         """Tag this export's queries, and return the tags as a log comment.
@@ -256,6 +263,9 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
         return hogql_query
 
+    def reads_new_events_table(self, context: HogQLContext) -> bool:
+        return False
+
     def get_backfill_info_hogql_query(
         self, start_at: dt.datetime | None, end_at: dt.datetime | None
     ) -> ast.SelectQuery:
@@ -350,7 +360,9 @@ class SessionsRecordBatchModel(RecordBatchModel):
             query_id=query_id,
             query_type="backfill_info:sessions",
         ):
-            async with get_client(team_id=self.team_id) as client:
+            async with get_batch_exports_client(
+                team_id=self.team_id, reads_new_events_table=self.reads_new_events_table(context)
+            ) as client:
                 result = await client.read_query_as_jsonl(printed, query_parameters=context.values, query_id=query_id)
 
         min_timestamp_str = result[0]["min_timestamp"]
@@ -396,6 +408,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
             self.parsed_hogql_query
         )
         self._use_new_events_schema = False
+        self._cap_flag_call_memory = False
 
     async def get_hogql_context(self) -> HogQLContext:
         team = await Team.objects.aget(id=self.team_id)
@@ -416,9 +429,12 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
     ) -> tuple[str, HogQLContext]:
         try:
-            return await super()._print_query(data_interval_start, data_interval_end, output_format)
+            printed, context = await super()._print_query(data_interval_start, data_interval_end, output_format)
         except ExposedHogQLError as e:
             raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+        # The query prints without settings, so the printer cannot apply this cap itself.
+        self._cap_flag_call_memory = context.cap_flag_call_memory
+        return printed, context
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
@@ -435,11 +451,15 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
             select_from=ast.JoinExpr(table=self.get_hogql_query(data_interval_start, data_interval_end)),
         )
 
+    def reads_new_events_table(self, context: HogQLContext) -> bool:
+        # Printing already resolved the table, so this reads the pinned value and does not query Postgres.
+        return context.uses_new_events_schema()
+
     def get_clickhouse_request_settings(self) -> dict[str, str]:
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        query_settings = get_user_hogql_batch_export_query_settings()
+        query_settings = get_user_hogql_batch_export_query_settings(self._cap_flag_call_memory)
         if self._use_new_events_schema:
             # The query prints without settings, so the printer cannot attach the native read setting itself.
             query_settings.json_type_escape_dots_in_keys = True
@@ -478,8 +498,5 @@ def resolve_batch_exports_model(
                 user_id=model.user_id,
                 hogql_modifiers=model.modifiers,
             )
-
-    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
-        fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

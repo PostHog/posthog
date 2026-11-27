@@ -3,6 +3,7 @@ import threading
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -63,6 +64,13 @@ RUN_HISTORY_RUNS_PAGE_SIZE = 10
 # A step window is accepted only when it returns at most this many rows. The query asks for twice
 # as many samples, so a window the server had to sample comes back larger than this and is split.
 RUN_HISTORY_PAGE_SIZE = 1000
+RUN_FILES_RUNS_PAGE_SIZE = 20
+RUN_FILES_PAGE_SIZE = 50
+RUN_EVENTS_RUNS_PAGE_SIZE = 20
+# `events` has no range arguments, only `samples`, so a run with more system metric lines than this is
+# sampled down by the server. A sample with many GPUs is a few KB, so this keeps one run's response
+# well under MAX_RESPONSE_BYTES.
+RUN_EVENTS_MAX_SAMPLES = 5000
 
 
 class WeightsAndBiasesRetryableError(Exception):
@@ -296,6 +304,72 @@ _RUN_HISTORY_QUERY = """
 query RunHistoryPage($entity: String!, $project: String!, $run: String!, $minStep: Int64!, $maxStep: Int64!, $samples: Int!) {
   project(entityName: $entity, name: $project) {
     run(name: $run) { history(minStep: $minStep, maxStep: $maxStep, samples: $samples) }
+  }
+}
+"""
+
+# photoUrl is left out: it is a signed storage URL that changes on every request.
+_ENTITY_QUERY = """
+query Entity($entity: String!) {
+  entity(name: $entity) {
+    id name isTeam entityType isPaid privateOnly defaultAccess readOnly codeSavingEnabled storageBytes createdAt
+  }
+}
+"""
+
+# url and directUrl are left out: they are signed download URLs that expire.
+_RUN_FILE_FIELDS = "id name sizeBytes mimetype md5 createdAt updatedAt"
+
+_RUN_FILES_RUNS_QUERY = f"""
+query RunFilesRuns(
+  $entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String,
+  $filesFirst: Int!
+) {{
+  project(entityName: $entity, name: $project) {{
+    runs(filters: $filters, order: $order, first: $first, after: $after) {{
+      edges {{
+        node {{
+          id name createdAt heartbeatAt
+          files(first: $filesFirst) {{
+            edges {{ node {{ {_RUN_FILE_FIELDS} }} }}
+            pageInfo {{ endCursor hasNextPage }}
+          }}
+        }}
+      }}
+      pageInfo {{ endCursor hasNextPage }}
+    }}
+  }}
+}}
+"""
+
+_SINGLE_RUN_FILES_QUERY = f"""
+query RunFiles($entity: String!, $project: String!, $run: String!, $first: Int!, $after: String) {{
+  project(entityName: $entity, name: $project) {{
+    run(name: $run) {{
+      files(first: $first, after: $after) {{
+        edges {{ node {{ {_RUN_FILE_FIELDS} }} }}
+        pageInfo {{ endCursor hasNextPage }}
+      }}
+    }}
+  }}
+}}
+"""
+
+_RUN_EVENTS_RUNS_QUERY = """
+query RunEventsRuns($entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String) {
+  project(entityName: $entity, name: $project) {
+    runs(filters: $filters, order: $order, first: $first, after: $after) {
+      edges { node { id name createdAt heartbeatAt eventsLineCount } }
+      pageInfo { endCursor hasNextPage }
+    }
+  }
+}
+"""
+
+_RUN_EVENTS_QUERY = """
+query RunEvents($entity: String!, $project: String!, $run: String!, $samples: Int!) {
+  project(entityName: $entity, name: $project) {
+    run(name: $run) { events(samples: $samples) }
   }
 }
 """
@@ -774,6 +848,39 @@ def _run_artifact_batches(
             yield _run_artifact_rows(base, direction, more_edges)
 
 
+def _get_run_child_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    runs_query: str,
+    variables: dict[str, Any],
+    project: str,
+    resume: WeightsAndBiasesResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
+    run_batches: Callable[[dict[str, Any]], Iterator[list[dict[str, Any]]]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a project's runs and yield the batches `run_batches` reads for each run, resumable per run."""
+    for cursor in _iter_runs(execute, runs_query, variables, project, resume, logger):
+        if isinstance(cursor, _RunsPageEnd):
+            _finish_runs_page(cursor, resumable_source_manager)
+            continue
+        # Hold one batch back, so the bookmark past the run is staged before its last batch.
+        held: list[dict[str, Any]] | None = None
+        for batch in run_batches(cursor.run):
+            if held is not None:
+                resumable_source_manager.save_state(cursor.resume_here)
+                if held:
+                    yield held
+                else:
+                    resumable_source_manager.safe_point()
+            held = batch
+        if cursor.after_run is not None:
+            resumable_source_manager.save_state(cursor.after_run)
+        if held:
+            yield held
+        else:
+            resumable_source_manager.safe_point()
+
+
 def _get_run_artifact_rows(
     execute: Callable[[str, dict[str, Any]], dict[str, Any]],
     entity: str,
@@ -789,25 +896,106 @@ def _get_run_artifact_rows(
     costs an extra request only when it has more artifacts than fit on that page. Each artifact page
     is yielded on its own, so a run with many artifacts never builds up in memory.
     """
-    variables = {**variables, "artifactsFirst": RUN_ARTIFACTS_PAGE_SIZE}
-    for cursor in _iter_runs(execute, _RUN_ARTIFACTS_RUNS_QUERY, variables, project, resume, logger):
-        if isinstance(cursor, _RunsPageEnd):
-            _finish_runs_page(cursor, resumable_source_manager)
+    yield from _get_run_child_rows(
+        execute,
+        _RUN_ARTIFACTS_RUNS_QUERY,
+        {**variables, "artifactsFirst": RUN_ARTIFACTS_PAGE_SIZE},
+        project,
+        resume,
+        resumable_source_manager,
+        logger,
+        partial(_run_artifact_batches, execute, entity, project, logger=logger),
+    )
+
+
+def _run_file_rows(base: dict[str, Any], edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        if not node.get("name"):
             continue
-        # Hold one batch back, so the bookmark past the run is staged before its last batch.
-        held: list[dict[str, Any]] | None = None
-        for batch in _run_artifact_batches(execute, entity, project, cursor.run, logger):
-            if held is not None:
-                resumable_source_manager.save_state(cursor.resume_here)
-                if held:
-                    yield held
-                else:
-                    resumable_source_manager.safe_point()
-            held = batch
-        if cursor.after_run is not None:
-            resumable_source_manager.save_state(cursor.after_run)
-        if held:
-            yield held
+        rows.append(
+            {
+                **base,
+                "id": node.get("id"),
+                "name": node["name"],
+                "sizeBytes": node.get("sizeBytes"),
+                "mimetype": node.get("mimetype"),
+                "md5": node.get("md5"),
+                "createdAt": node.get("createdAt"),
+                "updatedAt": node.get("updatedAt"),
+            }
+        )
+    return rows
+
+
+def _run_file_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    base = _run_child_base(project, run)
+    connection = run.get("files") or {}
+    yield _run_file_rows(base, connection.get("edges") or [])
+    page_info = connection.get("pageInfo") or {}
+    if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+        return
+    for more_edges, _c, _h in _iter_connection(
+        execute,
+        _SINGLE_RUN_FILES_QUERY,
+        {"entity": entity, "project": project, "run": run["name"], "first": RUN_FILES_PAGE_SIZE},
+        ("project", "run", "files"),
+        logger,
+        after=page_info["endCursor"],
+    ):
+        yield _run_file_rows(base, more_edges)
+
+
+def _system_metrics_row(base: dict[str, Any], line: Any) -> dict[str, Any] | None:
+    entry = json.loads(line) if isinstance(line, str) else line
+    if not isinstance(entry, dict):
+        return None
+    # A sample has no step, so its timestamp is its key within the run.
+    timestamp = _history_timestamp(entry.pop("_timestamp", None))
+    if timestamp is None:
+        return None
+    runtime = entry.pop("_runtime", None)
+    entry.pop("_wandb", None)
+    return {
+        **base,
+        "timestamp": timestamp,
+        "runtime": float(runtime) if isinstance(runtime, int | float) and not isinstance(runtime, bool) else None,
+        "metrics": json.dumps(entry, default=str),
+    }
+
+
+def _run_system_metric_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+) -> Iterator[list[dict[str, Any]]]:
+    if run.get("eventsLineCount") == 0:
+        return
+    data = execute(
+        _RUN_EVENTS_QUERY,
+        {"entity": entity, "project": project, "run": run["name"], "samples": RUN_EVENTS_MAX_SAMPLES},
+    )
+    run_node = (data.get("project") or {}).get("run")
+    if run_node is None:
+        return  # run deleted between listing and this fetch
+    base = _run_child_base(project, run)
+    yield [row for row in (_system_metrics_row(base, line) for line in run_node.get("events") or []) if row]
+
+
+def _get_entity_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str
+) -> Iterator[list[dict[str, Any]]]:
+    node = execute(_ENTITY_QUERY, {"entity": entity}).get("entity")
+    if node and node.get("id"):
+        yield [node]
 
 
 def _last_history_step(history_keys: Any) -> int:
@@ -1032,6 +1220,10 @@ def get_rows(
         yield from _get_member_rows(execute, entity)
         return
 
+    if endpoint == "entities":
+        yield from _get_entity_rows(execute, entity)
+        return
+
     # Fan-out endpoints iterate every project in the entity. Resolve the saved project-name
     # bookmark to the slice still to process; if the bookmarked project no longer exists,
     # start over from the first project (merge dedupes re-pulled rows on the primary key).
@@ -1136,6 +1328,43 @@ def get_rows(
                 project_resume,
                 resumable_source_manager,
                 logger,
+            )
+        elif endpoint == "run_files":
+            yield from _get_run_child_rows(
+                execute,
+                _RUN_FILES_RUNS_QUERY,
+                {
+                    **_run_child_query_variables(
+                        entity,
+                        project,
+                        RUN_FILES_RUNS_PAGE_SIZE,
+                        should_use_incremental_field,
+                        db_incremental_field_last_value,
+                    ),
+                    "filesFirst": RUN_FILES_PAGE_SIZE,
+                },
+                project,
+                project_resume,
+                resumable_source_manager,
+                logger,
+                partial(_run_file_batches, execute, entity, project, logger=logger),
+            )
+        elif endpoint == "run_system_metrics":
+            yield from _get_run_child_rows(
+                execute,
+                _RUN_EVENTS_RUNS_QUERY,
+                _run_child_query_variables(
+                    entity,
+                    project,
+                    RUN_EVENTS_RUNS_PAGE_SIZE,
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                ),
+                project,
+                project_resume,
+                resumable_source_manager,
+                logger,
+                partial(_run_system_metric_batches, execute, entity, project),
             )
         else:  # artifacts
             yield from _get_artifact_rows(execute, entity, project, logger)

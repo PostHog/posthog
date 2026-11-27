@@ -3,6 +3,7 @@
 Product code measures evaluations with these same helpers, so both sides grade a unit identically.
 """
 
+from products.ai_observability.backend.logic.ai_events_retention import ai_events_retention_days
 from products.ai_observability.backend.logic.consent import consented_team_ids
 from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
 from products.ai_observability.backend.logic.evaluations.hog_runtime import (
@@ -14,6 +15,7 @@ from products.ai_observability.backend.logic.evaluations.hog_runtime import (
 )
 from products.ai_observability.backend.logic.evaluations.judge_limits import (
     JUDGE_SESSION_MAX_CHARS,
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
 )
 from products.ai_observability.backend.logic.evaluations.judge_prompts import (
@@ -47,10 +49,12 @@ __all__ = [
     "CategoricalWithNAEvalResult",
     "INGESTION_LAG_MARGIN_SECONDS",
     "JUDGE_SESSION_MAX_CHARS",
+    "JUDGE_TRACE_FALLBACK_MAX_CHARS",
     "JUDGE_TRACE_MAX_CHARS",
     "NumericEvalResult",
     "NumericWithNAEvalResult",
     "SettlePlan",
+    "ai_events_retention_days",
     "build_hog_event_global",
     "build_system_prompt",
     "build_trace_hog_globals",

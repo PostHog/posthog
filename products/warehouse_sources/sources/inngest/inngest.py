@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -109,11 +110,6 @@ def validate_credentials(signing_key: str, environment: str | None = None) -> bo
         return False
 
 
-def _format_rfc3339(dt: datetime) -> str:
-    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
 def _coerce_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
@@ -146,7 +142,7 @@ def _event_window(should_use_incremental_field: bool, db_incremental_field_last_
     # forever; clamp it so the sync self-heals.
     if after > now:
         after = now
-    return SyncWindow(start=_format_rfc3339(after), end=_format_rfc3339(now))
+    return SyncWindow(start=format_datetime(after, "iso_z_millis"), end=format_datetime(now, "iso_z_millis"))
 
 
 def _normalize_event(item: dict[str, Any]) -> dict[str, Any]:

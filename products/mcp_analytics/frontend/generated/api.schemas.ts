@@ -300,7 +300,7 @@ export interface MCPIntentClusterLongTailApi {
 }
 
 export interface MCPRecurringIntentApi {
-    /** The intent text repeated verbatim across sessions. Empty when intent text is redacted. */
+    /** The most common wording of this automation step. Empty when intent text is redacted. */
     readonly intent_text: string
     /** Sessions in the window that opened with this intent. */
     readonly session_count: number
@@ -310,6 +310,10 @@ export interface MCPRecurringIntentApi {
     readonly error_count: number
     /** Error rate across those sessions' tool calls, from 0 to 100. */
     readonly error_rate_pct: number
+    /** How many different wordings of this automation step were merged into the entry. 1 when none were. */
+    readonly variant_count: number
+    /** Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted. */
+    readonly sample_variants: readonly string[]
 }
 
 export interface MCPToolPivotCompetitorApi {
@@ -788,6 +792,10 @@ export type McpAnalyticsSessionsListParams = {
      * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
      */
     date_to?: string
+    /**
+     * Only sessions where the agent sent feedback or reported a missing capability.
+     */
+    feedback_only?: boolean
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */

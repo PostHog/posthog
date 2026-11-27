@@ -52,7 +52,7 @@ func writeTestFile(t *testing.T, name string, data []byte) string {
 	return path
 }
 
-func issueTestCertificate(t *testing.T, issuer *testCertificate, server bool) testCertificate {
+func issueTestCertificate(t *testing.T, issuer *testCertificate, server bool, names ...string) testCertificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -75,7 +75,7 @@ func issueTestCertificate(t *testing.T, issuer *testCertificate, server bool) te
 		parent, signer = issuer.certificate, issuer.key
 	}
 	if server {
-		template.DNSNames = []string{"localhost"}
+		template.DNSNames = append([]string{"localhost"}, names...)
 		template.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, parent, &key.PublicKey, signer)
@@ -130,7 +130,7 @@ type proxyFixture struct {
 	endpoint     string
 }
 
-func newProxyFixture(t *testing.T) *proxyFixture {
+func newProxyFixture(t *testing.T, configure ...func(*proxyFixture)) *proxyFixture {
 	t.Helper()
 	f := &proxyFixture{ca: issueTestCertificate(t, nil, false), metrics: telemetry.NewMetrics()}
 	serverCert := issueTestCertificate(t, &f.ca, true)
@@ -186,6 +186,9 @@ func newProxyFixture(t *testing.T) *proxyFixture {
 		}
 	})
 	f.metrics.BindAudit(f.audit)
+	for _, apply := range configure {
+		apply(f)
+	}
 	f.proxy, err = app.NewProxy(f.config, f.audit, f.metrics)
 	if err != nil {
 		t.Fatal(err)
@@ -282,6 +285,7 @@ func TestProxyRelayAdmission(t *testing.T) {
 		{"copied capability", foreign, "/v1/probe", token, http.StatusUnauthorized},
 		{"missing capability", f.relayCert, "/v1/probe", "", http.StatusUnauthorized},
 		{"unknown operation", f.relayCert, "/not-an-adapter", token, http.StatusNotFound},
+		{"Git disabled", f.relayCert, "/v1/git/example/repo.git/info/refs?service=git-upload-pack", token, http.StatusNotFound},
 		{"metrics are private", f.relayCert, "/metrics", token, http.StatusNotFound},
 		{"readiness is private", f.relayCert, "/readyz", token, http.StatusNotFound},
 	} {
@@ -326,6 +330,32 @@ func TestProxyRelayAdmission(t *testing.T) {
 		if event.Outcome == "allowed" && (event.TeamID != f.registration.TeamID || event.RunID != f.registration.RunID) {
 			t.Fatal("accepted operation did not carry registered identity")
 		}
+	}
+}
+
+func TestProxyClusterRegistryRequiresOptIn(t *testing.T) {
+	f := newProxyFixture(t)
+	for _, allow := range []bool{false, true} {
+		t.Run(fmt.Sprint(allow), func(t *testing.T) {
+			config := f.config
+			config.RegistryURL = "http://registry.tasks.svc.cluster.local:8000"
+			config.RegistryAllowClusterHTTP = allow
+			data, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := app.LoadProxyConfig(writeTestFile(t, "cluster.json", data))
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxy, err := app.NewProxy(loaded, f.audit, f.metrics)
+			if (err == nil) != allow {
+				t.Fatalf("NewProxy() = %v; allow=%v", err, allow)
+			}
+			if proxy != nil {
+				proxy.Close()
+			}
+		})
 	}
 }
 

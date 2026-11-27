@@ -1851,6 +1851,10 @@
                 "count": {
                     "$ref": "#/definitions/integer"
                 },
+                "entry_span_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+                },
                 "error_count": {
                     "$ref": "#/definitions/integer"
                 },
@@ -3030,6 +3034,10 @@
                 "boxPlot": {
                     "$ref": "#/definitions/AssistantDataVisualizationBoxPlotSettings",
                     "description": "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+                },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.",
+                    "type": "boolean"
                 },
                 "goalLines": {
                     "description": "Horizontal goal lines drawn across the chart.",
@@ -7676,6 +7684,10 @@
         "BookActivityMatrixCell": {
             "additionalProperties": false,
             "properties": {
+                "agentUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through AI agents, such as MCP tool calls."
+                },
                 "column": {
                     "type": "string"
                 },
@@ -7685,8 +7697,13 @@
                 "series": {
                     "type": "string"
                 },
+                "uiUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product in the app."
+                },
                 "users": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through any channel. Each person counts once."
                 }
             },
             "required": ["row", "column", "series", "users"],
@@ -8154,6 +8171,10 @@
                         "$ref": "#/definitions/BookActivityPersonAction"
                     },
                     "type": "array"
+                },
+                "agentCalls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "AI agent calls, such as MCP tool calls, that qualified this person for the product."
                 },
                 "column": {
                     "description": "Bucket start, the same as `AccountActivityMatrixColumn.key`.",
@@ -11467,6 +11488,10 @@
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
@@ -11565,6 +11590,10 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
                 },
                 "timezone": {
                     "type": "string"
@@ -14315,6 +14344,10 @@
                     },
                     "type": "array"
                 },
+                "totals": {
+                    "$ref": "#/definitions/MCPToolQualityTotals",
+                    "description": "Window totals and the previous period's, set only when the query asks for them."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -15271,6 +15304,17 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -16000,6 +16044,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -19775,6 +19822,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20660,6 +20713,10 @@
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
                 },
+                "colorBarsByCategory": {
+                    "description": "Color each X-axis category in single-series bar charts.",
+                    "type": "boolean"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -20679,6 +20736,9 @@
                 },
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
+                },
+                "movingAverageIntervals": {
+                    "type": "number"
                 },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
@@ -20703,6 +20763,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
@@ -20732,6 +20795,12 @@
                 },
                 "valueLabelBackground": {
                     "type": "boolean"
+                },
+                "valueLabelBackgroundColor": {
+                    "type": "string"
+                },
+                "valueLabelColor": {
+                    "type": "string"
                 },
                 "valueLabelFontSize": {
                     "type": "number"
@@ -21084,6 +21153,10 @@
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
                         },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
+                        },
                         "version": {
                             "description": "version of the node, used for schema migrations",
                             "type": "number"
@@ -21166,6 +21239,10 @@
                         },
                         "schema_map": {
                             "$ref": "#/definitions/SchemaMap"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21264,6 +21341,10 @@
                         },
                         "timestamp_field": {
                             "type": "string"
+                        },
+                        "use_in_recommendations": {
+                            "description": "When true, Google Ads recommendations judge campaigns by this goal's conversions instead of the conversions Google Ads reports. Conversions from every marked goal are added together, so marking two goals the same person completes counts that person twice. Defaults to false.",
+                            "type": "boolean"
                         },
                         "version": {
                             "description": "version of the node, used for schema migrations",
@@ -21693,6 +21774,12 @@
                         }
                     ]
                 },
+                "role_default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsRoleDefaultPinnedProperties"
+                    },
+                    "type": "array"
+                },
                 "signup_event": {
                     "anyOf": [
                         {
@@ -21745,6 +21832,22 @@
                 }
             },
             "required": ["kind", "id"],
+            "type": "object"
+        },
+        "CustomerAnalyticsRoleDefaultPinnedProperties": {
+            "additionalProperties": false,
+            "properties": {
+                "pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
+                "role_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["role_id", "pinned_properties"],
             "type": "object"
         },
         "DangerousOperationResponse": {
@@ -27353,6 +27456,17 @@
         "ErrorTrackingIssueTag": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagColor"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Named color of the tag, or null for a color picked from the label."
+                },
                 "description": {
                     "description": "What the tag means, for a tooltip.",
                     "type": "string"
@@ -27373,8 +27487,14 @@
             "required": ["key", "label", "description"],
             "type": "object"
         },
+        "ErrorTrackingIssueTagColor": {
+            "enum": ["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple"],
+            "title": "ErrorTrackingIssueTagColor",
+            "type": "string"
+        },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
+            "deprecated": "Use `ErrorTrackingIssueTagsFilter`.",
             "properties": {
                 "applied": {
                     "description": "True matches the issues the tag is applied to. False matches every other issue.",
@@ -27386,6 +27506,26 @@
                 }
             },
             "required": ["key", "applied"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "has": {
+                    "description": "Keys of tag definitions. Keeps the issues that have all of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "hasNot": {
+                    "description": "Keys of tag definitions. Keeps the issues that have none of these tags.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "ErrorTrackingOrderBy": {
@@ -27505,7 +27645,18 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+                    "deprecated": "Use `issueTags`. The query adds this tag to `has` when `applied` is true, else to `hasNot`."
+                },
+                "issueTags": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagsFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -29489,7 +29640,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29620,7 +29773,9 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29771,6 +29926,10 @@
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
+                },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
                 },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
@@ -30553,6 +30712,10 @@
                     "const": "ExperimentQuery",
                     "type": "string"
                 },
+                "rows_left_out": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                    "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -31265,6 +31428,31 @@
             "required": ["connection_id", "kind", "query", "unit"],
             "type": "object"
         },
+        "ExperimentWarehouseNativeRowsLeftOut": {
+            "additionalProperties": false,
+            "description": "Rows of a warehouse-native query that a run left out, counted by reason. The exposure counts cover the rows in the experiment's window. A warehouse-native run fills the fields its statements can count; every other run leaves the object out.",
+            "properties": {
+                "empty_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposure rows with an empty entity_id."
+                },
+                "exposed_without_rows": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposed entities with no row of the metric query that counted, by variant.",
+                    "type": "object"
+                },
+                "unknown_variants": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "description": "Exposure rows whose variant is not one the flag serves, counted by the value seen.",
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentWarehouseNativeUnitBinding": {
             "additionalProperties": false,
             "description": "What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on `entity_id` inside the warehouse, and the same connection does not make two queries compatible: one can return account ids and another customer ids. Every warehouse-native source stores its binding so a saved metric keeps it when it is attached to another experiment, and so attachment can compare bindings instead of guessing from SQL. Equal labels are required for compatibility but cannot prove the SQL returns the same identities; the author confirms that.",
@@ -31573,6 +31761,7 @@
                 "pipeline_status",
                 "llm_evaluations",
                 "llm_tags",
+                "tag",
                 "llm_datasets",
                 "llm_playground",
                 "llm_prompts",
@@ -31676,6 +31865,9 @@
                 "ref": {
                     "description": "Object's ID or other unique reference",
                     "type": "string"
+                },
+                "requiresOrganizationAdmin": {
+                    "type": "boolean"
                 },
                 "sceneKey": {
                     "description": "Match this with the a base scene key or a specific one",
@@ -32415,6 +32607,10 @@
                 "showLegend": {
                     "default": false,
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
+                "showSummaryOnDashboards": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "showTrendLines": {
@@ -33518,6 +33714,10 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Rows to return in place of the default row limit, capped at the maximum for the query's context. Ignored when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -33640,6 +33840,10 @@
                     "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
                     "type": "boolean"
                 },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -33688,6 +33892,10 @@
                     "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {
+                    "type": "boolean"
+                },
+                "sessionFilterGlobalJoin": {
+                    "description": "Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.",
                     "type": "boolean"
                 },
                 "sessionIdPushdown": {
@@ -36687,6 +36895,10 @@
                 "protocolVersion",
                 "tool",
                 "errorType",
+                "toolShare",
+                "harness",
+                "errorTypeShare",
+                "user",
                 "labUsers",
                 "namedModelUsers",
                 "reliability"
@@ -36864,6 +37076,14 @@
                     "description": "The agent's own words for the capability it wanted, from $mcp_intent.",
                     "type": "string"
                 },
+                "model": {
+                    "description": "The model the agent self-reported, from $mcp_llm_model; empty when the report did not say.",
+                    "type": "string"
+                },
+                "outcome": {
+                    "description": "Whether the agent says it still finished the user's task, from $mcp_feedback_task_completed (or an in-app report's blocked flag): \"blocked\", \"completed\", or \"not_reported\" when the report did not say.",
+                    "type": "string"
+                },
                 "person_properties": {
                     "description": "JSON-encoded person email/name for display; \"{}\" when neither resolved.",
                     "type": "string"
@@ -36872,11 +37092,25 @@
                     "description": "Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set.",
                     "type": "string"
                 },
+                "suggested_improvement": {
+                    "description": "The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none.",
+                    "type": "string"
+                },
                 "timestamp": {
                     "type": "string"
                 }
             },
-            "required": ["timestamp", "intent", "harness", "session_id", "distinct_id", "person_properties"],
+            "required": [
+                "timestamp",
+                "intent",
+                "harness",
+                "session_id",
+                "distinct_id",
+                "person_properties",
+                "model",
+                "suggested_improvement",
+                "outcome"
+            ],
             "type": "object"
         },
         "MCPMissingCapabilitiesQuery": {
@@ -36905,6 +37139,20 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain."
+                },
+                "outcomes": {
+                    "description": "Only reports with one of these outcomes: \"blocked\", \"completed\" or \"not_reported\".",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Property filters applied to the report events, such as the shared harness and model filters.",
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPMissingCapabilitiesQueryResponse"
@@ -38733,6 +38981,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeTotals": {
+                    "description": "Also return window totals and the previous period's, for the Tool quality tiles.",
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -38753,6 +39005,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
+                },
+                "search": {
+                    "description": "Case-insensitive substring search on the effective tool name, so the tiles match the searched table.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -38809,6 +39065,10 @@
                     },
                     "type": "array"
                 },
+                "totals": {
+                    "$ref": "#/definitions/MCPToolQualityTotals",
+                    "description": "Window totals and the previous period's, set only when the query asks for them."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -38844,10 +39104,46 @@
             "required": ["results"],
             "type": "object"
         },
+        "MCPToolQualityRowBucket": {
+            "additionalProperties": false,
+            "properties": {
+                "bucket": {
+                    "description": "Bucket start as a project-timezone wall clock (\"YYYY-MM-DD HH:mm:ss\").",
+                    "type": "string"
+                },
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p95_duration_ms": {
+                    "description": "0 when no call in the bucket carried a duration.",
+                    "type": "number"
+                }
+            },
+            "required": ["bucket", "calls", "errors", "p95_duration_ms"],
+            "type": "object"
+        },
         "MCPToolQualityRowItem": {
             "additionalProperties": false,
             "description": "Per-tool quality metrics for the Tool quality tab table.",
             "properties": {
+                "buckets": {
+                    "description": "Calls, errors and p95 per interval in the current window, for the row's volume chart.",
+                    "items": {
+                        "$ref": "#/definitions/MCPToolQualityRowBucket"
+                    },
+                    "type": "array"
+                },
+                "category": {
+                    "description": "The $mcp_tool_category from the tool's latest call that sent one.",
+                    "type": ["string", "null"]
+                },
+                "description": {
+                    "description": "The description from the tool's latest call that sent one.",
+                    "type": ["string", "null"]
+                },
                 "error_rate_pct": {
                     "type": "number"
                 },
@@ -38938,6 +39234,14 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "includeBuckets": {
+                    "description": "Also return each row's volume chart buckets, which costs one more query.",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Bucket granularity of each row's volume chart. Defaults to day."
                 },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
@@ -39091,6 +39395,47 @@
         "MCPToolQualitySortDirection": {
             "enum": ["ASC", "DESC"],
             "type": "string"
+        },
+        "MCPToolQualityTotals": {
+            "additionalProperties": false,
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p50": {
+                    "type": "number"
+                },
+                "p95": {
+                    "type": "number"
+                },
+                "previous_calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_p50": {
+                    "description": "null when no call in the previous period carried a duration.",
+                    "type": ["number", "null"]
+                },
+                "previous_p95": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": [
+                "calls",
+                "errors",
+                "p50",
+                "p95",
+                "previous_calls",
+                "previous_errors",
+                "previous_p50",
+                "previous_p95"
+            ],
+            "type": "object"
         },
         "MCPToolSampleIntentItem": {
             "additionalProperties": false,
@@ -40525,6 +40870,17 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "detectedChange": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationDetectedChange"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one."
+                },
                 "identity": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
                 },
@@ -40544,6 +40900,10 @@
                 },
                 "level": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationLevel"
+                },
+                "minor": {
+                    "description": "True when the monthly impact is under 1% of the ad account's monthly spend.",
+                    "type": "boolean"
                 },
                 "reason": {
                     "type": "string"
@@ -40624,6 +40984,11 @@
         "MarketingAnalyticsRecommendationCpaBenchmarkSource": {
             "description": "The benchmark a recommendation compares a CPA with, in this order of preference:\n- `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.\n- `campaign`: the campaign's own non-brand CPA, when it has enough conversions to be stable. Only search terms use   it, since a campaign is never compared with itself.\n- `account`: the non-brand CPA of the ad account. Brand searches convert cheaply, so they stay out of it.",
             "enum": ["target_cpa", "campaign", "account"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationDetectedChange": {
+            "description": "`negative_keyword`: the search is now excluded by a negative keyword. `brand_negative`: the brand searches of the campaigns are now excluded by negative keywords. `keyword_added`: the search is now a keyword in an active Search campaign.",
+            "enum": ["negative_keyword", "brand_negative", "keyword_added"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationIdentity": {
@@ -40729,6 +41094,28 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsConversionSource": {
+            "additionalProperties": false,
+            "properties": {
+                "goalNames": {
+                    "description": "Names of the conversion goals CPAs count. Empty for `google_ads`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSourceKind"
+                }
+            },
+            "required": ["kind", "goalNames"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsConversionSourceKind": {
+            "description": "`posthog` counts the conversion goals marked for recommendations. `google_ads` counts the conversions Google Ads reports.",
+            "enum": ["posthog", "google_ads"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsDataGap": {
             "additionalProperties": false,
             "properties": {
@@ -40747,7 +41134,15 @@
             "type": "object"
         },
         "MarketingAnalyticsRecommendationsDataGapKind": {
-            "enum": ["conversion_action_tables_not_synced", "performance_max_search_terms_count_primary_conversions"],
+            "enum": [
+                "conversion_action_tables_not_synced",
+                "performance_max_search_terms_count_primary_conversions",
+                "posthog_conversions_not_ready",
+                "posthog_conversion_goals_unusable",
+                "posthog_campaigns_unmatched",
+                "posthog_conversions_failed",
+                "hidden_search_spend"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationsQuery": {
@@ -40800,6 +41195,17 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "conversionSource": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                },
                 "dataGaps": {
                     "description": "Data the rules needed but could not read, so some figures use a fallback.",
                     "items": {
@@ -40887,7 +41293,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {
@@ -40908,6 +41314,10 @@
                 },
                 "customerTable": {
                     "description": "Google Ads customer table, used for the account currency.",
+                    "type": "string"
+                },
+                "keywordTable": {
+                    "description": "Google Ads keyword table, used to tell which searches are already keywords.",
                     "type": "string"
                 },
                 "performanceMaxSearchTermTable": {
@@ -44654,6 +45064,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44668,6 +45105,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -46629,6 +47069,9 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "workflow_email_impact_turn_on_replay",
+                "workflow_survey_trigger_create_survey",
+                "workflow_warehouse_table_trigger_set_up_source",
                 "data_pipeline_created",
                 "batch_export_created",
                 "batch_export_updated",
@@ -48775,6 +49218,10 @@
                             "const": "ExperimentQuery",
                             "type": "string"
                         },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only."
+                        },
                         "variant_results": {
                             "anyOf": [
                                 {
@@ -48834,6 +49281,10 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "rows_left_out": {
+                            "$ref": "#/definitions/ExperimentWarehouseNativeRowsLeftOut",
+                            "description": "Rows of the warehouse-native exposure query that the run left out, by reason. Set by a warehouse-native run only."
                         },
                         "sample_ratio_mismatch": {
                             "$ref": "#/definitions/SampleRatioMismatch"
@@ -49448,6 +49899,12 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStale": {
+                            "type": "boolean"
+                        },
+                        "preComputedAt": {
+                            "type": "string"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -50541,6 +50998,17 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "conversionSource": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsConversionSource"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The conversions CPAs count. Null when no Google Ads account was read."
+                        },
                         "dataGaps": {
                             "description": "Data the rules needed but could not read, so some figures use a fallback.",
                             "items": {
@@ -53597,6 +54065,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -56462,6 +56933,10 @@
                             },
                             "type": "array"
                         },
+                        "totals": {
+                            "$ref": "#/definitions/MCPToolQualityTotals",
+                            "description": "Window totals and the previous period's, set only when the query asks for them."
+                        },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                             "items": {
@@ -57208,7 +57683,14 @@
         },
         "QueryScanFindingKind": {
             "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
-            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "enum": [
+                "no_event_filter",
+                "no_start_date",
+                "persons_join",
+                "repeated_cte_expansion",
+                "cross_join_equality",
+                "date_arrays_before_breakdown_limit"
+            ],
             "type": "string"
         },
         "QueryScanFixLocation": {
@@ -58210,6 +58692,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "type": "object"
@@ -58230,6 +58716,10 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -58252,6 +58742,10 @@
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "yAxisPosition": {
+                    "enum": ["auto", "left", "right"],
                     "type": "string"
                 }
             },
@@ -60273,6 +60767,10 @@
             ],
             "type": "string"
         },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["usergroups:read", "emoji:read"],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -62032,6 +62530,12 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "eventsLimit": {
+                    "description": "Return only the earliest events of the trace by timestamp. The latency, token and cost totals still cover every matching event. Leave unset to return every event.",
+                    "maximum": 10000,
+                    "minimum": 1,
+                    "type": "integer"
+                },
                 "includeSentiment": {
                     "description": "Include stored sentiment evaluation results for the trace and its generations.",
                     "type": "boolean"
@@ -62463,6 +62967,10 @@
                 },
                 "flatSpans": {
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
+                },
+                "includeEvents": {
+                    "description": "Include each span's OpenTelemetry events. The column is large, so only set this on small lists",
                     "type": "boolean"
                 },
                 "kind": {
@@ -65819,6 +66327,12 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStale": {
+                    "type": "boolean"
+                },
+                "preComputedAt": {
+                    "type": "string"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -65987,7 +66501,6 @@
                     "$ref": "#/definitions/WebPageDirectoryValue"
                 }
             },
-            "required": ["serverLogs"],
             "type": "object"
         },
         "WebPageDirectorySortBy": {

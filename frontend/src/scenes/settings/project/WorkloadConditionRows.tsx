@@ -3,6 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { QuillWorkloadConditionRows } from './QuillWorkloadConditionRows'
 import { CUSTOM_CONDITION, rowForPreset, type WorkloadConditionRow } from './workloadConditionPresets'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
@@ -16,6 +19,7 @@ function selectValue(row: WorkloadConditionRow): string {
 export function WorkloadConditionRows(): JSX.Element {
     const { conditionRows, editingProvider } = useValues(workloadTrustPoliciesLogic)
     const { setConditionRows } = useActions(workloadTrustPoliciesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const presets = editingProvider?.condition_presets ?? []
     const claims = editingProvider?.condition_claims ?? []
@@ -46,12 +50,43 @@ export function WorkloadConditionRows(): JSX.Element {
         )
     }
 
+    const remove = (index: number): void => setConditionRows(conditionRows.filter((_, at) => at !== index))
+    const add = (): void =>
+        setConditionRows([
+            ...conditionRows,
+            presets[0] ? rowForPreset(presets[0]) : { preset: CUSTOM_CONDITION, claim: claims[0]?.name, value: '' },
+        ])
+
+    const describe = (row: WorkloadConditionRow): { takesValue: boolean; placeholder?: string; helpText: string } => {
+        const preset = presets.find((candidate) => candidate.key === row.preset)
+        const claim = claims.find((candidate) => candidate.name === row.claim)
+        return {
+            takesValue: preset ? preset.takes_value : true,
+            placeholder: preset?.placeholder || claim?.placeholder || undefined,
+            helpText:
+                preset?.help_text ||
+                claim?.help_text ||
+                (preset || claim ? '' : "PostHog doesn't support this condition anymore. Remove it to save."),
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillWorkloadConditionRows
+                rows={conditionRows.map((row) => ({ row, value: selectValue(row), ...describe(row) }))}
+                options={options}
+                onChoose={choose}
+                onUpdate={update}
+                onRemove={remove}
+                onAdd={add}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2 w-full">
             {conditionRows.map((row, index) => {
-                const preset = presets.find((candidate) => candidate.key === row.preset)
-                const claim = claims.find((candidate) => candidate.name === row.claim)
-                const takesValue = preset ? preset.takes_value : true
+                const { takesValue, placeholder, helpText } = describe(row)
                 return (
                     <div key={index} className="flex flex-col gap-1">
                         <div className="flex flex-wrap gap-2 items-start">
@@ -66,7 +101,7 @@ export function WorkloadConditionRows(): JSX.Element {
                                 <LemonInput
                                     value={row.value}
                                     onChange={(value) => update(index, { ...row, value })}
-                                    placeholder={preset?.placeholder || claim?.placeholder || undefined}
+                                    placeholder={placeholder}
                                     className="min-w-40 flex-1"
                                     data-attr="workload-trust-policy-condition-value"
                                 />
@@ -74,17 +109,11 @@ export function WorkloadConditionRows(): JSX.Element {
                             <LemonButton
                                 icon={<IconTrash />}
                                 tooltip="Remove this condition"
-                                onClick={() => setConditionRows(conditionRows.filter((_, at) => at !== index))}
+                                onClick={() => remove(index)}
                                 data-attr="workload-trust-policy-condition-remove"
                             />
                         </div>
-                        <div className="text-secondary text-xs">
-                            {preset?.help_text ||
-                                claim?.help_text ||
-                                (preset || claim
-                                    ? ''
-                                    : "PostHog doesn't support this condition anymore. Remove it to save.")}
-                        </div>
+                        <div className="text-secondary text-xs">{helpText}</div>
                     </div>
                 )
             })}
@@ -93,14 +122,7 @@ export function WorkloadConditionRows(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconPlus />}
-                    onClick={() =>
-                        setConditionRows([
-                            ...conditionRows,
-                            presets[0]
-                                ? rowForPreset(presets[0])
-                                : { preset: CUSTOM_CONDITION, claim: claims[0]?.name, value: '' },
-                        ])
-                    }
+                    onClick={add}
                     data-attr="workload-trust-policy-condition-add"
                 >
                     Add condition

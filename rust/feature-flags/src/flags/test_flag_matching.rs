@@ -22,6 +22,7 @@ mod tests {
         },
         database::PostgresRouter,
         flags::{
+            config_format::decode_filters,
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
@@ -36,6 +37,7 @@ mod tests {
                 EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
                 Holdout, MultivariateFlagOptions, MultivariateFlagVariant,
             },
+            flag_request::{FlagRequest, KnownAbsentProperties},
         },
         handler::canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
         metrics::consts::FLAG_DATABASE_ERROR_COUNTER,
@@ -2463,9 +2465,16 @@ mod tests {
     /// the former reading would let `is_not` match an empty property map for an organization
     /// that is in fact excluded. The batch path also asks for the mapping once during setup
     /// and once during preparation, and failures are not cached, so without the recorded
-    /// outcome an outage would cost every affected request two failed queries.
+    /// outcome an outage would cost every affected request two failed queries. A listed
+    /// known-absent group key cannot open the guard either, because the failed mapping cannot
+    /// resolve the filter's index to the group type name the request listed it under.
+    #[rstest::rstest]
+    #[case::nothing_listed(KnownAbsentProperties::default())]
+    #[case::known_absent_tier_listed(known_absent_group("organization", &["tier"]))]
     #[tokio::test]
-    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails() {
+    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails(
+        #[case] known_absent: KnownAbsentProperties,
+    ) {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -2519,7 +2528,8 @@ mod tests {
             cohort_cache,
             group_type_cache,
             Some(HashMap::from([("organization".to_string(), json!("acme"))])),
-        );
+        )
+        .with_known_absent_properties(known_absent);
 
         // A mapping failure is deliberately not propagated: it must not poison person flags in
         // the same batch, so evaluation proceeds and fails only the flags that read a group.
@@ -4986,6 +4996,89 @@ mod tests {
         assert!(
             result.matches,
             "Provider-reported membership should match the flag even though dynamic filter evaluation would not"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_membership_from_provider_matches_flag_on_including_cohort() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let realtime_cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Realtime Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+        let wrapper_cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Wrapper Cohort".to_string()),
+                json!({
+                    "properties": {
+                        "type": "AND",
+                        "values": [{
+                            "type": "AND",
+                            "values": [
+                                {"key": "plan", "type": "person", "value": ["free"], "operator": "exact"},
+                                {"key": "id", "type": "cohort", "value": realtime_cohort.id}
+                            ]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_nested_member_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, wrapper_cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            realtime_cohort.id,
+            true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "The wrapper should read the provider's membership for the realtime cohort it includes"
         );
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
@@ -7616,7 +7709,7 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(
                 flags.clone(),
-                Some(partial_overrides),
+                Some(partial_overrides.clone()),
                 None,
                 None,
                 Uuid::new_v4(),
@@ -7731,7 +7824,7 @@ mod tests {
 
         let result4 = matcher4
             .evaluate_all_feature_flags(
-                flags,
+                flags.clone(),
                 Some(complete_overrides_condition1),
                 None,
                 None,
@@ -7745,6 +7838,43 @@ mod tests {
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
         assert!(flag_result4.enabled);
+
+        // Test case 5: case 1 with 'focus' listed known absent.
+        let mut matcher5 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_known_absent_properties(known_absent_person(&["focus"]));
+
+        reset_fetch_calls_count();
+        let result5 = matcher5
+            .evaluate_all_feature_flags(
+                flags,
+                Some(partial_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "a known-absent key counts as supplied, so no person fetch is needed"
+        );
+        assert!(!result5.errors_while_computing_flags);
+        assert!(
+            !result5.flags.get(&flag.key).unwrap().enabled,
+            "known-absent 'focus' must not match the stored value"
+        );
     }
 
     #[tokio::test]
@@ -7892,7 +8022,7 @@ mod tests {
             .evaluate_all_feature_flags(
                 flags.clone(),
                 None,
-                Some(partial_group_overrides),
+                Some(partial_group_overrides.clone()),
                 None,
                 Uuid::new_v4(),
                 None,
@@ -8049,12 +8179,12 @@ mod tests {
             router5,
             cohort_cache.clone(),
             group_type_cache.clone(),
-            Some(groups),
+            Some(groups.clone()),
         );
 
         let result5 = matcher5
             .evaluate_all_feature_flags(
-                flags,
+                flags.clone(),
                 None,
                 Some(mixed_group_overrides),
                 None,
@@ -8071,6 +8201,36 @@ mod tests {
         // - Condition 1: plan=pro (matches), region=us-west-2 (matches regex), feature_access=full (from DB merge)
         // - Condition 2: billing_email matches exactly
         assert!(flag_result5.enabled);
+
+        let mut matcher6 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        )
+        .with_known_absent_properties(known_absent_group("organization", &["feature_access"]));
+
+        let result6 = matcher6
+            .evaluate_all_feature_flags(
+                flags,
+                None,
+                Some(partial_group_overrides),
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result6.errors_while_computing_flags);
+        assert!(
+            !result6.flags.get(&flag.key).unwrap().enabled,
+            "known-absent 'feature_access' must not match the stored value"
+        );
     }
 
     #[tokio::test]
@@ -13318,5 +13478,556 @@ mod tests {
         // Holdout check wins — user is in holdout, variant is holdout-42
         assert!(flag_result.enabled);
         assert_eq!(flag_result.variant.as_deref(), Some("holdout-42"));
+    }
+
+    fn known_absent_person(keys: &[&str]) -> KnownAbsentProperties {
+        KnownAbsentProperties {
+            person: keys.iter().map(|key| key.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn known_absent_group(group_type: &str, keys: &[&str]) -> KnownAbsentProperties {
+        KnownAbsentProperties {
+            groups: HashMap::from([(
+                group_type.to_string(),
+                keys.iter().map(|key| key.to_string()).collect(),
+            )]),
+            ..Default::default()
+        }
+    }
+
+    fn person_property_flag(
+        id: i32,
+        team_id: TeamId,
+        key: &str,
+        property: &str,
+        operator: OperatorType,
+    ) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: id,
+            team_id: team_id,
+            key: key.mock_into(),
+            filters: mock!(PropertyFilter,
+                key: property.mock_into(),
+                operator: Some(operator)
+            ).mock_into()
+        )
+    }
+
+    fn v2_person_flag(team_id: TeamId, key: &str, predicates: serde_json::Value) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            key: key.mock_into(),
+            filters: decode_filters(json!({
+                "version": 2, "return_type": "boolean", "default_value": false,
+                "rules": [{
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "rule_type": "targeted_release",
+                    "targeting": {"properties": predicates},
+                    "value": true,
+                }],
+            }))
+            .unwrap()
+        )
+    }
+
+    struct KnownAbsentSubject {
+        context: TestContext,
+        team_id: TeamId,
+        distinct_id: String,
+        person_overrides: Option<HashMap<String, serde_json::Value>>,
+        groups: Option<HashMap<String, serde_json::Value>>,
+        group_overrides: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
+    }
+
+    impl KnownAbsentSubject {
+        async fn new(person_properties: Option<serde_json::Value>) -> Self {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let distinct_id = Uuid::new_v4().to_string();
+            context
+                .insert_person(team.id, distinct_id.clone(), person_properties)
+                .await
+                .unwrap();
+            Self {
+                context,
+                team_id: team.id,
+                distinct_id,
+                person_overrides: None,
+                groups: None,
+                group_overrides: None,
+            }
+        }
+
+        async fn with_enterprise_org() -> Self {
+            let mut subject = Self::new(None).await;
+            let group_key = Uuid::new_v4().to_string();
+            subject
+                .context
+                .create_group(
+                    subject.team_id,
+                    "organization",
+                    &group_key,
+                    json!({"tier": "enterprise"}),
+                )
+                .await
+                .unwrap();
+            subject.groups = Some(HashMap::from([(
+                "organization".to_string(),
+                json!(group_key),
+            )]));
+            subject.group_overrides = Some(HashMap::from([(
+                "organization".to_string(),
+                HashMap::from([("$group_key".to_string(), json!(group_key))]),
+            )]));
+            subject
+        }
+
+        async fn evaluate(
+            &self,
+            flags: Vec<FeatureFlag>,
+            known_absent: KnownAbsentProperties,
+        ) -> FlagsResponse {
+            let cohort_cache = Arc::new(CohortCacheManager::new(
+                self.context.non_persons_reader.clone(),
+                None,
+                None,
+            ));
+            let mut matcher = FeatureFlagMatcher::new(
+                self.distinct_id.clone(),
+                None,
+                self.team_id,
+                self.context.create_postgres_router(),
+                cohort_cache,
+                mock_group_type_cache(HashMap::from([
+                    ("project".to_string(), 0),
+                    ("organization".to_string(), 1),
+                ])),
+                self.groups.clone(),
+            )
+            .with_known_absent_properties(known_absent);
+            matcher
+                .evaluate_all_feature_flags(
+                    flag_list_with_metadata(flags),
+                    self.person_overrides.clone(),
+                    self.group_overrides.clone(),
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
+                .await
+                .unwrap()
+        }
+
+        async fn evaluate_unlisted_and_listed(
+            &self,
+            flags: Vec<FeatureFlag>,
+            listed: KnownAbsentProperties,
+        ) -> (FlagsResponse, FlagsResponse) {
+            let unlisted = self
+                .evaluate(flags.clone(), KnownAbsentProperties::default())
+                .await;
+            reset_fetch_calls_count();
+            let listed = self.evaluate(flags, listed).await;
+            (unlisted, listed)
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::db_skipped(false, 0)]
+    #[case::db_fetched(true, 1)]
+    #[tokio::test]
+    async fn test_known_absent_person_property_hides_stored_value(
+        #[case] force_fetch: bool,
+        #[case] expected_fetches: u64,
+    ) {
+        let subject =
+            KnownAbsentSubject::new(Some(json!({"plan": "pro", "email": "user@example.com"})))
+                .await;
+        let team_id = subject.team_id;
+        let mut flags = vec![
+            person_property_flag(1, team_id, "plan_is_set", "plan", OperatorType::IsSet),
+            person_property_flag(
+                2,
+                team_id,
+                "plan_is_not_set",
+                "plan",
+                OperatorType::IsNotSet,
+            ),
+        ];
+        if force_fetch {
+            flags.push(person_property_flag(
+                3,
+                team_id,
+                "email_is_set",
+                "email",
+                OperatorType::IsSet,
+            ));
+        }
+
+        reset_fetch_calls_count();
+        let result = subject
+            .evaluate(flags, known_absent_person(&["plan"]))
+            .await;
+
+        assert!(!result.errors_while_computing_flags);
+        assert!(!result.flags["plan_is_set"].enabled);
+        assert!(result.flags["plan_is_not_set"].enabled);
+        assert_eq!(get_fetch_calls_count(), expected_fetches);
+    }
+
+    #[rstest::rstest]
+    #[case::sent_value(vec![("plan", json!("pro"))], "plan")]
+    #[case::sent_geoip_key(vec![("$geoip_city_name", json!("Sydney"))], "$geoip_city_name")]
+    #[case::initial_os_copied_from_os(vec![("$os", json!("iOS"))], "$initial_os")]
+    #[case::os_name_aliased_from_os(vec![("$os", json!("iOS"))], "$os_name")]
+    #[case::injected_distinct_id(vec![], "distinct_id")]
+    #[tokio::test]
+    async fn test_known_absent_listing_wins_over_sent_and_synthesized_values(
+        #[case] sent: Vec<(&str, serde_json::Value)>,
+        #[case] listed_key: &str,
+    ) {
+        let mut subject = KnownAbsentSubject::new(None).await;
+        subject.person_overrides = Some(
+            sent.into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect(),
+        );
+        let flag = person_property_flag(
+            1,
+            subject.team_id,
+            "is_not_set_flag",
+            listed_key,
+            OperatorType::IsNotSet,
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(vec![flag.clone()], known_absent_person(&[listed_key]))
+            .await;
+
+        assert!(
+            !unlisted.flags[&flag.key].enabled,
+            "without the listing, {listed_key} has a value"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            listed.flags[&flag.key].enabled,
+            "a listed {listed_key} must read as absent"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::os_name_from_os("$os", "$os", "$os_name")]
+    #[case::initial_os_from_os("$os", "$os", "$initial_os")]
+    #[case::initial_browser_from_browser("$browser", "$browser", "$initial_browser")]
+    #[case::initial_os_from_os_aliased_from_os_name("$os_name", "$os", "$initial_os")]
+    #[tokio::test]
+    async fn test_known_absent_source_key_does_not_feed_synthesized_values(
+        #[case] stored_key: &str,
+        #[case] listed_key: &str,
+        #[case] filter_key: &str,
+    ) {
+        let subject = KnownAbsentSubject::new(Some(json!({ stored_key: "stored" }))).await;
+        let flag = person_property_flag(
+            1,
+            subject.team_id,
+            "is_not_set_flag",
+            filter_key,
+            OperatorType::IsNotSet,
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(vec![flag.clone()], known_absent_person(&[listed_key]))
+            .await;
+
+        assert!(
+            !unlisted.flags[&flag.key].enabled,
+            "without the listing, {filter_key} is derived from the stored {stored_key}"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            listed.flags[&flag.key].enabled,
+            "a listed {listed_key} must not feed {filter_key}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::group_aggregated_stored_property(Some(1), "tier", None)]
+    #[case::mixed_targeting_stored_property(None, "tier", Some(0))]
+    #[case::group_aggregated_group_key(Some(1), "$group_key", None)]
+    #[case::mixed_targeting_group_key(None, "$group_key", Some(0))]
+    #[tokio::test]
+    async fn test_known_absent_group_property_hides_stored_value(
+        #[case] aggregation: Option<i32>,
+        #[case] listed_key: &str,
+        #[case] expected_fetches: Option<u64>,
+    ) {
+        let subject = KnownAbsentSubject::with_enterprise_org().await;
+        let group_flag = |id: i32, key: &str, operator: OperatorType| {
+            mock!(FeatureFlag,
+                id: id,
+                team_id: subject.team_id,
+                key: key.mock_into(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: listed_key.to_string(),
+                            ..organization_tier_filter(operator)
+                        }]),
+                        ..mock!(FlagPropertyGroup)
+                    }],
+                    aggregation_group_type_index: aggregation,
+                    ..Default::default()
+                }
+            )
+        };
+        let flags = vec![
+            group_flag(1, "is_set_flag", OperatorType::IsSet),
+            group_flag(2, "is_not_set_flag", OperatorType::IsNotSet),
+        ];
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(flags, known_absent_group("organization", &[listed_key]))
+            .await;
+
+        assert!(unlisted.flags["is_set_flag"].enabled);
+        assert!(!unlisted.flags["is_not_set_flag"].enabled);
+        assert!(!listed.errors_while_computing_flags);
+        assert!(!listed.flags["is_set_flag"].enabled);
+        assert!(listed.flags["is_not_set_flag"].enabled);
+        if let Some(expected_fetches) = expected_fetches {
+            assert_eq!(get_fetch_calls_count(), expected_fetches);
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::other_group_type(known_absent_group("project", &["tier"]))]
+    #[case::unknown_group_type(known_absent_group("no_such_type", &["tier"]))]
+    #[case::person_key_of_same_name(known_absent_person(&["tier"]))]
+    #[tokio::test]
+    async fn test_known_absent_key_listed_for_another_source_keeps_stored_group_value(
+        #[case] known_absent: KnownAbsentProperties,
+    ) {
+        let subject = KnownAbsentSubject::with_enterprise_org().await;
+        let flag = mixed_targeting_flag(subject.team_id, OperatorType::Exact);
+
+        let result = subject.evaluate(vec![flag.clone()], known_absent).await;
+
+        assert!(!result.errors_while_computing_flags);
+        assert!(result.flags[&flag.key].enabled);
+    }
+
+    #[rstest::rstest]
+    #[case::raw_key("created_at")]
+    #[case::sentinel_prefixed_key("__posthog_person_metadata__created_at")]
+    #[tokio::test]
+    async fn test_known_absent_never_hides_person_metadata_created_at(#[case] listed_key: &str) {
+        let subject = KnownAbsentSubject::new(None).await;
+        let flag = mock!(FeatureFlag,
+            team_id: subject.team_id,
+            filters: mock!(PropertyFilter,
+                key: "created_at".mock_into(),
+                value: Some(json!("2000-01-01")),
+                operator: Some(OperatorType::IsDateAfter),
+                prop_type: PropertyType::PersonMetadata
+            ).mock_into()
+        );
+        let known_absent = FlagRequest {
+            person_property_keys_known_absent: Some(json!([listed_key])),
+            ..Default::default()
+        }
+        .known_absent_properties()
+        .unwrap();
+
+        reset_fetch_calls_count();
+        let result = subject.evaluate(vec![flag.clone()], known_absent).await;
+
+        assert_eq!(
+            get_fetch_calls_count(),
+            1,
+            "the created_at column is only on the person row"
+        );
+        assert!(!result.errors_while_computing_flags);
+        assert!(result.flags[&flag.key].enabled);
+    }
+
+    #[tokio::test]
+    async fn test_known_absent_feature_enrollment_key_skips_db_and_falls_through() {
+        let subject =
+            KnownAbsentSubject::new(Some(json!({"$feature_enrollment/my-feature": true}))).await;
+        let flag = mock!(FeatureFlag,
+            team_id: subject.team_id,
+            key: "my-feature".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup, rollout_percentage: Some(0.0))],
+                feature_enrollment: Some(true),
+                ..Default::default()
+            }
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(
+                vec![flag.clone()],
+                known_absent_person(&["$feature_enrollment/my-feature"]),
+            )
+            .await;
+
+        assert!(unlisted.flags[&flag.key].enabled, "the person is enrolled");
+        assert_eq!(get_fetch_calls_count(), 0);
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            !listed.flags[&flag.key].enabled,
+            "without the enrollment the 0% rollout decides"
+        );
+    }
+
+    enum PlanIsNotSetShape {
+        DynamicCohortLeaf,
+        FlagDependency,
+        V2,
+    }
+
+    #[rstest::rstest]
+    #[case::dynamic_cohort_leaf(PlanIsNotSetShape::DynamicCohortLeaf, None)]
+    #[case::flag_dependency(PlanIsNotSetShape::FlagDependency, None)]
+    #[case::v2_db_skipped(PlanIsNotSetShape::V2, Some(0))]
+    #[tokio::test]
+    async fn test_known_absent_key_reaches_plan_is_not_set_check(
+        #[case] shape: PlanIsNotSetShape,
+        #[case] expected_fetches: Option<u64>,
+    ) {
+        let subject = KnownAbsentSubject::new(Some(json!({"plan": "pro"}))).await;
+        let team_id = subject.team_id;
+        let (flags, asserted) = match shape {
+            PlanIsNotSetShape::DynamicCohortLeaf => {
+                let cohort = subject
+                    .context
+                    .insert_cohort(
+                        team_id,
+                        None,
+                        json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{
+                            "key": "plan", "type": "person", "operator": "is_not_set",
+                            "value": "is_not_set", "negation": false,
+                        }]}]}}),
+                        false,
+                    )
+                    .await
+                    .unwrap();
+                let flag = mock!(FeatureFlag,
+                    team_id: team_id,
+                    filters: mock!(PropertyFilter,
+                        key: "id".mock_into(),
+                        value: Some(json!(cohort.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort
+                    ).mock_into()
+                );
+                (vec![flag.clone()], flag)
+            }
+            PlanIsNotSetShape::FlagDependency => {
+                let leaf =
+                    person_property_flag(23, team_id, "leaf_flag", "plan", OperatorType::IsNotSet);
+                let parent = mock!(FeatureFlag,
+                    id: 42,
+                    team_id: team_id,
+                    key: "parent_flag".mock_into(),
+                    filters: dep_filter(leaf.id, FlagValue::Boolean(true)).mock_into()
+                );
+                (vec![leaf, parent.clone()], parent)
+            }
+            PlanIsNotSetShape::V2 => {
+                let flag = v2_person_flag(
+                    team_id,
+                    "v2_plan_is_not_set",
+                    json!([{"key": "plan", "type": "person", "operator": "is_not_set", "value": null}]),
+                );
+                (vec![flag.clone()], flag)
+            }
+        };
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(flags, known_absent_person(&["plan"]))
+            .await;
+
+        assert!(!unlisted.flags[&asserted.key].failed);
+        assert!(
+            !unlisted.flags[&asserted.key].enabled,
+            "the stored plan is set"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            !listed.flags[&asserted.key].failed,
+            "the listing must not fail the flag"
+        );
+        assert!(listed.flags[&asserted.key].enabled);
+        if let Some(expected_fetches) = expected_fetches {
+            assert_eq!(get_fetch_calls_count(), expected_fetches);
+        }
+    }
+
+    /// `get_match` without preparation leaves the person state `Pending`, the one state in
+    /// which a predicate key can be missing without being listed.
+    #[rstest::rstest]
+    #[case::no_key_missing_nothing_listed(vec![("plan", "pro"), ("email", "user@example.com")], &[], Some(false))]
+    #[case::keys_missing_nothing_listed(vec![], &[], None)]
+    #[case::every_missing_key_listed(vec![], &["plan", "email"], Some(true))]
+    #[case::one_missing_key_unlisted(vec![], &["plan"], None)]
+    #[tokio::test]
+    async fn test_known_absent_v2_completeness_under_pending(
+        #[case] sent: Vec<(&str, &str)>,
+        #[case] listed: &[&str],
+        #[case] expected_match: Option<bool>,
+    ) {
+        let (_context, matcher, team_id) = matcher_for_team("test_user").await;
+        let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
+        let flag = v2_person_flag(
+            team_id,
+            "v2_neither_set",
+            json!([
+                {"key": "plan", "type": "person", "operator": "is_not_set", "value": null},
+                {"key": "email", "type": "person", "operator": "is_not_set", "value": null},
+            ]),
+        );
+        let overrides: HashMap<String, serde_json::Value> = sent
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), json!(value)))
+            .collect();
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let result = matcher.get_match(&flag, Some(&overrides), None, None, &None);
+
+        assert_eq!(
+            result.ok().map(|flag_match| flag_match.matches),
+            expected_match
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::listed(&["plan"], true)]
+    #[case::unlisted(&[], false)]
+    #[tokio::test]
+    async fn test_known_absent_v1_completeness_under_pending(
+        #[case] listed: &[&str],
+        #[case] expected_match: bool,
+    ) {
+        let (_context, matcher, team_id) = matcher_for_team("test_user").await;
+        let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
+        let flag = person_property_flag(
+            1,
+            team_id,
+            "v1_plan_is_not_set",
+            "plan",
+            OperatorType::IsNotSet,
+        );
+        let overrides: HashMap<String, serde_json::Value> = HashMap::new();
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let result = matcher
+            .get_match(&flag, Some(&overrides), None, None, &None)
+            .unwrap();
+
+        assert_eq!(result.matches, expected_match);
     }
 }

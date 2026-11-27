@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
+    ErrorTrackingIssueTagColor as ErrorTrackingIssueTagColor,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -204,12 +205,14 @@ from posthog.schema_enums import (
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange as MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationIdentitySourceType as MarketingAnalyticsRecommendationIdentitySourceType,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSourceKind as MarketingAnalyticsRecommendationsConversionSourceKind,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
@@ -241,6 +244,7 @@ from posthog.schema_enums import (
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
     MetricsQueryLanguage as MetricsQueryLanguage,
+    MetricsQueryProvenanceMode as MetricsQueryProvenanceMode,
     MetricsRangeFunction as MetricsRangeFunction,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
@@ -373,6 +377,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
+    YAxisPosition2 as YAxisPosition2,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -1456,6 +1461,14 @@ class CustomerAnalyticsPinnedProperty(BaseModel):
     kind: Kind
 
 
+class CustomerAnalyticsRoleDefaultPinnedProperties(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    pinned_properties: list[CustomerAnalyticsPinnedProperty]
+    role_id: str
+
+
 class DangerousOperationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1748,22 +1761,6 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
-class ErrorTrackingIssueTag(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str = Field(..., description="What the tag means, for a tooltip.")
-    key: str = Field(..., description="Key of the tag definition.")
-    label: str = Field(..., description="Short name of the tag.")
-    source: str | None = Field(
-        default=None,
-        description=(
-            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
-            " Issue detail sets it, list results send null."
-        ),
-    )
-
-
 class ErrorTrackingIssueTagFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1773,6 +1770,20 @@ class ErrorTrackingIssueTagFilter(BaseModel):
         description=("True matches the issues the tag is applied to. False matches every other issue."),
     )
     key: str = Field(..., description="Key of the tag definition.")
+
+
+class ErrorTrackingIssueTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    has: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have all of these tags."),
+    )
+    hasNot: list[str] | None = Field(
+        default=None,
+        description=("Keys of tag definitions. Keeps the issues that have none of these tags."),
+    )
 
 
 class Person(BaseModel):
@@ -2318,6 +2329,18 @@ class MCPMissingCapabilitiesItem(BaseModel):
         ...,
         description=("The agent's own words for the capability it wanted, from $mcp_intent."),
     )
+    model: str = Field(
+        ...,
+        description=("The model the agent self-reported, from $mcp_llm_model; empty when the report did not say."),
+    )
+    outcome: str = Field(
+        ...,
+        description=(
+            "Whether the agent says it still finished the user's task, from"
+            " $mcp_feedback_task_completed (or an in-app report's blocked flag):"
+            ' "blocked", "completed", or "not_reported" when the report did not say.'
+        ),
+    )
     person_properties: str = Field(
         ...,
         description=('JSON-encoded person email/name for display; "{}" when neither resolved.'),
@@ -2325,6 +2348,12 @@ class MCPMissingCapabilitiesItem(BaseModel):
     session_id: str = Field(
         ...,
         description=("Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set."),
+    )
+    suggested_improvement: str = Field(
+        ...,
+        description=(
+            "The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none."
+        ),
     )
     timestamp: str
 
@@ -3445,6 +3474,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3454,6 +3484,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3465,6 +3496,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class RetentionValue(BaseModel):
@@ -4115,6 +4147,12 @@ class AggregatedSpanRow(BaseModel):
     )
     avg_duration_nano: float
     count: int
+    entry_span_count: int | None = Field(
+        default=None,
+        description=(
+            "Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results."
+        ),
+    )
     error_count: int
     health_reason: str | None = Field(
         default=None,
@@ -5582,10 +5620,18 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
@@ -5975,6 +6021,26 @@ class ErrorTrackingIssueRelease(BaseModel):
     namespace: str | None = None
     total: int
     version: str | None = None
+
+
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: ErrorTrackingIssueTagColor | None = Field(
+        default=None,
+        description=("Named color of the tag, or null for a color picked from the label."),
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
 
 
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
@@ -6416,6 +6482,21 @@ class ExperimentWarehouseNativeNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentWarehouseNativeRowsLeftOut(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    empty_id: int | None = Field(default=None, description="Exposure rows with an empty entity_id.")
+    exposed_without_rows: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposed entities with no row of the metric query that counted, by variant."),
+    )
+    unknown_variants: dict[str, int] | None = Field(
+        default=None,
+        description=("Exposure rows whose variant is not one the flag serves, counted by the value seen."),
+    )
+
+
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6484,6 +6565,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
+    requiresOrganizationAdmin: bool | None = None
     sceneKey: str | None = Field(
         default=None,
         description="Match this with the a base scene key or a specific one",
@@ -6715,6 +6797,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -6745,6 +6833,16 @@ class HogQLQueryModifiers(BaseModel):
     propertyGroupsMode: PropertyGroupsMode | None = None
     pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
+    sessionFilterGlobalJoin: bool | None = Field(
+        default=None,
+        description=(
+            "Filter the sessions join of an events query by its session property"
+            " filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once"
+            " instead of once per events shard. Applies only when every session filter"
+            " is an equality or `IN` against non-empty strings, which are false for an"
+            " event with no matching session."
+        ),
+    )
     sessionIdPushdown: bool | None = Field(
         default=None,
         description=(
@@ -7154,9 +7252,34 @@ class MCPToolQualityDailyStatItem(BaseModel):
     p99: float
 
 
+class MCPToolQualityRowBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str = Field(
+        ...,
+        description=('Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss").'),
+    )
+    calls: int
+    errors: int
+    p95_duration_ms: float = Field(..., description="0 when no call in the bucket carried a duration.")
+
+
 class MCPToolQualityRowItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    buckets: list[MCPToolQualityRowBucket] | None = Field(
+        default=None,
+        description=("Calls, errors and p95 per interval in the current window, for the row's volume chart."),
+    )
+    category: str | None = Field(
+        default=None,
+        description="The $mcp_tool_category from the tool's latest call that sent one.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="The description from the tool's latest call that sent one.",
     )
     error_rate_pct: float
     errors: int
@@ -7194,6 +7317,20 @@ class MCPToolQualityRowItem(BaseModel):
         ),
     )
     users: int
+
+
+class MCPToolQualityTotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calls: int
+    errors: int
+    p50: float
+    p95: float
+    previous_calls: int
+    previous_errors: int
+    previous_p50: float | None = Field(..., description="null when no call in the previous period carried a duration.")
+    previous_p95: float | None = None
 
 
 class MCPToolStatsItem(BaseModel):
@@ -7379,6 +7516,17 @@ class MarketingAnalyticsRecommendationResolution(BaseModel):
     )
 
 
+class MarketingAnalyticsRecommendationsConversionSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalNames: list[str] = Field(
+        ...,
+        description="Names of the conversion goals CPAs count. Empty for `google_ads`.",
+    )
+    kind: MarketingAnalyticsRecommendationsConversionSourceKind
+
+
 class MarketingAnalyticsRecommendationsDataGap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7397,7 +7545,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -7411,6 +7559,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     customerTable: str | None = Field(
         default=None,
         description="Google Ads customer table, used for the account currency.",
+    )
+    keywordTable: str | None = Field(
+        default=None,
+        description=("Google Ads keyword table, used to tell which searches are already keywords."),
     )
     performanceMaxSearchTermTable: str | None = Field(
         default=None,
@@ -7758,6 +7910,18 @@ class MetricsQueryClause(BaseModel):
         default=None,
         description=("Applied to each series before `aggregation`, like `rate()` in PromQL"),
     )
+
+
+class MetricsQueryProvenance(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: MetricsQueryProvenanceMode
+    precomputedUntil: str | None = Field(
+        default=None,
+        description=("Buckets before this time came from precomputed metrics. Absent when no clause read them."),
+    )
+    reasons: list[str] | None = Field(default=None, description="Why clauses ran raw, one per clause.")
 
 
 class MetricsVariableValue(BaseModel):
@@ -9640,7 +9804,7 @@ class WebPageDirectorySiteTotals(BaseModel):
     bounceRate: float | None = None
     conversions: WebPageDirectoryValue | None = None
     googleSearch: WebPageDirectoryValue | None = None
-    serverLogs: int
+    serverLogs: int | None = None
     timeOnPageP90: float | None = None
     visitors: WebPageDirectoryValue | None = None
 
@@ -10276,6 +10440,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
         ),
+    )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description=("Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts."),
     )
     goalLines: list[AssistantDataVisualizationGoalLine] | None = Field(
         default=None, description="Horizontal goal lines drawn across the chart."
@@ -11756,6 +11924,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int
@@ -14633,6 +14805,10 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -15591,6 +15767,7 @@ class CachedMetricsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    provenance: MetricsQueryProvenance | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -17731,6 +17908,8 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -18108,6 +18287,10 @@ class ChartSettings(BaseModel):
         default=None,
         description=("Chart rendering style overrides (line shape). Only applies to line and area charts."),
     )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description="Color each X-axis category in single-series bar charts.",
+    )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
@@ -18120,6 +18303,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18130,6 +18314,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None
@@ -18139,6 +18324,8 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     valueLabelBackground: bool | None = None
+    valueLabelBackgroundColor: str | None = None
+    valueLabelColor: str | None = None
     valueLabelFontSize: float | None = None
     valueLabelPosition: ValueLabelPosition | None = None
     valueLabelRotation: float | None = None
@@ -20464,6 +20651,13 @@ class ExperimentQueryResponse(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -21945,6 +22139,10 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -22450,6 +22648,14 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None, description="CPA figures in the account currency."
     )
     currency: str | None = None
+    detectedChange: MarketingAnalyticsRecommendationDetectedChange | None = Field(
+        default=None,
+        description=(
+            "The change in Google Ads that applied this recommendation, when the synced"
+            " data shows one. A detected recommendation counts as applied, so it"
+            " follows the same rules as a resolved one."
+        ),
+    )
     identity: MarketingAnalyticsRecommendationIdentity
     impact: float | None = Field(
         default=None,
@@ -22464,6 +22670,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
         ),
     )
     level: MarketingAnalyticsRecommendationLevel
+    minor: bool | None = Field(
+        default=None,
+        description=("True when the monthly impact is under 1% of the ad account's monthly spend."),
+    )
     reason: str
     resolution: MarketingAnalyticsRecommendationResolution | None = Field(
         default=None,
@@ -22486,6 +22696,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
 class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -22860,6 +23074,7 @@ class MetricsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -23937,6 +24152,13 @@ class QueryResponseAlternative19(BaseModel):
         description="Whether exposures were served from the precomputation system",
     )
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -24295,6 +24517,8 @@ class QueryResponseAlternative27(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25057,6 +25281,10 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -26928,6 +27156,7 @@ class QueryResponseAlternative73(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    provenance: MetricsQueryProvenance | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -28793,6 +29022,10 @@ class QueryResponseAlternative109(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -30861,6 +31094,8 @@ class WebPageDirectoryQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStale: bool | None = None
+    preComputedAt: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -32022,6 +32257,13 @@ class CachedExperimentQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native metric query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     timezone: str
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -32145,6 +32387,10 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | None = Field(
+        default=None,
+        description=("The conversions CPAs count. Null when no Google Ads account was read."),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -32457,6 +32703,15 @@ class ConversionGoalFilter1(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32523,6 +32778,15 @@ class ConversionGoalFilter2(BaseModel):
     )
     response: dict[str, Any] | None = None
     schema_map: dict[str, str | Any]
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32594,6 +32858,15 @@ class ConversionGoalFilter3(BaseModel):
     schema_map: dict[str, str | Any]
     table_name: str
     timestamp_field: str
+    use_in_recommendations: bool | None = Field(
+        default=None,
+        description=(
+            "When true, Google Ads recommendations judge campaigns by this goal's"
+            " conversions instead of the conversions Google Ads reports. Conversions"
+            " from every marked goal are added together, so marking two goals the same"
+            " person completes counts that person twice. Defaults to false."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -33275,6 +33548,13 @@ class ExperimentExposureQueryResponse(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -33728,6 +34008,14 @@ class MCPMissingCapabilitiesQuery(BaseModel):
             " through them; the response's has_next flag indicates whether more remain."
         ),
     )
+    outcomes: list[str] | None = Field(
+        default=None,
+        description=('Only reports with one of these outcomes: "blocked", "completed" or "not_reported".'),
+    )
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = Field(
+        default=None,
+        description=("Property filters applied to the report events, such as the shared harness and model filters."),
+    )
     response: MCPMissingCapabilitiesQueryResponse | None = None
     search: str | None = Field(
         default=None,
@@ -33979,6 +34267,10 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeTotals: bool | None = Field(
+        default=None,
+        description=("Also return window totals and the previous period's, for the Tool quality tiles."),
+    )
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
@@ -33987,6 +34279,12 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description=(
+            "Case-insensitive substring search on the effective tool name, so the tiles match the searched table."
+        ),
+    )
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
         default=None,
@@ -34005,6 +34303,14 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeBuckets: bool | None = Field(
+        default=None,
+        description=("Also return each row's volume chart buckets, which costs one more query."),
+    )
+    interval: IntervalType | None = Field(
+        default=None,
+        description="Bucket granularity of each row's volume chart. Defaults to day.",
+    )
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,
@@ -34974,6 +35280,13 @@ class QueryResponseAlternative20(BaseModel):
         ),
     )
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     total_exposures: dict[str, float]
@@ -35435,6 +35748,14 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    eventsLimit: conint(ge=1, le=10000) | None = Field(
+        default=None,
+        description=(
+            "Return only the earliest events of the trace by timestamp. The latency,"
+            " token and cost totals still cover every matching event. Leave unset to"
+            " return every event."
+        ),
+    )
     includeSentiment: bool | None = Field(
         default=None,
         description=("Include stored sentiment evaluation results for the trace and its generations."),
@@ -36067,6 +36388,13 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = Field(
+        default=None,
+        description=(
+            "Rows of the warehouse-native exposure query that the run left out, by"
+            " reason. Set by a warehouse-native run only."
+        ),
+    )
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
     timezone: str
@@ -36197,6 +36525,7 @@ class CustomerAnalyticsConfig(BaseModel):
     activity_event: EventsNode | ActionsNode
     default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
+    role_default_pinned_properties: list[CustomerAnalyticsRoleDefaultPinnedProperties] | None = None
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
@@ -36482,6 +36811,7 @@ class FunnelsFilter(BaseModel):
             " funnels."
         ),
     )
+    showSummaryOnDashboards: bool | None = False
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -36514,6 +36844,14 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Rows to return in place of the default row limit, capped at the maximum"
+            " for the query's context. Ignored when the query sets its own LIMIT, uses"
+            " UNION, or runs as raw SQL."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     offset: conint(ge=0) | None = Field(
@@ -36721,6 +37059,10 @@ class TraceSpansQuery(BaseModel):
             " from `rootSpans`, which scopes whole-trace selection. The single-trace"
             " waterfall never sets this."
         ),
+    )
+    includeEvents: bool | None = Field(
+        default=None,
+        description=("Include each span's OpenTelemetry events. The column is large, so only set this on small lists"),
     )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
@@ -37054,10 +37396,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
-    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+    issueTag: ErrorTrackingIssueTagFilter | None = None
+    issueTags: ErrorTrackingIssueTagsFilter | None = Field(
         default=None,
         description=(
-            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+            "Filter by issue tags. Get the keys from the issue tag definitions. The"
+            " query ignores a key whose tag is off for the project."
         ),
     )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"

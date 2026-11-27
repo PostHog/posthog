@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -243,6 +244,7 @@ export type MinimalAppMetric = {
         | 'disabled_permanently'
         | 'rate_limited'
         | 'masked'
+        | 'audience_truncated'
         | 'filtering_failed'
         | 'inputs_failed'
         | 'missing_credential'
@@ -276,6 +278,8 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
         | 'email_sandbox_sent'
         | 'email_sandbox_failed'
         | 'email_sandbox_blocked'
@@ -302,6 +306,7 @@ export type MinimalAppMetric = {
     // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
     // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
     app_source_version?: { id: string; version: number }
+    prometheus_metric_name?: 'email_sender_unverified'
 }
 
 export type AppMetricType = MinimalAppMetric & {
@@ -382,6 +387,7 @@ export type CyclotronJobInvocation = {
     sealed?: string
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution
@@ -459,6 +465,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     // Set when a protected workflow step pauses mid-send, so its retries stay protected.
     sensitive?: boolean
+    trackingEnabled?: boolean
+    clickTrackingEnabled?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
@@ -505,15 +513,6 @@ export type MessageOptOutRecord = {
     identifier: string
     // A message category id, or '$all' for all marketing messages.
     categoryId: string
-}
-
-export type QueuedIdempotencyKey = {
-    hash: string
-    fingerprint: string
-    currentFingerprint?: string
-    senderKind?: 'email_sandbox'
-    scheduledAt?: string
-    replayFields?: Record<string, number>
 }
 
 export type HogFlowInvocationContext = {
@@ -602,6 +601,8 @@ export type HogFlowInvocationContext = {
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
         // parked ceiling with the action's current one tells the two apart.
         parkedMaxWaitDuration?: string
+        // Compared for the same reason: an edited condition can match at the deadline, before the sweep.
+        parkedConditionHash?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -649,7 +650,6 @@ export type HogFlowInvocationContext = {
     senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
-    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

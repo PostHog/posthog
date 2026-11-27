@@ -53,6 +53,8 @@ silently create new IDs to evade it. Fix validation errors before retrying a rej
 batch. Treat 403 as a permission problem rather than retrying with a broader credential.
 
 Ingestion requires `offline_evaluation_ingestion:write`; it grants neither payload
-reads nor scorer administration. Project secret API keys are ingestion-only here.
+reads nor scorer administration. With ingestion access alone, include every pinned
+input when calculating a composite score. To reuse stored inputs, including on
+retries, grant `evaluation:read` and `llm_analytics:read`.
 An agent can upload results without being able to read them back, so acknowledgments
 are the source of truth for upload success.

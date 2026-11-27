@@ -86,6 +86,7 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
 
 const PER_SEND_METADATA_KEYS = [
     'teamCapped',
+    'teamCappedAt',
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
     'ownershipCheckRetries',
@@ -700,6 +701,8 @@ export class HogFlowExecutorService {
                             ? `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] no longer matches trigger filters`
                             : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
+                break
+            case 'exit_only_at_end':
                 break
         }
 

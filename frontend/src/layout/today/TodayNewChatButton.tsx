@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -24,9 +24,9 @@ export function TodayNewChatButton(): JSX.Element {
                 render={
                     <Button
                         size="icon"
+                        variant="outline"
                         render={<LinkPrimitive to={newChatUrl} />}
                         aria-current={starting ? 'page' : undefined}
-                        className={cn('-me-2 text-muted-foreground', starting && 'bg-fill-selected text-foreground')}
                         aria-label="New chat"
                         data-attr="today-new-chat-header"
                     />

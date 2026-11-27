@@ -177,9 +177,12 @@ def normalize_site_url(raw: str) -> str:
 
     # Google lists domain properties as 'sc-domain:<lowercase domain>' and matches byte for byte.
     # Mobile keyboards capitalise the prefix, and domain names are case-insensitive, so rewrite it.
+    # A domain name can't hold a quote, so a stray one (often the closing quote of a value copied
+    # from one of our own error messages) is always safe to drop.
     domain_match = _DOMAIN_PROPERTY_PATTERN.fullmatch(site)
     if domain_match:
-        return "sc-domain:" + domain_match.group(1).strip().rstrip("/").strip().lower()
+        domain = domain_match.group(1).strip().strip(_PASTED_QUOTES).rstrip("/").strip()
+        return "sc-domain:" + domain.lower()
 
     # URL-prefix properties are canonically stored with a lowercase scheme and host and a
     # trailing slash. Schemes and hostnames are case-insensitive, so a value like
@@ -704,6 +707,20 @@ def _property_rows(
         if e.response is not None and _is_server_error(e.response):
             raise GoogleSearchConsoleServerError(
                 f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
+            ) from e
+        raise
+    except RefreshError as e:
+        # `list_sites`/`list_sitemaps` call out through `AuthorizedSession`, which refreshes the
+        # access token first — a failing token endpoint raises here before any response exists, the
+        # same OAuth-refresh class `_query_search_analytics` retries inline. These two calls have no
+        # inline retry budget of their own, so mark a transient failure (e.g. the token endpoint's own
+        # 502) the same way rather than letting a bare RefreshError fall through and get logged as an
+        # exception. A permanent failure (invalid_grant/invalid_scope) still raises unchanged, so it
+        # keeps reaching `get_non_retryable_errors`.
+        if _is_transient_refresh_error(e):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error refreshing credentials while listing {resource_name}; "
+                "retrying (retryable)"
             ) from e
         raise
 

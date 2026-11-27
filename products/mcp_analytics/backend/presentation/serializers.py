@@ -291,6 +291,11 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
             "($mcp_is_error), false keeps sessions with none. Omit to list both."
         ),
     )
+    feedback_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Only sessions where the agent sent feedback or reported a missing capability.",
+    )
     properties = PropertyFiltersField(
         required=False,
         allow_blank=True,
@@ -896,7 +901,7 @@ class MCPRecurringIntentSerializer(serializers.Serializer):
     intent_text = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="The intent text repeated verbatim across sessions. Empty when intent text is redacted.",
+        help_text="The most common wording of this automation step. Empty when intent text is redacted.",
     )
     session_count = serializers.IntegerField(
         read_only=True, help_text="Sessions in the window that opened with this intent."
@@ -905,6 +910,15 @@ class MCPRecurringIntentSerializer(serializers.Serializer):
     error_count = serializers.IntegerField(read_only=True, help_text="Error responses across those sessions.")
     error_rate_pct = serializers.FloatField(
         read_only=True, help_text="Error rate across those sessions' tool calls, from 0 to 100."
+    )
+    variant_count = serializers.IntegerField(
+        read_only=True,
+        help_text="How many different wordings of this automation step were merged into the entry. 1 when none were.",
+    )
+    sample_variants = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Up to five merged wordings, most common first. Empty when nothing was merged or intent text is redacted.",
     )
 
 

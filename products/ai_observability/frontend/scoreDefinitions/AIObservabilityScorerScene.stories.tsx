@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -19,6 +18,8 @@ const definition: ScoreDefinitionApi = {
     kind: 'numeric',
     archived: false,
     current_version: 3,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -28,6 +29,8 @@ const definition: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: '2026-01-02T00:00:00Z',
     team: 997,
 }
@@ -38,7 +41,6 @@ const meta: Meta<ScorerLogicProps> = {
     args: { scorerId: definition.id },
     parameters: {
         pageUrl: urls.aiObservabilityScorer(definition.id),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         (Story, { args }) => (
@@ -76,6 +78,50 @@ export const Numeric: Story = {}
 export const NewScorer: Story = {
     args: { scorerId: 'new' },
     parameters: { pageUrl: urls.aiObservabilityScorer('new') },
+}
+export const FromExperiment: Story = {
+    args: { scorerId: 'new', experimentId: 'run-id', suiteKey: 'support-answers' },
+    parameters: { pageUrl: urls.aiObservabilityScorer('new') + '?experiment=run-id&suite=support-answers' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/llm_analytics/score_definitions/': {
+                    count: 1,
+                    results: [{ ...definition, kind: 'boolean', config: {} }],
+                    next: null,
+                    previous: null,
+                },
+                '/api/projects/:team/llm_analytics/score_definitions/:id/versions/': {
+                    count: 0,
+                    results: [],
+                    next: null,
+                    next_cursor: null,
+                },
+            },
+            post: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/score_previews/': {
+                    kind: 'numeric',
+                    config: {},
+                    passed: null,
+                    status: 'mixed_versions',
+                    value: null,
+                    inputs: [
+                        {
+                            alias: 'score1',
+                            statistic: 'pass_rate',
+                            version_policy: 'run',
+                            status: 'mixed_versions',
+                            value: null,
+                            sources: [
+                                { version_id: 'source-v2', version: 2, value: 0.9, successful_items: 10 },
+                                { version_id: 'source-v3', version: 3, value: 0.5, successful_items: 2 },
+                            ],
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }
 export const BooleanDetector: Story = {
     decorators: [

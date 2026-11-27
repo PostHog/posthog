@@ -43,6 +43,7 @@ import { DashboardTileSectionBand } from 'products/dashboards/frontend/component
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { type LayoutGesturePerformance, LayoutGestureMonitor } from 'products/dashboards/frontend/dashboardPerformance'
+import { dashboardResultFilterLogic } from 'products/dashboards/frontend/dashboardResultFilterLogic'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
 import { useCarryTile } from 'products/dashboards/frontend/useCarryTile'
@@ -121,6 +122,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tiles,
         layouts,
         placement,
+        isPreview,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -158,6 +160,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
         biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
+    useMountedLogic(
+        dashboardResultFilterLogic({
             dashboardId: dashboard?.id ?? 0,
             tiles: canCrossFilter ? (tiles ?? []) : [],
             loadQueue: queryLoadQueue,
@@ -206,12 +215,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
-        skip: placement === DashboardPlacement.Dashboard,
+        skip: placement === DashboardPlacement.Dashboard || isPreview,
     })
 
-    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
-        ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const bestSurveyOpportunityFunnel =
+        surveyLinkedInsightsLoading || isPreview
+            ? null
+            : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
     const retryFailedDashboardTile = isSharedView()
         ? undefined
         : () => loadDashboard({ action: DashboardLoadAction.Update })

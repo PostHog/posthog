@@ -27,7 +27,6 @@ import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } fr
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
@@ -41,6 +40,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { inStorybook } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
@@ -647,6 +647,7 @@ export function InsightValidationError({
     query,
     onRetry,
     cta,
+    fixWithAIComponent,
     excludeActions = false,
     placement,
 }: {
@@ -655,6 +656,7 @@ export function InsightValidationError({
     query?: Record<string, any> | null
     onRetry?: () => void
     cta?: JSX.Element
+    fixWithAIComponent?: JSX.Element
     excludeActions?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
 }): JSX.Element {
@@ -733,7 +735,10 @@ export function InsightValidationError({
                         {defaultCta}
                     </>
                 ) : (
-                    defaultCta
+                    <>
+                        {defaultCta}
+                        {fixWithAIComponent}
+                    </>
                 ))
             }
             footer={

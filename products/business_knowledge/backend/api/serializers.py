@@ -13,6 +13,9 @@ from posthog.security.url_validation import is_url_allowed
 
 from .. import url_fetch
 from ..constants import (
+    BK_SEARCH_DEFAULT_LIMIT,
+    BK_SEARCH_MAX_LIMIT,
+    BK_SEARCH_MAX_QUERY_CHARS,
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
@@ -558,6 +561,40 @@ class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeSearchRequestSerializer(serializers.Serializer):
+    """Body of a search sent with POST, which keeps the query text out of the request URL."""
+
+    query = serializers.CharField(
+        max_length=BK_SEARCH_MAX_QUERY_CHARS,
+        help_text=(
+            "Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY "
+            f"knowledge chunks in this project. At most {BK_SEARCH_MAX_QUERY_CHARS} characters."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=BK_SEARCH_DEFAULT_LIMIT,
+        help_text=(
+            f"Maximum number of ranked chunks to return. "
+            f"Defaults to {BK_SEARCH_DEFAULT_LIMIT}, capped at {BK_SEARCH_MAX_LIMIT}."
+        ),
+    )
+    rerank = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, rerank search results with a listwise LLM pass for better relevance. "
+            "Defaults to false (RRF order only). Falls back to RRF order on rerank failure."
+        ),
+    )
+    library_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Limit retrieval to sources in this library. Omit to search every ready source.",
+    )
+
+
 class KnowledgeSearchResultSerializer(serializers.Serializer):
     """
     One ranked chunk from a business knowledge search.
@@ -673,11 +710,24 @@ class KnowledgeUsageQuerySerializer(serializers.Serializer):
     )
 
 
-class DailyCitedRunsSerializer(serializers.Serializer):
+class DailyUsageSerializer(serializers.Serializer):
     date = serializers.DateField(read_only=True, help_text="Day, in UTC.")
     cited_run_count = serializers.IntegerField(
         read_only=True, help_text="Support agent runs that cited knowledge on this day."
     )
+    chunks_ingested = serializers.IntegerField(read_only=True, help_text="Chunks written on this day.")
+    query_count = serializers.IntegerField(read_only=True, help_text="Knowledge searches made on this day.")
+
+
+class SurfaceUsageSerializer(serializers.Serializer):
+    surface = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Where the usage came from. For chunks: text, url, file, or generated (learned from a support "
+            "ticket). For searches: api (the API and MCP), support, posthog_ai, or learning."
+        ),
+    )
+    total = serializers.IntegerField(read_only=True, help_text="Usage from this surface in the period.")
 
 
 class SourceUsageSerializer(serializers.Serializer):
@@ -695,7 +745,7 @@ class SourceUsageSerializer(serializers.Serializer):
 
 
 class KnowledgeUsageSerializer(serializers.Serializer):
-    """How much support agent runs used the knowledge base in a period."""
+    """How much the knowledge base was used in a period: ingestion, searches, and support agent citations."""
 
     days = serializers.IntegerField(read_only=True, help_text="Number of days the report covers, today included.")
     cited_run_count = serializers.IntegerField(
@@ -709,7 +759,22 @@ class KnowledgeUsageSerializer(serializers.Serializer):
     cited_source_count = serializers.IntegerField(
         read_only=True, help_text="Knowledge sources that at least one run cited in the period."
     )
-    daily = DailyCitedRunsSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
+    chunks_ingested = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Chunks written in the period. Content that a refresh finds changed is chunked again and counts again."
+        ),
+    )
+    query_count = serializers.IntegerField(
+        read_only=True, help_text="Knowledge searches made in the period, from every surface."
+    )
+    chunks_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Chunks written in the period by source type, largest first."
+    )
+    queries_by_surface = SurfaceUsageSerializer(
+        many=True, read_only=True, help_text="Searches in the period by where they came from, largest first."
+    )
+    daily = DailyUsageSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
     top_sources = SourceUsageSerializer(
         many=True, read_only=True, help_text="The most cited sources in the period, most cited first."
     )

@@ -11,17 +11,15 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.pagination import PageLinksSerializer, offset_page_links
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.review_hog.backend.facade.api import (
     get_review_detail,
@@ -62,6 +60,10 @@ from products.review_hog.backend.facade.enums import (
     UrgencyThreshold,
 )
 from products.review_hog.backend.facade.reviews import get_pr_review_status, request_pr_review_by_url
+from products.review_hog.backend.presentation.views.repositories import (
+    EffectiveTeamMemberPermission,
+    ReviewHogProjectViewSetMixin,
+)
 
 DEFAULT_REVIEWS_LIMIT = 5
 DEFAULT_REVIEWS_TABLE_LIMIT = 25
@@ -429,14 +431,15 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=ReviewTriggerRequestRunMode.REVIEW,
+        default=ReviewTriggerRequestRunMode.FLASH,
         choices=ReviewTriggerRequestRunMode.choices,
-        help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
+        help_text="What to run on the pull request. 'flash' (default) runs a Standard review: a lower-cost model "
+        "for the review passes and validation, never resolves comments, and is refused once the PR has a published "
+        "Deep review. 'review' runs a Deep review and, when the pull "
         "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
         "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
         "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
-        "opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves "
-        "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
+        "opt-in. The owner is the PR's author, "
         "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
@@ -505,15 +508,23 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=ReviewTriggerRequestRunMode.REVIEW,
         choices=ReviewTriggerRequestRunMode.choices,
-        help_text="The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.",
+        help_text="The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.",
     )
     head_sha = serializers.CharField(
         required=False,
         help_text="The `head_sha` the trigger returned. Lets a turn that was already running on that head when "
         "the request came in answer the request. Only used with `requested_at`.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        # A default mode here could differ from the mode the trigger ran, and a Standard turn would then
+        # answer a Deep request.
+        if attrs.get("requested_at") is not None and not attrs.get("run_mode"):
+            raise serializers.ValidationError(
+                {"run_mode": "Pass the `run_mode` the trigger was called with, together with `requested_at`."}
+            )
+        return attrs
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
@@ -887,20 +898,7 @@ _INVALID_PR_URL_ERROR = (
 )
 
 
-class EffectiveTeamScopedKeyPermission(BasePermission):
-    """Reviews live on the root project, and the API scope check covers only the URL project.
-
-    So a key scoped to an environment must not reach its parent project through an environment URL.
-    """
-
-    message = "This key is not scoped to the project that holds the reviews."
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
-        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
-
-
-class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericViewSet):
     """Recent code reviews on this project.
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
@@ -918,7 +916,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by code_review:read / code_review:write.
     scope_object = "code_review"
-    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamMemberPermission]
     posthog_feature_flag = "review-hog"
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
@@ -1047,10 +1045,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "access, and publish it back to the PR. The run appears under the requesting user's recent reviews. "
         "A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency "
         "threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull "
-        "request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that "
+        "request owner opted in, whoever asks. `run_mode` picks the variant: 'flash' (the default) is a lower-cost Standard review "
+        "that never resolves comments and is refused after a published Deep review, 'review' is a Deep review that "
         "chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review "
-        "without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review "
-        "that never resolves comments and is refused after a published Deep review. "
+        "without resolving, and 'resolve_only' runs resolution only. "
         "Nonexistent, closed, and fork PRs are rejected synchronously. "
         "A PR whose current commit already has a published review in the requested mode returns "
         "'already_reviewed' without starting a run (resolve_only skips that check, because settling threads "
@@ -1125,7 +1123,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 team_id=team_id,
                 pr_url=params.validated_data["pr_url"],
                 requested_at=params.validated_data.get("requested_at"),
-                run_mode=params.validated_data["run_mode"],
+                run_mode=params.validated_data.get("run_mode"),
                 head_sha=params.validated_data.get("head_sha"),
             )
         except InvalidPullRequestURLError:

@@ -6,10 +6,33 @@ from products.warehouse_sources.sources.beehiiv._config import BeehiivSourceConf
 from products.warehouse_sources.sources.beehiiv.beehiiv import BeehiivResumeConfig, get_resource, validate_credentials
 from products.warehouse_sources.sources.beehiiv.settings import ENDPOINTS, MAX_PAGE
 from products.warehouse_sources.sources.beehiiv.source import BeehiivSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
-CURSOR_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "cursor"]
-PAGE_ENDPOINTS = [name for name, config in ENDPOINTS.items() if config.pagination == "page"]
+TOP_LEVEL_ENDPOINTS = {name: config for name, config in ENDPOINTS.items() if config.fanout is None}
+CURSOR_ENDPOINTS = [name for name, config in TOP_LEVEL_ENDPOINTS.items() if config.pagination == "cursor"]
+PAGE_ENDPOINTS = [name for name, config in TOP_LEVEL_ENDPOINTS.items() if config.pagination == "page"]
+
+
+def _pages(style: str, *pages: list[dict[str, Any]]) -> list[ScriptedResponse]:
+    responses = []
+    for index, rows in enumerate(pages, start=1):
+        is_last = index == len(pages)
+        if style == "cursor":
+            body: dict[str, Any] = {
+                "data": rows,
+                "has_more": not is_last,
+                "next_cursor": None if is_last else f"c{index}",
+            }
+        else:
+            body = {"data": rows, "page": index, "total_pages": len(pages)}
+        responses.append(ScriptedResponse(json=body))
+    return responses
 
 
 def _driver(publication_id: str = "pub_123") -> SourceDriver:
@@ -99,6 +122,80 @@ class TestBeehiivPageNumberPagination:
 
         assert result.raised is None
         assert result.params("page") == ["7"]
+
+
+class TestBeehiivFanout:
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "child_segment", "parent_key", "expected_child_params"),
+        [
+            (
+                "PodcastEpisodes",
+                "/podcasts",
+                "episodes",
+                "podcast_id",
+                {"order_by": "created", "direction": "asc"},
+            ),
+            (
+                "PollResponses",
+                "/polls",
+                "responses",
+                "poll_id",
+                {"order_by": "created", "direction": "asc", "expand[]": "post"},
+            ),
+            ("SegmentMembers", "/segments", "members", "segment_id", {}),
+            ("AutomationJourneys", "/automations", "journeys", "automation_id", {"status": "all"}),
+        ],
+    )
+    def test_walks_every_parent_and_tags_child_rows_with_parent_id(
+        self,
+        endpoint: str,
+        parent_path: str,
+        child_segment: str,
+        parent_key: str,
+        expected_child_params: dict[str, str],
+    ) -> None:
+        fanout = ENDPOINTS[endpoint].fanout
+        assert fanout is not None
+        parent_config = ENDPOINTS[fanout.parent_name]
+        child_style = ENDPOINTS[endpoint].pagination
+        prefix = f"/v2/publications/pub_123{parent_path}"
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"{prefix}/a/{child_segment}": _pages(child_style, [{"id": "x1"}], [{"id": "x2"}]),
+                    f"{prefix}/b/{child_segment}": _pages(child_style, [{"id": "x1"}]),
+                    prefix: _pages(parent_config.pagination, [{"id": "a"}], [{"id": "b"}]),
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted((row[parent_key], row["id"]) for row in result.rows) == [("a", "x1"), ("a", "x2"), ("b", "x1")]
+        assert all(f"_{parent_config.name}_id" not in row for row in result.rows)
+        child_requests = [request for request in result.requests if request.path.endswith(child_segment)]
+        assert len(child_requests) == 3
+        for request in child_requests:
+            assert request.param("limit") == "100"
+            for name, value in expected_child_params.items():
+                assert request.param(name) == value
+        assert result.saved_states == []
+
+    def test_child_404_for_a_deleted_parent_skips_that_parent(self) -> None:
+        prefix = "/v2/publications/pub_123/polls"
+        result = _driver().run(
+            "PollResponses",
+            route(
+                {
+                    f"{prefix}/gone/responses": [ScriptedResponse(status=404, json={"errors": []})],
+                    f"{prefix}/live/responses": _pages("cursor", [{"id": "r1"}]),
+                    prefix: _pages("cursor", [{"id": "gone"}, {"id": "live"}]),
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["poll_id"], row["id"]) for row in result.rows] == [("live", "r1")]
 
 
 class TestBeehiivValidateCredentials:

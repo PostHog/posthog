@@ -32,10 +32,11 @@ from products.slack_app.backend.services.model_catalogue import ModelChoice
 from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import MODEL_OVERRIDE_KEY, ModelOverrideMatch, NoUnaskedOverride
+from products.tasks.backend.facade.model_override import MODEL_OVERRIDE_CLASSIFIER_MODEL
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
-# A snapshot of `available_model_choices()` rather than a live call: the gateway's list
+# A snapshot of `available_model_choices()` rather than a live call: the catalog
 # moves when a model ships or is retired, and scores that move with it can't be compared
 # across runs. Refresh deliberately, and expect the baseline to step when you do.
 #
@@ -257,7 +258,7 @@ SUBJECT_MATTER_CASES = [
 async def eval_model_classifier(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         # Recorded per case so an experiment says which model produced its scores.
-        classifier_model = classifiers.MODEL_OVERRIDE_CLASSIFIER_MODEL
+        classifier_model = MODEL_OVERRIDE_CLASSIFIER_MODEL
         try:
             # Sync, and blocking on the gateway — keep it off the event loop so cases
             # still run concurrently under the harness's limiter.

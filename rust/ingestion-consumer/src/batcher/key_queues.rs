@@ -110,7 +110,11 @@ pub struct UnclaimedSettle {
 
 pub enum Settlement {
     Done,
-    Unfinished(Vec<SerializedKafkaMessage>),
+    Unfinished {
+        messages: Vec<SerializedKafkaMessage>,
+        /// The key's run finished at least one message.
+        progressed: bool,
+    },
     /// The request finished nothing, so a budgeted retry would wait out the
     /// same budget again. The key resends without one at once.
     Bounced(Vec<SerializedKafkaMessage>),
@@ -120,12 +124,33 @@ pub enum Settlement {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EscalationReason {
+    Attempts,
+    Bounce,
+}
+
+impl EscalationReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EscalationReason::Attempts => "attempts",
+            EscalationReason::Bounce => "bounce",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Escalation {
+    pub reason: EscalationReason,
+    pub progressed: bool,
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Settled {
     pub evicted: bool,
     /// The key's run went out with a budget and its resend goes without one.
-    /// True on one settle per escalation, so a counter of it counts keys.
-    pub escalated: bool,
+    /// Set on one settle per escalation, so a counter of it counts keys.
+    pub escalation: Option<Escalation>,
 }
 
 struct Segment {
@@ -160,6 +185,8 @@ struct KeyState {
     /// run; a bounce counts as all of them. A failure leaves it, because a
     /// failed request says nothing about the budget.
     unfinished_attempts: u32,
+    /// One of those settles finished a message of the key.
+    progressed: bool,
 }
 
 impl KeyState {
@@ -469,13 +496,22 @@ impl KeyQueues {
         };
         self.claimed_keys = self.claimed_keys.saturating_sub(1);
 
+        let reason = match settlement {
+            Settlement::Bounced(_) => EscalationReason::Bounce,
+            _ => EscalationReason::Attempts,
+        };
         let (mut requeued, retry_at) = match settlement {
             Settlement::Done => {
                 state.unfinished_attempts = 0;
+                state.progressed = false;
                 (Vec::new(), None)
             }
-            Settlement::Unfinished(messages) => {
+            Settlement::Unfinished {
+                messages,
+                progressed,
+            } => {
                 state.unfinished_attempts = state.unfinished_attempts.saturating_add(1);
+                state.progressed |= progressed;
                 (messages, None)
             }
             Settlement::Bounced(messages) => {
@@ -499,7 +535,12 @@ impl KeyQueues {
             });
         }
         if !requeued.is_empty() {
-            settled.escalated = unbudgeted && !claim.unbudgeted;
+            if unbudgeted && !claim.unbudgeted {
+                settled.escalation = Some(Escalation {
+                    reason,
+                    progressed: state.progressed,
+                });
+            }
             let bytes = payload_bytes(&requeued);
             self.queued_messages += requeued.len();
             self.queued_bytes += bytes;
@@ -642,7 +683,7 @@ mod tests {
 
     const EVICTED: Settled = Settled {
         evicted: true,
-        escalated: false,
+        escalation: None,
     };
 
     fn failure(messages: Vec<SerializedKafkaMessage>, retry_at: Instant) -> Settlement {
@@ -948,9 +989,15 @@ mod tests {
 
     #[derive(Clone, Copy)]
     enum SettleKind {
+        Done,
         Unfinished,
+        Progressed,
         Bounced,
         Failed,
+    }
+
+    fn escalation(reason: EscalationReason, progressed: bool) -> Option<Escalation> {
+        Some(Escalation { reason, progressed })
     }
 
     #[rstest]
@@ -962,40 +1009,67 @@ mod tests {
             SettleKind::Failed,
             SettleKind::Unfinished,
         ],
-        &[false, false, true, false, false],
+        &[None, None, escalation(EscalationReason::Attempts, false), None, None],
         "a failure neither counts as an attempt nor resets the count"
     )]
     #[case::bounced(
         &[SettleKind::Bounced, SettleKind::Failed, SettleKind::Unfinished],
-        &[true, false, false],
+        &[escalation(EscalationReason::Bounce, false), None, None],
         "a bounce uses up the attempts at once, and a failure keeps the escalation"
+    )]
+    #[case::progressed_in_an_earlier_attempt(
+        &[SettleKind::Progressed, SettleKind::Unfinished],
+        &[None, escalation(EscalationReason::Attempts, true)],
+        "progress in any budgeted attempt marks the escalation"
+    )]
+    #[case::progressed_before_a_finished_run(
+        &[
+            SettleKind::Progressed,
+            SettleKind::Done,
+            SettleKind::Unfinished,
+            SettleKind::Unfinished,
+        ],
+        &[None, None, None, escalation(EscalationReason::Attempts, false)],
+        "a finished run clears the progress of the attempts before it"
     )]
     fn a_key_reports_its_escalation_once(
         #[case] settles: &[SettleKind],
-        #[case] expected: &[bool],
+        #[case] expected: &[Option<Escalation>],
         #[case] reason: &str,
     ) {
         let now = Instant::now();
         let mut queues = KeyQueues::default().with_budget_attempts(NonZeroU32::new(2));
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
 
-        let escalated: Vec<bool> = settles
+        let escalations: Vec<Option<Escalation>> = settles
             .iter()
             .map(|kind| {
                 take_all(&mut queues, now);
                 let messages = vec![message("a", 0, 1)];
                 let settlement = match kind {
-                    SettleKind::Unfinished => Settlement::Unfinished(messages),
+                    // A settle removes a key with nothing queued, and then no state is left to reset.
+                    SettleKind::Done => {
+                        queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
+                        Settlement::Done
+                    }
+                    SettleKind::Unfinished => Settlement::Unfinished {
+                        messages,
+                        progressed: false,
+                    },
+                    SettleKind::Progressed => Settlement::Unfinished {
+                        messages,
+                        progressed: true,
+                    },
                     SettleKind::Bounced => Settlement::Bounced(messages),
                     SettleKind::Failed => failure(messages, now),
                 };
                 queues
                     .settle(&key("a"), settlement, now)
                     .expect("claimed")
-                    .escalated
+                    .escalation
             })
             .collect();
-        assert_eq!(escalated, expected, "{reason}");
+        assert_eq!(escalations, expected, "{reason}");
     }
 
     #[test]

@@ -1,28 +1,14 @@
-from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     build_deletion_count_query,
     unfinished_property_removals,
 )
 from posthog.models.team import Team
-
-# Dagster Cloud deployment slug per PostHog cloud environment. The admin runs on web pods, which
-# don't carry DAGSTER_DOMAIN (only Dagster pods do), so the run URL is derived from CLOUD_DEPLOYMENT.
-DAGSTER_DEPLOYMENT_BY_CLOUD = {"US": "prod-us", "EU": "prod-eu", "DEV": "dev"}
-
-
-def dagster_run_url(run_id: str) -> str | None:
-    """Link to a Dagster run, or None when the deployment can't be identified (local/self-hosted)."""
-    if settings.DAGSTER_DOMAIN:
-        return f"https://{settings.DAGSTER_DOMAIN}/runs/{run_id}"
-    deployment = DAGSTER_DEPLOYMENT_BY_CLOUD.get((settings.CLOUD_DEPLOYMENT or "").upper())
-    if deployment:
-        return f"https://posthog.dagster.cloud/{deployment}/runs/{run_id}"
-    return None
 
 
 @admin.register(DataDeletionRequest)

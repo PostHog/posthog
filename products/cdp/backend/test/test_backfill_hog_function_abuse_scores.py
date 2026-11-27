@@ -15,6 +15,7 @@ from posthog.models.team.team import Team
 from products.cdp.backend.tasks.abuse_classification import backfill_hog_function_abuse_score
 from products.cdp.backend.test.abuse_support import (
     BACKFILL_FLAG,
+    RULE_FREE_HOG,
     SCORES,
     TEAM_FLAG,
     AbuseClassificationTestCase,
@@ -157,7 +158,7 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
     def test_scores_teams_outside_the_flag_with_the_flag_thresholds(self) -> None:
         self.flags.enabled[TEAM_FLAG] = False
         self.flags.payload = {"alert_threshold": 0.3, "block_threshold": 0.75}
-        self.create_destination()
+        self.create_destination(hog=RULE_FREE_HOG)
 
         self.run_command(COMMAND, "--rate", "0")
 

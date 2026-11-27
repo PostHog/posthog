@@ -2,7 +2,14 @@ import type { JSONContent } from '@tiptap/core'
 
 import { resolvePageStyle } from './emailDocument'
 import { blockStyleToCanvasCss } from './emailExtensions'
-import { renderEmailHtml, renderEmailText, safeEmailDoc, withoutLiquidBetweenRows } from './renderEmailHtml'
+import {
+    htmlSentAsWritten,
+    renderEmailHtml,
+    renderEmailText,
+    safeEmailDoc,
+    sentEmailHtml,
+    withoutLiquidBetweenRows,
+} from './renderEmailHtml'
 
 function doc(...content: JSONContent[]): JSONContent {
     return { type: 'doc', attrs: { page: {} }, content }
@@ -113,6 +120,17 @@ describe('renderEmailHtml', () => {
         ).toMatchObject({ h1Size: 32, bodyBackgroundColor: '#ffffff' })
     })
 
+    it('draws the divider on the canvas with the style the email uses', () => {
+        const style = { lineWidth: 10, borderColor: '#ff0000', width: 50, textAlign: 'right' as const }
+        const html = renderEmailHtml(doc({ type: 'horizontalRule', attrs: { emailStyle: style } }, paragraph('x')))
+
+        expect(html).toContain('width="50%" align="right"')
+        expect(html).toContain('border-top:10px solid #ff0000')
+        expect(blockStyleToCanvasCss(style, 'horizontalRule')).toMatch(
+            /padding:8px 0;height:10px;background:linear-gradient\(#ff0000,#ff0000\) right top\/50% 100%/
+        )
+    })
+
     it('cleans every style a saved document carries before the canvas shows it', () => {
         const saved = doc(
             {
@@ -156,12 +174,96 @@ describe('renderEmailHtml', () => {
         expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }))).toEqual(own)
     })
 
+    const wholeDocument = { type: 'emailHtml', attrs: { html: '<html><body>Mine</body></html>' } }
+    const fragment = { type: 'emailHtml', attrs: { html: '<p>Mine</p>' } }
+    it.each([
+        {
+            name: 'a whole document and an empty last line',
+            content: [wholeDocument, { type: 'paragraph' }],
+            sent: true,
+        },
+        { name: 'an imported fragment', content: [fragment], page: { htmlAsWritten: true }, sent: true },
+        { name: 'a fragment written in the editor', content: [fragment], sent: false },
+        { name: 'a wrapped whole document', content: [wholeDocument], page: { wrapFullHtml: true }, sent: false },
+        { name: 'a block above', content: [paragraph('Hi'), wholeDocument], sent: false },
+        { name: 'a block below', content: [fragment, paragraph('Hi')], page: { htmlAsWritten: true }, sent: false },
+    ])('tells whether the page style applies to $name', ({ content, page = {}, sent }) => {
+        const email = { type: 'doc', attrs: { page }, content }
+        const restyled = { type: 'doc', attrs: { page: { ...page, bodyWidth: 500 } }, content }
+
+        expect(htmlSentAsWritten(email) !== null).toEqual(sent)
+        expect(renderEmailHtml(restyled) === renderEmailHtml(email)).toEqual(sent)
+    })
+
     it('unwraps a whole HTML document that sits next to other blocks', () => {
         const own = '<html><head><style>.x{color:red}</style></head><body><p>Mine</p></body></html>'
         const html = renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))
 
         expect(html.match(/<body/g)).toHaveLength(1)
         expect(html).toContain('<style>.x{color:red}</style><p>Mine</p>')
+    })
+
+    it.each([
+        ['text', '<p>{{ x | escape | replace: "=", "&amp;#x3D;" | raw }}</p>'],
+        ['a link', '<a href="/{{ x | escape | replace: &quot;=&quot;, &quot;&amp;#x3D;&quot; }}">Go</a>'],
+    ])('keeps the entities an imported value escapes to in %s when a whole document is unwrapped', (_, imported) => {
+        const own = `<html><head></head><body>${imported}</body></html>`
+
+        expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
+            imported
+        )
+    })
+
+    it.each([
+        ['a filter', '<a href="/{{ x | join: "," }}">Go</a>', '<a href="/{{ x | join: &quot;,&quot; }}">Go</a>'],
+        [
+            'a tag',
+            '<a href="{% if x == "<" %}a{% endif %}">Go</a>',
+            '<a href="{% if x == &quot;<&quot; %}a{% endif %}">Go</a>',
+        ],
+        ['text', '<p>"{{ x | join: "," }}"</p>', '<p>"{{ x | join: "," }}"</p>'],
+        ['single quotes', `<a href='{{ x | join: "," }}'>Go</a>`, '<a href="{{ x | join: &quot;,&quot; }}">Go</a>'],
+        ['a brace that opens no tag', '<a title="{{" href="/a">Go</a>', '<a title="{{" href="/a">Go</a>'],
+    ])('keeps the quotes of %s in a whole document next to other blocks', (_, stored, expected) => {
+        const own = `<html><head></head><body><!-- it's --><style>p{}</style>${stored}</body></html>`
+
+        expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
+            expected
+        )
+    })
+
+    it.each<[string, JSONContent, string, string]>([
+        ['the page line height', { type: 'paragraph' }, '<p style="', 'line-height:1.5'],
+        ['a heading', { type: 'heading', attrs: { level: 1 } }, '<h1 style="', 'line-height:1.25'],
+        [
+            'a line height someone chose',
+            { type: 'paragraph', attrs: { emailStyle: { lineHeight: 110 } } },
+            '<p style="',
+            'line-height:1.1',
+        ],
+        [
+            'a line height for phones',
+            { type: 'paragraph', attrs: { emailStyle: { phone: { lineHeight: 130 } } } },
+            '<style',
+            'line-height:1.3 !important',
+        ],
+        ['custom html', { type: 'emailHtml', attrs: { html: '<h1>Big</h1>' } }, '<div style="', 'line-height:1.5'],
+    ])('gives larger text its own share of %s, not the height of the text around it', (_, block, element, expected) => {
+        const html = renderEmailHtml(doc({ ...block, content: block.content ?? paragraph('Big').content }))
+        const style = html.slice(html.lastIndexOf(element))
+        expect(style).toContain(expected)
+        expect(style).not.toMatch(/line-height:[\d.]+%/)
+    })
+
+    it('previews a saved email as it was stored until someone edits it', () => {
+        const saved = doc(paragraph('Saved'))
+        const html = '<p style="line-height:150%">Saved</p>'
+        const stored = { html, doc: saved }
+
+        expect(sentEmailHtml({ ...saved, content: [...saved.content!, { type: 'paragraph' }] }, stored)).toBe(html)
+        const sameLook = doc({ ...paragraph('Saved'), attrs: { emailStyle: { fontSize: 16 } } })
+        expect(sentEmailHtml(sameLook, stored)).toBe(renderEmailHtml(sameLook))
+        expect(sentEmailHtml(doc(paragraph('Edited')), stored)).toBe(renderEmailHtml(doc(paragraph('Edited'))))
     })
 
     it('restores the font inside columns, because the row around them zeroes it', () => {
@@ -180,11 +282,45 @@ describe('renderEmailHtml', () => {
         )
 
         expect(html).toContain('font-size:0;line-height:0')
-        expect(html.match(/class="ph-col ph-col-gap" style="[^"]*font-size:16px;line-height:150%/g)).toHaveLength(2)
+        expect(html.match(/class="ph-col ph-col-gap" style="[^"]*font-size:16px;line-height:1\.5/g)).toHaveLength(2)
         // Outlook ignores inline-block, and a div's background and padding, so the real table cells carry them.
         expect(html).toContain(
             '<!--[if mso]></td><td width="368" valign="top" bgcolor="#111111" style="padding:0px 0px 0px 8px"><![endif]-->'
         )
+    })
+
+    it('draws a section behind its blocks, sizes them for it and keeps their conditions, in the html and the plain text', () => {
+        const section: JSONContent = {
+            type: 'emailSection',
+            attrs: {
+                emailStyle: { backgroundColor: '#eeeeee', borderWidth: 2, borderRadius: 8 },
+                emailVisibility: { condition: { before: '{% if a %}', after: '{% endif %}' } },
+            },
+            content: [
+                {
+                    ...paragraph('Inside'),
+                    attrs: { emailVisibility: { condition: { before: '{% if b %}', after: '{% endif %}' } } },
+                },
+                { type: 'emailImage', attrs: { src: 'https://example.com/a.png', alt: '', naturalWidth: 2000 } },
+                {
+                    type: 'emailColumns',
+                    content: [
+                        { type: 'emailColumn', content: [paragraph('Left')] },
+                        { type: 'emailColumn', content: [paragraph('Right')] },
+                    ],
+                },
+            ],
+        }
+        const html = renderEmailHtml(doc(section))
+
+        expect(html).toContain(
+            '{% if a %}<tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate"><tr><td align="left" bgcolor="#eeeeee" style="padding:24px 24px 24px 24px;text-align:left;background-color:#eeeeee;border-radius:8px;border:2px solid #e5e5e5"><table'
+        )
+        expect(html).toMatch(/\{% if b %\}<tr><td[^>]*><p[^>]*>Inside<\/p><\/td><\/tr>\{% endif %\}/)
+        expect(html).toContain('width="500" style')
+        expect(html).toContain('<!--[if mso]><table role="presentation" width="500"')
+        expect(blockStyleToCanvasCss(null, 'emailSection')).toBe('padding:24px 24px 24px 24px')
+        expect(renderEmailText(doc(section))).toBe('{% if a %}{% if b %}Inside{% endif %}\n\nLeft\n\nRight{% endif %}')
     })
 
     it.each([
@@ -220,6 +356,24 @@ describe('renderEmailHtml', () => {
             expect(html).toContain('alt="A &quot;b&quot;"')
         }
     )
+
+    const setsValue = '{% assign u = secret %}Go'
+    it.each<[string, JSONContent]>([
+        ['a button', { type: 'emailButton', attrs: { href: '{{ u }}' }, content: [{ type: 'text', text: setsValue }] }],
+        [
+            'an image',
+            { type: 'emailImage', attrs: { src: 'https://example.com/a.png', href: '{{ u }}', alt: setsValue } },
+        ],
+        [
+            'a link',
+            {
+                type: 'paragraph',
+                content: [{ type: 'text', text: setsValue, marks: [{ type: 'link', attrs: { href: '{{ u }}' } }] }],
+            },
+        ],
+    ])('reads the address of %s before its label sets a value', (_name, block) => {
+        expect(renderEmailText(doc(block))).toEqual(`{{ u }} ${setsValue}`)
+    })
 
     it('writes plain text with links, buttons and separate lines from an HTML block', () => {
         const text = renderEmailText(
@@ -263,6 +417,64 @@ describe('renderEmailHtml', () => {
                 })
             )
         ).toEqual('{% if vip %}Private\n{% endif %}All')
+        expect(
+            renderEmailText(
+                doc({
+                    type: 'emailHtml',
+                    attrs: {
+                        html: '{% if vip %}<!DOCTYPE html><html><body><p>Private</p></body></html>{% endif %}',
+                    },
+                })
+            )
+        ).toEqual('{% if vip %}Private\n{% endif %}')
+        expect(
+            renderEmailText(
+                doc({
+                    type: 'emailHtml',
+                    attrs: {
+                        html: '{% if vip %}<html><head><title>A</title></head><body><p>Private</p></body></html>{% else %}<html><body><p>Public</p></body></html>{% endif %}',
+                    },
+                })
+            )
+        ).toEqual('{% if vip %}Private\n{% else %}Public\n{% endif %}')
+    })
+
+    it.each([
+        {
+            name: 'a text link once, after all of its text',
+            block: {
+                type: 'paragraph',
+                content: ['Read ', 'all'].map((text, index) => ({
+                    type: 'text',
+                    text,
+                    marks: [
+                        { type: 'link', attrs: { href: '{{ unsubscribe_url }}' } },
+                        ...(index ? [{ type: 'bold' }] : []),
+                    ],
+                })),
+            },
+            expected: 'Read all ({{ unsubscribe_url }})',
+        },
+        {
+            name: 'an image link in a column',
+            block: {
+                type: 'emailColumns',
+                content: [
+                    {
+                        type: 'emailColumn',
+                        content: [
+                            {
+                                type: 'emailImage',
+                                attrs: { src: 'https://example.com/a.png', alt: 'Shop', href: 'https://example.com' },
+                            },
+                        ],
+                    },
+                ],
+            },
+            expected: 'Shop (https://example.com)',
+        },
+    ])('writes the address of $name', ({ block, expected }) => {
+        expect(renderEmailText(doc(block))).toEqual(expected)
     })
 
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {

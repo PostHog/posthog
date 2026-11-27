@@ -23,6 +23,8 @@ class CloverEndpointConfig:
     params: dict[str, Any] = field(default_factory=dict)
     partition_field: str | None = None
     history_field: str | None = None
+    # Copies the id of this nested reference to a `<name>_id` column, for rows that have no id of their own.
+    reference_key: str | None = None
     fanout: DependentEndpointConfig | None = None
     page_size: int = PAGE_SIZE
     # Enable incremental sync only after a live account confirms that timestamp filters work.
@@ -83,6 +85,28 @@ CLOVER_ENDPOINTS: dict[str, CloverEndpointConfig] = {
     "tenders": CloverEndpointConfig(name="tenders", path="tenders", permission="Read merchant"),
     "discounts": CloverEndpointConfig(name="discounts", path="discounts", permission="Read inventory"),
     "tax_rates": CloverEndpointConfig(name="tax_rates", path="tax_rates", permission="Read inventory"),
+    "cash_events": CloverEndpointConfig(
+        name="cash_events",
+        path="cash_events",
+        permission="Read merchant",
+        partition_field="timestamp",
+        history_field="timestamp",
+    ),
+    "authorizations": CloverEndpointConfig(
+        name="authorizations",
+        path="authorizations",
+        permission="Read payments",
+        partition_field="createdTime",
+        history_field="createdTime",
+    ),
+    "item_stocks": CloverEndpointConfig(
+        name="item_stocks",
+        path="item_stocks",
+        permission="Read inventory",
+        primary_keys=["item_id"],
+        reference_key="item",
+    ),
+    "order_types": CloverEndpointConfig(name="order_types", path="order_types", permission="Read merchant"),
 }
 
 ENDPOINTS = tuple(CLOVER_ENDPOINTS)

@@ -28,7 +28,7 @@ from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
-from posthog.models.oauth import find_oauth_access_token
+from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
@@ -92,6 +93,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.scout_harness.tools.runs import RUN_SUMMARY_LEAD_CHARS, run_summary_lead
 from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
@@ -228,6 +230,20 @@ class TestScoutRunMetadataSerializer(SimpleTestCase):
         assert metadata["run_note"] == "Report context"
 
 
+class TestRunSummaryLead(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("short", "Checked  /checkout\n- nothing new", "Checked /checkout - nothing new"),
+            ("empty", None, ""),
+            ("long", "word " * 200, ("word " * 120).strip() + "…"),
+        ]
+    )
+    def test_lead_is_one_bounded_line(self, _name: str, summary: str | None, expected: str) -> None:
+        lead = run_summary_lead(summary)
+        assert lead == expected
+        assert len(lead) <= RUN_SUMMARY_LEAD_CHARS + 1
+
+
 class TestScoutHarnessRunsAPI(APIBaseTest):
     @parameterized.expand(
         [
@@ -338,6 +354,26 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [row["run_id"] for row in response.json()]
         assert ids == [str(keep.id)]
+
+    def test_list_text_matches_past_the_summary_lead(self) -> None:
+        run = _make_run(self.team, summary=f"{'scanned the fleet ' * 50}then found the /checkout regression")
+        response = self.client.get(self._list_url(), {"text": "checkout"})
+        assert response.status_code == status.HTTP_200_OK
+        [row] = response.json()
+        assert row["run_id"] == str(run.id)
+        assert "checkout" not in row["summary_lead"]
+        assert row["summary_lead"].endswith("…")
+        assert "summary_lead" not in self.client.get(self._detail_url(str(run.id))).json()
+
+    def test_list_exclude_skill_name_applies_before_the_limit(self) -> None:
+        sibling = _make_run(self.team, skill_name="signals-scout-errors", summary="checkout errors spiked")
+        _make_run(self.team, skill_name="signals-scout-general", summary="checkout funnel looked fine")
+        _make_run(self.team, skill_name="signals-scout-general", summary="checkout again, nothing new")
+        response = self.client.get(
+            self._list_url(), {"text": "checkout", "exclude_skill_name": "signals-scout-general", "limit": "1"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(sibling.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
         _make_run(
@@ -1678,6 +1714,60 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.write_scopes == ["dashboard:write"]
 
+    @parameterized.expand(
+        [
+            ("plain_member_widens", False, False, False, False, status.HTTP_403_FORBIDDEN),
+            ("scout_author_widens", True, False, False, False, status.HTTP_200_OK),
+            # The started run acts with the author's full access, so an admin must not expose it.
+            ("project_admin_widens", False, True, False, False, status.HTTP_403_FORBIDDEN),
+            ("project_admin_narrows", False, True, False, True, status.HTTP_200_OK),
+            ("plain_member_narrows", False, False, False, True, status.HTTP_403_FORBIDDEN),
+            # The scout's runs act as its author, so the author leg alone would let a scout grant itself actions.
+            ("authors_sandbox_token_widens", True, False, True, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_only_the_acting_user_widens_report_actions_and_an_admin_may_narrow_them(
+        self, _name: str, is_author: bool, is_admin: bool, from_sandbox: bool, granted_before: bool, expected: int
+    ) -> None:
+        granted = {"report_actions": ["make_it_green"], "max_report_actions_per_day": 5}
+        ungranted = {"report_actions": [], "max_report_actions_per_day": 3}
+        before, requested = (granted, ungranted) if granted_before else (ungranted, granted)
+        config = self._config(**before)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+        if from_sandbox:
+            app = OAuthApplication.objects.create(
+                name="Synthetic scout sandbox",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_synthetic_scout_config",
+                scope="signal_scout:read signal_scout:write inbox:write task:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+                sandbox_task_id=uuid4(),
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=requested, format="json")
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        stored = {
+            "report_actions": config.report_actions,
+            "max_report_actions_per_day": config.max_report_actions_per_day,
+        }
+        assert stored == (requested if expected == status.HTTP_200_OK else before)
+
     def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
         # The mint path treats a non-list column as no grant, so the gate must read it the same
         # way. Iterating the object's keys would make a non-author's request for exactly those
@@ -2343,6 +2433,34 @@ class TestWriteScopesValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("make_it_green", ["make_it_green"], True, ["make_it_green"]),
+            ("resolve_conflicts", ["resolve_conflicts"], True, ["resolve_conflicts"]),
+            (
+                "both_fixed_prompt_actions",
+                ["resolve_conflicts", "make_it_green"],
+                True,
+                ["make_it_green", "resolve_conflicts"],
+            ),
+            # Both carry text a scout can write, and the run they start holds its acting user's full access.
+            ("ask", ["ask"], False, None),
+            ("suggested_prompt", ["suggested_prompt"], False, None),
+            # Merging stays with a person, so no config can carry it.
+            ("get_it_merged", ["get_it_merged"], False, None),
+            ("unknown_kind", ["update_branch"], False, None),
+        ]
+    )
+    def test_report_actions_validation(
+        self, _name: str, kinds: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"report_actions": kinds}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["report_actions"] == expected
+        else:
+            assert "report_actions" in serializer.errors
+
+    @parameterized.expand(
+        [
             ("unknown", ["invented-tool", "another-unknown"]),
             ("superseded", ["signals-scout-config-update"]),
             ("unholdable", ["create-feature-flag"]),
@@ -2493,6 +2611,51 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
 
+    def test_remember_with_a_stale_if_updated_at_keeps_the_other_writers_update(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        read_by_both = self.client.get(self._list_url(), {"key": "k1"}).json()[0]["updated_at"]
+
+        first = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v2", "if_updated_at": read_by_both}, format="json"
+        )
+        second = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v3", "if_updated_at": read_by_both}, format="json"
+        )
+
+        assert first.status_code == status.HTTP_200_OK
+        assert first.json()["updated_at"] != read_by_both
+        assert second.status_code == status.HTTP_409_CONFLICT
+        assert second.json()["updated_at"] == first.json()["updated_at"]
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    @parameterized.expand(
+        [
+            ("missing_key", "2026-01-01T00:00:00+00:00", status.HTTP_409_CONFLICT),
+            ("unparseable", "yesterday", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_remember_with_if_updated_at_writes_nothing_when_it_cannot_match(
+        self, _name: str, if_updated_at: str, expected_status: int
+    ) -> None:
+        response = self.client.post(
+            self._list_url(), data={"key": "k1", "content": "v1", "if_updated_at": if_updated_at}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+
+    def test_key_search_returns_an_expired_marker_and_remember_reports_the_revived_expiry(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        SignalScratchpad.objects.filter(team=self.team, key="k1").update(expires_at=timezone.now() - timedelta(days=1))
+
+        [marker] = self.client.get(self._list_url(), {"key": "k1"}).json()
+        prefix_search = self.client.get(self._list_url(), {"key_prefix": "k"}).json()
+        revived = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json").json()
+
+        assert (marker["content"], marker["expired"], marker["last_changed_by_skill"]) == ("", True, None)
+        assert prefix_search == []
+        assert revived["revived_expiry"]["expires_at"] == marker["expires_at"]
+
     def test_search_filters_by_creating_skill(self) -> None:
         errors_run = _make_run(self.team, skill_name="signals-scout-errors")
         flags_run = _make_run(self.team, skill_name="signals-scout-flags")
@@ -2503,6 +2666,15 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["key"] for row in response.json()] == ["errors"]
+
+    def test_search_filters_by_key_prefix(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="report:checkout", content="v")
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:checkout", content="filed as report:checkout")
+
+        response = self.client.get(self._list_url(), {"key_prefix": "report:"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["report:checkout"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -2533,11 +2705,34 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert row["key"] == "k1"
         assert row["content"] == ""
 
-    def test_search_content_max_chars_truncates_preview(self) -> None:
+    @parameterized.expand(
+        [
+            ("whole_body", {}, "abcdefghij", 10, None),
+            ("preview", {"content_max_chars": 4}, "abcd", 10, 4),
+            ("middle_page", {"content_offset": 4, "content_max_chars": 4}, "efgh", 10, 8),
+            ("last_page", {"content_offset": 8, "content_max_chars": 4}, "ij", 10, None),
+            ("rest_of_body", {"content_offset": 3}, "defghij", 10, None),
+            ("past_the_end", {"content_offset": 20}, "", 10, None),
+            ("keys_only", {"keys_only": "true", "content_offset": 4}, "", None, None),
+        ]
+    )
+    def test_search_pages_long_content(
+        self,
+        _name: str,
+        query: dict[str, str | int],
+        content: str,
+        total_length: int | None,
+        next_offset: int | None,
+    ) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="abcdefghij")
-        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        response = self.client.get(self._list_url(), {"key": "k1", **query})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[0]["content"] == "abcd"
+        [row] = response.json()
+        assert (row["content"], row["content_total_length"], row["content_next_offset"]) == (
+            content,
+            total_length,
+            next_offset,
+        )
 
     @parameterized.expand([("default", "", ["live"]), ("include_expired", "?include_expired=true", ["live", "lapsed"])])
     def test_search_hides_expired_entries_unless_asked_for(
@@ -2737,6 +2932,27 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(named.id)
 
+    def test_revisions_name_the_sandbox_run_and_survive_a_forget(self) -> None:
+        # A body `run_id` can name a sibling's run, so a revision must name the token's run instead.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+        for content in ("v1", "v2"):
+            response = self.client.post(
+                self._list_url(), data={"key": "k1", "content": content, "run_id": str(named.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.client.post(self._forget_url(), data={"key": "k1"}, format="json").json() == {"deleted": True}
+
+        response = self.client.get(self._list_url(), {"key": "k1", "include_revisions": "true"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [entry] = response.json()
+        assert [(r["content"], r["change"], r["changed_by_run_id"]) for r in entry["revisions"]] == [
+            ("v2", "forget", str(sandbox_run.id)),
+            ("v1", "overwrite", str(sandbox_run.id)),
+        ]
+
     @parameterized.expand(
         [
             ("not_in_use_key", "not-in-use:feature-flags", None, 1),
@@ -2761,6 +2977,79 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         sibling_run.refresh_from_db()
         assert (sandbox_run.metadata or {}).get(NOT_IN_USE_WRITES_KEY) == expected
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
+
+
+class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
+    def _discard_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/discard/"
+
+    @parameterized.expand(
+        [
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, True),
+            ("scratchpad_internal_scope_only", ["signal_scratchpad_internal:write"], status.HTTP_403_FORBIDDEN, True),
+            ("both_steering_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK, False),
+        ]
+    )
+    def test_api_keys_need_the_steering_scopes(
+        self, _name: str, scopes: list[str], expected: int, entry_survives: bool
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._discard_url(), data={"key": "dedupe:stale"}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    @parameterized.expand([("live_entry", True), ("history_only", False)])
+    def test_editor_discard_removes_the_entry_and_its_history(self, _name: str, live: bool) -> None:
+        key = "dedupe:stale"
+        if live:
+            SignalScratchpad.objects.create(team=self.team, key=key, content="current")
+        for history_key in (key, "dedupe:keep"):
+            SignalScratchpadRevision.objects.create(
+                team=self.team, key=history_key, content="previous", change=SignalScratchpadRevision.Change.OVERWRITE
+            )
+
+        response = self.client.post(self._discard_url(), data={"key": key}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key=key).exists()
+        assert list(SignalScratchpadRevision.objects.filter(team=self.team).values_list("key", flat=True)) == [
+            "dedupe:keep"
+        ]
+
+    def test_session_discard_requires_skill_editor_rbac(self) -> None:
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:stale", content="old marker")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            if resource == "llm_skill":
+                return False
+            return real_check(self_, resource, required_level)
+
+        with patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check:
+            mock_check.side_effect = deny_llm_skill
+            denied = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
+
+        allowed = self.client.post(self._discard_url(), data={"key": "dedupe:stale"}, format="json")
+        assert allowed.status_code == status.HTTP_200_OK
+        assert allowed.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists()
 
 
 class TestSearchMemoryQuerySerializer(SimpleTestCase):
@@ -3625,6 +3914,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [c["skill_name"] for c in response.json()] == expected
+
+    @parameterized.expand([("own", 200), ("other_team", 404), ("withheld", 404)])
+    def test_retrieve_returns_the_list_row(self, case: str, expected_status: int) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        config = SignalScoutConfig.objects.create(
+            team=other if case == "other_team" else self.team,
+            skill_name="signals-scout-error-tracking" if case == "withheld" else "signals-scout-alpha",
+            run_interval_minutes=720,
+        )
+        with patch(
+            "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.get(self._detail_url(str(config.id)))
+            listed = self.client.get(self._list_url()).json()
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert [response.json()] == listed
 
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
@@ -4562,6 +4869,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-gamma", tags=[])
 
         response = self.client.get(self._list_url(), data={"tags": tags_param})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
+
+    @parameterized.expand(
+        [
+            ("slack", "slack", ["signals-scout-alpha"]),
+            ("replay_vision", "replay_vision", ["signals-scout-beta"]),
+            ("unused_product", "github", []),
+        ]
+    )
+    def test_list_filters_by_source_product(self, _name: str, source_product: str, expected: list[str]) -> None:
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-alpha", source_product="slack", source_id="source-1"
+        )
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-beta", source_product="replay_vision", source_id="scanner-1"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-gamma")
+
+        response = self.client.get(self._list_url(), data={"source_product": source_product})
 
         assert response.status_code == status.HTTP_200_OK
         assert [c["skill_name"] for c in response.json()] == expected
@@ -5759,6 +6087,87 @@ def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHub
     )
 
 
+_CANCEL = "products.tasks.backend.facade.cancellation.cancel_task_run"
+
+
+class TestScoutHarnessConfigStopAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+    def _stop(self, config_id: str | None = None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/{config_id or self.config.id}/stop/"
+        )
+
+    @parameterized.expand(
+        [
+            ("accepted", "accepted", status.HTTP_202_ACCEPTED),
+            ("already_terminal", "already_terminal", status.HTTP_200_OK),
+            ("workflow_unavailable", "unavailable", status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("not_cloud", "not_cloud", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_stop_cancels_the_lane_live_run(self, _name: str, outcome: str, expected_status: int) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        _make_run(self.team, skill_name="signals-scout-foo", task_run_status=TaskRun.Status.COMPLETED)
+        _make_run(self.team, skill_name="signals-scout-bar")
+        live = _make_run(self.team, skill_name="signals-scout-foo")
+
+        with patch(_CANCEL, return_value=(outcome, None)) as cancel:
+            response = self._stop()
+
+        assert response.status_code == expected_status, response.content
+        cancel.assert_called_once_with(
+            live.task_run_id,
+            live.task_run.task_id,
+            self.team.id,
+            source="scout_stop",
+            requested_by_user_id=self.user.id,
+            requested_by_distinct_id=self.user.distinct_id,
+        )
+        if expected_status < 300:
+            assert response.json()["run_id"] == str(live.id)
+
+    @parameterized.expand(
+        [
+            ("finished", {"task_run_status": "cancelled"}, False),
+            ("stale", {}, True),
+            ("trial", {"metadata": {"scout_trial": {"version": 1}}}, False),
+            ("other_scout", {"skill_name": "signals-scout-bar"}, False),
+        ]
+    )
+    def test_stop_without_a_live_run_returns_404_without_cancelling(
+        self, _name: str, run_overrides: dict, stale: bool
+    ) -> None:
+        run = _make_run(self.team, **{"skill_name": "signals-scout-foo", **run_overrides})
+        if stale:
+            old = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S + 60)
+            apps.get_model("tasks", "TaskRun").objects.filter(id=run.task_run_id).update(created_at=old)
+
+        with patch(_CANCEL) as cancel:
+            response = self._stop()
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_config", "00000000-0000-0000-0000-000000000000", set()),
+            ("withheld_scout", None, {"signals-scout-foo"}),
+        ]
+    )
+    def test_stop_hidden_config_returns_404_without_cancelling(
+        self, _name: str, config_id: str | None, withheld: set[str]
+    ) -> None:
+        _make_run(self.team, skill_name="signals-scout-foo")
+        with patch(_WITHHELD, return_value=withheld), patch(_CANCEL) as cancel:
+            response = self._stop(config_id)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        cancel.assert_not_called()
+
+
 class TestScoutHarnessMembersAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -6562,6 +6971,42 @@ class TestScoutSpendOverview(APIBaseTest):
         assert data["period_start"] == start
         assert data["period_end"] == end
         assert data["total_credits"] == credits
+
+    @parameterized.expand([("2026-11", "2026-12-01"), ("2026-12", "2027-01-01")])
+    @time_machine.travel("2027-03-15T12:00:00Z", tick=False)
+    def test_usage_rejects_expired_and_partially_expired_months(self, month: str, end: str) -> None:
+        self.client.force_login(self.user)
+        monthly = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
+        direct = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "InboxUsageQuery",
+                    "dateRange": {"date_from": f"{month}-01", "date_to": end, "explicitDate": True},
+                }
+            },
+            format="json",
+        )
+        for response in (monthly, direct):
+            assert response.status_code == 400, response.content
+            assert "Usage receipts expire after three calendar months" in response.json()["detail"]
+
+    @time_machine.travel("2027-02-01T00:00:00Z", tick=False)
+    def test_usage_rejects_expired_range_before_cache_lookup(self) -> None:
+        self.client.force_login(self.user)
+        path = f"/api/projects/{self.team.id}/signals/usage/?month=2026-11"
+        response = self.client.get(path)
+        assert response.status_code == 200, response.content
+        assert Decimal(response.json()["total_credits"]) == 0
+        assert response.json()["incomplete"] is False
+
+        with time_machine.travel("2027-02-01T00:00:01Z", tick=False):
+            expired = self.client.get(path)
+            retained = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-12")
+        assert expired.status_code == 400, expired.content
+        assert "Usage receipts expire after three calendar months" in expired.json()["detail"]
+        assert retained.status_code == 200, retained.content
+        assert Decimal(retained.json()["total_credits"]) == 0
 
     @parameterized.expand(["2026-13", "2026-09"])
     def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:

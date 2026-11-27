@@ -5,12 +5,13 @@ import { LemonBanner, LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip }
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { type DataDeletionRequestApi, RequestStatusEnumApi } from '~/generated/core/api.schemas'
 
 import { dataDeletionRequestsLogic } from './dataDeletionRequestsLogic'
+import { QuillDataDeletionRequests } from './QuillDataDeletionRequests'
 
 const STATUS_DISPLAY: Record<RequestStatusEnumApi, { label: string; type: LemonTagType; description: string }> = {
     [RequestStatusEnumApi.Draft]: {
@@ -54,6 +55,22 @@ export function DataDeletionRequests(): JSX.Element {
     const { dataDeletionRequests, dataDeletionRequestsLoading, loadFailed, newRequestDisabledReason } =
         useValues(dataDeletionRequestsLogic)
     const { loadDataDeletionRequests } = useActions(dataDeletionRequestsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const newRequestButtonDisabledReason = loadFailed ? 'Could not load deletion requests' : newRequestDisabledReason
+
+    if (todayRailNav) {
+        return (
+            <QuillDataDeletionRequests
+                requests={dataDeletionRequests}
+                loading={dataDeletionRequestsLoading}
+                loadFailed={loadFailed}
+                onRetry={() => loadDataDeletionRequests()}
+                newRequestDisabledReason={newRequestButtonDisabledReason}
+                getStatus={(request) => STATUS_DISPLAY[request.status]}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -62,7 +79,7 @@ export function DataDeletionRequests(): JSX.Element {
                 icon={<IconPlus />}
                 className="self-start"
                 to={urls.dataDeletionRequestNew()}
-                disabledReason={loadFailed ? 'Could not load deletion requests' : newRequestDisabledReason}
+                disabledReason={newRequestButtonDisabledReason}
                 data-attr="data-deletion-new-request"
             >
                 New deletion request
@@ -88,16 +105,6 @@ export function DataDeletionRequests(): JSX.Element {
                                     </Tooltip>
                                 )
                             },
-                        },
-                        {
-                            title: 'Matched events',
-                            dataIndex: 'count',
-                            render: (_, request) =>
-                                request.count === null ? (
-                                    <span className="text-secondary">Not counted yet</span>
-                                ) : (
-                                    <span translate="no">{humanFriendlyNumber(request.count)}</span>
-                                ),
                         },
                         {
                             title: 'Submitted',

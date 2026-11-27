@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
@@ -21,11 +22,18 @@ import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/component
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 
 import { disableRevenueSourceModalLogic } from './disableRevenueSourceModalLogic'
+import { QuillExternalDataSourceConfiguration } from './QuillExternalDataSourceConfiguration'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+import { findRevenueJoin, newRevenueJoin } from './revenueSourceJoins'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
-export function ExternalDataSourceConfiguration(): JSX.Element {
+export function ExternalDataSourceConfiguration({
+    hideTitle = false,
+}: {
+    /** Leaves out the heading and intro that the settings page already shows. */
+    hideTitle?: boolean
+}): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, joins } = useValues(revenueAnalyticsSettingsLogic)
     const { views, source: sourceToBeDisabled } = useValues(disableRevenueSourceModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -36,6 +44,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         disableDataWarehouseManagedViewsetModalLogic({ type: 'ExternalDataSourceConfiguration' })
     )
     const { setSource: setSourceToBeDisabled } = useActions(disableRevenueSourceModalLogic)
+    const todayRailNav = useQuillSurface()
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
 
@@ -72,10 +81,89 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
         }
     }
 
+    const handleAddSource = (): void => {
+        router.actions.push(urls.dataWarehouseSourceNew('stripe'))
+    }
+
+    const handleSourceEnabledChange = (source: ExternalDataSource, checked: boolean): void => {
+        if (!checked && managedViewsetsEnabled) {
+            // Show confirmation modal when disabling (if feature flag enabled)
+            setSourceToBeDisabled(source)
+            openModal('revenue_analytics')
+        } else {
+            // Enable directly without confirmation, or disable directly if feature flag is off
+            updateSourceRevenueAnalyticsConfig({
+                source,
+                config: { enabled: checked },
+            })
+        }
+    }
+
+    const handleInvoicelessChargesChange = (source: ExternalDataSource, checked: boolean): void =>
+        updateSourceRevenueAnalyticsConfig({
+            source,
+            config: { include_invoiceless_charges: checked },
+        })
+
+    const modals = (
+        <>
+            {/* To be used above by the join features */}
+            <ViewLinkModal mode="revenue_analytics" />
+            {managedViewsetsEnabled && (
+                <DataWarehouseManagedViewsetImpactModal
+                    type="ExternalDataSourceConfiguration"
+                    title={`Disable revenue analytics for ${sourceToBeDisabled ? `${sourceToBeDisabled.source_type}${sourceToBeDisabled.prefix ? ` (${sourceToBeDisabled.prefix})` : ''}` : ''}?`}
+                    action={onDisableSource}
+                    confirmText={sourceToBeDisabled?.prefix || sourceToBeDisabled?.source_type || ''}
+                    views={views}
+                    warningItems={[
+                        'Permanently delete all revenue views created from this source',
+                        'Break any existing queries, insights, or dashboards that reference these views',
+                        'Stop all scheduled materialization jobs for these views',
+                    ]}
+                    infoMessage={
+                        <>
+                            <strong>Important:</strong> The source will no longer be included in revenue calculations
+                            for revenue analytics. It'll also trigger re-materialization of all remaining revenue views.
+                        </>
+                    }
+                    viewsActionText="will be deleted"
+                    confirmButtonText="Yes, disable source"
+                />
+            )}
+        </>
+    )
+
+    if (todayRailNav) {
+        return (
+            <SceneSection title={hideTitle ? undefined : 'Data warehouse sources configuration'}>
+                <QuillExternalDataSourceConfiguration
+                    hideDescription={hideTitle}
+                    revenueSources={revenueSources}
+                    sourcesLoading={dataWarehouseSources === null}
+                    sourcesUpdating={dataWarehouseSourcesLoading}
+                    joins={joins}
+                    configDisabledReason={disabledReasonForRevenueAnalyticsConfig}
+                    onAddSource={handleAddSource}
+                    onSourceEnabledChange={handleSourceEnabledChange}
+                    onInvoicelessChargesChange={handleInvoicelessChargesChange}
+                    onEditJoin={toggleEditJoinModal}
+                    onDeleteJoin={deleteJoin}
+                    onNewJoin={toggleNewJoinModal}
+                />
+                {modals}
+            </SceneSection>
+        )
+    }
+
     return (
         <SceneSection
-            title="Data warehouse sources configuration"
-            description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
+            title={hideTitle ? undefined : 'Data warehouse sources configuration'}
+            description={
+                hideTitle
+                    ? undefined
+                    : "PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_mrr virtual fields."
+            }
         >
             <div className={cn('flex flex-col items-end w-full')}>
                 <AccessControlAction
@@ -87,9 +175,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                         type="primary"
                         icon={<IconPlus />}
                         size="small"
-                        onClick={() => {
-                            router.actions.push(urls.dataWarehouseSourceNew('stripe'))
-                        }}
+                        onClick={handleAddSource}
                     >
                         Add new source
                     </LemonButton>
@@ -129,19 +215,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         <LemonSwitch
                                             checked={source.revenue_analytics_config.enabled}
                                             disabledReason={dataWarehouseSourcesLoading ? 'Updating...' : undefined}
-                                            onChange={(checked) => {
-                                                if (!checked && managedViewsetsEnabled) {
-                                                    // Show confirmation modal when disabling (if feature flag enabled)
-                                                    setSourceToBeDisabled(source)
-                                                    openModal('revenue_analytics')
-                                                } else {
-                                                    // Enable directly without confirmation, or disable directly if feature flag is off
-                                                    updateSourceRevenueAnalyticsConfig({
-                                                        source,
-                                                        config: { enabled: checked },
-                                                    })
-                                                }
-                                            }}
+                                            onChange={(checked) => handleSourceEnabledChange(source, checked)}
                                         />
                                     </AccessControlAction>
                                 </span>
@@ -159,13 +233,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                             </span>
                         ),
                         render: (_, source: ExternalDataSource) => {
-                            const sourcePrefix = source.prefix
-                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
-                                : source.source_type.toLowerCase()
-                            const joinName = `${sourcePrefix}.customer_revenue_view`
-                            const join = joins.find(
-                                (join) => join.source_table_name === joinName && join.joining_table_name === 'persons'
-                            )
+                            const join = findRevenueJoin(joins, source, 'persons')
 
                             return (
                                 <span className="flex flex-row flex-nowrap items-center gap-2 my-2 min-w-[300px]">
@@ -208,15 +276,9 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                                     size="small"
                                                     icon={<IconPlus />}
                                                     onClick={() =>
-                                                        // This is all very hardcoded, but it's the exact kind of join we want to add
-                                                        // and that we're expecting in the backend.
-                                                        toggleNewJoinModal({
-                                                            source_table_name: joinName,
-                                                            source_table_key: 'id',
-                                                            joining_table_name: 'persons',
-                                                            joining_table_key: 'pdi.distinct_id',
-                                                            field_name: 'persons',
-                                                        })
+                                                        toggleNewJoinModal(
+                                                            newRevenueJoin(source, 'persons', 'pdi.distinct_id')
+                                                        )
                                                     }
                                                     disabledReason={
                                                         disabledReasonForRevenueAnalyticsConfig(source) ??
@@ -243,13 +305,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                             </span>
                         ),
                         render: (_, source: ExternalDataSource) => {
-                            const sourcePrefix = source.prefix
-                                ? `${source.source_type.toLowerCase()}.${source.prefix.replace(/_+$/, '')}`
-                                : source.source_type.toLowerCase()
-                            const joinName = `${sourcePrefix}.customer_revenue_view`
-                            const join = joins.find(
-                                (join) => join.source_table_name === joinName && join.joining_table_name === 'groups'
-                            )
+                            const join = findRevenueJoin(joins, source, 'groups')
 
                             return (
                                 <span className="flex flex-row flex-nowrap items-center gap-2 my-2 min-w-[300px]">
@@ -293,15 +349,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                                     size="small"
                                                     icon={<IconPlus />}
                                                     onClick={() =>
-                                                        // This is all very hardcoded, but it's the exact kind of join we want to add
-                                                        // and that we're expecting in the backend.
-                                                        toggleNewJoinModal({
-                                                            source_table_name: joinName,
-                                                            source_table_key: 'id',
-                                                            joining_table_name: 'groups',
-                                                            joining_table_key: 'key',
-                                                            field_name: 'groups',
-                                                        })
+                                                        toggleNewJoinModal(newRevenueJoin(source, 'groups', 'key'))
                                                     }
                                                     disabledReason={
                                                         disabledReasonForRevenueAnalyticsConfig(source) ??
@@ -339,12 +387,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         source.revenue_analytics_config.include_invoiceless_charges
                                     }
                                     disabledReason={disabledReasonForRevenueAnalyticsConfig(source)}
-                                    onChange={(checked) =>
-                                        updateSourceRevenueAnalyticsConfig({
-                                            source,
-                                            config: { include_invoiceless_charges: checked },
-                                        })
-                                    }
+                                    onChange={(checked) => handleInvoicelessChargesChange(source, checked)}
                                 />
                             )
                         },
@@ -352,30 +395,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 ]}
             />
 
-            {/* To be used above by the join features */}
-            <ViewLinkModal mode="revenue_analytics" />
-            {managedViewsetsEnabled && (
-                <DataWarehouseManagedViewsetImpactModal
-                    type="ExternalDataSourceConfiguration"
-                    title={`Disable revenue analytics for ${sourceToBeDisabled ? `${sourceToBeDisabled.source_type}${sourceToBeDisabled.prefix ? ` (${sourceToBeDisabled.prefix})` : ''}` : ''}?`}
-                    action={onDisableSource}
-                    confirmText={sourceToBeDisabled?.prefix || sourceToBeDisabled?.source_type || ''}
-                    views={views}
-                    warningItems={[
-                        'Permanently delete all revenue views created from this source',
-                        'Break any existing queries, insights, or dashboards that reference these views',
-                        'Stop all scheduled materialization jobs for these views',
-                    ]}
-                    infoMessage={
-                        <>
-                            <strong>Important:</strong> The source will no longer be included in revenue calculations
-                            for revenue analytics. It'll also trigger re-materialization of all remaining revenue views.
-                        </>
-                    }
-                    viewsActionText="will be deleted"
-                    confirmButtonText="Yes, disable source"
-                />
-            )}
+            {modals}
         </SceneSection>
     )
 }

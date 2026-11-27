@@ -1,6 +1,7 @@
 import type { McpAgent } from '@/commands/mcp/clients'
 import type { RegionId } from '@/posthog/host'
 import type { ProjectToken } from '@/posthog/tokens'
+import type { HogVersionInfo } from '@/updates/check'
 
 import type { WrittenFile } from './agents-md'
 import type { Product, ProductId } from './products'
@@ -15,15 +16,22 @@ export interface SetupInput {
     reviewed?: boolean
 }
 
-// What has to happen before `hog setup next` can go on. Every instruction is for the agent, and says
+// What has to happen before `hog setup` can go on. Every instruction is for the agent, and says
 // what it asks or tells the person and which command it runs itself.
 export type NextAction =
     | { kind: 'run'; command: string; instructions: string }
-    // A question for the person. The agent turns the answer into the options of `command`.
-    | { kind: 'ask_user'; ask: string; command: string; instructions: string }
     | { kind: 'read'; read: string[]; command: string; instructions: string }
-    | { kind: 'wait'; command: string; url: string; code: string | null; expiresAt: string; instructions: string }
-    | { kind: 'done'; instructions: string }
+    | {
+          kind: 'wait'
+          command: string
+          url: string
+          code: string | null
+          expiresAt: string
+          message: string
+          instructions: string
+      }
+    // `message` is the wrap-up to send the person as it is, on the call that finishes setup for an agent.
+    | { kind: 'done'; instructions: string; message?: string }
 
 export interface DoneStep {
     step: StepId
@@ -65,6 +73,7 @@ export interface SetupContext {
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
+    enabled?: string[]
     // PostHog skills that could help in later sessions, at the products step. Agents get the names only.
     skills?: SkillInfo[]
     mcp?: McpContext
@@ -74,11 +83,14 @@ export interface SetupContext {
 export interface SetupResult {
     step: StepId
     status: 'in_progress' | 'connected'
-    // Why `hog setup next` stopped, for scripts. Null once connected.
+    // Why `hog setup` stopped, for scripts. Null once connected.
     code: string | null
     done: DoneStep[]
     next: NextAction
     context: SetupContext
+    // The running hog and the latest release. Setup stops with `hog_outdated` before it gets here
+    // when a newer release exists, so `updateAvailable` is false unless the release couldn't be read.
+    hog?: HogVersionInfo
 }
 
 export interface Stop {

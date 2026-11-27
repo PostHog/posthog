@@ -89,9 +89,8 @@ impl TestContext {
         let insert_sql = format!(
             r#"
             INSERT INTO {}
-                (created_at, properties, properties_last_updated_at, properties_last_operation,
-                 team_id, is_identified, uuid, version)
-            VALUES (now(), '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
+                (created_at, properties, team_id, is_identified, uuid, version)
+            VALUES (now(), '{{}}'::jsonb, $1, false, gen_random_uuid(), 0)
             RETURNING id
             "#,
             self.tables.person
@@ -162,9 +161,8 @@ impl TestContext {
         sqlx::query(
             r#"
             INSERT INTO posthog_person
-                (id, created_at, properties, properties_last_updated_at,
-                 properties_last_operation, team_id, is_identified, uuid, version)
-            VALUES ($1, now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $2, false,
+                (id, created_at, properties, team_id, is_identified, uuid, version)
+            VALUES ($1, now(), '{}'::jsonb, $2, false,
                     gen_random_uuid(), 0)
             "#,
         )
@@ -520,6 +518,15 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     > {
         panic!("not exercised by this test")
     }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        _attaches: &[personhog_identity::storage::PersonAttach],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>>,
+    > {
+        panic!("not exercised by this test")
+    }
 }
 
 /// Wraps the real storage to inject the target-establishment races that
@@ -639,5 +646,14 @@ impl personhog_identity::storage::IdentityStorage for RacingStorage {
         self.inner
             .attach_distinct_ids(team_id, person_id, distinct_ids)
             .await
+    }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        attaches: &[personhog_identity::storage::PersonAttach],
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>>,
+    > {
+        self.inner.attach_distinct_ids_batch(attaches).await
     }
 }

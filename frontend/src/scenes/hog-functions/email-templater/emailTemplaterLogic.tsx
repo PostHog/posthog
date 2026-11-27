@@ -26,16 +26,21 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { withTimeout } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
+import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 import {
+    EMAIL_DOCUMENT_DESIGN_KEY,
     EmailDocument,
     emailDocumentFromValue,
     emptyEmailDoc,
     isBlankEmail,
+    keepsOwnPlainText,
     starterEmailDoc,
     withoutEmailDocument,
 } from 'products/workflows/frontend/EmailDocumentEditor/emailDocument'
@@ -132,6 +137,21 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
 export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+
+const EDITOR_READ_TIMEOUT_MS = 5000
+
+// The old editor reports its own load as an edit, so a failed read of an unchanged design isn't an unsaved edit.
+async function designUnchanged(editor: Editor, lastDesign: JSONTemplate | undefined): Promise<boolean> {
+    if (!lastDesign) {
+        return false
+    }
+    try {
+        const { design } = await withTimeout(exportEditorHtml(editor), EDITOR_READ_TIMEOUT_MS)
+        return objectsEqual(design, lastDesign)
+    } catch {
+        return false
+    }
+}
 
 function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
     return new Promise((resolve) =>
@@ -285,6 +305,61 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
     return design
 }
 
+/**
+ * The plain text no editor wrote: the html came in as it is, from an import or the API, and this came with it. An editor
+ * that saved the email left its own design behind.
+ */
+function plainTextFromOutside(value: Pick<EmailTemplate, 'html' | 'text' | 'design'>): string | undefined {
+    const { html, text, design } = value
+    if (!html?.trim() || !text?.trim()) {
+        return undefined
+    }
+    // Saved by the new editor, and the html changed elsewhere since.
+    if (design && EMAIL_DOCUMENT_DESIGN_KEY in design) {
+        return keepsOwnPlainText(design) ? text : undefined
+    }
+    return objectsEqual(editorDesignForEmail(value), buildHtmlWrapDesign(html)) ? text : undefined
+}
+
+/** The plain text to save with an edited design. */
+function plainTextForEdit(
+    exported: { text: string },
+    design: JSONTemplate,
+    current: EmailTemplate | null | undefined
+): string {
+    // Owned text stays even when emptied: clearing it in the plain text tab is the person's choice.
+    return keepsOwnPlainText(design) && typeof current?.text === 'string' ? current.text : exported.text
+}
+
+/**
+ * True when the open new editor keeps the html next to the plain text tab's text. With `markOwnText` the
+ * document also keeps that text from now on, so later edits to the email don't rewrite it.
+ */
+function newEditorKeepsHtml(
+    values: { usesDocumentEditor: boolean; isEmailEditorReady: boolean; emailEditorRef: EditorRef | null },
+    markOwnText: boolean
+): boolean {
+    const editor = values.emailEditorRef?.editor
+    if (!values.usesDocumentEditor || !values.isEmailEditorReady || !editor?.keepOwnPlainText) {
+        return false
+    }
+    return editor.keepOwnPlainText({ checkOnly: !markOwnText }) === true
+}
+
+function emailWithEdit(
+    { type }: Pick<EmailTemplaterLogicProps, 'type'>,
+    template: EmailTemplate,
+    { html, design }: { html: string; design: JSONTemplate },
+    exported: { text: string }
+): EmailTemplate {
+    return {
+        ...template,
+        html: type !== 'email' ? html : escapeHTMLStringCurlies(html),
+        text: plainTextForEdit(exported, design, template),
+        design,
+    }
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
@@ -353,7 +428,25 @@ function isUntouchedNewTemplate(value: EmailTemplate | null | undefined): boolea
     return !!value?.html && value.html === NEW_TEMPLATE.content.email.html
 }
 
+/** One open email, kept by its reads in flight. */
+interface EditSession {
+    /** Whether it was left with an edit nobody had read. */
+    editWaiting: boolean
+    readsStarted: number
+    /** The newest read handed to the host. An older read that ends later holds older fields, so it is dropped. */
+    lastReadHandedOver: number
+}
+
+function newEditSession(): EditSession {
+    return { editWaiting: false, readsStarted: 0, lastReadHandedOver: 0 }
+}
+
+const EMAIL_SAVE_FAILED_MESSAGE = "Couldn't save this email. Your changes are still in the editor, so try again."
+const EMAIL_EDIT_LOST_MESSAGE = "Couldn't save this email. Its last edit was lost when you left the editor."
+
 export interface EmailTemplaterLogicProps {
+    /** Which email is open. This logic has no key and can outlive its host, so a new value drops the last email's state. */
+    emailKey?: string
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
@@ -378,6 +471,8 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    /** Shows the sender, recipient and subject in the redesigned look, for hosts behind the redesign flag. */
+    quillHeader?: boolean
 }
 
 function autoRevealAdvancedFields(
@@ -402,6 +497,7 @@ export interface emailTemplaterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
     currentProjectId: number | string // teamLogic
+    currentTeamIdStrict: number | string // teamLogic
     activeContentTab: 'plaintext' | 'visual'
     appliedTemplate: MessageTemplate | null
     convertedEmailDocument: EmailDocument | null
@@ -427,6 +523,7 @@ export interface emailTemplaterLogicValues {
     isModalOpen: boolean
     isSaveTemplateModalOpen: boolean
     isTemplatePickerOpen: boolean
+    latestEditUnsaved: boolean
     logicProps: EmailTemplaterLogicProps
     mergeTags: UnlayerMergeTags
     needsEmailConversion: boolean
@@ -435,7 +532,7 @@ export interface emailTemplaterLogicValues {
     prefersOldEmailEditor: boolean
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
-    templates: MessageTemplate[]
+    templates: MessageTemplateApi[]
     templatesLoading: boolean
     templatingEngine: 'hog' | 'liquid'
     unlayerEditorProjectId: 275430 | undefined
@@ -468,6 +565,9 @@ export interface emailTemplaterLogicActions {
     designUpdated: () => {
         value: true
     }
+    emailSwitched: () => {
+        value: true
+    }
     flushPendingDesignEdit: () => {
         value: true
     }
@@ -498,10 +598,10 @@ export interface emailTemplaterLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateApi[],
         payload?: any
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateApi[]
         payload?: any
     }
     onEmailEditorReady: () => {
@@ -553,6 +653,9 @@ export interface emailTemplaterLogicActions {
     }
     setIsTemplatePickerOpen: (isOpen: boolean) => {
         isOpen: boolean
+    }
+    setLatestEditUnsaved: (unsaved: boolean) => {
+        unsaved: boolean
     }
     setPrefersOldEmailEditor: (prefersOld: boolean) => {
         prefersOld: boolean
@@ -636,13 +739,21 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     path(['scenes', 'hog-functions', 'email-templater', 'emailTemplaterLogic']),
     connect(() => ({
-        values: [preflightLogic, ['preflight'], teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            preflightLogic,
+            ['preflight'],
+            teamLogic,
+            ['currentProjectId', 'currentTeamIdStrict'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         onEmailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setLatestEditUnsaved: (unsaved: boolean) => ({ unsaved }),
         setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
         designUpdated: true,
         designLoaded: true,
@@ -659,6 +770,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         runEmailConversion: true,
         setPrefersOldEmailEditor: (prefersOld: boolean) => ({ prefersOld }),
         clearConvertedEmailDocument: true,
+        emailSwitched: true,
     }),
     reducers({
         // An old-editor email opened in the new editor. Nothing is saved until someone edits it.
@@ -668,6 +780,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setEmailConversion: (_, { conversion }) => conversion?.document ?? null,
                 clearConvertedEmailDocument: () => null,
                 setPrefersOldEmailEditor: () => null,
+                emailSwitched: () => null,
             },
         ],
         emailConversion: [
@@ -676,6 +789,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setEmailConversion: (_, { conversion }) => conversion,
                 setPrefersOldEmailEditor: () => null,
                 clearConvertedEmailDocument: () => null,
+                emailSwitched: () => null,
             },
         ],
         // pinned: stored in people's browsers, renaming sends everyone who chose the old editor back to the new one
@@ -688,6 +802,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as EditorRef | null,
             {
                 setEmailEditorRef: (_, { emailEditorRef }) => emailEditorRef,
+                emailSwitched: () => null,
             },
         ],
         isEmailEditorReady: [
@@ -695,6 +810,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             {
                 setIsModalOpen: () => false,
                 onEmailEditorReady: () => true,
+                emailSwitched: () => false,
             },
         ],
         isModalOpen: [
@@ -707,6 +823,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsSaveTemplateModalOpen: (_, { isOpen }) => isOpen,
+                emailSwitched: () => false,
+            },
+        ],
+        latestEditUnsaved: [
+            false,
+            {
+                setLatestEditUnsaved: (_, { unsaved }) => unsaved,
+                emailSwitched: () => false,
             },
         ],
         isTemplatePickerOpen: [
@@ -720,6 +844,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             null as MessageTemplate | null,
             {
                 applyTemplate: (_, { template }) => template,
+                emailSwitched: () => null,
             },
         ],
         templatingEngine: [
@@ -728,6 +853,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setTemplatingEngine: (_, { templating }) => {
                     return templating
                 },
+                emailSwitched: () => 'liquid',
             },
         ],
         revealedAdvancedFields: [
@@ -737,6 +863,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     state.includes(key) ? state : [...state, key],
                 hideAdvancedField: (state: EmailMetaFieldKey[], { key }: { key: EmailMetaFieldKey }) =>
                     state.filter((k) => k !== key),
+                emailSwitched: () => [],
             },
         ],
         activeContentTab: [
@@ -751,12 +878,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         templates: [
-            [] as MessageTemplate[],
+            [] as MessageTemplateApi[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
+                    // The editor only asks whether any template exists; the picker loads its own pages.
+                    const response = await messagingTemplatesList(String(values.currentTeamIdStrict), {
+                        basic: true,
+                        limit: 1,
+                    })
                     return response.results
                 },
             },
@@ -888,7 +1019,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                if (values.activeContentTab === 'plaintext') {
+                // The new editor keeps the html and the typed plain text side by side, so its save goes on below.
+                // Text typed in the plain text tab stays the email's own, whichever tab the save happens on.
+                const keepsHtml = newEditorKeepsHtml(values, formValues.text !== props.value?.text)
+                if (values.activeContentTab === 'plaintext' && !keepsHtml) {
                     const finalValues: EmailTemplate = {
                         ...formValues,
                         html: '',
@@ -903,11 +1037,21 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
+                const openEmail = { ...props }
+                const designBeforeExport = cache.lastEditorDesign
                 const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                     await Promise.all([
                         exportEditorHtml(editor),
                         new Promise<any>((res) => editor.exportPlainText(res)),
                     ])
+                if (props.emailKey !== openEmail.emailKey) {
+                    openEmail.onChange(
+                        objectsEqual(htmlData.design, designBeforeExport)
+                            ? { ...formValues }
+                            : emailWithEdit(openEmail, formValues, htmlData, textData)
+                    )
+                    return
+                }
 
                 // A save with no canvas edits keeps the stored html/text/design byte-identical
                 // instead of replacing them with the editor's re-render - the export wraps raw
@@ -919,15 +1063,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
-                const finalValues: EmailTemplate = {
-                    ...formValues,
-                    html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                    text: textData.text,
-                    design: htmlData.design,
-                }
-
                 cache.lastEditorDesign = htmlData.design
-                props.onChange(finalValues)
+                props.onChange(emailWithEdit(props, formValues, htmlData, textData))
                 actions.setIsModalOpen(false)
             },
         },
@@ -956,14 +1093,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             cache.lastConvertedHtml = html
+            const { emailKey } = props
             let conversion: EmailDocumentConversion
             try {
                 const { unlayerToEmailDocument } =
                     await import('products/workflows/frontend/EmailDocumentEditor/unlayerToEmailDocument')
-                conversion = unlayerToEmailDocument(editorDesignForEmail(value), html)
+                conversion = unlayerToEmailDocument(editorDesignForEmail(value), html, plainTextFromOutside(value))
             } catch (error) {
                 posthog.captureException(error)
                 conversion = { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
+            }
+            if (props.emailKey !== emailKey) {
+                return
             }
             // pinned: analytics event name and properties, renaming breaks dashboards
             posthog.capture('email editor conversion attempted', {
@@ -1009,6 +1150,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The new editor already holds this email's document, or its starter. The sample's old design isn't for it.
             const newEditorHasIt =
                 values.usesDocumentEditor && !!props.value && !emailDocumentFromValue(props.value).document
+            cache.baselineConfirmedBy = null
             if (design && !newEditorHasIt) {
                 cache.lastEditorDesign = design
                 values.emailEditorRef?.editor?.loadDesign(design)
@@ -1027,9 +1169,19 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
+            // A plain text edit used to clear the html. Such an email keeps its text when the canvas is edited again.
+            const templateApplied = cache.templateApplied
+            cache.templateApplied = false
+            if (!templateApplied && values.usesDocumentEditor && props.value?.text?.trim() && !props.value?.html) {
+                editor.keepOwnPlainText?.({ quietly: true })
+            }
             const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
+            if (values.emailEditorRef?.editor !== editor) {
+                return
+            }
             cache.lastEditorDesign = htmlData.design
+            cache.baselineConfirmedBy = editor
         },
 
         designUpdated: async (_, breakpoint) => {
@@ -1048,16 +1200,57 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
                 cache.pendingDesignEdit = false
+                // A failed edit went with its editor, so there is nothing left to retry.
+                actions.setLatestEditUnsaved(false)
                 return
             }
 
-            const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] = await Promise.all([
-                exportEditorHtml(editor),
-                new Promise<any>((res) => editor.exportPlainText(res)),
-            ])
+            const openEmail = { ...props }
+            const session: EditSession = cache.editSession
+            const read = ++session.readsStarted
+            const template = values.emailTemplate
+            const designBeforeExport = cache.lastEditorDesign
+            let htmlData: { html: string; design: JSONTemplate }
+            let textData: { text: string }
+            try {
+                ;[htmlData, textData] = await Promise.all([
+                    exportEditorHtml(editor),
+                    new Promise<any>((res) => editor.exportPlainText(res)),
+                ])
+            } catch (error) {
+                if (props.emailKey !== openEmail.emailKey) {
+                    return
+                }
+                // The edit stays pending, so the next edit or a flush tries again.
+                posthog.captureException(error)
+                const unchanged = await designUnchanged(editor, cache.lastEditorDesign)
+                breakpoint()
+                if (props.emailKey !== openEmail.emailKey) {
+                    return
+                }
+                if (unchanged) {
+                    cache.pendingDesignEdit = false
+                    actions.setLatestEditUnsaved(false)
+                    return
+                }
+                if (!values.latestEditUnsaved) {
+                    showEmailSaveFailed()
+                }
+                actions.setLatestEditUnsaved(true)
+                return
+            }
             breakpoint()
+            if (props.emailKey !== openEmail.emailKey) {
+                if (read > session.lastReadHandedOver && !objectsEqual(htmlData.design, designBeforeExport)) {
+                    session.lastReadHandedOver = read
+                    openEmail.onChange(emailWithEdit(openEmail, template, htmlData, textData))
+                }
+                return
+            }
             cache.pendingDesignEdit = false
+            actions.setLatestEditUnsaved(false)
 
+            cache.baselineConfirmedBy = editor
             // Only real changes propagate - an export identical to the last known editor state is a
             // load echo, and pushing it would only mark the parent form dirty.
             if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
@@ -1067,12 +1260,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The user now owns the canvas: if an external editor later reverts to a design we once
             // pushed in, it must load again rather than be skipped as already applied.
             cache.lastLoadedExternalDesign = null
-            props.onChange({
-                ...values.emailTemplate,
-                html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                text: textData.text,
-                design: htmlData.design,
-            })
+            props.onChange(emailWithEdit(props, values.emailTemplate, htmlData, textData))
         },
 
         setEmailTemplateValue: ({ name, value }) => {
@@ -1086,13 +1274,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const key = Array.isArray(name) ? name[0] : name
+            const plainTextEdit = key === 'text' && values.activeContentTab === 'plaintext'
 
             props.onChange({
                 ...props.value,
                 [key]: value,
-                // Plain-text authoring replaces the html body (the modal save does this too);
+                // In the old editor, plain-text authoring replaces the html body (the modal save does this too);
                 // without it the stale html keeps winning over the text at send time.
-                ...(key === 'text' && values.activeContentTab === 'plaintext' ? { html: '' } : {}),
+                ...(plainTextEdit && !newEditorKeepsHtml(values, true) ? { html: '' } : {}),
             } as EmailTemplate)
         },
 
@@ -1141,8 +1330,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             const design = editorDesignForEmail(emailTemplateContent)
             if (values.isEmailEditorReady && design) {
+                // The email it replaces may be text-only, which says nothing about the template's own text. The new
+                // editor reports the load before loadDesign returns, so the flag only covers this load.
+                cache.templateApplied = true
                 cache.lastEditorDesign = design
-                values.emailEditorRef?.editor?.loadDesign(design, emailTemplateContent.html)
+                cache.baselineConfirmedBy = null
+                values.emailEditorRef?.editor?.loadDesign(
+                    design,
+                    emailTemplateContent.html,
+                    plainTextFromOutside(emailTemplateContent)
+                )
+                cache.templateApplied = false
             }
         },
 
@@ -1165,37 +1363,104 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
+            cache.flushFailed = false
             await asyncActions.flushPendingDesignEdit()
+            // The edits stay in the open editor, so a failed save never closes it without a word.
+            if (cache.flushFailed) {
+                showEmailSaveFailed()
+                return
+            }
             actions.setIsModalOpen(false)
+        },
+        submitEmailTemplateFailure: ({ error }) => {
+            if (error?.message === 'Validation Failed') {
+                return
+            }
+            posthog.captureException(error)
+            showEmailSaveFailed()
         },
 
         flushPendingDesignEdit: async () => {
+            cache.editLost = false
             const editor = values.emailEditorRef?.editor
-            // An inline new editor commits edits as they happen too, and flushes them when it loses focus.
-            const commitsLive = props.liveChanges || (props.layout === 'inline' && values.documentEditorOffered)
-            if (!commitsLive || !values.isEmailEditorReady || !editor) {
+            // An inline editor commits edits as they happen too.
+            const commitsLive = props.liveChanges || props.layout === 'inline'
+            if (!editor) {
+                actions.setLatestEditUnsaved(false)
                 return
             }
-            while (cache.pendingDesignEdit) {
+            if (!commitsLive || !values.isEmailEditorReady) {
+                return
+            }
+            // The old editor reports a typed edit up to a second late, so its canvas is read even when nothing is
+            // pending, but only once this editor has confirmed its design: before that, a difference isn't an edit.
+            let readCanvas = !values.usesDocumentEditor && cache.baselineConfirmedBy === editor
+            while (readCanvas || cache.pendingDesignEdit) {
+                readCanvas = false
                 const editsBeforeExport = cache.designEdits
-                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                    await Promise.all([
-                        exportEditorHtml(editor),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
-                    ])
+                const templateBeforeExport = values.emailTemplate
+                const designBeforeExport = cache.lastEditorDesign
+                const openEmail = { ...props }
+                const session: EditSession = cache.editSession
+                const read = ++session.readsStarted
+                const isClosed = (): boolean => !!cache.unmounted || props.emailKey !== openEmail.emailKey
+                let htmlData: { html: string; design: JSONTemplate }
+                let textData: { text: string }
+                try {
+                    // An editor that stops answering would otherwise hold the save forever.
+                    ;[htmlData, textData] = await withTimeout(
+                        Promise.all([exportEditorHtml(editor), new Promise<any>((res) => editor.exportPlainText(res))]),
+                        EDITOR_READ_TIMEOUT_MS
+                    )
+                } catch (error) {
+                    if (isClosed()) {
+                        // Its save is still waiting for this read, and would store the email without the edit.
+                        cache.editLost = session === cache.editSession ? cache.pendingDesignEdit : session.editWaiting
+                        return
+                    }
+                    posthog.captureException(error)
+                    // With no edit reported, a canvas that can't be read counts as unchanged, so it never traps the email.
+                    if (!cache.pendingDesignEdit && !values.latestEditUnsaved) {
+                        return
+                    }
+                    if (
+                        cache.designEdits === editsBeforeExport &&
+                        (await designUnchanged(editor, cache.lastEditorDesign))
+                    ) {
+                        if (isClosed()) {
+                            return
+                        }
+                        cache.pendingDesignEdit = false
+                        actions.setLatestEditUnsaved(false)
+                        return
+                    }
+                    if (isClosed()) {
+                        cache.editLost = true
+                        return
+                    }
+                    cache.flushFailed = true
+                    actions.setLatestEditUnsaved(true)
+                    return
+                }
+                // An editor that closed while it was read can't be read again, but its last edit still goes to the form.
+                if (isClosed()) {
+                    if (read > session.lastReadHandedOver && !objectsEqual(htmlData.design, designBeforeExport)) {
+                        session.lastReadHandedOver = read
+                        openEmail.onChange(emailWithEdit(openEmail, templateBeforeExport, htmlData, textData))
+                    }
+                    return
+                }
                 if (cache.designEdits !== editsBeforeExport) {
                     continue
                 }
                 cache.pendingDesignEdit = false
+                session.lastReadHandedOver = read
+                actions.setLatestEditUnsaved(false)
+                cache.baselineConfirmedBy = editor
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
-                    props.onChange({
-                        ...values.emailTemplate,
-                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: textData.text,
-                        design: htmlData.design,
-                    })
+                    props.onChange(emailWithEdit(props, values.emailTemplate, htmlData, textData))
                 }
             }
         },
@@ -1206,7 +1471,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             try {
                 let emailContent: EmailTemplate
 
-                if (values.activeContentTab === 'plaintext') {
+                const plainTextBesideHtml =
+                    values.activeContentTab === 'plaintext' &&
+                    newEditorKeepsHtml(values, currentValues.text !== props.value?.text)
+                if (values.activeContentTab === 'plaintext' && !plainTextBesideHtml) {
                     emailContent = {
                         ...currentValues,
                         html: '',
@@ -1227,7 +1495,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailContent = {
                         ...currentValues,
                         html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: textData.text,
+                        text: plainTextForEdit(textData, htmlData.design, currentValues),
                         design: htmlData.design,
                     }
                 }
@@ -1303,7 +1571,26 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.lastMergeTags = mergeTags
             values.emailEditorRef?.editor?.setMergeTags?.(mergeTags)
         }
-        if (props.value && !objectsEqual(props.value, oldProps.value)) {
+        const switched = props.emailKey !== oldProps.emailKey
+        if (switched) {
+            cache.editSession.editWaiting = cache.pendingDesignEdit || values.latestEditUnsaved
+            cache.editSession = newEditSession()
+            cache.pendingDesignEdit = false
+            cache.flushFailed = false
+            cache.lastEditorDesign = undefined
+            cache.lastConvertedHtml = undefined
+            cache.lastLoadedExternalDesign = undefined
+            cache.baselineConfirmedBy = null
+            actions.emailSwitched()
+            // A modal picks its tab when it opens.
+            if (props.layout === 'inline') {
+                actions.setActiveContentTab('visual')
+            }
+            if (!props.value) {
+                actions.resetEmailTemplate(props.defaultValue ?? undefined)
+            }
+        }
+        if (props.value && (switched || !objectsEqual(props.value, oldProps.value))) {
             // Once the conversion is in the saved design, the design decides which editor opens again.
             if (values.convertedEmailDocument && emailDocumentFromValue(props.value).document) {
                 actions.clearConvertedEmailDocument()
@@ -1337,13 +1624,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     // unrelated field changes.
                     cache.lastLoadedExternalDesign = design
                     cache.lastEditorDesign = design
+                    cache.baselineConfirmedBy = null
                     values.emailEditorRef?.editor?.loadDesign(design)
                 }
             }
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.unmounted = false
+        cache.editSession = newEditSession()
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
@@ -1363,7 +1653,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         actions.runEmailConversion()
     }),
 
-    beforeUnmount(({ props, values }) => {
+    beforeUnmount(({ props, values, cache }) => {
+        cache.unmounted = true
         // An unmount while open (switching nodes, closing the step panel) skips the close action,
         // and the node URL sync preserves foreign search params - so strip ours here, or the next
         // email editor to mount would read the lingering param and auto-open.
@@ -1408,4 +1699,50 @@ function escapeHTMLStringCurlies(htmlString: string): string {
 
     const serializer = new XMLSerializer()
     return serializer.serializeToString(doc)
+}
+
+/**
+ * Runs a save once the open email editor has handed over its last edit. When that edit can't be read out of the
+ * editor, the save would store an older email, so it doesn't run and the person is told.
+ */
+let emailSaveRunning = false
+
+export async function saveWithLatestEmailEdit(save: () => void): Promise<void> {
+    // The save button shows no spinner while the editor is read, so a second click must not save twice.
+    if (emailSaveRunning) {
+        return
+    }
+    emailSaveRunning = true
+    try {
+        if (await latestEmailEditSaved()) {
+            save()
+        }
+    } finally {
+        emailSaveRunning = false
+    }
+}
+
+/** False, after telling the person, when the open email editor holds an edit that can't be read out yet. */
+export async function latestEmailEditSaved(): Promise<boolean> {
+    const templater = emailTemplaterLogic.findMounted()
+    if (!templater) {
+        return true
+    }
+    await templater.asyncActions.flushPendingDesignEdit()
+    if (templater.cache.editLost) {
+        showEmailSaveFailed(EMAIL_EDIT_LOST_MESSAGE)
+        return false
+    }
+    if (!templater.isMounted()) {
+        return true
+    }
+    if (templater.values.latestEditUnsaved) {
+        showEmailSaveFailed()
+        return false
+    }
+    return true
+}
+
+function showEmailSaveFailed(message: string = EMAIL_SAVE_FAILED_MESSAGE): void {
+    lemonToast.error(message, { toastId: 'email-save-failed' })
 }

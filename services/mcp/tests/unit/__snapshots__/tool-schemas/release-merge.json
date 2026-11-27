@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "name": {
+            "description": "New name for the merged release. Keeps the current name when left out.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "release_ids": {
+            "description": "IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["id", "release_ids"],
+    "type": "object"
+}

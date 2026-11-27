@@ -89,6 +89,8 @@ export const metricsAttributesRetrieveQueryMetricNameMax = 255
 export const metricsAttributesRetrieveQuerySearchDefault = ``
 export const metricsAttributesRetrieveQuerySearchMax = 255
 
+export const metricsAttributesRetrieveQuerySearchValuesDefault = false
+
 export const MetricsAttributesRetrieveQueryParams = () => zod.object({
     dateFrom: zod.iso
         .datetime({ offset: true })
@@ -114,6 +116,12 @@ export const MetricsAttributesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributesRetrieveQuerySearchMax)
         .default(metricsAttributesRetrieveQuerySearchDefault)
         .describe('Substring filter (case-insensitive) applied to attribute keys.'),
+    search_values: zod
+        .boolean()
+        .default(metricsAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            "Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue."
+        ),
 })
 
 /**
@@ -427,6 +435,8 @@ export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 
+export const metricsQueryCreateBodyQueryOneApdexThresholdMsMin = 0.001
+
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
@@ -443,6 +453,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemMetricNameMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMax = 1
+
+export const metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin = 0.001
 
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemKeyMax = 255
 
@@ -519,6 +531,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .max(metricsQueryCreateBodyQueryOneQuantileMax)
                 .nullish()
                 .describe("Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations."),
+            apdexThresholdMs: zod
+                .number()
+                .min(metricsQueryCreateBodyQueryOneApdexThresholdMsMin)
+                .nullish()
+                .describe(
+                    "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                ),
             filters: zod
                 .array(
                     zod.object({
@@ -655,6 +674,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                             .max(metricsQueryCreateBodyQueryOneClausesItemQuantileMax)
                             .nullish()
                             .describe("Quantile in (0, 1) for 'histogram_quantile'."),
+                        apdexThresholdMs: zod
+                            .number()
+                            .min(metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin)
+                            .nullish()
+                            .describe(
+                                "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                            ),
                         filters: zod
                             .array(
                                 zod.object({
@@ -796,6 +822,7 @@ export const metricsValuesRetrieveQueryLimitDefault = 100
 export const metricsValuesRetrieveQueryLimitMax = 1000
 
 export const metricsValuesRetrieveQueryMatchDefault = `substring`
+export const metricsValuesRetrieveQuerySeriesStatsDefault = false
 export const metricsValuesRetrieveQueryServiceMax = 1024
 
 export const metricsValuesRetrieveQuerySparklinesDefault = true
@@ -825,6 +852,10 @@ export const MetricsValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.\n\n\* `substring` - substring\n\* `prefix` - prefix\n\* `regex` - regex'
         ),
+    series_stats: zod
+        .boolean()
+        .default(metricsValuesRetrieveQuerySeriesStatsDefault)
+        .describe('Add `series_count` and `tag_key_count` for each name, over the last 24 hours.'),
     service: zod
         .string()
         .max(metricsValuesRetrieveQueryServiceMax)

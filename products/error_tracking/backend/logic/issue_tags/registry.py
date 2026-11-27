@@ -1,4 +1,5 @@
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol, TypeVar
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -9,6 +10,9 @@ from products.error_tracking.backend.models import ErrorTrackingIssueTag
 class TaggerConfig(Protocol):
     @property
     def source(self) -> ErrorTrackingIssueTag.Source: ...
+
+
+_Config = TypeVar("_Config")
 
 
 @frozen
@@ -25,6 +29,14 @@ class JevTaggerConfig:
 
 
 @frozen
+class RuleTaggerConfig:
+    source: ClassVar[ErrorTrackingIssueTag.Source] = ErrorTrackingIssueTag.Source.RULE
+
+    rule_id: UUID
+    bytecode: list[Any]
+
+
+@frozen
 class IssueTagDefinition:
     key: str
     label: str
@@ -34,6 +46,7 @@ class IssueTagDefinition:
     enabled_flag: str
     # The taggers that may answer this tag, highest rank first. Manual is not listed because it always ranks first.
     taggers: tuple[TaggerConfig, ...]
+    color: str | None = None
 
     def sources_ranked_above(self, source: ErrorTrackingIssueTag.Source) -> tuple[ErrorTrackingIssueTag.Source, ...]:
         """The sources whose answers `source` cannot replace. A source this definition does not list ranks lowest."""
@@ -41,6 +54,12 @@ class IssueTagDefinition:
         if source not in sources_by_rank:
             raise ValueError(f"{source} does not answer the issue tag {self.key!r}")
         return sources_by_rank[: sources_by_rank.index(source)]
+
+    def tagger_config(self, config_type: type[_Config]) -> _Config:
+        for tagger in self.taggers:
+            if isinstance(tagger, config_type):
+                return tagger
+        raise ValueError(f"the issue tag {self.key!r} has no {config_type.__name__}")
 
 
 ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = (
@@ -62,10 +81,3 @@ ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = (
         ),
     ),
 )
-
-
-def get_issue_tag_definition(key: str) -> IssueTagDefinition:
-    for definition in ISSUE_TAG_DEFINITIONS:
-        if definition.key == key:
-            return definition
-    raise ValueError(f"unknown issue tag {key!r}")

@@ -127,6 +127,7 @@ export function InboxScreen(): ReactElement {
         }
     }, [isFilteredEmpty])
     useTabHeader('inbox', {
+        scrollToTop: () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
         refreshing: query.isRefetching,
         hint: null,
         status: null,

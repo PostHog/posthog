@@ -216,8 +216,15 @@ describe('unlayerToEmailDocument', () => {
 
     it.each([
         [
-            'a border on one side of a button',
-            content('button', { border: { borderTopWidth: '2px', borderTopStyle: 'solid' } }),
+            'button sides in different colors',
+            content('button', {
+                border: {
+                    borderTopWidth: '1px',
+                    borderTopColor: '#111111',
+                    borderBottomWidth: '3px',
+                    borderBottomColor: '#222222',
+                },
+            }),
             'buttons with a border on only some sides',
         ],
     ])('rebuilds an email with %s and no html, and says the border is dropped', (_name, block, reason) => {
@@ -225,6 +232,42 @@ describe('unlayerToEmailDocument', () => {
         const conversion = unlayerToEmailDocument(design([block]), '')
         expect(conversion.document?.doc.content?.[0].type).toBe('emailButton')
         expect(conversion.notKept).toEqual([reason])
+    })
+
+    it('keeps a button with a thicker bottom edge as a button, with each side drawn as before', () => {
+        const side = (width: string): Record<string, string> => ({ Width: width, Style: 'solid', Color: '#8a5a12' })
+        const border = Object.fromEntries(
+            Object.entries({ Top: '1px', Right: '1px', Bottom: '3px', Left: '1px' }).flatMap(([name, width]) =>
+                Object.entries(side(width)).map(([key, value]) => [`border${name}${key}`, value])
+            )
+        )
+        const conversion = unlayerToEmailDocument(
+            design([
+                content('text', { text: '<p>Book a call</p>' }),
+                content('button', {
+                    text: 'Pick a time',
+                    href: { values: { href: 'https://example.com/book' } },
+                    border,
+                }),
+            ])
+        )
+        const doc = conversion.document?.doc as Record<string, any>
+        const button = doc.content.find((node: Record<string, any>) => node.type === 'emailButton')
+
+        expect(conversion.keptAsHtml).toEqual([])
+        expect(button.attrs.emailStyle).toMatchObject({
+            borderSides: { top: 1, right: 1, bottom: 3, left: 1 },
+            borderColor: '#8a5a12',
+        })
+        expect(button.attrs.emailStyle.borderWidth).toBeUndefined()
+        const html = renderEmailHtml(doc)
+        expect(html).toContain(
+            'border-top:1px solid #8a5a12;border-right:1px solid #8a5a12;border-bottom:3px solid #8a5a12;border-left:1px solid #8a5a12'
+        )
+        expect(html).toContain('strokeweight="1px"')
+        const back = JSON.stringify(emailDocumentToUnlayer(doc))
+        expect(back).toContain('"borderBottomWidth":"3px"')
+        expect(back).toContain('"borderTopWidth":"1px"')
     })
 
     it('keeps what real emails rely on: preview text, web fonts, button width and border, column border, tables in text', () => {
@@ -280,7 +323,7 @@ describe('unlayerToEmailDocument', () => {
             name: 'a line height in pixels and tighter letter spacing',
             block: content('heading', { text: 'Title', fontSize: '32px', lineHeight: '40px', letterSpacing: '-0.5px' }),
             exported: undefined,
-            sent: ['line-height:125%', 'letter-spacing:-0.5px'],
+            sent: ['line-height:1.25', 'letter-spacing:-0.5px'],
         },
         {
             name: 'bold text at its own weight',
@@ -292,14 +335,14 @@ describe('unlayerToEmailDocument', () => {
             name: 'the size of an unsubscribe block',
             block: content('custom', { unsubscribe_link_content: '<div>Bye</div>' }, { slug: 'unsubscribe_link' }),
             exported: undefined,
-            sent: ['font-size:16px;line-height:115%'],
+            sent: ['font-size:16px;line-height:1.15'],
         },
         {
             name: 'the size of text that earlier versions of the old editor left unset',
             block: content('text', { text: '<p>Plain</p>', lineHeight: '140%' }),
             exported:
                 '<html><body><div class="u-row-container"><table><tr><td style="overflow-wrap:break-word;word-break:break-word;padding:10px;"><div style="line-height: 140%;"><p>Plain</p></div></td></tr></table></div></body></html>',
-            sent: ['font-size:16px;line-height:140%'],
+            sent: ['font-size:16px;line-height:1.4'],
         },
         {
             name: 'a heading holding another heading, which browsers show at its own default size',
@@ -776,6 +819,39 @@ describe('unlayerToEmailDocument', () => {
                     ],
                 },
                 { type: 'emailHtml', attrs: { html: '<p>Custom markup</p>' } },
+                {
+                    type: 'emailSection',
+                    attrs: {
+                        emailStyle: { backgroundColor: '#ddeeff' },
+                        emailVisibility: { condition: { before: '{% if vip %}', after: '{% endif %}' } },
+                    },
+                    content: [
+                        paragraph(text('In the section')),
+                        {
+                            type: 'emailColumns',
+                            attrs: {
+                                emailVisibility: { condition: { before: '{% if nested %}', after: '{% endif %}' } },
+                            },
+                            content: [
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [
+                                        {
+                                            ...paragraph(text('Nested left')),
+                                            attrs: { emailVisibility: { hideMobile: true } },
+                                        },
+                                    ],
+                                },
+                                {
+                                    type: 'emailColumn',
+                                    attrs: { ratio: 1 },
+                                    content: [paragraph(text('Nested right'))],
+                                },
+                            ],
+                        },
+                    ],
+                },
             ],
         }
 
@@ -793,7 +869,9 @@ describe('unlayerToEmailDocument', () => {
             'emailSpacer',
             'emailColumns',
             'emailHtml',
+            'emailColumns',
         ])
+        expect(back?.content?.[10].attrs?.emailVisibility).toMatchObject(doc.content[10].attrs?.emailVisibility)
         expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
         expect(back?.content?.[6].attrs).toEqual({ height: 16 })
         expect(back?.content?.[7].attrs).toEqual({ height: 20, backgroundColor: '#123456' })
@@ -818,6 +896,13 @@ describe('unlayerToEmailDocument', () => {
             'https://example.com/start',
             'Right column',
             'Custom markup',
+            'In the section',
+            'Nested left',
+            'Nested right',
+            '#ddeeff',
+            '{% if nested %}',
+            '.ph-hide-mobile {',
+            '.ph-col { max-width: 100% !important; }',
         ]) {
             expect(json).toContain(expected)
         }

@@ -12,12 +12,15 @@ from products.warehouse_sources.sources.better_stack.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
+    EndpointResource,
     JSONResponsePaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     build_dependent_resource,
+    flatten_jsonapi,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -118,11 +121,7 @@ def _build_initial_params(
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten a JSON:API resource object's `attributes` into the root and keep `id`/`type`."""
-    flattened = {k: v for k, v in item.items() if k != "attributes"}
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        flattened.update(attributes)
-    return flattened
+    return flatten_jsonapi(item, relationships_as_ids=False, on_clash="nested")
 
 
 def _explode_response_times(item: dict[str, Any]) -> list[dict[str, Any]]:
@@ -169,9 +168,9 @@ def probe_credentials(api_token: str, api_version: str, endpoint: str | None = N
     """Cheap probe of a Better Stack collection. Returns the HTTP status code, or None on a
     connection failure. Probes the given endpoint's path when set, else the monitors collection."""
     config = BETTER_STACK_ENDPOINTS.get(endpoint) if endpoint else None
-    if config is not None and config.fanout is not None:
+    while config is not None and config.fanout is not None:
         # A fan-out child's path is parent-scoped and has no collection of its own, so the
-        # reachable thing to probe is the parent the child is enumerated from.
+        # reachable thing to probe is the top-level collection the chain starts from.
         config = BETTER_STACK_ENDPOINTS[config.fanout.parent_name]
     base_url = config.base_url if config else BETTER_STACK_BASE_URL
     path = config.path_for_version(api_version) if config else "/v2/monitors"
@@ -318,6 +317,98 @@ def _fanout_source(
     return _source_response(config, resource)
 
 
+def _chained_fanout_source(
+    api_token: str, config: BetterStackEndpointConfig, team_id: int, job_id: str
+) -> SourceResponse:
+    """Walk a top-level collection, then a fan-out child of it, then fetch this endpoint once per
+    child row (status pages, then their reports, then each report's updates).
+
+    The framework keeps no resume state for a chain this deep, so an interrupted sync starts again.
+    """
+    fanout = config.fanout
+    assert fanout is not None
+    middle_config = BETTER_STACK_ENDPOINTS[fanout.parent_name]
+    root_fanout = middle_config.fanout
+    assert root_fanout is not None
+    root_config = BETTER_STACK_ENDPOINTS[root_fanout.parent_name]
+
+    root_resource: EndpointResource = {
+        "name": root_config.name,
+        "table_name": root_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": root_config.path,
+            "params": {"per_page": root_config.page_size},
+            "paginator": BetterStackPaginator(),
+            "data_selector": root_config.data_selector,
+        },
+        "table_format": "delta",
+    }
+    middle_resource: EndpointResource = {
+        "name": middle_config.name,
+        "table_name": middle_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": middle_config.path,
+            "params": {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": root_config.name,
+                    "field": root_fanout.resolve_field,
+                },
+                **root_fanout.child_params,
+            },
+            "paginator": BetterStackPaginator(),
+            "data_selector": middle_config.data_selector,
+            "response_actions": root_fanout.child_response_actions,
+        },
+        # Flattened before the child reads it, so the child can bind the root id that the middle
+        # row carries as an attribute (`status_page_id` on a report).
+        "data_map": _flatten_item,
+        "table_format": "delta",
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "table_name": config.name,
+        "write_disposition": "replace",
+        "include_from_parent": fanout.include_from_parent,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": middle_config.name,
+                    "field": root_fanout.resolve_param,
+                },
+                fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": middle_config.name,
+                    "field": fanout.resolve_field,
+                },
+                **fanout.child_params,
+            },
+            "paginator": BetterStackPaginator(),
+            "data_selector": config.data_selector,
+            "response_actions": fanout.child_response_actions,
+        },
+        "table_format": "delta",
+    }
+
+    resource = cast(
+        Resource,
+        build_chained_resource(
+            resources=[root_resource, middle_resource, child_resource],
+            child_name=config.name,
+            parent_name=middle_config.name,
+            parent_field_renames={field: field for field in fanout.include_from_parent},
+            client_config=_client_config(api_token, config.base_url),
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+    return _source_response(config, resource.add_map(_flatten_item))
+
+
 def better_stack_source(
     api_token: str,
     endpoint: str,
@@ -330,6 +421,8 @@ def better_stack_source(
 ) -> SourceResponse:
     base_config = BETTER_STACK_ENDPOINTS[endpoint]
     config = dataclasses.replace(base_config, path=base_config.path_for_version(api_version))
+    if config.fanout is not None and BETTER_STACK_ENDPOINTS[config.fanout.parent_name].fanout is not None:
+        return _chained_fanout_source(api_token, config, team_id, job_id)
     build = _fanout_source if config.fanout is not None else _top_level_source
     return build(
         api_token,

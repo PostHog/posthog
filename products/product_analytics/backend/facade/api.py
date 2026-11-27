@@ -19,6 +19,8 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from pydantic import JsonValue
+
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
@@ -42,7 +44,6 @@ from products.product_analytics.backend.models.insight_explanation import Insigh
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
-    from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite
     from posthog.models.user import User
 
 
@@ -330,6 +331,11 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    """Ids of the live insights of this team with these short ids, in one query. Unknown short ids are left out."""
+    return logic.insight_ids_by_short_ids(team_id=team_id, short_ids=short_ids)
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     """Live insights of this team whose name contains ``search``, ignoring case, in one query.
 
@@ -402,6 +408,30 @@ def get_or_create_saved_insight(
         query=query,
         revive_deleted=revive_deleted,
         saved=saved,
+    )
+
+
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    """Create an insight that PostHog generates for a dashboard, with no author, and return its id."""
+    return logic.create_sample_insight(team_id=team_id, name=name, description=description, query=query)
+
+
+def create_saved_insight(
+    *, team_id: int, user_id: int, name: str, description: str, query: dict[str, JsonValue]
+) -> int:
+    """Create a saved insight with a new short id, authored by this user, and return its id."""
+    return logic.create_saved_insight(team_id=team_id, user_id=user_id, name=name, description=description, query=query)
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    """Replace the description and query of a live insight as the system, with no access check.
+
+    Does nothing when the team has no live insight with this id.
+    """
+    logic.update_insight_description_and_query(
+        team_id=team_id, insight_id=insight_id, description=description, query=query
     )
 
 
@@ -573,11 +603,3 @@ def get_insight_series(
         wait_until=wait_until,
         raise_on_pending=raise_on_pending,
     )
-
-
-def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list["SavedQueryRewrite"]:
-    from posthog.models.cohortmembership.query_rewrite import (  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
-        rewrite_saved_rows,
-    )
-
-    return rewrite_saved_rows(Insight.objects_including_soft_deleted.filter(team_id=team_id), apply)

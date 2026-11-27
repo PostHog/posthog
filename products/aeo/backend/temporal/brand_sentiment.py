@@ -14,7 +14,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -44,6 +44,10 @@ from products.aeo.backend.sentiment import (
     brand_sentences,
     sentence_sentiment,
 )
+from products.aeo.backend.stored_results import bump_data_version_on_commit
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -152,6 +156,7 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[_ScoredAn
             if answer.check_id in current
         ]
         checks.bulk_update(rows, ["brand_sentiment", "brand_sentiment_score", "brand_sentiment_sentences"])
+        bump_data_version_on_commit(team_id)
     return len(rows)
 
 
@@ -300,4 +305,4 @@ def start_brand_sentiment_workflow(team_id: int, run_id: str) -> None:
 
 
 WORKFLOWS = [AEOBrandSentimentWorkflow]
-ACTIVITIES = [classify_aeo_brand_sentiment]
+ACTIVITIES: list[ActivityDefinition] = [classify_aeo_brand_sentiment]

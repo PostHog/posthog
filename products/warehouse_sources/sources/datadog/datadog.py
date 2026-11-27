@@ -17,6 +17,7 @@ from products.warehouse_sources.sources.datadog.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     make_tracked_session,
     retry_with_deadline,
     schema_for_resource,
@@ -191,16 +192,6 @@ def _extract_items(response_json: Any, config: DatadogEndpointConfig) -> list[di
     return raw
 
 
-def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Lift a v2 JSON:API record's ``attributes`` object to the root, keeping ``id``/``type``."""
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        item.pop("attributes")
-        for key, value in attributes.items():
-            item.setdefault(key, value)
-    return item
-
-
 def _is_same_host(url: str, host: str) -> bool:
     """True only for ``https`` URLs whose netloc matches the resolved Datadog API host."""
     parsed = urlparse(url)
@@ -317,7 +308,7 @@ def _walk(
         items = _extract_items(data, config)
         if items:
             if config.flatten_attributes:
-                items = [_flatten_item(item) for item in items]
+                items = [flatten_jsonapi(item, relationships_as_ids=False) for item in items]
             if config.row_transform is not None:
                 items = [config.row_transform(item) for item in items]
             yield items

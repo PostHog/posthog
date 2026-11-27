@@ -1489,6 +1489,7 @@ export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = false
+export const externalDataSourcesSetupCreateBodyCreatedViaDefault = `api`
 
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod.string().describe("The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot')."),
@@ -1515,6 +1516,13 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
         .describe(
             'Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesSetupCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
 })
 

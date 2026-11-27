@@ -13,7 +13,6 @@ from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade.api import has_incident_destination
 from products.alerts_platform.backend.facade.contracts import ROUTING_FLAG, SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.alert_routes import routed_receivers
 from products.alerts_platform.backend.models import AlertReceiver, PlatformAlertConfiguration
 from products.alerts_platform.backend.presentation.views.platform_alert import SOURCE_KIND_RESOURCE
@@ -153,7 +152,6 @@ class TestPlatformAlertRouting(APIBaseTest):
                 name="API errors",
                 source_kind=SourceKind.LOGS,
                 check_interval_minutes=5,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
                 labels={"team": alert_team},
             )
             with patch(

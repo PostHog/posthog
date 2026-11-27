@@ -72,6 +72,12 @@ MISSING_PERMISSION_DETAIL = (
     "BigQuery Data Editor and BigQuery Job User roles on the project, then run the sync again."
 )
 
+BILLING_NOT_ENABLED_DETAIL = (
+    "Billing is not enabled on the Google Cloud project this destination writes to, and BigQuery's "
+    "free tier does not allow the DML queries this sync runs. Enable billing on the project, then "
+    "run the sync again."
+)
+
 
 # The Arrow type that loads into each BigQuery column type. A merge chunk whose column loads as a
 # different type is cast to it first, because a `MERGE` does not convert a STRING into an INT64.
@@ -107,6 +113,28 @@ def _bigquery_type_of(arrow_type: pa.DataType) -> str | None:
     if pa.types.is_timestamp(arrow_type):
         return "TIMESTAMP" if arrow_type.tz else "DATETIME"
     return None
+
+
+def _drop_null_columns(table: pa.Table) -> pa.Table:
+    """Drop every column this chunk carries with no values at all.
+
+    Autodetect fixes a column's type from whichever chunk first loads it, and
+    `ALLOW_FIELD_ADDITION` only adds a column the target lacks — it never changes the type the
+    target already settled on. Loading a null-typed column (every value absent in this chunk)
+    would lock in whatever autodetect guesses for null, usually STRING, before a later chunk's
+    real values ever reach it. Dropping it here instead defers its creation to the first chunk
+    that actually has a value, so it is published as that value's real type.
+    """
+    keep = [i for i, field in enumerate(table.schema) if not pa.types.is_null(field.type)]
+    return table if len(keep) == len(table.schema) else table.select(keep)
+
+
+# Safe numeric widenings BigQuery's `ALTER COLUMN ... SET DATA TYPE` accepts. Only used for the
+# staging path; see `_align_to_target`.
+_SAFE_WIDENING: dict[str, tuple[str, ...]] = {
+    "INT64": ("NUMERIC", "BIGNUMERIC", "FLOAT64"),
+    "NUMERIC": ("BIGNUMERIC", "FLOAT64"),
+}
 
 
 def _ddl_type(field: bigquery.SchemaField) -> str:
@@ -156,6 +184,16 @@ def _is_missing_permission(err: Exception) -> bool:
         return False
     message = str(err)
     return "does not have" in message and "permission" in message
+
+
+def _is_billing_not_enabled(err: Exception) -> bool:
+    """Whether Google refused a DML query because the project has no billing account.
+
+    e.g. "... 403 Billing has not been enabled for this project. ...; reason: billingNotEnabled,
+    ...". A free-tier project never gains the right to run DML on its own, so unlike a
+    quota-exceeded 403 this never recovers without the customer attaching a billing account.
+    """
+    return isinstance(err, Forbidden) and "reason: billingNotEnabled" in str(err)
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
@@ -241,6 +279,8 @@ class BigQueryDestinationWriter:
                 raise DestinationConfigurationError(self._ctx.destination_name, IMPERSONATION_DENIED_DETAIL) from err
             if _is_missing_permission(err):
                 raise DestinationConfigurationError(self._ctx.destination_name, MISSING_PERMISSION_DETAIL) from err
+            if _is_billing_not_enabled(err):
+                raise DestinationConfigurationError(self._ctx.destination_name, BILLING_NOT_ENABLED_DETAIL) from err
             raise
 
     def _table_ref(self, table: str) -> str:
@@ -353,9 +393,9 @@ class BigQueryDestinationWriter:
             # This run's staging table is gone and the live table carries this run's publish
             # label, so the run finished. Rebuilding a staging table from this one batch and
             # copying it over the live table would replace the whole table with it.
-            return BatchWriteOutcome(rows_written=0)
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
-        rows_written = 0
+        outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
         chunk = 0
 
         async for record_batch in batches:
@@ -363,17 +403,19 @@ class BigQueryDestinationWriter:
                 continue
             # One load job per record batch. Collecting the whole staged batch first would hold
             # ~200 MiB of Arrow plus its parquet copy in memory, per destination.
-            rows_written += await self._write_one(record_batch, ctx, chunk)
+            outcome += await self._write_one(record_batch, ctx, chunk)
             chunk += 1
 
-        return BatchWriteOutcome(rows_written=rows_written)
+        return outcome
 
-    async def _write_one(self, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int) -> int:
+    async def _write_one(
+        self, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int
+    ) -> BatchWriteOutcome:
         run = ctx.run
         full_refresh = run.is_full_refresh
         is_first_chunk = chunk == 0
 
-        def write() -> int:
+        def write() -> BatchWriteOutcome:
             client = self._get_client()
 
             if full_refresh:
@@ -391,17 +433,17 @@ class BigQueryDestinationWriter:
                 # a load job widen a column's existing type, so a batch sending a wider type
                 # than the target already has (e.g. a count turning into a fraction) fails the
                 # load outright on every retry without this.
-                table = self._align_to_target(table, target)
-            self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
+                table = self._align_to_target(client, table, target, target_ref)
+            bytes_written = self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
             if target is None:
                 self._mark_owned(client, target_ref)
-            return table.num_rows
+            return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
         return await sync_to_async(write, thread_sensitive=False)()
 
     def _write_full_refresh_chunk(
         self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, *, first_chunk: bool
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Append one chunk to the run's staging table, having cleared this batch's own rows.
 
         Every staged row carries the batch that wrote it, and the first chunk of a batch deletes
@@ -411,20 +453,35 @@ class BigQueryDestinationWriter:
         """
         staging = staging_table_name(ctx.run)
         staging_ref = self._table_ref(staging)
-        table = pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)])
+        table = _drop_null_columns(pa.Table.from_batches([stamp_batch_index(record_batch, ctx.batch_index)]))
+        staging_absent = False
 
         if first_chunk:
             staging_absent = self._claim_staging_table(client, staging_ref)
             if not staging_absent:
                 self._delete_batch_rows(client, staging, ctx.batch_index)
 
-            self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if staging_absent:
-                self._mark_owned(client, staging_ref)
-            return table.num_rows
+        if not staging_absent:
+            # The staging table spans the whole run, so every batch past the first lands here
+            # with a schema BigQuery already fixed from an earlier one. `ALLOW_FIELD_ADDITION`
+            # only covers a column new to this chunk; it does not let a column the table already
+            # has load as a different type (e.g. an integer column widening to a fraction),
+            # which fails the load outright on every retry without this.
+            try:
+                table = self._align_to_target(client, table, client.get_table(staging_ref), staging_ref, staging=True)
+            except DestinationConfigurationError:
+                # `abort_destinations` skips `abort_run` for a configuration error, on the
+                # contract that one is raised before anything is staged. This one is raised
+                # mid-run, after earlier batches already loaded into this staging table, so
+                # without deleting it here it is never cleaned up and sits in the customer's
+                # dataset under every run's own id, forever.
+                client.delete_table(staging_ref, not_found_ok=True)
+                raise
 
-        self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
-        return table.num_rows
+        bytes_written = self._load(client, staging, table, bigquery.WriteDisposition.WRITE_APPEND)
+        if first_chunk and staging_absent:
+            self._mark_owned(client, staging_ref)
+        return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
     def _delete_batch_rows(self, client: bigquery.Client, table: str, batch_index: int) -> None:
         client.query(
@@ -433,7 +490,7 @@ class BigQueryDestinationWriter:
 
     def _merge_chunk(
         self, client: bigquery.Client, record_batch: pa.RecordBatch, ctx: DestinationBatchContext, chunk: int
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert one chunk on the primary keys, staging it in a scratch table first."""
         run = ctx.run
         primary_keys = list(run.primary_keys)
@@ -445,9 +502,9 @@ class BigQueryDestinationWriter:
         target_ref = self._table_ref(run.table_name)
         target = self._owned_table(client, target_ref, "merge into it")
         if target is not None:
-            table = self._align_to_target(table, target)
+            table = self._align_to_target(client, table, target, target_ref)
 
-        self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
+        bytes_written = self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
         try:
             if target is None:
                 # `MERGE` fails outright against a target that does not exist, and an
@@ -461,24 +518,47 @@ class BigQueryDestinationWriter:
             self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
         finally:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
-        return table.num_rows
+        return BatchWriteOutcome(rows_written=table.num_rows, bytes_written=bytes_written)
 
-    def _align_to_target(self, table: pa.Table, target: bigquery.Table) -> pa.Table:
-        """Cast each column to the type the live table holds it as.
+    def _align_to_target(
+        self,
+        client: bigquery.Client,
+        table: pa.Table,
+        target: bigquery.Table,
+        target_ref: str,
+        *,
+        staging: bool = False,
+    ) -> pa.Table:
+        """Cast each column to the type `target` already holds it as.
 
-        The scratch table takes its schema from this chunk alone, but the live table keeps the
-        types of earlier runs. Upstream can send a column as text in one run, so without the cast
-        the `MERGE` fails on every retry. A value that cannot convert is a configuration error,
-        because only a change to the live table can let the chunk merge.
+        `target` is the live table for the append and merge paths, and the run's own staging
+        table for a full refresh. Either way it takes its types from data this chunk does not
+        carry, so upstream can send a column as a different type than it already settled on,
+        and without the cast the load fails on every retry. For the staging path, a numeric
+        column the incoming value only widens (e.g. an integer column that later sends a
+        fraction) widens the staging table's own column instead, since nothing outside this run
+        reads it yet. A value that cannot convert or widen is a configuration error: a
+        live-table mismatch needs a change to the live table, and a staging-table mismatch needs
+        the source to send one type for the column for the whole run, since the staging table is
+        rebuilt fresh on the next run either way.
         """
         for field in target.schema:
             if field.name not in table.schema.names or field.mode == "REPEATED":
                 continue
             target_type = _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
-            arrow_type = _ARROW_TYPE_FOR_BIGQUERY_TYPE.get(target_type)
             index = table.schema.get_field_index(field.name)
             column = table.column(index)
-            if arrow_type is None or _bigquery_type_of(column.type) == target_type:
+            incoming_type = _bigquery_type_of(column.type)
+            if incoming_type == target_type:
+                continue
+            if staging and incoming_type in _SAFE_WIDENING.get(target_type, ()):
+                client.query(
+                    f"ALTER TABLE {_backtick(target_ref)} ALTER COLUMN {_backtick(field.name)} "
+                    f"SET DATA TYPE {incoming_type}"
+                ).result()
+                continue
+            arrow_type = _ARROW_TYPE_FOR_BIGQUERY_TYPE.get(target_type)
+            if arrow_type is None:
                 continue
             try:
                 cast = pc.cast(column, arrow_type)
@@ -489,12 +569,19 @@ class BigQueryDestinationWriter:
                 if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
                     raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
             except pa.ArrowException as err:
-                raise DestinationConfigurationError(
-                    self._ctx.destination_name,
-                    f"The column {field.name} in {self._table_ref(self._ctx.table_name)} is {target_type}, but this "
-                    f"sync sent values that cannot convert to {target_type}. Change the column type in BigQuery to "
-                    "match the source, then run the sync again.",
-                ) from err
+                if staging:
+                    detail = (
+                        f"An earlier batch syncing {self._ctx.table_name} loaded the column {field.name} as "
+                        f"{target_type}, but a later batch sent a value that cannot convert to {target_type}. Fix "
+                        f"the source so {field.name} sends one type for the whole sync, then run the sync again."
+                    )
+                else:
+                    detail = (
+                        f"The column {field.name} in {self._table_ref(self._ctx.table_name)} is {target_type}, "
+                        f"but this sync sent values that cannot convert to {target_type}. Change the column type "
+                        "in BigQuery to match the source, then run the sync again."
+                    )
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
             table = table.set_column(index, pa.field(field.name, arrow_type), cast)
         return table
 
@@ -528,15 +615,27 @@ class BigQueryDestinationWriter:
         """Create an empty table carrying another table's schema."""
         client.create_table(bigquery.Table(table_ref, schema=client.get_table(self._table_ref(model)).schema))
 
-    def _load(self, client: bigquery.Client, table: str, data: pa.Table, disposition: str) -> None:
-        """Load an Arrow table as parquet, letting BigQuery derive and evolve the schema."""
+    def _load(self, client: bigquery.Client, table: str, data: pa.Table, disposition: str) -> int:
+        """Load an Arrow table as parquet, letting BigQuery derive and evolve the schema.
+
+        Returns the size of the parquet file uploaded, which is the egress for the load.
+        """
         buffer = io.BytesIO()
         pq.write_table(data, buffer)
         buffer.seek(0)
+        file_size = buffer.getbuffer().nbytes
         job_config = bigquery.LoadJobConfig(
             source_format=bigquery.SourceFormat.PARQUET,
             write_disposition=disposition,
             autodetect=True,
+            # Without this, autodetect only ever offers NUMERIC (precision 38, scale 9) for a
+            # parquet decimal column, and a source decimal wider than that — a decimal128 with a
+            # scale above 9 is a common shape — fails the load outright instead of landing as
+            # BIGNUMERIC.
+            decimal_target_types=[
+                bigquery.enums.DecimalTargetType.NUMERIC,
+                bigquery.enums.DecimalTargetType.BIGNUMERIC,
+            ],
         )
         if disposition == bigquery.WriteDisposition.WRITE_APPEND:
             # Additive evolution: a column the source grew is added rather than rejected.
@@ -544,6 +643,7 @@ class BigQueryDestinationWriter:
             # outright and so has nothing to evolve.
             job_config.schema_update_options = [bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
         client.load_table_from_file(buffer, self._table_ref(table), job_config=job_config).result()
+        return file_size
 
     def _merge(
         self, client: bigquery.Client, target: str, source: str, column_names: list[str], primary_keys: list[str]

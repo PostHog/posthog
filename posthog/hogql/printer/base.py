@@ -19,7 +19,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import AmbiguousFieldError, ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.functions.core import validate_function_args
@@ -560,6 +560,15 @@ class BasePrinter(Visitor[str]):
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
         return None
 
+    def _flag_evaluations_coverage_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor scans of `posthog.flag_evaluations` to its coverage start. The ClickHouse dialect overrides it. The
+        default is a no-op, because only that dialect reads the table."""
+        return None
+
     def _postgres_retention_floor(
         self,
         table_type: ast.TableType | ast.LazyTableType,
@@ -640,6 +649,9 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+            coverage_floor = self._flag_evaluations_coverage_floor(table_type, node.type)
+            if coverage_floor is not None:
+                predicate_exprs = [*predicate_exprs, coverage_floor]
             postgres_floor = self._postgres_retention_floor(table_type, node.type)
             if postgres_floor is not None:
                 predicate_exprs = [*predicate_exprs, postgres_floor]
@@ -1262,7 +1274,7 @@ class BasePrinter(Visitor[str]):
                 if last_select and last_select.type
                 else None
             )
-        except ResolutionError:
+        except (AmbiguousFieldError, ResolutionError):
             # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
             name_resolution_ambiguous = True

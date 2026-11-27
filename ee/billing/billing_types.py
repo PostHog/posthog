@@ -201,6 +201,8 @@ class ProductFeature(TypedDict):
 
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
+    # Whether a partner pays for the organization, as of the status's computed_at. Older billing omits it.
+    paid_by_partner: NotRequired[bool]
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]
@@ -269,3 +271,20 @@ class Product(TypedDict, total=False):
     inclusion_only: bool
     features: Optional[list[ProductBaseFeature]]
     headline: Optional[str]
+
+
+class BillingLimit(TypedDict):
+    organization_id: str
+    resource: str
+    # Dollar amounts, as decimal strings.
+    usage: str
+    limit: str
+    over_limit: bool
+    enforced: bool
+    grace_expiry: str | None
+    never_drop_data: bool
+
+
+class BillingLimits(TypedDict):
+    usage_through: str | None
+    limits: list[BillingLimit]

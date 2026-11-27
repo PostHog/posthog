@@ -201,6 +201,45 @@ class TestFanOut:
         assert isinstance(result.raised, KeyError)
 
 
+class TestPerResourceType:
+    def test_reads_each_resource_type_and_tags_rows(self) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run(
+            "custom_fields",
+            route(
+                {
+                    "/v2/lead/custom_fields": [_response(_envelope([{"id": 1, "name": "Budget"}], next_page=None))],
+                    "/v2/contact/custom_fields": [_response(_envelope([], next_page=None))],
+                    "/v2/deal/custom_fields": [_response({"errors": []}, status=404)],
+                    "/v2/prospect_and_customer/custom_fields": [
+                        _response(_envelope([{"id": 1, "name": "Tier"}, {"id": 2, "name": "Region"}], next_page=None))
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # Ids can repeat across resource types, so each row carries the type it was read for.
+        assert result.rows == [
+            {"id": 1, "name": "Budget", "resource_type": "lead"},
+            {"id": 1, "name": "Tier", "resource_type": "prospect_and_customer"},
+            {"id": 2, "name": "Region", "resource_type": "prospect_and_customer"},
+        ]
+        assert result.paths == [
+            "/v2/lead/custom_fields",
+            "/v2/contact/custom_fields",
+            "/v2/deal/custom_fields",
+            "/v2/prospect_and_customer/custom_fields",
+        ]
+
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_errors_still_raise(self, _name: str, status: int) -> None:
+        driver = SourceDriver(ZendeskSellSource(), ZendeskSellSourceConfig(access_token="token"))
+        result = driver.run("custom_fields", always(_response({}, status=status)))
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_retry_then_raise(self, _name: str, status: int) -> None:

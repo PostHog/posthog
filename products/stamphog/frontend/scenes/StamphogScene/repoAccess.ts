@@ -10,17 +10,19 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 // has loaded yet, which sends the check back to the app context, so a team with no rows can still
 // add its first repository.
 export function managerDisabledReason(level: AccessControlLevel | undefined): string | null {
-    return getAccessControlDisabledReason(
+    const reason = getAccessControlDisabledReason(
         AccessControlResourceType.CodeReviewApproval,
         AccessControlLevel.Manager,
         level
     )
+    return reason ? 'Only auto-approval managers can change this' : null
 }
 
 export function editorDisabledReason(level: AccessControlLevel | undefined): string | null {
-    return getAccessControlDisabledReason(
+    const reason = getAccessControlDisabledReason(
         AccessControlResourceType.CodeReviewApproval,
         AccessControlLevel.Editor,
         level
     )
+    return reason ? 'Only auto-approval editors and managers can change this' : null
 }

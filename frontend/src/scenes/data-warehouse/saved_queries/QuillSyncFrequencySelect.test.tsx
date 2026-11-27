@@ -19,7 +19,7 @@ function boundsWithPlanFloorAt6Hours(): SyncFrequencyBoundsApi {
             speeds_up_withheld: false,
         })),
         floor: null,
-        plan_floor: { label: '6 hours', blocker: null },
+        plan_floor: { label: '6 hours', blocker: null, pinned: false },
         ceiling: null,
         best_effort_sources: [],
         best_effort_sources_withheld: false,

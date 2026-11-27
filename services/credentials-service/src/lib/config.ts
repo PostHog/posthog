@@ -71,8 +71,6 @@ export interface AuditExportConfig {
     proxyUrl?: string
 }
 
-export const MAX_AUDIT_RETENTION_DAYS = 60
-
 export interface Config {
     port: number
     host: string
@@ -221,6 +219,7 @@ export interface MigrateConfig {
     url: string
     /** Empty in single-role local development: the grants are then skipped. */
     runtimeRole: string
+    partmanOptional: boolean
 }
 
 /** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
@@ -233,7 +232,7 @@ export function loadMigrateConfig(): MigrateConfig | undefined {
     if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
         throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
     }
-    return { url, runtimeRole }
+    return { url, runtimeRole, partmanOptional: process.env.CREDENTIALS_SERVICE_PARTMAN_OPTIONAL === 'true' }
 }
 
 function auditExportFromEnv(): AuditExportConfig | undefined {
@@ -333,31 +332,6 @@ function httpUrlFromEnv(key: string, raw: string): string {
     return raw
 }
 
-/** What the maintenance command needs. It connects as the migrate role, never as the runtime role. */
-export interface MaintenanceConfig {
-    url: string
-    retentionDays: number
-    /** Delete rows that were never exported. Off by default, so an export that is off keeps its rows. */
-    deleteUnexported: boolean
-}
-
-/** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
-export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
-    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
-    if (!url) {
-        return undefined
-    }
-    const retentionDays = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
-    if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
-        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
-    }
-    return {
-        url,
-        retentionDays,
-        deleteUnexported: process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED === 'true',
-    }
-}
-
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -383,6 +357,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
 
     const database = loadDatabaseConfig()
     if (database) {
+        if (['dev', 'prod-us', 'prod-eu'].includes(config.env) && !auditExport) {
+            throw new Error(
+                'audit export must be on wherever the integrations database is on because retention drops unexported rows'
+            )
+        }
         config.database = database
     }
 

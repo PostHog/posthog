@@ -182,7 +182,7 @@ export const getIntegrationNameFromKind = (kind: string): string => {
         case 'email':
             return 'email'
         case 'email_sandbox':
-            return 'sandbox email'
+            return 'PostHog test sender'
         case 'github':
             return 'GitHub'
         case 'helpscout':

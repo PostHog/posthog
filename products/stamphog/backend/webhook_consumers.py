@@ -4,6 +4,7 @@ The registry imports this module on the first delivery, so it stays cheap: the h
 the task import, which drags the GitHub and Temporal clients in.
 """
 
+from collections.abc import Mapping
 from typing import Any, cast
 
 from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
@@ -25,8 +26,16 @@ def _run_review(delivery: WebhookDelivery) -> None:
     cast(Any, task).delay(payload=dict(delivery.payload), delivery_id=delivery.delivery_id or "")
 
 
+def _changes_routing(payload: Mapping[str, Any]) -> bool:
+    action = payload.get("action")
+    if action in ROUTING_ACTIONS or action == "synchronize":
+        return True
+    # A base retarget, which changes the diff an attestation proved.
+    return action == "edited" and bool((payload.get("changes") or {}).get("base"))
+
+
 def _route_reviewers(delivery: WebhookDelivery) -> None:
-    if delivery.payload.get("action") not in ROUTING_ACTIONS:
+    if not _changes_routing(delivery.payload):
         return
     from products.stamphog.backend.facade.tasks import (  # noqa: PLC0415 - keeps the GitHub and Temporal clients off the registry's import path
         route_pull_request_reviewers,

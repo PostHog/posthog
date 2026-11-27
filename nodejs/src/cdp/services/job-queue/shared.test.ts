@@ -499,7 +499,8 @@ describe('integration input references', () => {
 })
 
 describe('transactional send sealing', () => {
-    const keys = new EncryptedFields(ENCRYPTION_SALT_KEYS)
+    const CDP_SEALED_STATE_KEYS = '00feed0000feed0000feed0000feed00'
+    const keys = new EncryptedFields(CDP_SEALED_STATE_KEYS)
     const CODE = 'fake-login-code-482913'
     const send = (event: string): CyclotronJobInvocation => ({
         id: '019a4f3e-7c1d-7000-8000-00000000c0de',
@@ -520,7 +521,7 @@ describe('transactional send sealing', () => {
         createInvocationSanitizer(
             {
                 CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: sealing,
+                CDP_SEALED_STATE_KEYS: sealing ? CDP_SEALED_STATE_KEYS : '',
                 ENCRYPTION_SALT_KEYS,
             },
             { isEnabled: () => false }
@@ -545,6 +546,19 @@ describe('transactional send sealing', () => {
         expect(bytes).not.toContain('ada@example.com')
         expect(bytes).toContain('"acceptedAt":"2026-11-17T10:00:00.000Z"')
         expect([read.state, read.queueParameters]).toEqual([invocation.state, invocation.queueParameters])
+        expect(openSealedState(parseJSON(bytes), invocation, new EncryptedFields(ENCRYPTION_SALT_KEYS))).toMatchObject({
+            stateUnreadable: true,
+        })
+    })
+
+    it.each([undefined, ',,'])('leaves a send unsealed without a key of its own (%p)', (CDP_SEALED_STATE_KEYS) => {
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            CDP_SEALED_STATE_KEYS,
+            ENCRYPTION_SALT_KEYS,
+        })
+        const invocation = send('$transactional_email')
+        expect(sanitizer.seal(invocation)).toBe(invocation)
     })
 
     it.each([

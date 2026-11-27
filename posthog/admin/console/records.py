@@ -3,7 +3,9 @@ from typing import ClassVar
 from django.db.models import Model, QuerySet
 from django.urls import reverse
 
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.dataclasses import frozen
+from posthog.helpers.impersonation import Impersonation
 from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
@@ -20,8 +22,6 @@ class RecordLink:
     label: str
     href: str
     title: str = ""
-    # Query parameters of the current page that the link passes on, for example a support ticket.
-    keep_query: tuple[str, ...] = ()
 
 
 class RecordType:
@@ -52,7 +52,7 @@ class RecordType:
         return []
 
     def links(self, obj: Model) -> list[RecordLink]:
-        """Buttons in the page header that leave the console, for example to the raw row in Django admin."""
+        """Buttons in the page header, for example to the raw row in Django admin."""
         return []
 
     @property
@@ -172,16 +172,27 @@ class UserRecord(RecordType):
         return f"{obj.first_name} {obj.last_name}".strip()
 
     def links(self, obj: Model) -> list[RecordLink]:
-        # No "Log in as user" here: impersonation stays in Django admin, which asks for the reason it logs and
-        # prefills it from the support ticket.
-        return [
+        assert isinstance(obj, User)
+        links = []
+        # The most used staff action on a user, so it sits in the header and not in a panel further down.
+        if Impersonation.refusal(obj) is None:
+            links.append(
+                RecordLink(
+                    label="Log in as user",
+                    href=reverse(
+                        self.operation_url_name,
+                        kwargs={"pk": obj.pk, "panel_key": "log-in-as", "operation_key": "log-in"},
+                    ),
+                )
+            )
+        links.append(
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_user_change", args=[obj.pk]),
-                title="The raw User row, with every field, and Log in as user",
-                keep_query=(SUPPORT_TICKET_PARAM,),
-            ),
-        ]
+                title="The raw User row, with every field",
+            )
+        )
+        return links
 
 
 def request_type_label(obj: DataDeletionRequest) -> str:
@@ -216,13 +227,20 @@ class DeletionRequestRecord(RecordType):
         return [*TeamRecord().parents(team), RecordLink(label=team.name, href=TeamRecord().url(team))]
 
     def links(self, obj: Model) -> list[RecordLink]:
-        return [
+        assert isinstance(obj, DataDeletionRequest)
+        links = [
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]),
                 title="The raw request, with every field",
             ),
         ]
+        run_url = dagster_run_url(obj.last_dagster_run_id) if obj.last_dagster_run_id else None
+        if run_url is not None:
+            links.append(
+                RecordLink(label="Last run in Dagster", href=run_url, title="The latest deletion run of this request")
+            )
+        return links
 
 
 class OAuthApplicationRecord(RecordType):

@@ -160,10 +160,7 @@ export function DashboardEmbeddedShareButton({
     dashboard: DashboardType | null
     placement: DashboardPlacement
 }): JSX.Element | null {
-    if (
-        !dashboard?.is_shared ||
-        ![DashboardPlacement.ProjectHomepage, DashboardPlacement.Builtin].includes(placement)
-    ) {
+    if (!dashboard?.is_shared || placement !== DashboardPlacement.Builtin) {
         return null
     }
 

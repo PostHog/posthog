@@ -14,6 +14,7 @@ import {
 } from './emailDocument'
 import { buildEmailExtensions } from './emailExtensions'
 import { parseLiquidOutput } from './emailVariables'
+import { isTextOfHtml } from './htmlToEmailText'
 import { renderEmailHtml } from './renderEmailHtml'
 
 const UNSUPPORTED_CONTENT: Record<string, string> = {
@@ -393,7 +394,11 @@ function lineHeightPercent(value: string | undefined, fontSize: number): number 
         return undefined
     }
     const number = parseFloat(value)
-    return value.endsWith('%') ? number : value.endsWith('px') ? (number / fontSize) * 100 : number * 100
+    return value.endsWith('%')
+        ? number
+        : value.endsWith('px')
+          ? (number / fontSize) * 100
+          : Math.round(number * 10000) / 100
 }
 
 /**
@@ -559,6 +564,28 @@ function uniformBorder(
         return null
     }
     return { borderWidth: widths[0], borderColor: [...colors][0] }
+}
+
+/** A button's border. Unlike a column's, its sides can differ in width, as on a button with a thicker bottom edge. */
+function buttonBorder(
+    border: Record<string, any> | undefined,
+    unsupported: Set<string>
+): Pick<EmailBlockStyle, 'borderWidth' | 'borderSides' | 'borderColor'> | null {
+    const widths = BORDER_SIDES.map((side) =>
+        border?.[`border${side}Style`] === 'none' ? 0 : (parsePx(border?.[`border${side}Width`]) ?? 0)
+    )
+    if (new Set(widths).size === 1) {
+        return uniformBorder(border, unsupported, 'buttons with a border on only some sides')
+    }
+    const drawn = BORDER_SIDES.filter((_, index) => widths[index] > 0)
+    const colors = new Set(drawn.map((side) => border?.[`border${side}Color`]))
+    const styles = new Set(drawn.map((side) => border?.[`border${side}Style`] ?? 'solid'))
+    if (colors.size > 1 || styles.size > 1 || !styles.has('solid')) {
+        unsupported.add('buttons with a border on only some sides')
+        return null
+    }
+    const [top, right, bottom, left] = widths
+    return { borderSides: { top, right, bottom, left }, borderColor: [...colors][0] }
 }
 
 function fontStyleFrom(values: Record<string, any>): Pick<EmailBlockStyle, 'fontFamily' | 'fontUrl'> {
@@ -1093,7 +1120,7 @@ function convertContentBlocksWithoutPhone(
                                     ? colors.hoverColor || undefined
                                     : undefined,
                             ...fontStyleFrom(values),
-                            ...uniformBorder(values.border, unsupported, 'buttons with a border on only some sides'),
+                            ...buttonBorder(values.border, unsupported),
                             buttonWidth:
                                 values.size?.autoWidth === false ? (parsePx(values.size?.width) ?? 100) : undefined,
                             fontSize,
@@ -1295,13 +1322,16 @@ function hasOldRowMarkup(node: JSONContent): boolean {
 const HTML_WRAP_BODY_ID = 'html-wrap-body'
 
 /** The whole email as one HTML block, sent exactly as the old editor exported it. */
-function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentConversion {
+function wholeEmailAsHtml(storedHtml: string, reasons: string[], ownPlainText = false): EmailDocumentConversion {
     return {
         document: {
             version: EMAIL_DOCUMENT_VERSION,
             doc: {
                 type: 'doc',
-                attrs: { page: { oldEditorStyles: true, htmlAsWritten: true } },
+                attrs: {
+                    page: { oldEditorStyles: true, htmlAsWritten: true },
+                    ...(ownPlainText ? { ownPlainText } : {}),
+                },
                 content: [{ type: 'emailHtml', attrs: { html: storedHtml.trim(), emailStyle: null } }],
             },
         },
@@ -1314,10 +1344,12 @@ function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentC
 /**
  * Builds a document from an old-editor design. A row the new editor can't rebuild keeps the old editor's own html for
  * it, so every email converts and sends the same. Nothing is saved until a person accepts the result.
+ * `textFromOutside` is plain text that came with the html, and edits leave it alone unless it only repeats the html.
  */
 export function unlayerToEmailDocument(
     design: Record<string, any> | null | undefined,
-    storedHtml?: string | null
+    storedHtml?: string | null,
+    textFromOutside?: string
 ): EmailDocumentConversion {
     const body = design?.body
     if (!body && !storedHtml?.trim()) {
@@ -1341,7 +1373,7 @@ export function unlayerToEmailDocument(
         contents[0].type === 'html' &&
         storedHtml?.trim()
     ) {
-        return wholeEmailAsHtml(storedHtml, [])
+        return wholeEmailAsHtml(storedHtml, [], !!textFromOutside && !isTextOfHtml(textFromOutside, storedHtml))
     }
     if (!body || !Array.isArray(body.rows)) {
         return storedHtml?.trim()

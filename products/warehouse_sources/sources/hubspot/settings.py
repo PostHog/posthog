@@ -41,6 +41,10 @@ LEADS_SCOPE = "crm.objects.leads.read"
 # Forecasts need Sales or Service Hub Professional+, and existing connections lack both scopes.
 FORECASTS_SCOPE = "crm.objects.forecasts.read"
 CONVERSATIONS_SCOPE = "conversations.read"
+USERS_SCOPE = "crm.objects.users.read"
+TEAMS_SCOPE = "settings.users.teams.read"
+# Marketing Hub Professional+ only.
+MARKETING_CAMPAIGNS_SCOPE = "marketing.campaigns.read"
 
 CONTACT = "contact"
 COMPANY = "company"
@@ -107,12 +111,15 @@ ENDPOINTS = (
     "subscriptions",
     "commerce_payments",
     "forecasts",
+    "users",
     # Tables that are not CRM objects (see HUBSPOT_METADATA_ENDPOINTS).
     "pipelines",
     "pipeline_stages",
     "properties",
     "owners",
     "conversation_threads",
+    "teams",
+    "marketing_campaigns",
 )
 
 # CRM search API constants — shared between windowing and pagination logic
@@ -247,6 +254,7 @@ DEFAULT_PROPS = {
     "subscriptions": BASE_OBJECT_PROPS,
     "commerce_payments": BASE_OBJECT_PROPS,
     "forecasts": BASE_OBJECT_PROPS,
+    "users": BASE_OBJECT_PROPS,
 }
 
 
@@ -469,6 +477,17 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         required_scope=FORECASTS_SCOPE,
         discover_all_properties=True,
     ),
+    # HubSpot users as a CRM object: every seat, not only the users who own records (owners).
+    "users": HubspotEndpointConfig(
+        name="users",
+        path="/crm/v3/objects/users",
+        associations=[],
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+        should_sync_default=False,
+        required_scope=USERS_SCOPE,
+        discover_all_properties=True,
+    ),
 }
 
 
@@ -485,6 +504,25 @@ class HubspotMetadataEndpointConfig:
     should_sync_default: bool = True
     required_scope: Optional[str] = None
 
+
+# The campaign list returns only the properties it is asked for. These are the ones HubSpot documents.
+CAMPAIGN_PROPERTIES = [
+    "hs_object_id",
+    "hs_name",
+    "hs_campaign_status",
+    "hs_start_date",
+    "hs_end_date",
+    "hs_notes",
+    "hs_audience",
+    "hs_goal",
+    "hs_owner",
+    "hs_currency_code",
+    "hs_budget_items_sum_amount",
+    "hs_spend_items_sum_amount",
+    "hs_color_hex",
+    "hs_utm",
+    "hs_created_by_user_id",
+]
 
 # Object types whose pipelines HubSpot documents. Both read with scopes existing connections hold
 # (crm.objects.deals.read / tickets); anything a portal hasn't enabled is skipped on 403/404.
@@ -598,6 +636,21 @@ HUBSPOT_METADATA_ENDPOINTS: dict[str, HubspotMetadataEndpointConfig] = {
         should_sync_default=False,
         required_scope=CONVERSATIONS_SCOPE,
     ),
+    # Membership comes as the `userIds` and `secondaryUserIds` arrays on each team.
+    "teams": HubspotMetadataEndpointConfig(
+        name="teams",
+        primary_keys=["id"],
+        columns=["id", "name", "userIds", "secondaryUserIds"],
+        should_sync_default=False,
+        required_scope=TEAMS_SCOPE,
+    ),
+    "marketing_campaigns": HubspotMetadataEndpointConfig(
+        name="marketing_campaigns",
+        primary_keys=["id"],
+        columns=["id", "createdAt", "updatedAt", "businessUnits", *CAMPAIGN_PROPERTIES],
+        should_sync_default=False,
+        required_scope=MARKETING_CAMPAIGNS_SCOPE,
+    ),
 }
 
 
@@ -607,3 +660,19 @@ def conversation_threads_path(api_version: str) -> str:
     if api_version == HUBSPOT_API_VERSION_2026_09:
         return f"/conversations/conversations/{api_version}/threads"
     return "/conversations/v3/conversations/threads"
+
+
+def teams_path(api_version: str) -> str:
+    """Teams come from the User Provisioning API, whose 2026-09 release is a public beta, so a
+    2026-09 pin reads the stable 2026-03 release."""
+    if api_version == HUBSPOT_API_VERSION_V3:
+        return "/settings/v3/users/teams"
+    return f"/settings/users/{HUBSPOT_API_VERSION_2026_03}/teams"
+
+
+def marketing_campaigns_path(api_version: str) -> str:
+    """The 2026-09 Campaigns release is a public beta, so a 2026-09 pin reads the stable 2026-03
+    release."""
+    if api_version == HUBSPOT_API_VERSION_V3:
+        return "/marketing/v3/campaigns"
+    return f"/marketing/campaigns/{HUBSPOT_API_VERSION_2026_03}"

@@ -383,6 +383,7 @@ class TestPollForTurnStaleSalvage:
             ),
             ("sandbox_output", [_console_line("npm install ...", method="_posthog/sandbox_output")]),
             ("setup_progress", [_console_line("cloning repo", method="_posthog/progress")]),
+            ("session_log_gap", [_console_line("", method="_posthog/session_log_gap")]),
         ]
     )
     async def test_salvages_dropped_finalization_despite_trailing_console_lines(self, _name, trailing):
@@ -1261,6 +1262,7 @@ class TestExtractAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_rate_limited", "Rate limit reached"),
             ("upstream_connection_error", "API Error: Connection error"),
             ("upstream_stream_terminated", "API Error: terminated"),
             ("agent_error", "Something broke inside the agent"),
@@ -1381,6 +1383,7 @@ class TestPollForTurnSurfacesAgentError:
     @parameterized.expand(
         [
             ("upstream_provider_failure", "API Error: 429 rate_limit_error", True),
+            ("upstream_rate_limited", "Rate limit reached", True),
             ("upstream_connection_error", "API Error: Connection error", True),
             ("upstream_stream_terminated", "API Error: terminated", True),
             ("upstream_timeout", "API Error: Request timed out", True),

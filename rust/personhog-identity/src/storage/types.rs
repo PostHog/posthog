@@ -12,6 +12,13 @@ pub struct PersonStub {
     pub is_identified: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PersonAttach {
+    pub team_id: i64,
+    pub person_id: i64,
+    pub distinct_ids: Vec<String>,
+}
+
 /// Per-distinct-id outcome of an attach call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachOutcome {

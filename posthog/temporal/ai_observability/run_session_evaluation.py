@@ -44,6 +44,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.facade.evaluation_runtime import (
     JUDGE_SESSION_MAX_CHARS,
+    ai_events_retention_days,
     build_hog_event_global,
     execute_hog_eval_bytecode,
     extract_event_io,
@@ -61,6 +62,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     llm_trace_to_formatter_format,
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
+from products.ai_observability.backend.text_repr.formatters.repeated_input import RepeatedInputHistory
 
 # Floor so a session with many traces still renders each one readably instead of one line each.
 _MIN_TRACE_CHARS_IN_SESSION = 2_000
@@ -95,13 +97,6 @@ _SESSION_SKIP_REASONING = {
         "or you can evaluate each trace instead."
     ),
 }
-
-# Mirrors `ai_events.retention_days`, whose DEFAULT 30 nothing currently overrides — the column
-# exists for per-row retention that no ingestion path writes yet. Keep them in step: if retention
-# ever becomes longer than this, the fetch would stop at 30 days and grade a session on its tail
-# with no way to notice, because events past their drop_date are deleted and leave nothing to
-# count. That case is undetectable from here by construction, which is why the constant matters.
-AI_EVENTS_RETENTION_DAYS = 30
 
 # Must select exactly the rows `SessionQueryRunner` will read, or the cap it gates bounds nothing.
 # Two ways the fetch is wider than a naive `session_id = X` count, both deliberate over there:
@@ -254,7 +249,9 @@ def fetch_session_for_evaluation(
     window is chosen.
     """
     team = Team.objects.get(id=team_id)
-    retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
+    # The floor must reach as far back as the team's rows can. A shorter one would grade a session on its tail
+    # with no way to notice, because events past their drop_date are deleted and leave nothing to count.
+    retention_floor = window_start - timedelta(days=ai_events_retention_days(team_id))
     date_to = window_end or datetime.now(UTC)
 
     preflight = _count_session_events(team, session_id, retention_floor, date_to, user=user)
@@ -386,6 +383,11 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
+        if preserve_generation_output:
+            # One history for the whole session, so a chat that resends its history in every trace shows it once.
+            # The last pass samples lines anywhere, so it renders every message to keep no reference whose
+            # message the sample dropped.
+            options["repeated_input_history"] = RepeatedInputHistory()
         if media_marker is not None:
             # One marker for the whole session, so an image repeated across traces is attached once.
             options["media_marker"] = media_marker

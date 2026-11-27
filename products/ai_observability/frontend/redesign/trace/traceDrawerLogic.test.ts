@@ -132,6 +132,36 @@ describe('traceDrawerLogic', () => {
         expect(logic.values).toMatchObject({ position: null, previousTrace: null, nextTrace: null })
     })
 
+    it.each([
+        ['traces', [A, B], false, true],
+        ['traces', [A], false, false],
+        ['traces', [A], true, true],
+    ] as const)(
+        'tells the %s host whether it can step traces with %j and rows before: %s',
+        (listId, rows, rowsBefore, expected) => {
+            setUp({ listId })
+            logic.actions.setRows([...rows])
+            logic.actions.setRowsBefore(rowsBefore)
+            logic.actions.openRow(A)
+
+            expect(host.values.canStepTraces).toBe(expected)
+        }
+    )
+
+    it.each([
+        ['every row', false, false, 2],
+        ['not the rows before', true, false, null],
+        ['not the rows after', false, true, null],
+    ])('counts a total when the list has given %s', (_name, rowsBefore, rowsAfter, total) => {
+        setUp()
+        logic.actions.setRows([A, B])
+        logic.actions.setRowsBefore(rowsBefore)
+        logic.actions.setRowsAfter(rowsAfter)
+        logic.actions.openRow(B)
+
+        expect(logic.values.position).toEqual({ index: 1, total })
+    })
+
     it('does nothing when stepping past either end', () => {
         setUp()
         logic.actions.setRows([A])
@@ -204,8 +234,9 @@ describe('traceDrawerLogic', () => {
         [
             'cluster-traces',
             urls.aiObservabilityCluster('run-1', 3),
-            { mode: 'spans', detailTab: 'messages', openingMode: 'summary' },
+            { mode: 'thread', detailTab: 'messages', openingMode: 'thread' },
         ],
+        ['clusters', urls.aiObservabilityClusters(), { mode: 'thread', detailTab: 'messages', openingMode: 'thread' }],
     ])('opens %s with its own opening, and keeps what the person changed when stepping', (listId, url, opening) => {
         setUp({ url, listId })
         host.actions.setMode('thread')
@@ -546,7 +577,8 @@ describe('traceDrawerLogic', () => {
 
     it.each<[TraceDrawerListId, string, string]>([
         ['evaluation-runs', urls.aiObservabilityEvaluation('e1'), 'evals'],
-        ['cluster-traces', urls.aiObservabilityCluster('run-1', 3), 'summary'],
+        ['cluster-traces', urls.aiObservabilityCluster('run-1', 3), 'thread'],
+        ['clusters', urls.aiObservabilityClusters(), 'thread'],
     ])('links to the full page of %s on the view it opened', (listId, path, tab) => {
         setUp({ url: `${path}?tab=stale&trace=a&step=x`, listId })
 

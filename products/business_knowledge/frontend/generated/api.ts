@@ -32,6 +32,7 @@ import type {
     KnowledgeKeyCreateApi,
     KnowledgeLibraryApi,
     KnowledgeLibraryCreateApi,
+    KnowledgeSearchRequestApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     KnowledgeUsageApi,
@@ -157,6 +158,27 @@ export const businessKnowledgeDocumentsSearchList = async (
     return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeDocumentsSearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/documents/search/`
+}
+
+/**
+ * The same search as the GET form. The query travels in the request body, so it does not appear in request URLs or in the logs that record them.
+ * @summary Search business knowledge with the query in the request body
+ */
+export const businessKnowledgeDocumentsSearchCreate = async (
+    projectId: string,
+    knowledgeSearchRequestApi: KnowledgeSearchRequestApi,
+    options?: RequestInit
+): Promise<KnowledgeSearchResultApi[]> => {
+    return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(knowledgeSearchRequestApi),
     })
 }
 
@@ -313,8 +335,8 @@ export const getBusinessKnowledgeKeysCreateUrl = (projectId: string) => {
 }
 
 /**
- * Creates a project secret API key with the business_knowledge:read scope, limited to one library. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
- * @summary Create a key that reads one business knowledge library
+ * Creates a project secret API key with the business_knowledge:read scope. The key reads one library, or all business knowledge in the project when library_id is null. The response is the only place the key value appears. Delete or roll the key through the project secret API keys endpoint.
+ * @summary Create a key that reads business knowledge
  */
 export const businessKnowledgeKeysCreate = async (
     projectId: string,
@@ -985,7 +1007,7 @@ export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
 }
 
 /**
- * How much support agent runs cited the project's knowledge sources over a period.
+ * Usage of the project's knowledge over a period: chunks ingested, searches, and how often support agent runs cited the sources.
  */
 export const businessKnowledgeSourcesUsageRetrieve = async (
     projectId: string,

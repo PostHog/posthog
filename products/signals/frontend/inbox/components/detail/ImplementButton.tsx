@@ -9,11 +9,13 @@ import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelper
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
+import { type ReportTaskEntry, TERMINAL_RUN_STATUSES } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
@@ -23,7 +25,6 @@ import { ReportGithubConnection } from './ReportGithubConnection'
 interface ImplementButtonProps {
     report: SignalReport
     surface?: 'detail_pane' | 'triage_mode'
-    position?: 'body' | 'header'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
@@ -33,13 +34,13 @@ interface ImplementButtonProps {
 export function ImplementButton({
     report,
     surface = 'detail_pane',
-    position = 'body',
     implementationDisabledReason,
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
 }: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { user } = useValues(userLogic)
     const {
         disabledReason: githubDisabledReason,
         repairNeeded,
@@ -47,6 +48,7 @@ export function ImplementButton({
         failed: githubCheckFailed,
         loading: githubCheckLoading,
         repositoryRequired,
+        repositorySelectionRequests,
         repositoryIntegrationId,
         selectedRepository,
         githubIntegrations,
@@ -66,10 +68,10 @@ export function ImplementButton({
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
     useEffect(() => {
-        if (repositoryRequired) {
+        if (repositorySelectionRequests > 0) {
             setChoicesOpen(true)
         }
-    }, [repositoryRequired])
+    }, [repositorySelectionRequests])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -84,7 +86,10 @@ export function ImplementButton({
             report,
             actionType: 'implementation_button_clicked',
             surface,
-            extra: { button_action: buttonAction, button_position: position },
+            extra: {
+                button_action: buttonAction,
+                ...(surface === 'detail_pane' ? { button_position: 'header' } : {}),
+            },
         })
     }
 
@@ -137,6 +142,16 @@ export function ImplementButton({
     if (reportTaskToOpen?.task.latest_run) {
         const task = reportTaskToOpen.task
         const run = task.latest_run!
+        const running = !TERMINAL_RUN_STATUSES.includes(run.status)
+        const starter =
+            task.created_by && (task.created_by.uuid === user?.uuid ? 'You' : fullNameOrEmail(task.created_by))
+        // The sidebar looks like a new chat, so say this opens a run that already exists.
+        const tooltip = [
+            starter && `${starter} started this implementation.`,
+            'Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        ]
+            .filter(Boolean)
+            .join(' ')
         return (
             <LemonButton
                 type="primary"
@@ -148,10 +163,10 @@ export function ImplementButton({
                     captureButtonClick('view_task')
                     openReportTask(report, task.id, run.id)
                 }}
-                tooltip="Open this task in the PostHog AI sidebar"
+                tooltip={tooltip}
                 data-attr="inbox-report-open-task"
             >
-                View task
+                {running ? 'View running implementation' : 'View implementation'}
             </LemonButton>
         )
     }
@@ -207,6 +222,7 @@ export function ImplementButton({
                                                 value={selectedRepository}
                                                 valueKey="full_name"
                                                 onChange={setSelectedRepository}
+                                                selectOnlyOption
                                             />
                                         ) : (
                                             <LemonButton

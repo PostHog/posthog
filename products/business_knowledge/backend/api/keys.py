@@ -64,9 +64,10 @@ class KnowledgeKeyViewSet(TeamAndOrgViewSetMixin, ViewSet):
     @validated_request(
         request_serializer=KnowledgeKeyCreateSerializer,
         responses={201: OpenApiResponse(response=KnowledgeKeySerializer)},
-        summary="Create a key that reads one business knowledge library",
+        summary="Create a key that reads business knowledge",
         description=(
-            "Creates a project secret API key with the business_knowledge:read scope, limited to one library. "
+            "Creates a project secret API key with the business_knowledge:read scope. The key reads one library, "
+            "or all business knowledge in the project when library_id is null. "
             "The response is the only place the key value appears. Delete or roll the key through the project "
             "secret API keys endpoint."
         ),
@@ -74,20 +75,21 @@ class KnowledgeKeyViewSet(TeamAndOrgViewSetMixin, ViewSet):
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         self._require_parent_project()
-        library_id: UUID = request.validated_data["library_id"]
+        library_id: UUID | None = request.validated_data["library_id"]
         serializer = ProjectSecretAPIKeySerializer(
             data={"label": request.validated_data["label"], "scopes": [_READ_SCOPE]},
             context={"request": request, "view": self},
         )
         serializer.is_valid(raise_exception=True)
         try:
-            # One transaction, so a key that reads the whole project never exists, even when the limit fails.
+            # One transaction, so a key meant for one library never reads the whole project, even when the limit fails.
             with transaction.atomic():
                 key = serializer.save()
-                limit_key_to_library(self.team_id, key, library_id)
+                if library_id is not None:
+                    limit_key_to_library(self.team_id, key, library_id)
         except LibraryNotFound:
             raise exceptions.ValidationError({"library_id": "This library was not found."}) from None
-        payload = _key_payload(key, True, library_id)
+        payload = _key_payload(key, library_id is not None, library_id)
         payload["value"] = key._value
         return Response(KnowledgeKeySerializer(payload).data, status=status.HTTP_201_CREATED)
 

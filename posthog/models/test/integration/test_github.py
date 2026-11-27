@@ -49,6 +49,7 @@ from posthog.models.github_integration_base import (
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
+    GitHubInstallationUnavailableError,
     GitHubIntegration,
     GitHubIntegrationError,
     Integration,
@@ -402,6 +403,42 @@ class TestGitHubIntegrationModel(BaseTest):
         # The scoped token must never clobber the shared full-permission credential other flows read.
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
+
+    @parameterized.expand(
+        [
+            ("2026-11-25T12:47:00+00:00", True, ["repo"]),
+            ("2026-11-25T12:47:00", False, ["repo"]),
+            ("2026-11-25T11:59:59Z", False, ["repo"]),
+            (None, False, ["repo"]),
+            ("2026-11-25T12:47:00+00:00", False, []),
+        ]
+    )
+    @time_machine.travel("2026-11-25T12:00:00Z", tick=False)
+    def test_scoped_credential_validates_scope_and_expiry(
+        self, expiry: str | None, valid: bool, repositories: list[str]
+    ) -> None:
+        integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.NORMAL)
+        response = MagicMock(status_code=201)
+        response.json.return_value = {"token": "synthetic-scoped-token", "expires_at": expiry}
+        with patch.object(github, "client_request", return_value=response) as client:
+            if not valid:
+                message = (
+                    "Invalid scoped installation token expiry"
+                    if repositories
+                    else "Scoped installation credential requires at least one repository"
+                )
+                with self.assertRaisesRegex(GitHubIntegrationError, message):
+                    github.mint_scoped_installation_credential({"contents": "read"}, repositories)
+                if not repositories:
+                    client.assert_not_called()
+                return
+            credential = github.mint_scoped_installation_credential({"contents": "read"}, repositories)
+        self.assertEqual(credential.expires_at, datetime(2026, 11, 25, 12, 47, tzinfo=UTC))
+        self.assertEqual(credential.token, "synthetic-scoped-token")
+        self.assertNotIn(credential.token, repr(credential))
+        integration.refresh_from_db()
+        self.assertEqual(integration.sensitive_config["access_token"], "FULL_TOKEN")
 
     @parameterized.expand(
         [
@@ -1054,6 +1091,34 @@ class TestGitHubIntegrationModel(BaseTest):
                 GitHubIntegration.first_for_team_repository(
                     self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
                 )
+
+    @parameterized.expand(
+        [
+            ("only_a_suspended_installation", [], GitHubInstallationUnavailableError),
+            (
+                "suspended_then_transient",
+                [GitHubIntegrationError("unavailable", status_code=503)],
+                GitHubIntegrationError,
+            ),
+        ]
+    )
+    def test_first_for_team_repository_raises_installation_unavailable_for_a_suspended_installation(
+        self, _name, later_errors, expected_error
+    ):
+        # A failed token mint stamps this marker before it raises, so the installation reads as suspended.
+        self.create_integration(config={"installation_unavailable_since": 1700000000})
+        for _ in later_errors:
+            self.create_integration(sensitive_config={"access_token": "LATER"})
+        with patch.object(
+            GitHubIntegration,
+            "installation_can_access_repository",
+            side_effect=[GitHubIntegrationError("token refresh after 401 failed"), *later_errors],
+        ):
+            with pytest.raises(GitHubIntegrationError) as raised:
+                GitHubIntegration.first_for_team_repository(
+                    self.team.id, "PostHog/posthog", source="test", priority=Priority.CRITICAL
+                )
+        assert type(raised.value) is expected_error
 
     @parameterized.expand(
         [

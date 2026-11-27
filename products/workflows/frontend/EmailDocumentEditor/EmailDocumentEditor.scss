@@ -12,7 +12,8 @@
         outline: none;
 
         > * + *,
-        .email-canvas-column > * + * {
+        .email-canvas-column > * + *,
+        .email-canvas-section > * + * {
             margin-top: 0;
         }
 
@@ -181,6 +182,11 @@
         }
     }
 
+    .email-canvas-section:hover {
+        outline: 1px dashed rgb(128 128 128 / 50%);
+        outline-offset: -1px;
+    }
+
     // An overlay rather than an outline, because a positioned image or the next section would paint over an outline.
     .email-canvas-column {
         position: relative;
@@ -265,10 +271,14 @@
         border-radius: 4px;
     }
 
+    // It sits on the email's own colors, and a secondary button is see-through, so it brings the app's surface.
     .email-canvas-html-edit {
         position: absolute;
         top: 4px;
         right: 4px;
+        color: var(--color-text-primary);
+        background-color: var(--color-bg-surface-primary);
+        border-radius: var(--radius);
         opacity: 0;
     }
 
@@ -370,6 +380,9 @@
     padding-right: var(--email-editor-gutter);
     padding-left: var(--email-editor-gutter);
     container: email-editor / inline-size;
+
+    // A frame's height follows the canvas width, so a scrollbar that comes and goes would resize it without end.
+    scrollbar-gutter: stable;
 
     // Below this the email can't be centered with a gutter each side, and only the left one is needed.
     @media (max-width: 1100px) {

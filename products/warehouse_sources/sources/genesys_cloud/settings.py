@@ -31,6 +31,8 @@ USER_DETAILS_PATH = "/api/v2/analytics/users/details/query"
 # The details query caps pageSize at 100.
 ANALYTICS_PAGE_SIZE = 100
 LISTING_PAGE_SIZE = 100
+# The evaluations query documents no maximum page size, so keep its default.
+EVALUATIONS_PAGE_SIZE = 25
 
 _CONVERSATION_START_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -58,12 +60,16 @@ class GenesysCloudEndpointConfig:
     # "analytics" endpoints read the conversation details query in time windows;
     # "user_analytics" endpoints read the user details query in time windows;
     # "listing" endpoints page through a plain GET entity listing by page number;
-    # "scan" endpoints page through a GET listing by cursor.
-    kind: Literal["analytics", "user_analytics", "listing", "scan"]
+    # "scan" endpoints page through a GET listing by cursor;
+    # "fan_out" endpoints read a child listing once per row of a parent listing endpoint;
+    # "unpaged" endpoints return every entity in one GET, read once per entry in param_sets.
+    kind: Literal["analytics", "user_analytics", "listing", "scan", "fan_out", "unpaged"]
     path: str
     # Permission a Genesys Cloud role must grant for the OAuth client to read this endpoint.
     permission: str | None = None
     params: dict[str, Any] = field(default_factory=dict)
+    # Unpaged endpoints: one request per entry, each merged into params.
+    param_sets: tuple[dict[str, Any], ...] = ({},)
     # Extra body keys for the conversation details query (filters).
     query_body: dict[str, Any] = field(default_factory=dict)
     # Emit one row per participant instead of one row per conversation.
@@ -71,6 +77,14 @@ class GenesysCloudEndpointConfig:
     # Scan endpoints: query params that carry the page size and the cursor.
     page_size_param: str = "limit"
     cursor_param: str = "cursor"
+    # Fan-out endpoints: the parent listing endpoint, and where its row id goes in the child request. Without
+    # parent_id_param the id fills `{parent_id}` in the path. With parent_key the id is also added to each row.
+    parent: str | None = None
+    parent_id_param: str | None = None
+    parent_key: str | None = None
+    page_size: int = LISTING_PAGE_SIZE
+    # Fan-out endpoints: 400 error codes that mean the parent has no rows, for example a removed user.
+    skipped_error_codes: tuple[str, ...] = ()
     partition_key: str | None = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
@@ -194,6 +208,63 @@ GENESYS_CLOUD_ENDPOINTS: dict[str, GenesysCloudEndpointConfig] = {
         permission="analytics:userDetail:view",
         partition_key="startTime",
         incremental_fields=list(_STATUS_START_INCREMENTAL_FIELDS),
+    ),
+    "queue_members": GenesysCloudEndpointConfig(
+        name="queue_members",
+        primary_keys=["queueId", "id"],
+        kind="fan_out",
+        path="/api/v2/routing/queues/{parent_id}/members",
+        permission="routing:queue:view",
+        parent="queues",
+        parent_key="queueId",
+    ),
+    # The query needs an agent, evaluator, assignee or conversation. Each evaluation has one evaluator, so reading
+    # it per evaluator returns every evaluation once. Per agent, it would omit evaluations set to never release.
+    "evaluations": GenesysCloudEndpointConfig(
+        name="evaluations",
+        primary_keys=["id"],
+        kind="fan_out",
+        path="/api/v2/quality/evaluations/query",
+        permission="quality:evaluation:view",
+        params={"expandAnswerTotalScores": "true", "includeDeletedUsers": "true"},
+        parent="users",
+        parent_id_param="evaluatorUserId",
+        page_size=EVALUATIONS_PAGE_SIZE,
+        skipped_error_codes=("quality.query.invalid.user",),
+    ),
+    # expand=publishHistory adds the published version ids, which are the form ids that evaluations reference.
+    "evaluation_forms": GenesysCloudEndpointConfig(
+        name="evaluation_forms",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/quality/forms/evaluations",
+        permission="quality:evaluationForm:view",
+        params={"expand": "publishHistory"},
+    ),
+    "flows": GenesysCloudEndpointConfig(
+        name="flows",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/flows",
+        permission="architect:flow:view",
+        params={"sortBy": "id", "sortOrder": "asc"},
+    ),
+    # The listing returns either active or deactivated definitions, and status history can point at both.
+    "presence_definitions": GenesysCloudEndpointConfig(
+        name="presence_definitions",
+        primary_keys=["id"],
+        kind="unpaged",
+        path="/api/v2/presence/definitions",
+        permission="presence:presenceDefinition:view",
+        params={"localeCode": "ALL"},
+        param_sets=({"deactivated": "false"}, {"deactivated": "true"}),
+    ),
+    "outbound_campaigns": GenesysCloudEndpointConfig(
+        name="outbound_campaigns",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/outbound/campaigns",
+        permission="outbound:campaign:view",
     ),
 }
 

@@ -1,4 +1,3 @@
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { AddressInfo, Server, Socket, createServer } from 'net'
 
@@ -22,7 +21,8 @@ import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { createSandboxSesSender } from '../ses-transport'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
@@ -224,11 +224,17 @@ describe('SandboxEmailSendStep', () => {
         expect(sent.invocation.queue).toBe('hogflow')
         expect(metricNames([sent])).toEqual([['email_sandbox_sent', 'email']])
         await waitForExpect(() =>
-            expect(capturedAnalytics).toEqual([
+            expect(capturedFor(world.team.uuid)).toEqual([
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
-                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+                    properties: {
+                        team: world.team.uuid,
+                        workflow_id: hogFlow.id,
+                        action_id: 'email',
+                        is_test: false,
+                        source: 'workflow',
+                    },
                     groups: expect.objectContaining({
                         project: world.team.uuid,
                         organization: world.team.organization_id,
@@ -258,6 +264,12 @@ describe('SandboxEmailSendStep', () => {
             world.ses.replyNext(...sesReplies)
             return Promise.resolve()
         }
+
+    const ANALYTICS_EVENTS: Record<string, string> = {
+        email_sandbox_sent: 'workflows sandbox email sent',
+        email_sandbox_blocked: 'workflows sandbox email blocked',
+        email_sandbox_failed: 'workflows sandbox email failed',
+    }
 
     it.each<[string, () => Promise<void>, object, string, number, number]>([
         [
@@ -328,6 +340,11 @@ describe('SandboxEmailSendStep', () => {
             expect(metricNames(segments)).toEqual([[metric, 'email']])
             expect(finished.invocation.state.currentAction?.id).toBe('wait')
             expect(finished.invocation.state.variables?.email_result).toEqual(stepResult)
+            await waitForExpect(() =>
+                expect(
+                    capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])
+                ).toEqual([[ANALYTICS_EVENTS[metric], 'workflow']])
+            )
         }
     )
 
@@ -447,10 +464,9 @@ describe('SandboxEmailSendStep', () => {
         const roomy = { team: 100, recipient: 100 }
         const workingSes = world.sesClient
         world.sesClient = new SandboxSesClient(
-            new SESv2Client({
+            createSandboxSesSender({
                 region: 'us-east-1',
                 endpoint: 'http://127.0.0.1:1',
-                maxAttempts: 1,
                 credentials: () => new Promise<never>(() => {}),
             }),
             { configurationSet: 'sandbox-config-set', tenantName: 'sandbox-tenant', sendTimeoutMs: 500 }
@@ -644,7 +660,9 @@ describe('SandboxEmailSendStep', () => {
 
         expect(segments[0].logs.map(({ level, message }) => [level, message])).toContainEqual([
             'error',
-            expect.stringContaining('failed to render: The rendered sandbox email is missing a recipient, subject'),
+            expect.stringContaining(
+                'failed to render: The rendered email from the PostHog test sender is missing a recipient, subject'
+            ),
         ])
     })
 

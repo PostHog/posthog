@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { useId } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
@@ -8,15 +7,14 @@ import {
     LemonCollapse,
     LemonCheckbox,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CompositeScorerForm } from './CompositeScorerForm'
 import {
@@ -31,6 +29,7 @@ import {
 
 export interface ScoreDefinitionFormProps {
     draft: ScoreDefinitionDraft
+    experimentId?: string
     isNew: boolean
     disabled: boolean
     setDraftField: (field: keyof ScoreDefinitionDraft, value: ScoreDefinitionDraft[keyof ScoreDefinitionDraft]) => void
@@ -42,6 +41,7 @@ export interface ScoreDefinitionFormProps {
 export function ScoreDefinitionForm({
     draft,
     isNew,
+    experimentId,
     disabled,
     setDraftField,
     updateOptionLabel,
@@ -49,7 +49,6 @@ export function ScoreDefinitionForm({
     removeOption,
 }: ScoreDefinitionFormProps): JSX.Element {
     const id = useId()
-    const { featureFlags } = useValues(featureFlagLogic)
     const disabledReason = disabled ? 'Editing is unavailable right now' : undefined
     const threshold = getNumericInputValue(draft.numericPassingThreshold)
 
@@ -60,6 +59,33 @@ export function ScoreDefinitionForm({
                     <h3 id={`${id}-details`} className="mb-0">
                         Details
                     </h3>
+                    <LemonField.Pure label="What does this scorer evaluate?">
+                        <LemonSelect
+                            value={draft.scope}
+                            onChange={(scope) => setDraftField('scope', scope)}
+                            options={[
+                                { value: 'item', label: 'Item' },
+                                { value: 'experiment', label: 'Experiment' },
+                            ]}
+                            disabledReason={!isNew ? 'Scope is fixed when the scorer is created' : disabledReason}
+                        />
+                    </LemonField.Pure>
+                    {draft.scope === 'experiment' && (
+                        <LemonField.Pure
+                            label="Apply to suite keys"
+                            help="Saving applies this version to future runs of the selected suites."
+                        >
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={draft.suiteKeys}
+                                onChange={(value) => setDraftField('suiteKeys', value)}
+                                allowCustomValues
+                                disableCommaSplitting
+                                disabled={disabled}
+                                placeholder="Enter a suite key"
+                            />
+                        </LemonField.Pure>
+                    )}
                     <LemonField.Pure label="Name" htmlFor={`${id}-name`}>
                         <LemonInput
                             id={`${id}-name`}
@@ -126,7 +152,11 @@ export function ScoreDefinitionForm({
                                     { value: 'composite', label: 'Composite formula' },
                                 ]}
                                 disabledReason={
-                                    !isNew ? 'Calculation cannot be changed after creation' : disabledReason
+                                    draft.scope === 'experiment'
+                                        ? 'Experiment scores use a formula'
+                                        : !isNew
+                                          ? 'Calculation cannot be changed after creation'
+                                          : disabledReason
                                 }
                                 data-attr="aio-scorer-calculation-select"
                             />
@@ -154,7 +184,9 @@ export function ScoreDefinitionForm({
                     </div>
                     {draft.calculation === 'composite' && (
                         <p className="text-sm text-muted mb-0">
-                            A composite scorer calculates an item score from the results of other scorers.
+                            {draft.scope === 'experiment'
+                                ? 'An experiment score uses statistics from item scorers across one run.'
+                                : 'A composite scorer calculates an item score from the results of other scorers.'}
                         </p>
                     )}
 
@@ -301,160 +333,163 @@ export function ScoreDefinitionForm({
 
             {draft.calculation === 'composite' && (
                 <LemonCard hoverEffect={false} className="p-4">
-                    <CompositeScorerForm draft={draft} disabled={disabled} setDraftField={setDraftField} />
+                    <CompositeScorerForm
+                        draft={draft}
+                        disabled={disabled}
+                        setDraftField={setDraftField}
+                        experimentId={experimentId}
+                    />
                 </LemonCard>
             )}
 
-            {featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && (
-                <LemonCard hoverEffect={false} className="p-4">
-                    <section className="flex flex-col gap-4" aria-labelledby={`${id}-passing`}>
-                        <div className="flex flex-col gap-1">
-                            <h3 id={`${id}-passing`} className="mb-0">
-                                Passing rule
-                            </h3>
-                            <p className="text-sm text-muted mb-0">Choose which results count as passing.</p>
-                        </div>
-                        {draft.kind === 'boolean' ? (
-                            <>
-                                <LemonField.Pure label="Passing value" htmlFor={`${id}-boolean-passing`}>
-                                    <LemonSelect
-                                        id={`${id}-boolean-passing`}
-                                        value={draft.booleanPassing}
-                                        onChange={(value) => setDraftField('booleanPassing', value)}
-                                        options={[
-                                            { value: 'true', label: 'True means pass' },
-                                            { value: 'false', label: 'False means pass' },
-                                        ]}
-                                        disabledReason={disabledReason}
-                                        data-attr="llma-scorer-boolean-passing"
-                                    />
-                                </LemonField.Pure>
-                                <div className="flex flex-wrap gap-2" aria-label="Result preview">
-                                    {(['true', 'false'] as const).map((value) => {
-                                        const passing = draft.booleanPassing === value
-                                        const label =
-                                            value === 'true'
-                                                ? draft.trueLabel.trim() || 'True'
-                                                : draft.falseLabel.trim() || 'False'
-                                        return (
-                                            <LemonTag
-                                                key={value}
-                                                type={passing ? 'success' : 'danger'}
-                                                icon={passing ? <IconCheck /> : <IconX />}
-                                                wrap
-                                            >
-                                                {`${label}${passing ? ' · Pass' : ' · Fail'}`}
-                                            </LemonTag>
-                                        )
-                                    })}
-                                </div>
-                            </>
-                        ) : draft.kind === 'categorical' ? (
-                            <>
-                                <LemonSwitch
-                                    label="Set a passing rule"
-                                    checked={draft.categoricalPassingEnabled}
-                                    onChange={(value) => setDraftField('categoricalPassingEnabled', value)}
+            <LemonCard hoverEffect={false} className="p-4">
+                <section className="flex flex-col gap-4" aria-labelledby={`${id}-passing`}>
+                    <div className="flex flex-col gap-1">
+                        <h3 id={`${id}-passing`} className="mb-0">
+                            Passing rule
+                        </h3>
+                        <p className="text-sm text-muted mb-0">Choose which results count as passing.</p>
+                    </div>
+                    {draft.kind === 'boolean' ? (
+                        <>
+                            <LemonField.Pure label="Passing value" htmlFor={`${id}-boolean-passing`}>
+                                <LemonSelect
+                                    id={`${id}-boolean-passing`}
+                                    value={draft.booleanPassing}
+                                    onChange={(value) => setDraftField('booleanPassing', value)}
+                                    options={[
+                                        { value: 'true', label: 'True means pass' },
+                                        { value: 'false', label: 'False means pass' },
+                                    ]}
                                     disabledReason={disabledReason}
-                                    data-attr="llma-scorer-categorical-passing-rule"
+                                    data-attr="llma-scorer-boolean-passing"
                                 />
-                                {draft.categoricalPassingEnabled && (
-                                    <LemonField.Pure label="Passing categories">
-                                        <div className="flex flex-col gap-2">
-                                            {draft.options.map((option, index) => {
-                                                const key = getScoreDefinitionOptionKey(option)
-                                                return (
-                                                    <LemonCheckbox
-                                                        key={index}
-                                                        label={option.label || 'Unnamed category'}
-                                                        checked={draft.categoricalPassingCategories.includes(key)}
-                                                        disabled={disabled || !key}
-                                                        onChange={(checked) =>
-                                                            setDraftField(
-                                                                'categoricalPassingCategories',
-                                                                checked
-                                                                    ? [...draft.categoricalPassingCategories, key]
-                                                                    : draft.categoricalPassingCategories.filter(
-                                                                          (category) => category !== key
-                                                                      )
-                                                            )
-                                                        }
-                                                    />
-                                                )
-                                            })}
-                                        </div>
-                                        <p className="text-sm text-muted mb-0">
-                                            Every selected category must be marked as passing. Existing results keep
-                                            their scorer version's rule.
-                                        </p>
-                                    </LemonField.Pure>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <LemonSwitch
-                                    label="Set a passing rule"
-                                    checked={draft.numericPassingEnabled}
-                                    onChange={(value) => setDraftField('numericPassingEnabled', value)}
-                                    disabledReason={disabledReason}
-                                    data-attr="llma-scorer-numeric-passing-rule"
-                                />
-                                {draft.numericPassingEnabled && (
-                                    <>
-                                        <div className="grid gap-4 @min-[30rem]/scorer-form:grid-cols-2">
-                                            <LemonField.Pure label="Pass when score is" htmlFor={`${id}-operator`}>
-                                                <LemonSelect
-                                                    id={`${id}-operator`}
-                                                    value={draft.numericPassingOperator}
-                                                    options={[
-                                                        { value: 'gte', label: 'At least (≥)' },
-                                                        { value: 'lte', label: 'At most (≤)' },
-                                                    ]}
-                                                    onChange={(value) => setDraftField('numericPassingOperator', value)}
-                                                    disabledReason={disabledReason}
-                                                    data-attr="llma-scorer-numeric-operator"
-                                                />
-                                            </LemonField.Pure>
-                                            <LemonField.Pure label="Threshold" htmlFor={`${id}-threshold`}>
-                                                <LemonInput
-                                                    id={`${id}-threshold`}
-                                                    type="number"
-                                                    value={threshold}
-                                                    onChange={(value) =>
+                            </LemonField.Pure>
+                            <div className="flex flex-wrap gap-2" aria-label="Result preview">
+                                {(['true', 'false'] as const).map((value) => {
+                                    const passing = draft.booleanPassing === value
+                                    const label =
+                                        value === 'true'
+                                            ? draft.trueLabel.trim() || 'True'
+                                            : draft.falseLabel.trim() || 'False'
+                                    return (
+                                        <LemonTag
+                                            key={value}
+                                            type={passing ? 'success' : 'danger'}
+                                            icon={passing ? <IconCheck /> : <IconX />}
+                                            wrap
+                                        >
+                                            {`${label}${passing ? ' · Pass' : ' · Fail'}`}
+                                        </LemonTag>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    ) : draft.kind === 'categorical' ? (
+                        <>
+                            <LemonSwitch
+                                label="Set a passing rule"
+                                checked={draft.categoricalPassingEnabled}
+                                onChange={(value) => setDraftField('categoricalPassingEnabled', value)}
+                                disabledReason={disabledReason}
+                                data-attr="llma-scorer-categorical-passing-rule"
+                            />
+                            {draft.categoricalPassingEnabled && (
+                                <LemonField.Pure label="Passing categories">
+                                    <div className="flex flex-col gap-2">
+                                        {draft.options.map((option, index) => {
+                                            const key = getScoreDefinitionOptionKey(option)
+                                            return (
+                                                <LemonCheckbox
+                                                    key={index}
+                                                    label={option.label || 'Unnamed category'}
+                                                    checked={draft.categoricalPassingCategories.includes(key)}
+                                                    disabled={disabled || !key}
+                                                    onChange={(checked) =>
                                                         setDraftField(
-                                                            'numericPassingThreshold',
-                                                            formatNumericInputValue(value)
+                                                            'categoricalPassingCategories',
+                                                            checked
+                                                                ? [...draft.categoricalPassingCategories, key]
+                                                                : draft.categoricalPassingCategories.filter(
+                                                                      (category) => category !== key
+                                                                  )
                                                         )
                                                     }
-                                                    min={getNumericInputValue(draft.numericMin)}
-                                                    max={getNumericInputValue(draft.numericMax)}
-                                                    step="any"
-                                                    placeholder="Enter a threshold"
-                                                    disabled={disabled}
-                                                    data-attr="llma-scorer-numeric-threshold"
                                                 />
-                                            </LemonField.Pure>
+                                            )
+                                        })}
+                                    </div>
+                                    <p className="text-sm text-muted mb-0">
+                                        Every selected category must be marked as passing. Existing results keep their
+                                        scorer version's rule.
+                                    </p>
+                                </LemonField.Pure>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <LemonSwitch
+                                label="Set a passing rule"
+                                checked={draft.numericPassingEnabled}
+                                onChange={(value) => setDraftField('numericPassingEnabled', value)}
+                                disabledReason={disabledReason}
+                                data-attr="llma-scorer-numeric-passing-rule"
+                            />
+                            {draft.numericPassingEnabled && (
+                                <>
+                                    <div className="grid gap-4 @min-[30rem]/scorer-form:grid-cols-2">
+                                        <LemonField.Pure label="Pass when score is" htmlFor={`${id}-operator`}>
+                                            <LemonSelect
+                                                id={`${id}-operator`}
+                                                value={draft.numericPassingOperator}
+                                                options={[
+                                                    { value: 'gte', label: 'At least (≥)' },
+                                                    { value: 'lte', label: 'At most (≤)' },
+                                                ]}
+                                                onChange={(value) => setDraftField('numericPassingOperator', value)}
+                                                disabledReason={disabledReason}
+                                                data-attr="llma-scorer-numeric-operator"
+                                            />
+                                        </LemonField.Pure>
+                                        <LemonField.Pure label="Threshold" htmlFor={`${id}-threshold`}>
+                                            <LemonInput
+                                                id={`${id}-threshold`}
+                                                type="number"
+                                                value={threshold}
+                                                onChange={(value) =>
+                                                    setDraftField(
+                                                        'numericPassingThreshold',
+                                                        formatNumericInputValue(value)
+                                                    )
+                                                }
+                                                min={getNumericInputValue(draft.numericMin)}
+                                                max={getNumericInputValue(draft.numericMax)}
+                                                step="any"
+                                                placeholder="Enter a threshold"
+                                                disabled={disabled}
+                                                data-attr="llma-scorer-numeric-threshold"
+                                            />
+                                        </LemonField.Pure>
+                                    </div>
+                                    {threshold !== undefined && (
+                                        <div className="flex flex-wrap gap-2" aria-label="Result preview">
+                                            <LemonTag type="success" icon={<IconCheck />}>
+                                                {`${draft.numericPassingOperator === 'gte' ? '≥' : '≤'} ${threshold} · Pass`}
+                                            </LemonTag>
+                                            <LemonTag type="danger" icon={<IconX />}>
+                                                {`${draft.numericPassingOperator === 'gte' ? '<' : '>'} ${threshold} · Fail`}
+                                            </LemonTag>
                                         </div>
-                                        {threshold !== undefined && (
-                                            <div className="flex flex-wrap gap-2" aria-label="Result preview">
-                                                <LemonTag type="success" icon={<IconCheck />}>
-                                                    {`${draft.numericPassingOperator === 'gte' ? '≥' : '≤'} ${threshold} · Pass`}
-                                                </LemonTag>
-                                                <LemonTag type="danger" icon={<IconX />}>
-                                                    {`${draft.numericPassingOperator === 'gte' ? '<' : '>'} ${threshold} · Fail`}
-                                                </LemonTag>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </>
-                        )}
-                        {draft.kind === 'numeric' && !draft.numericPassingEnabled && (
-                            <p className="text-sm text-muted mb-0">Scores stay neutral without a passing rule.</p>
-                        )}
-                    </section>
-                </LemonCard>
-            )}
+                                    )}
+                                </>
+                            )}
+                        </>
+                    )}
+                    {draft.kind === 'numeric' && !draft.numericPassingEnabled && (
+                        <p className="text-sm text-muted mb-0">Scores stay neutral without a passing rule.</p>
+                    )}
+                </section>
+            </LemonCard>
         </div>
     )
 }
