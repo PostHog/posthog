@@ -56,6 +56,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
+    PlatformAlertReader,
     SourceConfigSpec,
     SourceKind,
     UnknownPlatformAlertGroup,
@@ -738,9 +739,19 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def _writable_source_kinds(self) -> list[str]:
         return self._source_kinds_with("editor", "write")
 
+    @cached_property
+    def _reader(self) -> PlatformAlertReader:
+        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
+        return PlatformAlertReader(
+            user_id=cast(User, self.request.user).id, key_scopes=None if scopes is None else frozenset(scopes)
+        )
+
     def _readable_configuration(self, team_id: int, configuration_id: UUID) -> PlatformAlertConfigurationView:
         current = platform_api.get_configuration(
-            team_id=team_id, source_kinds=self._readable_source_kinds(), configuration_id=configuration_id
+            team_id=team_id,
+            source_kinds=self._readable_source_kinds(),
+            configuration_id=configuration_id,
+            reader=self._reader,
         )
         if current is None:
             raise NotFound()
@@ -1310,6 +1321,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             offset=paginator.get_offset(request),
             legacy_configuration_id=query.validated_data.get("legacy_configuration_id"),
             created_by_uuid=query.validated_data.get("created_by"),
+            reader=self._reader,
         )
         paginator.set_count(page.total)
         configurations = self.paginate_queryset(page.configurations) or []
@@ -1329,11 +1341,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         # The route accepts any non-slash value, and an unparseable one reaching the UUID filter
         # raises rather than missing, which would answer a bad id with a 500.
-        configuration = platform_api.get_configuration(
-            team_id=self._canonical_team_id(),
-            source_kinds=self._readable_source_kinds(),
-            configuration_id=serializers.UUIDField().run_validation(pk),
+        configuration = self._readable_configuration(
+            self._canonical_team_id(), serializers.UUIDField().run_validation(pk)
         )
-        if configuration is None:
-            raise NotFound()
         return Response(self._serialized(configuration))
