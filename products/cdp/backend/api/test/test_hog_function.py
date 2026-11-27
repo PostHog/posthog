@@ -3289,7 +3289,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             assert response.json() == {"status": "error", "errors": expected}
 
-    def test_webhook_source_saves_inputs_reading_request_variables(self):
+    def test_webhook_source_saves_inputs_reading_request_variables(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
@@ -3690,7 +3690,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_destination_rejects_inputs_reading_workflow_variables(self):
+    def test_destination_rejects_inputs_reading_workflow_variables(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
