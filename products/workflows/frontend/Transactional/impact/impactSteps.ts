@@ -29,6 +29,9 @@ export interface ImpactLift {
 
 const TAGGED_SENDS_NOTE = 'From sends with link tracking on'
 
+// The Impact API counts the sessions of the newest 10,000 clicked sends at most.
+const SESSION_COUNT_CLICKED_SENDS_LIMIT = 10_000
+
 const SENSITIVE_EMAIL_DETAIL =
     "This email protects sensitive data, so PostHog doesn't tag its links and can't connect its clicks to sessions. Conversions still count, because they go through the person on each send."
 
@@ -40,13 +43,21 @@ function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTaggi
     switch (linkTagging) {
         case 'on':
             if (impact.sessions !== null) {
-                return { ...step, value: impact.sessions, note: TAGGED_SENDS_NOTE }
+                const note =
+                    impact.clicked > SESSION_COUNT_CLICKED_SENDS_LIMIT
+                        ? `From the newest ${humanFriendlyNumber(SESSION_COUNT_CLICKED_SENDS_LIMIT)} clicked sends with link tracking on`
+                        : TAGGED_SENDS_NOTE
+                return { ...step, value: impact.sessions, note }
             }
-            // The funnel loaded while link tracking was off, so none of its sends carry the tag yet.
+            // This answer came while link tracking was still off, and the funnel reloads once the setting is saved.
             if (!impact.link_tagging_enabled) {
                 return { ...step, missing: 'Counting from now', note: TAGGED_SENDS_NOTE }
             }
-            return { ...step, missing: "Couldn't count", note: 'It needs access to query events. Reload to try again.' }
+            return {
+                ...step,
+                missing: "Couldn't count",
+                note: 'Reload to try again. Counting sessions also needs access to query events.',
+            }
         case 'off':
             return { ...step, missingFixedByLinkTagging: true }
         case 'sensitive-email':

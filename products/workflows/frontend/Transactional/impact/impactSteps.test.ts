@@ -137,6 +137,14 @@ describe('impactSteps', () => {
             'From sends with link tracking on',
         ],
         [
+            'names the limit when more sends were clicked than it counts',
+            { ...impact, clicked: 12000, sessions: 7 },
+            'on',
+            7,
+            undefined,
+            'From the newest 10,000 clicked sends with link tracking on',
+        ],
+        [
             'counts from now when the funnel loaded with link tracking off',
             { ...impact, link_tagging_enabled: false },
             'on',
@@ -150,7 +158,7 @@ describe('impactSteps', () => {
             'on',
             null,
             "Couldn't count",
-            'It needs access to query events. Reload to try again.',
+            'Reload to try again. Counting sessions also needs access to query events.',
         ],
         [
             'leaves a sensitive email unmeasured',

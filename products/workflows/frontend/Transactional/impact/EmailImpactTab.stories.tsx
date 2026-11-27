@@ -31,6 +31,7 @@ const tracked: TransactionalEmailImpactApi = {
 }
 
 const someUntracked: TransactionalEmailImpactApi = { ...tracked, untracked: 1200 }
+const untagged: TransactionalEmailImpactApi = { ...tracked, sessions: null, link_tagging_enabled: false }
 
 const meta: Meta = {
     title: 'Products/Workflows/EmailImpactTab',
@@ -109,7 +110,7 @@ export const NoSessionReplay = Template.bind({})
 NoSessionReplay.args = { impact: tracked, event: 'plan upgraded', replay: false }
 
 export const LinkTaggingOff = Template.bind({})
-LinkTaggingOff.args = { impact: tracked, event: 'plan upgraded', linkTagging: false }
+LinkTaggingOff.args = { impact: untagged, event: 'plan upgraded', linkTagging: false }
 
 export const SensitiveEmail = Template.bind({})
-SensitiveEmail.args = { impact: tracked, event: 'plan upgraded', linkTagging: false, sensitive: true }
+SensitiveEmail.args = { impact: untagged, event: 'plan upgraded', linkTagging: false, sensitive: true }
