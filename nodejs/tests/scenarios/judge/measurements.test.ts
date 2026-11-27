@@ -369,6 +369,51 @@ describe('measurements', () => {
         )
     })
 
+    const heldBy = (truth: TruthRecord): TruthRecord => ({ ...truth, fault: 'ses.hold' })
+    const heldThenResent = [
+        heldBy(record(1, 'run-a-1', 4000)),
+        heldBy(record(2, 'run-a-2', 4500)),
+        record(3, 'run-a-3', 4600),
+        heldBy(record(4, 'run-a-5', 35_000)),
+        record(5, 'run-a-1', 42_000),
+    ]
+    const holding = (releaseIntentAtMs: number): ValveTimelineEntry => ({
+        valve: 'ses.hold',
+        target: 'ses',
+        requestedAt: at(3000),
+        appliedAt: at(3000),
+        releaseIntentAt: at(releaseIntentAtMs),
+        releasedAt: at(releaseIntentAtMs + 100),
+    })
+
+    it.each([
+        ['counts the held sends that arrived before the worker exited, while the hold outlasted it', 40_000, 2],
+        ['counts none when the hold answered before the worker exited', 20_000, 0],
+    ])('ses_calls_held_past_exit %s', (_story, releaseIntentAtMs, value) => {
+        const timeline = [holding(releaseIntentAtMs), terminated({ exitedAt: at(30_000), code: 0 })]
+
+        expect(
+            measure([{ name: 'ses_calls_held_past_exit', params: {} }], evidence({ timeline, truth: heldThenResent }))
+        ).toEqual([{ name: 'ses_calls_held_past_exit', unit: 'sends', value }])
+    })
+
+    it('counts how many deliveries went out never, once and twice, and the same for the deliveries SES held', () => {
+        const journal = ['run-a-1', 'run-a-2', 'run-a-3', 'run-a-4', 'run-a-5'].map((unitId) => offered(unitId, 0))
+
+        expect(
+            measure([{ name: 'sends_per_delivery', params: {} }], evidence({ journal, truth: heldThenResent })).map(
+                ({ key, value }) => [key, value]
+            )
+        ).toEqual([
+            ['never', 1],
+            ['once', 3],
+            ['twice', 1],
+            ['held_never', 0],
+            ['held_once', 2],
+            ['held_twice', 1],
+        ])
+    })
+
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
         const latencies = Array.from({ length: 20 }, (_, i) => (i + 1) * 100)
         const journal = [

@@ -966,6 +966,41 @@ describe('valves', () => {
             }
         )
 
+        it('holds the answers to the next sends its count names until release, after recording that SES took them', async () => {
+            const valves = createValves({ pollMs: 5 })
+            const edgeHeld = onEdgeHeld()
+
+            await valves.start(
+                [{ valve: 'ses.hold', target: 'ses', dose: { count: 2 }, at: '0ms', for: '1m' }],
+                edgeHeld.context
+            )
+            await edgeHeld.held
+            const answered: string[] = []
+            const heldSends = [send(), send()].map((sending) => sending.then((outcome) => answered.push(outcome)))
+            await waitForExpect(() => expect(edge.sent).toHaveLength(2), 2000, 5)
+            const third = await send()
+            const answeredBeforeRelease = [...answered]
+            await valves.releaseAll()
+            await Promise.all(heldSends)
+            const truth = parseJSON(await (await internalFetch(`${edge.url}/_truth`)).text()) as TruthPage
+
+            expect({
+                third,
+                answeredBeforeRelease,
+                answered,
+                sends: truth.records.map(({ status, fault }) => [status, fault]),
+            }).toEqual({
+                third: 'sent',
+                answeredBeforeRelease: [],
+                answered: ['sent', 'sent'],
+                sends: [
+                    [200, 'ses.hold'],
+                    [200, 'ses.hold'],
+                    [200, undefined],
+                ],
+            })
+        })
+
         const killAfterAccept = kill({ when: { name: 'edge_accepted', params: { channel: 'ses' } } })
 
         const withWorker = (running: boolean) => {

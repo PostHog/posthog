@@ -148,6 +148,20 @@ export const sesThrottle: ValveDefinition = {
         }),
 }
 
+const SesHoldDose = z.object({ count: z.number().int().min(1) }).strict()
+
+export const sesHold: ValveDefinition = {
+    name: 'ses.hold',
+    params: SesHoldDose,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: { name: 'ses.hold', answer: { kind: 'hold-answer' }, dose: SesHoldDose.parse(dose) },
+        }),
+}
+
 const SesRejectDose = z.object({ type: SesRejectParams.shape.type, share: z.number().gt(0).max(1).default(1) }).strict()
 
 export const sesReject: ValveDefinition = {
@@ -247,6 +261,7 @@ export const VALVES: ValveDefinition[] = [
     pgFailover,
     destStatus,
     sesThrottle,
+    sesHold,
     sesReject,
     sesAmbiguous,
     destAmbiguous,

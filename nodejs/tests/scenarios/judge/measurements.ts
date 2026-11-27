@@ -12,7 +12,7 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey, isAccepted, truthGapOf } from './invariants'
+import { acceptedDeliveriesOf, deliveryKey, isAccepted, truthGapOf } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
 export type MetricSample = {
@@ -231,6 +231,80 @@ export const resentInvocations: MeasurementDefinition = {
             .filter(([, sends]) => sends.length > 1)
             .map(([key, sends]) => ({ key, value: sends.length }))
         return [{ key: 'total', value: resent.length }, ...resent]
+    },
+}
+
+const SES_HOLD = 'ses.hold'
+
+const heldSendsOf = (truth: MeasureEvidence['truth']): MeasureEvidence['truth'] =>
+    truth.filter(({ kind, fault }) => kind === 'ses.send' && fault === SES_HOLD)
+
+export const sesCallsHeldPastExit: MeasurementDefinition = {
+    name: 'ses_calls_held_past_exit',
+    params: z.object({}).strict(),
+    unit: 'sends',
+    measure: (evidence) => {
+        const terminations = terminationsOf(evidence.timeline)
+        const hold = evidence.timeline.find(({ valve, appliedAt }) => valve === SES_HOLD && appliedAt !== undefined)
+        const exitedAt = terminations[0]?.exit.exitedAt
+        const unreadTruth = unreadTruthOf(evidence)
+        if (terminations.length !== 1) {
+            return [unmeasured('the card must terminate exactly one role')]
+        }
+        if (exitedAt === undefined) {
+            return [unmeasured(`${terminations[0].target} did not exit`)]
+        }
+        if (hold === undefined) {
+            return [unmeasured('the card held no SES answer')]
+        }
+        if (unreadTruth !== undefined) {
+            return [unmeasured(unreadTruth)]
+        }
+        const answeredFrom = hold.releaseIntentAt ?? hold.releasedAt
+        return answeredFrom !== undefined && Date.parse(answeredFrom) <= Date.parse(exitedAt)
+            ? [{ value: 0 }]
+            : [{ value: heldSendsOf(evidence.truth).filter(({ at }) => Date.parse(at) < Date.parse(exitedAt)).length }]
+    },
+}
+
+const SENDS = ['never', 'once', 'twice'] as const
+
+export const sendsPerDelivery: MeasurementDefinition = {
+    name: 'sends_per_delivery',
+    params: z.object({}).strict(),
+    unit: 'deliveries',
+    measure: (evidence) => {
+        const unreadTruth = unreadTruthOf(evidence)
+        if (unreadTruth !== undefined) {
+            return [unmeasured(unreadTruth)]
+        }
+        const accepted = new Map(
+            acceptedDeliveriesOf(evidence.truth).map(({ record, accepted }) => [
+                deliveryKey(record.unitId, record.actionId),
+                accepted,
+            ])
+        )
+        const held = new Set(
+            heldSendsOf(evidence.truth).flatMap(({ unitId, actionId }) =>
+                unitId === undefined || actionId === undefined ? [] : [deliveryKey(unitId, actionId)]
+            )
+        )
+        const expected = evidence.journal
+            .filter(({ answer }) => answer.accepted)
+            .flatMap(({ unitId, expect }) => expect.deliveries.map((actionId) => deliveryKey(unitId, actionId)))
+        const sendsOf = (key: string): (typeof SENDS)[number] => SENDS[Math.min(accepted.get(key) ?? 0, 2)]
+        const counted = (keys: string[], prefix: string): Measured[] =>
+            SENDS.map((sends) => ({
+                key: `${prefix}${sends}`,
+                value: keys.filter((key) => sendsOf(key) === sends).length,
+            }))
+        return [
+            ...counted(expected, ''),
+            ...counted(
+                expected.filter((key) => held.has(key)),
+                'held_'
+            ),
+        ]
     },
 }
 
@@ -665,6 +739,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,
+    sesCallsHeldPastExit,
+    sendsPerDelivery,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
