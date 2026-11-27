@@ -291,7 +291,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "issue_threads": {
-        "description": "Internal discussion threads on Pylon issues, including threads linked to a chat platform.",
+        "description": (
+            "Internal discussion threads on Pylon issues, including threads linked to a chat platform. "
+            "Each refresh includes only threads on issues returned by Pylon for the last 365 days. "
+            "New threads on excluded issues do not sync. Previously synced threads can drop out as their issues age."
+        ),
         "docs_url": "https://docs.usepylon.com/pylon-docs/developer/api/api-reference/messages",
         "columns": {
             "id": "The Pylon ID of the thread.",

@@ -12116,7 +12116,7 @@ Note: Pulumi publishes a machine-readable spec at https://api.pulumi.com/api/ope
 
 ## Pylon — gaps
 
-Today (17): `accounts`, `activity_types`, `contacts`, `custom_fields`, `issue_messages`, `issue_statuses`, `issues`, `knowledge_base_articles`, `knowledge_bases`, `macros`, `survey_responses`, `tags`, `tasks`, `teams`, `ticket_forms`, `user_roles`, `users`
+Today (20): `account_relationships`, `accounts`, `activity_types`, `contacts`, `custom_fields`, `issue_messages`, `issue_statuses`, `issue_threads`, `issues`, `knowledge_base_articles`, `knowledge_bases`, `macros`, `survey_responses`, `surveys`, `tags`, `tasks`, `teams`, `ticket_forms`, `user_roles`, `users`
 
 Diffed against: <https://api.usepylon.com/openapi.json>
 

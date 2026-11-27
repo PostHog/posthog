@@ -272,22 +272,18 @@ def test_surveys_reads_unpaginated_definitions() -> None:
 
 
 class TestChildEndpoints:
-    def test_account_relationships_walks_account_pages_and_keeps_child_ids(self) -> None:
-        def relationship(child_id: str) -> ScriptedResponse:
-            return ScriptedResponse(
-                json={
-                    "data": [{"id": "relationship-1", "child_account_id": child_id, "parent_account_id": "parent-1"}],
-                    "request_id": "req",
-                }
-            )
+    def test_account_relationships_walks_account_pages_and_fills_missing_child_ids(self) -> None:
+        relationship = {"id": "relationship-1", "parent_account_id": "parent-1", "related_object_id": "parent-1"}
 
         result = _driver().run(
             "account_relationships",
             route(
                 {
                     "/accounts": [_scripted_page([{"id": "child-1"}], "next"), _scripted_page([{"id": "child-2"}])],
-                    "/accounts/child-1/relationships": [relationship("child-1")],
-                    "/accounts/child-2/relationships": [relationship("child-2")],
+                    "/accounts/child-1/relationships": [
+                        ScriptedResponse(json={"data": [{**relationship, "child_account_id": "child-1"}]})
+                    ],
+                    "/accounts/child-2/relationships": [ScriptedResponse(json={"data": [relationship]})],
                 }
             ),
         )
@@ -301,9 +297,9 @@ class TestChildEndpoints:
         ]
         assert result.params("cursor") == [None, None, "next", None]
         assert result.params("limit") == ["999", None, "999", None]
-        assert [(row["child_account_id"], row["id"]) for row in result.rows] == [
-            ("child-1", "relationship-1"),
-            ("child-2", "relationship-1"),
+        assert result.rows == [
+            {**relationship, "child_account_id": "child-1"},
+            {**relationship, "child_account_id": "child-2"},
         ]
 
     @parameterized.expand(
