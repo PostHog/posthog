@@ -9,8 +9,9 @@ from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.panels import Fact, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.records import RecordLink
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Row, Table, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Row, Table, ToolOperation, ToolPlace
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -34,6 +35,21 @@ def _experiments_url(**params: object) -> str:
 
 def _recalculations_url(**params: object) -> str:
     return f"{RECALCULATIONS_TOOL_URL}?{urlencode(params)}"
+
+
+def _experiment_place(experiment_id: int, *steps: RecordLink) -> ToolPlace | None:
+    experiment = staff.get_experiment(experiment_id)
+    if experiment is None:
+        return None
+    return ToolPlace.under(
+        "team",
+        experiment.team_id,
+        (
+            RecordLink(label="Experiments", href=_experiments_url(team=experiment.team_id)),
+            RecordLink(label=experiment.name, href=_experiments_url(experiment=experiment.id)),
+            *steps,
+        ),
+    )
 
 
 def _int_param(request: HttpRequest, name: str) -> int | None:
@@ -286,6 +302,26 @@ class ExperimentsTool(ConsoleTool):
     group = "Product data"
     description = "One team's experiments, with metric repairs, legacy engine migration and recalculations."
 
+    def place(self, request: HttpRequest) -> ToolPlace | None:
+        experiment_id = _int_param(request, "experiment")
+        if experiment_id is not None:
+            return _experiment_place(experiment_id)
+        saved_metric_id = _int_param(request, "saved_metric")
+        if saved_metric_id is not None:
+            saved_metric = staff.get_saved_metric(saved_metric_id)
+            if saved_metric is None:
+                return None
+            return ToolPlace.under(
+                "team",
+                saved_metric.team_id,
+                (
+                    RecordLink(label="Experiments", href=_experiments_url(team=saved_metric.team_id)),
+                    RecordLink(label=saved_metric.name, href=_experiments_url(saved_metric=saved_metric.id)),
+                ),
+            )
+        team_id = _int_param(request, "team")
+        return ToolPlace.under("team", team_id) if team_id is not None else None
+
     def page(self, request: HttpRequest) -> Page:
         experiment_id = _int_param(request, "experiment")
         if experiment_id is not None:
@@ -521,6 +557,18 @@ class ExperimentRecalculationsTool(ConsoleTool):
     owner = EXPERIMENTS
     group = "Product data"
     description = "Metrics recalculation runs across teams, and controls for a stuck run."
+
+    def place(self, request: HttpRequest) -> ToolPlace | None:
+        run_id = _uuid_param(request, "run")
+        if run_id is not None:
+            run = staff.get_recalculation(run_id)
+            if run is None:
+                return None
+            return _experiment_place(
+                run.experiment_id, RecordLink(label="Recalculation", href=_recalculations_url(run=run.id))
+            )
+        experiment_id = _int_param(request, "experiment")
+        return _experiment_place(experiment_id) if experiment_id is not None else None
 
     def page(self, request: HttpRequest) -> Page:
         run_id = _uuid_param(request, "run")
