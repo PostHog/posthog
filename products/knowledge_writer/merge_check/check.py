@@ -26,7 +26,7 @@ NOT_ON_DEFAULT_BRANCH_REASON = "not_on_default_branch"
 NO_PULL_REQUEST_REASON = "no_pull_request"
 DOCS_SOURCE_UNCONFIGURED_REASON = "docs_source_unconfigured"
 
-PageFate = Literal["read", "not_listed", "quote_not_in_diff", "no_source_path", "over_read_cap", "read_failed"]
+PageFate = Literal["read", "not_listed", "no_source_path", "over_read_cap", "read_failed"]
 
 
 class MergeNotConfirmed(Exception):
@@ -103,23 +103,24 @@ def run_merge_check(
             criteria=gate_rows,
             low_confidence=low_confidence,
         )
-    named_page_keys = [page.page_path for page in facts.changed_pages] if facts is not None else []
+    picked_page_paths = (
+        list(dict.fromkeys(page.page_path for page in extracted_facts.changed_pages))
+        if extracted_facts is not None
+        else []
+    )
+    page_by_key = evidence.page_by_key
     source_path_by_key = {
-        key: page.source_path
-        for key, page in evidence.page_by_key.items()
-        if key in named_page_keys and page.source_path is not None
+        page_path: source_path
+        for page_path in picked_page_paths  # the picker's order, so read_page_sources' cap cuts its last picks
+        if page_path in page_by_key and (source_path := page_by_key[page_path].source_path) is not None
     }
     page_text_by_key = read_page_sources(
         github, source.docs_repository, source_path_by_key, docs_commit_sha=evidence.docs_commit_sha
     )
-    picker_page_paths = (
-        [page.page_path for page in extracted_facts.changed_pages] if extracted_facts is not None else []
-    )
     gate_rows = (
         *gate_rows,
         picked_pages_row(
-            picker_page_paths,
-            verified_page_paths=set(named_page_keys),
+            picked_page_paths,
             listed_page_paths=set(evidence.docs_page_paths),
             source_path_by_key=source_path_by_key,
             page_text_by_key=page_text_by_key,
@@ -138,7 +139,6 @@ def run_merge_check(
 
 def picked_pages_row(
     named_page_paths: list[str],
-    verified_page_paths: set[str],
     listed_page_paths: set[str],
     source_path_by_key: Mapping[str, str],
     page_text_by_key: Mapping[str, str],
@@ -148,8 +148,6 @@ def picked_pages_row(
     def page_fate(page_path: str) -> PageFate:
         if page_path not in listed_page_paths:
             return "not_listed"
-        if page_path not in verified_page_paths:
-            return "quote_not_in_diff"
         if page_path not in source_path_by_key:
             return "no_source_path"
         if page_path in page_text_by_key:

@@ -645,9 +645,12 @@ def test_only_a_diff_quote_names_a_changed_page(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[0]], reason="rollout removed"
     )
 
-    report = check_merge(commit_sha, github, judge_recording(verdict, [], facts))
+    judge_requests: list[dict] = []
+
+    report = check_merge(commit_sha, github, judge_recording(verdict, judge_requests, facts))
 
     assert (f"- {FLAGS_PAGES[0]} (update):" in report.evidence) == is_page_named_in_evidence
+    assert [OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests] == [True]
 
 
 @pytest.mark.parametrize("author_association, is_author_text_read", [("MEMBER", True), ("CONTRIBUTOR", False)])
