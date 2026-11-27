@@ -104,6 +104,20 @@ CREATE TABLE posthog.metrics_kafka_metrics (
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.metrics_precomputed_buckets (
+  team_id Int32,
+  precomputed_metric_id UUID,
+  bucket_start DateTime,
+  final Bool,
+  written_at DateTime64(6),
+  entry_labels Array(Array(String)),
+  entry_metric_types Array(LowCardinality(String)),
+  entry_bounds Array(Array(Float64)),
+  entry_values Array(Float64),
+  entry_counts Array(Array(Float64)),
+  entry_fingerprints Array(Array(UInt64)),
+  entry_fingerprints_truncated Array(Bool)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics_precomputed_buckets', '{replica}-{shard}', written_at) ORDER BY (team_id, precomputed_metric_id, bucket_start) PARTITION BY toDate(bucket_start) TTL bucket_start + toIntervalDay(32) SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,
