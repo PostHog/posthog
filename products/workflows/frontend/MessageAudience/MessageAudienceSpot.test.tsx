@@ -5,6 +5,8 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { mockAllIsIntersecting, mockIsIntersecting } from 'react-intersection-observer/test-utils'
 
+import { SurveyRespondentsBroadcastButton } from 'scenes/surveys/components/SurveyRespondentsBroadcastButton'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -128,7 +130,10 @@ describe('message audience on-screen events', () => {
         expect(events('message audience shown')).toEqual([])
     })
 
-    it('reports a button that was disabled only once it is on screen while usable', () => {
+    it.each([
+        { case: 'leaves the screen before it is enabled', exitFirst: true },
+        { case: 'is enabled in the same update that moves it off screen', exitFirst: false },
+    ])('reports a disabled button only once it is on screen while usable, when it $case', ({ exitFirst }) => {
         function Spot({ disabled }: { disabled: boolean }): JSX.Element {
             const attempts = useMessageAudienceAttempts()
             return (
@@ -137,11 +142,15 @@ describe('message audience on-screen events', () => {
                 </MessageAudienceSpot>
             )
         }
-        const spot = (disabled: boolean): JSX.Element => <Spot disabled={disabled} />
-        const { rerender } = render(spot(true))
+        const { rerender } = render(<Spot disabled />)
         act(() => mockAllIsIntersecting(true))
-        act(() => mockAllIsIntersecting(false))
-        rerender(spot(false))
+        if (exitFirst) {
+            act(() => mockAllIsIntersecting(false))
+            rerender(<Spot disabled={false} />)
+        } else {
+            rerender(<Spot disabled={false} />)
+            act(() => mockAllIsIntersecting(false))
+        }
         expect(events('message audience shown')).toEqual([])
 
         act(() => mockAllIsIntersecting(true))
@@ -274,6 +283,24 @@ describe('message audience on-screen events', () => {
                 destination: 'workflow',
                 attempt_id: shown.find(({ destination }) => destination === 'workflow')?.attempt_id,
             },
+        ])
+    })
+
+    it('reports no survey button that mounts while the respondents lookup it shares is loading', () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/': () => new Promise(() => {}),
+                '/api/projects/:team_id/query/': () => new Promise(() => {}),
+            },
+        })
+        render(<SurveyRespondentsBroadcastButton surveyId="survey-1" />)
+        act(() => mockAllIsIntersecting(true))
+        fireEvent.click(screen.getByText('Email respondents'))
+        render(<SurveyRespondentsBroadcastButton surveyId="survey-1" />)
+        act(() => mockAllIsIntersecting(true))
+
+        expect(events('message audience shown')).toEqual([
+            { source: 'survey_respondents', destination: 'broadcast', attempt_id: expect.any(String) },
         ])
     })
 

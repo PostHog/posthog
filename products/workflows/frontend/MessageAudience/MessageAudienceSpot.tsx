@@ -56,13 +56,19 @@ export function MessageAudienceSpot({
     }, [])
 
     const { ref } = useInView({
+        skip: disabled,
         onChange: (inView) => {
             onScreen.current = inView
             reportIfSeen()
         },
     })
 
-    useEffect(reportIfSeen, [reportIfSeen, disabled, attemptId])
+    useEffect(() => {
+        if (disabled) {
+            onScreen.current = false
+        }
+    }, [disabled])
+    useEffect(reportIfSeen, [reportIfSeen, attemptId])
 
     return <span ref={ref}>{children}</span>
 }

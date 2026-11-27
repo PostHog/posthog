@@ -32,7 +32,7 @@ export function SurveyRespondentsBroadcastButton({ surveyId }: { surveyId: strin
                 attempts={attempts}
                 source={SURVEY_RESPONDENTS_SOURCE}
                 destination="broadcast"
-                disabled={!!accessDisabledReason}
+                disabled={!!accessDisabledReason || respondentsCohortLoading}
             >
                 {hasActiveFilters ? 'Email these respondents' : 'Email respondents'}
             </MessageAudienceSpot>
