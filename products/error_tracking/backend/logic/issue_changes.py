@@ -25,10 +25,9 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueChange,
     ErrorTrackingIssueFingerprintV2,
 )
+from products.error_tracking.backend.platform_alerts.flags import ERROR_TRACKING_ALERTS_FLAG
 
 logger = structlog.get_logger(__name__)
-
-ISSUE_CHANGE_LOG_FLAG = "error-tracking-issue-change-log"
 
 Kind = ErrorTrackingIssueChange.Kind
 Status = ErrorTrackingIssue.Status
@@ -213,7 +212,7 @@ def parse_change_data(kind: str, data: dict[str, Any]) -> IssueChangeData:
 def issue_change_log_enabled(team_id: int) -> bool:
     try:
         return feature_enabled_or_false(
-            ISSUE_CHANGE_LOG_FLAG,
+            ERROR_TRACKING_ALERTS_FLAG,
             str(team_id),
             groups={"project": str(team_id)},
             group_properties={"project": {"id": str(team_id)}},

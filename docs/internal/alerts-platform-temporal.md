@@ -50,6 +50,10 @@ Parent completion does not prove either succeeded. Schedule creation also does n
 ### Error tracking rollout
 
 Keep `platform-alerts-source-error-tracking` closed until the evaluation binding, ingestion change-log producers, and delivery behavior are ready.
+The same flag gates alert creation and change-log recording for user actions, automation, and ingestion lifecycle activities.
+The separate `error-tracking-issue-change-log` flag no longer controls recording.
+Target the alert flag by project group ID so local flag evaluation can enable recording.
+Disabling the flag stops new change-log writes; re-enabling it does not backfill changes from the disabled period.
 Source registration and configuration APIs alone do not evaluate alerts.
 An enabled configuration without its evaluation binding stays due and contributes to the overdue inventory.
 

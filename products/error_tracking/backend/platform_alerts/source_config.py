@@ -21,13 +21,13 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
+from products.error_tracking.backend.platform_alerts.flags import ERROR_TRACKING_ALERTS_FLAG
 from products.error_tracking.backend.platform_alerts.wording import ISSUE_ID_LABEL, alert_url
 
 CHECK_INTERVAL_MINUTES: Final = 1
 # Every due alert is loaded each minute, so the count per team bounds that read. Error tracking's
 # own alerts allow the same number.
 MAX_ALERTS_PER_TEAM: Final = 50
-ROLLOUT_FLAG: Final = "platform-alerts-source-error-tracking"
 # Issue fields the native filters read but a change's snapshot does not carry. A filter on one would
 # read it as unset, so a positive filter never matches and a negated one always does.
 UNSUPPORTED_FILTER_KEYS: Final = frozenset({"description", "issue_description", "fingerprint"})
@@ -117,5 +117,5 @@ ERROR_TRACKING_ALERT_CONFIG: Final = SourceConfigSpec(
         max_per_team=MAX_ALERTS_PER_TEAM,
     ),
     alert_url=alert_url,
-    rollout_flag=ROLLOUT_FLAG,
+    rollout_flag=ERROR_TRACKING_ALERTS_FLAG,
 )
