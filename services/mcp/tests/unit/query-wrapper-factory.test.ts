@@ -441,6 +441,69 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
+describe('createQueryWrapper complete-period comparison', () => {
+    const schema = z.object({
+        dateRange: z.object({ date_from: z.string(), date_to: z.string().nullable().optional() }).optional(),
+        compareFilter: z.object({ compare: z.boolean().optional() }).optional(),
+    })
+
+    function createMockContext(runQuery: ReturnType<typeof vi.fn>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it.each([
+        [
+            'clips an open-ended compare to complete days',
+            'WebOverviewQuery',
+            { dateRange: { date_from: '-7d' }, compareFilter: { compare: true } },
+            { date_from: '-7d', excludeIncompletePeriods: true },
+        ],
+        [
+            'clips the default range when compare is on without a dateRange',
+            'WebStatsTableQuery',
+            { compareFilter: { compare: true } },
+            { excludeIncompletePeriods: true },
+        ],
+        [
+            'leaves an explicit date_to alone',
+            'WebOverviewQuery',
+            { dateRange: { date_from: '-7d', date_to: '2025-01-28' }, compareFilter: { compare: true } },
+            { date_from: '-7d', date_to: '2025-01-28' },
+        ],
+        [
+            'does nothing without a comparison',
+            'WebOverviewQuery',
+            { dateRange: { date_from: '-7d' } },
+            { date_from: '-7d' },
+        ],
+        [
+            'keeps a rolling hour window whole',
+            'WebOverviewQuery',
+            { dateRange: { date_from: '-48h' }, compareFilter: { compare: true } },
+            { date_from: '-48h' },
+        ],
+        [
+            'does nothing for other query kinds',
+            'TrendsQuery',
+            { dateRange: { date_from: '-7d' }, compareFilter: { compare: true } },
+            { date_from: '-7d' },
+        ],
+    ])('%s', async (_name, kind, input, expectedDateRange) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+
+        await tool.handler(createMockContext(runQuery), tool.schema.parse(input))
+
+        expect(runQuery.mock.calls[0]![0].query.dateRange).toEqual(expectedDateRange)
+    })
+})
+
 describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 

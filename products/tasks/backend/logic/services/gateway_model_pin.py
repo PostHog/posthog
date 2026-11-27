@@ -34,7 +34,7 @@ def _first_party_pin(product: str) -> list[str]:
     return list(dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model_id for model_id in routed if _admits(product, model_id))]))
 
 
-# Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
+# Ids older PostHog Desktop builds call that the catalog lacks.
 _DESKTOP_LEGACY_MODEL_ADAPTERS: dict[str, str] = {"gpt-5.4": "codex", "gpt-5.3-codex": "codex", "gpt-5-mini": "codex"}
 _DESKTOP_LEGACY_MODELS: tuple[str, ...] = tuple(_DESKTOP_LEGACY_MODEL_ADAPTERS)
 
@@ -66,7 +66,7 @@ assert len(gateway_pin(DESKTOP_AGENT_MODELS)) <= MAX_GATEWAY_PIN_LENGTH, (
     "the desktop model pin outgrew the gateway limit"
 )
 
-# The legacy gateway's free tier. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
+# Models a free-plan PostHog Desktop run may call. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
 FREE_TIER_MODELS: list[str] = [
     "@cf/zai-org/glm-5.2",
     "zai-org/glm-5.2",

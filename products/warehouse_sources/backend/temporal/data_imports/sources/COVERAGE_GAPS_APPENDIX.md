@@ -899,14 +899,14 @@ Diffed against: <https://docs.api.appfollow.io/reference/app_collections_list_ap
 - [x] `/api/v2/aso/keywords` — tracked keyword positions per app and country (high) — synced as `keywords`, also a daily snapshot.
 - [x] `/api/v2/meta/versions` — app version release history; lookup resolving the version field on synced reviews (high) — synced as `app_versions`.
 - [x] `/api/v2/reviews/stats` — aggregate review counts and sentiment without re-aggregating raw reviews (medium) — synced as `reviews_stats`, incremental on `date`. Counts only; sentiment lives on `/reviews/semantic`.
-- [ ] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium)
+- [x] `/api/v2/reviews/stats/version` — review breakdown by app version, the standard release-quality view (medium) — synced as `reviews_version_stats`. The response contains daily review tag counts by version in nested columns.
 - [x] `/api/v2/reviews/stats/ratings` — rating distribution over time (medium) — synced as `reviews_ratings_stats`. It returns star ratings by review tag per replying user for one review date, not a rating distribution, so the table walks one request per day.
 - [x] `/api/v2/reviews/stats/replies, /reviews/stats/replies/count, /reviews/stats/replies/speed` — reply coverage and response-time SLA metrics for support teams (medium) — synced as `reviews_replies_stats`, `reviews_replies_count` and `reviews_replies_speed`. `/count` returns the replied reviews whose rating changed after the reply, not counts.
 - [x] `/api/v2/reports/aso` — packaged ASO report combining keywords, ranks and visibility (medium) — synced as `aso_reports`. It returns App Store Connect downloads, impressions and page views per source channel, not keywords or ranks.
 - [x] `/api/v2/reviews/semantic` — semantic tags per review, the breakdown dimension for review analysis (medium) — synced as `reviews_semantic` (Advanced API add-on).
-- [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium)
-- [ ] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium)
-- [ ] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low)
+- [ ] `/api/v2/charts/topcharts` — public top charts for competitive benchmarking (medium). Skipped: Requires device and genre query inputs that the source cannot enumerate from tracked apps.
+- [x] `/api/v2/meta/ratings/console/gp` — Google Play Console ratings, more accurate than scraped store ratings (medium) — synced as `console_ratings`, with separate ratings and users rows per app, collection, and day.
+- [x] `/api/v2/aso/featured` — App Store featuring events that drive install spikes (low) — synced as `featured_apps`, with full refresh of the last year per App Store app and collection country.
 
 Note: Full v2 endpoint list read from the docs nav (slugs encode the HTTP path). PostHog covers account management plus reviews and ratings history; the ASO and review-analytics halves of the product are unmapped.
 
@@ -1828,10 +1828,10 @@ Today (2): `listings`, `orders`
 
 Diffed against: <https://api.backmarket.dev/bundled_openapi.yaml>
 
-- [ ] `Backbox competitors (GET /ws/backbox/v1/competitors/{listingId})` — compare competitor prices and quality scores to understand lost Backbox placement and sales opportunities (high)
-- [ ] `Care Folders (GET /ws/sav)` — analyze after-sales cases, response activity, resolutions, and refunds linked to order lines (high)
-- [ ] `Product returns (GET /ws/shipping/v1/returns)` — measure return volumes and return shipping status for BackShip orders (high)
-- [ ] `BuyBack orders (GET /ws/buyback/v1/orders)` — analyze trade-in purchase volume, acquisition costs, status, and sourcing performance (high)
+- [x] `Backbox competitors (GET /ws/backbox/v1/competitors/{listingId})` — compare competitor prices and quality scores to understand lost Backbox placement and sales opportunities (high)
+- [x] `Care Folders (GET /ws/sav)` — analyze after-sales cases, response activity, resolutions, and refunds linked to order lines (high)
+- [x] `Product returns (GET /ws/shipping/v1/returns)` — measure return volumes and return shipping status for BackShip orders (high)
+- [x] `BuyBack orders (GET /ws/buyback/v1/orders)` — analyze trade-in purchase volume, acquisition costs, status, and sourcing performance (high)
 - [ ] `Deliveries (GET /ws/shipping/v1/deliveries)` — analyze fulfillment progress, carrier performance, and shipment status for BackShip orders (medium)
 - [ ] `BuyBack listings (GET /ws/buyback/v1/listings)` — connect trade-in orders to purchase offers and compare sourcing prices and conditions (medium)
 - [ ] `BuyBack order messages (GET /ws/buyback/v1/orders/{buybackOrderId}/messages)` — analyze trade-in conversations, response delays, and causes of purchase disputes (medium)
@@ -11668,10 +11668,10 @@ Diffed against: <https://pipelinercrm.eu.apidog.com/>
 - [ ] `ProcessActivityLogs and ProcessActivityLogLines` — step/stage transition history for opportunities, the basis of sales-velocity and stage-conversion analysis (high) — skipped: these are Automatizer workflow run logs, not opportunity stage history
 - [x] `SalesUnits (and SalesUnitClientRelations)` — lookup resolving the sales unit IDs stamped on every account, contact, lead and opportunity we sync (high)
 - [x] `Currencies and CurrencyExchangeRates` — lookup for the currency IDs on opportunity and product values; without it multi-currency pipelines can't be normalized (high)
-- [ ] `Processes (and ProcessTemplates)` — the sales process each Step belongs to - the parent lookup for the synced steps table (high)
-- [ ] `AccountTypes, ContactTypes, LeadTypes, OpportunityTypes, TaskTypes, AppointmentTypes` — type lookups resolving the type IDs on the core records already synced (high)
-- [ ] `Quotes (and QuoteProcesses, QuoteTypes)` — quoting is a first-class Pipeliner object tied to opportunities and completely absent today (medium)
-- [ ] `ContactAccountRelations and ContactAccountAccountRoleRelations` — join table between the synced contacts and accounts, including the contact's role at the account (medium)
+- [ ] `Processes (and ProcessTemplates)` — the sales process each Step belongs to - the parent lookup for the synced steps table (high) — Skipped: Both contain Automatizer workflow definitions, not sales stages or their parent records.
+- [x] `AccountTypes, ContactTypes, LeadTypes, OpportunityTypes, TaskTypes, AppointmentTypes` — type lookups resolving the type IDs on the core records already synced (high)
+- [x] `Quotes (and QuoteProcesses, QuoteTypes)` — quoting is a first-class Pipeliner object tied to opportunities and completely absent today (medium)
+- [x] `ContactAccountRelations and ContactAccountAccountRoleRelations` — join table between the synced contacts and accounts, including the contact's role at the account (medium)
 - [ ] `Forecasts and Targets/TargetRelations` — quota and forecast figures - the denominator for pipeline attainment reporting (medium)
 - [ ] `Emails and EmailEvents` — email activity and open/click events tied to CRM records (medium)
 - [ ] `Calls and TextMessages` — call and SMS touchpoints not represented by tasks or appointments (medium)
@@ -15768,8 +15768,8 @@ Diffed against: <https://api.vapi.ai/api-json>
 - [x] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
 - [x] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
 - [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium); skipped, it is a file download (a 302 to a short-lived presigned log file URL, no JSON schema), not a list endpoint, and it would take one request per call with no changed-since filter
-- [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
-- [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
+- [x] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
+- [x] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
 - [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
 
 Note: Full OpenAPI fetched live from api.vapi.ai/api-json. Note /reporting/insight is a saved-query definition (its data only comes back via POST /reporting/insight/{id}/run), and /provider/{provider}/{resourceName} is a passthrough to Twilio/Vonage account resources — both excluded as plumbing. /v2/campaign is a newer version of the /campaign the source already uses, not a distinct resource.

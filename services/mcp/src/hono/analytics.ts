@@ -171,6 +171,8 @@ export interface ToolCallAnalyticsMeta {
     parameters?: unknown
     /** What the agent got back → `$mcp_response`. The SDK sanitizes and truncates it. */
     response?: unknown
+    /** Key names of the request's `_meta`, never values -> `mcp_request_meta_keys`. */
+    requestMetaKeys?: string[]
 }
 
 export async function trackToolCall(
@@ -249,6 +251,10 @@ export async function trackToolCall(
                 // Which vendor ran the tool, so "who do people actually call" is a
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
+                ...(analyticsMeta?.requestMetaKeys ? { mcp_request_meta_keys: analyticsMeta.requestMetaKeys } : {}),
+                ...(requestContext.requestHeaderNames
+                    ? { mcp_request_header_names: requestContext.requestHeaderNames }
+                    : {}),
                 ...extraProperties,
                 [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 [`$feature/${MCP_INBOX_FIRST_FLAG}`]: state.toolFeatureFlags?.[MCP_INBOX_FIRST_FLAG],

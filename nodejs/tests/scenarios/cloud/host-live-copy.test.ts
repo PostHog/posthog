@@ -92,6 +92,8 @@ describe('host-live-copy.sh, run by host-run-card.sh', () => {
         mkdirSync(path.join(host, 'pooler'), { recursive: true })
         writeFileSync(path.join(host, 'input', 'manifest.json'), JSON.stringify({ runId: RUN_ID, card: 'any-card' }))
         writeFileSync(path.join(host, 'pooler', 'urls'), 'postgres://127.0.0.1:6432/cyclotron_node\n')
+        mkdirSync(path.join(host, 'writer'), { recursive: true })
+        writeFileSync(path.join(host, 'writer', 'url'), 'postgres://writer.example.com:5432/cyclotron_node\n')
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
         writeFileSync(path.join(bin, 'node'), FAKE_RUNNER, { mode: 0o755 })
         if (onHost) {
