@@ -5,10 +5,13 @@ require a team-security review for every change to this file.
 """
 
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit
+import json
+import time
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
+from uuid import UUID
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 
 from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
@@ -16,6 +19,12 @@ from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 
 _POSTHOG_CSP_REPORT_ENDPOINT = f"{PH_US_HOST}/report/?token={PH_US_API_KEY}&v=2"
+
+# posthog-js starts a new session after 30 minutes without activity (its default, which the app keeps)
+# or after 24 hours. The header is built before posthog-js runs, so a session past either limit is one
+# the page is about to replace, and a report tagged with it would land in the wrong recording.
+POSTHOG_JS_SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000
+POSTHOG_JS_SESSION_LENGTH_LIMIT_MS = 24 * 60 * 60 * 1000
 
 
 def csp_report_endpoint(**params: str) -> str:
@@ -35,6 +44,32 @@ def csp_report_endpoint(**params: str) -> str:
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query.update(params)
     return parts._replace(query=urlencode(query)).geturl()
+
+
+def posthog_js_session_id(request: HttpRequest, report_endpoint: str) -> str | None:
+    """The session posthog-js records in this browser for the project that `report_endpoint` reports to.
+
+    The cookie is named after the project token, so a session from any other project is never read.
+    """
+    token = dict(parse_qsl(urlsplit(report_endpoint).query)).get("token")
+    cookie = request.COOKIES.get(f"ph_{token}_posthog") if token else None
+    if not cookie:
+        return None
+    try:
+        # posthog-js stores the cookie as URL-encoded JSON, with `$sesid` as
+        # [last activity in ms, session id, session start in ms].
+        last_activity_ms, session_id, session_start_ms = json.loads(unquote(cookie))["$sesid"]
+        # The browser controls the cookie and the value lands in a response header, so only a UUID passes.
+        session_id = str(UUID(session_id))
+        now_ms = time.time() * 1000
+        if (
+            now_ms - last_activity_ms > POSTHOG_JS_SESSION_IDLE_TIMEOUT_MS
+            or now_ms - session_start_ms > POSTHOG_JS_SESSION_LENGTH_LIMIT_MS
+        ):
+            return None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+    return session_id
 
 
 def object_storage_upload_source() -> str:
@@ -514,13 +549,17 @@ class CSPMiddleware:
 
             report_params: dict[str, str] = {"v": NARROWED_APP_POLICY_REPORT_VERSION} if narrowed else {}
             report_uri = csp_report_endpoint(**report_params)
+            # A report body never names the person or the session, and a crash report arrives after the
+            # tab already died, so only the URL can carry them. Without them, the report endpoint mints a
+            # random id for each, and the report never joins the person's recording.
+            identity: dict[str, str] = {}
+            if distinct_id:
+                identity["distinct_id"] = distinct_id
+            session_id = posthog_js_session_id(request, report_uri) if report_uri else None
+            if session_id:
+                identity["session_id"] = session_id
             if report_uri:
-                report_endpoint = report_uri
-                if distinct_id:
-                    # A report body never names the person, and a crash report arrives after the tab
-                    # already died, so only the URL can carry the distinct_id. Without it, the report
-                    # endpoint mints a random id for every report.
-                    report_endpoint = csp_report_endpoint(**report_params, distinct_id=distinct_id)
+                report_endpoint = csp_report_endpoint(**report_params, **identity) if identity else report_uri
                 # The policy has no `report-to` directive, even though CSP3 marks `report-uri` as
                 # deprecated. While a policy names `report-to`, browsers ignore its `report-uri` and
                 # send reports only through the Reporting API. That API drops violations raised in
@@ -533,9 +572,7 @@ class CSPMiddleware:
             header_name = app_csp_header_name(request.path)
             response.headers[header_name] = "; ".join(csp_parts)
             for version, shadow_parts in shadows.items():
-                shadow_params = {"v": version}
-                if distinct_id:
-                    shadow_params["distinct_id"] = distinct_id
+                shadow_params = {"v": version, **identity}
                 shadow_uri = csp_report_endpoint(**shadow_params)
                 if shadow_uri:
                     # One header can carry several policies separated by commas, and the browser checks
