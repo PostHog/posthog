@@ -93,6 +93,7 @@ export type FinalRead = { attempts: number; backoffMs: number }
 const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
 const FINAL_PASSES = 3
 const FINAL: TruthRead = { final: true }
+const FEEDBACK_HEAD_WAIT_MS = 5000
 
 const messageOf = (error: unknown): string =>
     typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
@@ -255,22 +256,23 @@ export function createJudge({
 
         async converge(withinMs, signal) {
             const startedAt = now()
+            const awaitFeedbackLanded = async (leftMs: number): Promise<boolean> => {
+                if (!drainsFeedback) {
+                    return true
+                }
+                await source.head({ waitMs: Math.max(0, Math.min(leftMs, FEEDBACK_HEAD_WAIT_MS)) })
+                return (source.feedbackInFlight?.() ?? 0) === 0
+            }
             for (;;) {
                 let jobs: number | undefined
                 const quiet = await read(async () => {
-                    if (drainsFeedback) {
-                        // The edge answers its head only once the feedback it is still posting has landed, so the lag probe below counts its notifications.
-                        await source.head()
-                    }
+                    const feedbackLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
                     await pullTruth()
                     const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
-                    if (drainsFeedback) {
-                        // A send that landed during the first head read may still be posting its feedback.
-                        await source.head()
-                    }
+                    const feedbackStillLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
                     await pullTruth()
-                    return runRecords() === settled
+                    return runRecords() === settled && feedbackLanded && feedbackStillLanded
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt

@@ -82,7 +82,7 @@ const CLOUD_RUN_HOST_LABEL = 'run-host'
 const ALERTS_FILE = 'alerts.jsonl'
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
-export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
+export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog' | 'drainsFeedback'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
     counters?: CounterProbe
     groups: ConsumerGroup[]
@@ -416,7 +416,8 @@ function localTarget(
             const groups = consumerGroupsOf(specs)
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
-            const drainedGroups = drainedGroupsOf(groups, profile.feedback !== undefined)
+            const drainsFeedback = profile.feedback !== undefined
+            const drainedGroups = drainedGroupsOf(groups, drainsFeedback)
             const probe = createCyclotronProbe(cyclotronUrl, async () => {
                 const lags = await Promise.all(drainedGroups.map(({ group }) => environment.groupLag(group)))
                 return lags.reduce((total, lag) => total + lag, 0)
@@ -424,6 +425,7 @@ function localTarget(
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),
+                drainsFeedback,
                 probe,
                 counters: createCounterProbe(clickhouseOf(env)),
                 residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrl),
@@ -574,7 +576,7 @@ export function createRunner(
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)
-            const judge = createJudge({ ...opened, drainsFeedback: profile.feedback !== undefined })
+            const judge = createJudge(opened)
             const valves = createValves()
             const live = openLiveLog(evidenceDir)
             live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })

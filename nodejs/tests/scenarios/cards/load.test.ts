@@ -291,6 +291,12 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-api': 2 } },
             `valves.0.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
         ]),
+        ...['role.kill', 'role.freeze'].map((valve): [string, object, object, string] => [
+            `${valve} on cdp-ses-webhooks while the profile runs more than one cdp-ses-webhooks`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, target: 'cdp-ses-webhooks' }] },
+            { ...profile, replicas: { 'cdp-ses-webhooks': 2 } },
+            `valves.0.target: ${valve} stops cdp-ses-webhooks replica 0 only, and another replica can keep consuming SES notifications; run one cdp-ses-webhooks replica on this card`,
+        ]),
         ...[
             ['role.kill', 'cdp-api'],
             ['role.freeze', 'cdp-cyclotron-worker-email'],

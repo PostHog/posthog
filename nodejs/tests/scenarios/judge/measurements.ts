@@ -268,47 +268,64 @@ export const sesFeedbackPosts: MeasurementDefinition = {
 
 const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped', 'failed'] as const
 
-// cdp-api counts queued notifications and cdp-ses-webhooks counts the rest.
-const SES_COUNTING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
+const QUEUEING_AND_RECORDING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
 
-const lossUnknown = (converged: boolean | undefined, failed: number, lost: number): string | undefined =>
-    converged === false
+const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answeredAt: number }[] =>
+    truth
+        .filter(({ kind, detail }) => kind === 'ses.feedback' && detail.feedback !== undefined)
+        .map(({ status, at }) => ({ status, answeredAt: Date.parse(at) }))
+
+const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): string | undefined => {
+    const { converged, unsettled, horizonAt } = evidence
+    const answers = feedbackAnswersOf(evidence)
+    return converged === false
         ? 'the run did not converge, so the consumer may still have been recording'
-        : failed > 0
-          ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
-          : lost < 0
-            ? 'recorded and skipped add up to more than queued; the counters do not show why'
-            : undefined
+        : unsettled !== undefined
+          ? `the truth never settled (${unsettled}), so cdp-api may have queued notifications after the counters were read`
+          : answers.some(({ status }) => status === 0)
+            ? 'an SES feedback post got no status, so cdp-api may have queued it after the counters were read'
+            : horizonAt !== undefined && answers.some(({ answeredAt }) => answeredAt > horizonAt)
+              ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
+              : failed > 0
+                ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
+                : lost < 0
+                  ? 'recorded and skipped add up to more than queued; the counters do not show why'
+                  : undefined
+}
 
 export const sesNotificationsLost: MeasurementDefinition = {
     name: 'ses_notifications_lost',
     params: z.object({}).strict(),
     unit: 'notifications',
-    measure: ({ samples, missed, sampledFrom, converged }) => {
+    measure: (evidence) => {
+        const { samples, missed, sampledFrom } = evidence
         const replicas = [...byRole(samples).values()]
             .flatMap(replicasOf)
-            .filter((ofReplica) => SES_COUNTING_ROLES.includes(ofReplica[0].role))
+            .filter((ofReplica) => QUEUEING_AND_RECORDING_ROLES.includes(ofReplica[0].role))
+        const incomplete = replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}
         if (
             !replicas.some((ofReplica) =>
                 ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
             )
         ) {
-            return []
+            return incomplete.incomplete
+                ? [
+                      {
+                          key: 'lost_floor',
+                          value: null,
+                          censored: true,
+                          unmeasured:
+                              'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
+                          ...incomplete,
+                      },
+                  ]
+                : []
         }
         const [queued, recorded, skipped, failed] = SES_NOTIFICATION_STAGES.map((stage) =>
             increaseAcrossReplicas(replicas, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
         )
-        const neverScraped = missed.some(
-            (miss) =>
-                SES_COUNTING_ROLES.includes(miss.role) &&
-                !replicas.some((ofReplica) => ofReplica[0].role === miss.role && ofReplica[0].replica === miss.replica)
-        )
-        const incomplete =
-            neverScraped || replicas.some((ofReplica) => lostCpu(ofReplica, missed))
-                ? { incomplete: true as const }
-                : {}
         const lost = queued - recorded - skipped
-        const unknown = lossUnknown(converged, failed, lost)
+        const unknown = lossUnknown(evidence, failed, lost)
         return [
             {
                 key: 'lost_floor',

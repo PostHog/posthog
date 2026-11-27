@@ -1252,7 +1252,7 @@ describe('judge', () => {
         }
     )
 
-    const withHeldWebhook = async (test: (release: () => void) => Promise<void>): Promise<void> => {
+    const withHeldWebhook = async (drains: boolean, test: (release: () => void) => Promise<void>): Promise<void> => {
         let release = (): void => undefined
         const answered = new Promise<void>((resolve) => {
             release = resolve
@@ -1276,7 +1276,7 @@ describe('judge', () => {
                 credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
                 maxAttempts: 1,
             })
-            drainsFeedback = true
+            drainsFeedback = drains
             judge = judgeOf()
             await judge.open(SEED)
             await internalFetch(`${edge.url}/_feedback`, {
@@ -1291,76 +1291,58 @@ describe('judge', () => {
         }
     }
 
-    it('converges only once the SES feedback the edge is still posting has landed in the truth', () =>
-        withHeldWebhook(async (release) => {
+    it.each([
+        [
+            'with feedback shares waits out a feedback post the webhook holds until it times out',
+            true,
+            [
+                ['ses.send', 200],
+                ['ses.feedback', 0],
+            ],
+        ],
+        [
+            'without feedback shares converges while the webhook still holds its feedback post',
+            false,
+            [['ses.send', 200]],
+        ],
+    ])('a profile %s', (_story, drains, records) =>
+        withHeldWebhook(drains, async () => {
             judge.record(offered())
             await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
-            duringHead = release
 
-            expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
-            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([
-                ['ses.send', 200],
-                ['ses.feedback', 200],
+            expect(await judge.converge(10_000, NEVER_ABORTED)).toMatchObject({ converged: true })
+            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual(records)
+        })
+    )
+
+    it('converges with the SES feedback of a send that landed while the judge read its head', () =>
+        withHeldWebhook(true, async (release) => {
+            const late = 'run-a-2'
+            judge.record(offered())
+            judge.record({ ...offered(), unitId: late })
+            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
+            let heads = 0
+            duringHead = async () => {
+                heads += 1
+                if (heads === 1) {
+                    await deliver(late, 'email', 'flow-1', [], `invocation-${late}`, 'scenario-tracked')
+                    release()
+                }
+            }
+
+            expect(await judge.converge(5000, NEVER_ABORTED)).toMatchObject({ converged: true })
+            expect(
+                judge
+                    .evidence()
+                    .truth.map(({ kind, unitId }) => [kind, unitId])
+                    .sort()
+            ).toEqual([
+                ['ses.feedback', UNIT],
+                ['ses.feedback', late],
+                ['ses.send', UNIT],
+                ['ses.send', late],
             ])
         }))
-
-    it('waits for the SES feedback of a send that landed while the edge answered its head', async () => {
-        drainsFeedback = true
-        judge = judgeOf()
-        await judge.open(SEED)
-        const late = 'run-a-2'
-        judge.record(offered())
-        judge.record({ ...offered(), unitId: late })
-        await deliver(UNIT)
-        let heads = 0
-        duringHead = async () => {
-            heads += 1
-            if (heads === 1) {
-                await deliver(late)
-            } else if (heads === 2) {
-                // Stands in for the edge's drain: its head answers once the late send's feedback post has landed.
-                edgeRecords.append({
-                    kind: 'ses.feedback',
-                    unitId: late,
-                    status: 200,
-                    detail: {
-                        feedback: {
-                            eventType: 'Delivery',
-                            snsMessageId: 'sns-late',
-                            sesMessageId: 'ses-late',
-                            postedAt: new Date(0).toISOString(),
-                            durationMs: 1,
-                        },
-                    },
-                })
-            }
-        }
-
-        expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
-        expect(judge.evidence().truth.map(({ kind, unitId }) => [kind, unitId])).toEqual([
-            ['ses.send', UNIT],
-            ['ses.send', late],
-            ['ses.feedback', late],
-        ])
-    })
-
-    it.each([
-        ['without feedback shares reads no head', false, 0],
-        ['with feedback shares reads the head before and after the lag', true, 2],
-    ])('a quiet convergence pass on a profile %s', async (_story, drains, headReads) => {
-        drainsFeedback = drains
-        judge = judgeOf()
-        await judge.open(SEED)
-        judge.record(offered())
-        await deliver(UNIT)
-        let heads = 0
-        duringHead = () => {
-            heads += 1
-        }
-
-        expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
-        expect(heads).toBe(headReads)
-    })
 
     it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
         judge.record(offered())
