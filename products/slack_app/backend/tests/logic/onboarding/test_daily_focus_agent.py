@@ -12,6 +12,7 @@ from products.slack_app.backend.logic.onboarding.daily_focus_agent import (
     AgentSuggestion,
     AgentSummaryItem,
     DailyFocusAgentOutput,
+    agent_owner_id,
     run_daily_focus_agent,
     to_work_focus,
 )
@@ -65,12 +66,20 @@ def _turn_on_daily(integration: WorkspaceIntegration) -> None:
     )
 
 
-def _offer(n: int, author: str = "U_ANA", resolved: bool = False, has_reaction: bool = False) -> AgentSuggestion:
+def _offer(
+    n: int,
+    author: str = "U_ANA",
+    resolved: bool = False,
+    has_reaction: bool = False,
+    link: str = LINK,
+    channel: str | None = None,
+) -> AgentSuggestion:
     return AgentSuggestion(
         offer=f"Offer {n}. Want me to look?",
         request=f"Look into {n}.",
-        source_permalink=LINK,
+        source_permalink=link,
         source_author_id=author,
+        source_channel_name=channel,
         resolved=resolved,
         has_reaction=has_reaction,
     )
@@ -101,6 +110,7 @@ def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
             # News comes first in the answer, but what is for the person still leads the DM.
             *(_item(f"<@U_BEN> launched {n}") for n in range(4)),
             _item("<@U_ANA> asked you about the pricing page", kind="for_you", permalink="https://evil.example/x"),
+            _item("<@U_ANA> spoofed a channel", kind="for_you", channel_id="C1> <https://evil.example|Sign in> <#C1"),
             _item("<@U_ANA> pinged you about trial length", kind="for_you", seen=True),
             _item("<@U_BEN> fixed the export, merged", kind="for_you", resolved=True),
             _item("a DM is not a channel", kind="for_you", channel_id="D1"),
@@ -111,7 +121,10 @@ def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
             _offer(0, author=SLACK_USER_ID),
             _offer(8, resolved=True),
             _offer(9, has_reaction=True),
-            *(_offer(n) for n in range(1, 5)),
+            _offer(1, link=f"{LINK}> <https://evil.example|Sign in>", channel="growth"),
+            _offer(2, link="https://slack.com.evil.example/archives/C1/p1", author="U1> <https://evil.example|x>"),
+            _offer(3, link="https://u:p@example.slack.com/archives/C1/p1", channel="x> <https://evil.example|x>"),
+            *(_offer(n) for n in range(4, 6)),
         ],
     )
 
@@ -127,11 +140,12 @@ def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
     ]
     # A link the model made up off Slack never renders as a link.
     assert focus.summary[0].permalink is None
-    # Work someone already reacted to, resolved work and the person's own message never become offers.
-    assert [suggestion.offer for suggestion in focus.suggestions] == [
-        "Offer 1. Want me to look?",
-        "Offer 2. Want me to look?",
-        "Offer 3. Want me to look?",
+    # Work someone already reacted to, resolved work and the person's own message never become offers. What a
+    # message could smuggle into the DM's mrkdwn through a link, an author or a channel name is dropped.
+    assert [(s.offer, s.source_permalink, s.source_author_id, s.source_channel_name) for s in focus.suggestions] == [
+        ("Offer 1. Want me to look?", None, "U_ANA", "growth"),
+        ("Offer 2. Want me to look?", None, None, None),
+        ("Offer 3. Want me to look?", None, "U_ANA", None),
     ]
 
 
@@ -160,6 +174,26 @@ def test_only_the_agent_dm_shows_its_summary_in_two_sections(agent: bool) -> Non
         else [f"• <@U_ANA> asked you in <#C1>. <{LINK}|[1]>", f"• <@U_BEN> launched in <#C1>. <{LINK}|[2]>"]
     )
     assert lines[1:] == expected
+
+
+@pytest.mark.parametrize("model, kept", [("zai-org/glm-5.3-flash", False), ("claude-haiku-4-5", True)])
+@pytest.mark.django_db
+def test_a_model_the_gateway_refuses_keeps_the_person_on_the_pipeline(model, kept, org_team_user, link_user) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+
+    with (
+        patch(f"{AGENT}.AGENT_MODEL", model),
+        patch(f"{AGENT}.is_slack_app_daily_focus_agent_enabled", return_value=True),
+        patch(f"{AGENT}.slack_mcp_installation_id", return_value="slack-installation") as mcp,
+    ):
+        owner = agent_owner_id(integration, SLACK_USER_ID)
+
+    # Otherwise the run starts on the default model without a word, at many times the cost.
+    assert owner == (user.id if kept else None)
+    if kept:
+        assert mcp.call_args.kwargs == {"slack_team_id": SLACK_TEAM_ID, "slack_user_id": SLACK_USER_ID}
 
 
 @pytest.mark.django_db

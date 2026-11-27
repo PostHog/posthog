@@ -7,11 +7,13 @@ validated against `DailyFocusAgentOutput`, and the code below checks that answer
 the pipeline sends.
 """
 
+import re
 import asyncio
 import functools
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -38,6 +40,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.task_profiles import DAILY_FOCUS
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+from products.tasks.backend.facade.model_catalogue import model_allowed_by_product_pin
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +57,13 @@ AGENT_MEMORY_GB = 4
 MAX_ITEMS_PER_SECTION = 3
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+# The agent writes these from what it read, so a message in a thread can shape them. They render into Slack mrkdwn,
+# so anything that is not a whole id, a channel name or a Slack permalink is dropped.
+_CHANNEL_ID = re.compile(r"[CG][A-Z0-9]+")
+_USER_ID = re.compile(r"[UW][A-Z0-9_]+")
+_CHANNEL_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
+_UNSAFE_IN_LINK = re.compile(r"[<>|\s\x00-\x1f\x7f]")
 
 
 class AgentSummaryItem(BaseModel):
@@ -88,10 +98,21 @@ class DailyFocusAgentOutput(BaseModel):
 def agent_owner_id(integration: WorkspaceIntegration, slack_user_id: str) -> int | None:
     """The PostHog user the run acts as and whose Slack MCP it mounts, when the agent flag is on for them and their
     Slack MCP works. None keeps the person on the pipeline."""
+    # The gateway refuses a model outside the billing product's pin, and the run then starts on the default model
+    # without a word. Keep the person on the pipeline instead of paying for a model nobody chose.
+    if not model_allowed_by_product_pin(DAILY_FOCUS.billing_product, AGENT_MODEL):
+        return None
     user = OnboardingContext(integration=integration, slack_user_id=slack_user_id).posthog_user
     if user is None or not is_slack_app_daily_focus_agent_enabled(integration, user.distinct_id):
         return None
-    return user.id if slack_mcp_installation_id(integration.team_id, user.id) else None
+    return user.id if _slack_mcp(integration, slack_user_id, user.id) else None
+
+
+def _slack_mcp(integration: WorkspaceIntegration, slack_user_id: str, owner_id: int) -> str | None:
+    # Only the member's Slack MCP for this workspace and this Slack user, so a digest never reads another workspace.
+    return slack_mcp_installation_id(
+        integration.team_id, owner_id, slack_team_id=integration.integration_id, slack_user_id=slack_user_id
+    )
 
 
 def start_daily_focus_agent(
@@ -134,7 +155,10 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
     kept = [
         item
         for item in output.summary
-        if not item.resolved and not item.seen_by_person and item.text.strip() and item.channel_id[:1] in ("C", "G")
+        if not item.resolved
+        and not item.seen_by_person
+        and item.text.strip()
+        and _CHANNEL_ID.fullmatch(item.channel_id)
     ]
     summary = [
         WorkFocusSummaryItem(
@@ -151,8 +175,8 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
             offer=item.offer.strip()[:MAX_OFFER_CHARS],
             request=item.request.strip()[:MAX_REQUEST_CHARS],
             source_permalink=_slack_link(item.source_permalink),
-            source_author_id=item.source_author_id,
-            source_channel_name=item.source_channel_name,
+            source_author_id=_matching(_USER_ID, item.source_author_id),
+            source_channel_name=_matching(_CHANNEL_NAME, (item.source_channel_name or "").lstrip("#")),
         )
         for item in output.suggestions
         if not item.resolved
@@ -165,7 +189,23 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
 
 
 def _slack_link(value: str | None) -> str | None:
-    return value if value and value.startswith("https://") and ".slack.com/" in value else None
+    if not value or _UNSAFE_IN_LINK.search(value):
+        return None
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        return None
+    host = parts.hostname or ""
+    if parts.scheme != "https" or parts.username or parts.password or port is not None:
+        return None
+    if not (host == "slack.com" or host.endswith(".slack.com")) or not parts.path.startswith("/archives/"):
+        return None
+    return value
+
+
+def _matching(pattern: re.Pattern[str], value: str | None) -> str | None:
+    return value if value and pattern.fullmatch(value) else None
 
 
 def run_daily_focus_agent(
@@ -182,7 +222,7 @@ def run_daily_focus_agent(
     owner_id = agent_owner_id(integration, slack_user_id)
     if owner_id is None:
         return "agent_unavailable"
-    installation_id = slack_mcp_installation_id(integration.team_id, owner_id)
+    installation_id = _slack_mcp(integration, slack_user_id, owner_id)
     if installation_id is None:
         return "agent_unavailable"
     output = asyncio.run(_ask_agent(integration, slack_user_id, owner_id, installation_id, since=since, zone=zone))

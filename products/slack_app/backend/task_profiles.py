@@ -65,20 +65,17 @@ REPO_SELECTION = replace(
     mcp_scopes="read_only",
 )
 
-# Reads Slack through the person's Slack MCP and answers once, so it needs no repository, no PR and no open web.
+# Reads Slack through the person's Slack MCP and answers once, so it needs no open web. It stays listed like `slack`,
+# because the person turned the daily focus on, so the run is theirs and can mount their Slack MCP; the runs show in
+# their task list. GitHub and PR access stay the `slack` origin's: the tasks platform decides them by origin.
 DAILY_FOCUS = replace(
     SLACK,
     key="slack.daily_focus",
-    listed=False,
     max_live_per_user=1,
-    network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
-    inherit_user_defaults=False,
+    # Infrastructure hosts only, the Slack MCP proxy among them, so a message in a thread cannot have the agent upload
+    # what it read to an outside host.
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,)),
     mcp_scopes="read_only",
-    github_resolution=GithubResolution.NEVER,
-    github_access=GithubAccess.NONE,
-    user_authorable_prs=False,
-    default_pr_authorship=PrAuthorship.BOT,
-    create_pr=False,
     inactivity_minutes=5,
 )
 
