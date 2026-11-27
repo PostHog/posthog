@@ -43,6 +43,7 @@ CLICK_EVENT = "$workflows_email_link_clicked"
 OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
 LANDING_BEFORE_CLICK = timedelta(minutes=2)
 LANDING_AFTER_CLICK = timedelta(minutes=30)
+SESSION_SPAN = timedelta(days=1)
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -368,7 +369,7 @@ def _landings(
         workload=Workload.ONLINE,
     )
     landings = response.results or []
-    stats = _session_stats(team, user, [row[0] for row in landings])
+    stats = _session_stats(team, user, [row[0] for row in landings], start - SESSION_SPAN, end)
     return [
         TransactionalEmailClickSession(
             session_id=session_id,
@@ -384,14 +385,24 @@ def _landings(
     ]
 
 
-def _session_stats(team: Team, user: User | None, session_ids: list[str]) -> dict[str, tuple[int | None, int | None]]:
+def _session_stats(
+    team: Team, user: User | None, session_ids: list[str], start: datetime, end: datetime
+) -> dict[str, tuple[int | None, int | None]]:
     if not session_ids:
         return {}
     response = execute_hogql_query(
-        "SELECT session_id, $session_duration, $pageview_count FROM sessions WHERE session_id IN {session_ids}",
+        """
+        SELECT session_id, $session_duration, $pageview_count
+        FROM sessions
+        WHERE session_id IN {session_ids} AND $start_timestamp >= {start} AND $start_timestamp < {end}
+        """,
         team=team,
         user=user,
-        placeholders={"session_ids": ast.Constant(value=session_ids)},
+        placeholders={
+            "session_ids": ast.Constant(value=session_ids),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+        },
         query_type="transactional_email_activity_session_stats",
         workload=Workload.ONLINE,
     )
