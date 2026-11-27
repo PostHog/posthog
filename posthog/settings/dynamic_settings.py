@@ -3,10 +3,8 @@ from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
-# Warning: Dynamically updating these settings should only be done through the API.
-# CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
-#
-# To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
+# Only for values that must change live, without a deploy. Everything else, and every secret, is an
+# env var: these are stored in plain text and any staff user can change them.
 
 CONSTANCE_CONFIG = {
     "STATIC_COHORT_RECONCILIATION_ENABLED": (
@@ -369,7 +367,3 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
     "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
 )
-
-# SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
-# On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS: list[str] = []
