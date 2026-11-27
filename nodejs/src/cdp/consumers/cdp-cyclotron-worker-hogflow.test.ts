@@ -5,7 +5,8 @@ import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { KAFKA_EMAIL_STATUS, KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -835,6 +836,51 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 event: { distinct_id: 'distinct_A_1', properties: { foo: 'bar' } },
             })
             expect(jobQueue.dequeueInvocations).toHaveBeenCalledWith([expect.objectContaining({ id: invocation.id })])
+        })
+
+        it('keeps the wake the matcher recorded while the run was queued in its failed run', async () => {
+            await setOrganizationActive(false)
+            const matchedAt = DateTime.now().toISO()!
+            const eventUuid = new UUIDT().toString()
+            const invocation: CyclotronJobInvocation = {
+                ...createSerializedHogFlowInvocation(hogFlows[2], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                    currentAction: { id: 'wait', startedAtTimestamp: DateTime.now().toMillis() },
+                }),
+                pendingWake: {
+                    wait: {
+                        kind: 'match',
+                        at: matchedAt,
+                        eventName: '$pageview',
+                        eventUuid,
+                        eventTimestamp: matchedAt,
+                    },
+                },
+            }
+
+            await workerIn('enforce').processInvocations([invocation])
+
+            const [row] = deactivatedRows()
+            expect(await decodeInvocationGlobals(row.invocation_globals)).toMatchObject({
+                currentAction: { id: 'wait', eventMatched: true, eventMatchedEventUuid: eventUuid },
+            })
+        })
+
+        it('closes the email status of a transactional email in enforce mode', async () => {
+            await setOrganizationActive(false)
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+            })
+
+            const { backgroundTask } = await workerIn('enforce').processBatch([invocation])
+            await backgroundTask
+
+            expect(
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                    .map((x) => x.value)
+                    .filter((row) => row.message_id === invocation.id)
+            ).toEqual([expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })])
         })
 
         it('runs the next invocation once the organization is active again', async () => {

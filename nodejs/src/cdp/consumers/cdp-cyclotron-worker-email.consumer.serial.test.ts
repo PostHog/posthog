@@ -36,7 +36,7 @@ import { CYCLOTRON_QUEUE_ROLES, CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -1063,6 +1063,30 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await ended(id)).toBe('completed')
         await waitForExpect(() => expect(emailStatusOf(id)).toEqual(emailStatus))
         expect(delivered()).toEqual(inbox)
+    })
+
+    it('fails a send with files of a deactivated organization in enforce mode instead of deferring it', async () => {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+            [team.organization_id],
+            'deactivateOrganization'
+        )
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(null, sesTransportFor(ses), hub.postgres, {
+            CDP_DEACTIVATED_ORGANIZATIONS_MODE: 'enforce',
+            HOG_INVOCATION_RESULTS_ENABLED: true,
+        })
+
+        expect(await ended(id)).toBe('failed')
+        await waitForExpect(() =>
+            expect(emailStatusOf(id)).toEqual({
+                status: 'failed',
+                reason: 'organization_deactivated',
+                sendingDomain: '',
+            })
+        )
+        expect(delivered()).toEqual([])
     })
 
     it('holds no more than its budget under a burst, and sends every one once without failing any', async () => {

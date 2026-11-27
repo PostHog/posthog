@@ -87,6 +87,10 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         )
         const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
         withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
+        const teams =
+            withFiles.length && this.organizationAdmission.mode === 'enforce'
+                ? await this.organizationAdmission.teamsOf(withFiles.map((invocation) => invocation.teamId))
+                : null
         for (const invocation of invocations) {
             const files = filesOf(invocation)
             if (
@@ -94,6 +98,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 exceedsLargestSend(declaredFileBytes(files)) ||
                 invocation.cancelRequestedAt ||
                 hogFlows[invocation.functionId]?.status !== 'active' ||
+                this.organizationAdmission.skips(teams?.[String(invocation.teamId)] ?? null) ||
                 !sendStepAhead(invocation, hogFlows[invocation.functionId])
             ) {
                 plain.push(invocation)

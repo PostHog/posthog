@@ -6,7 +6,12 @@ import { Team } from '~/types'
 
 export type DeactivatedOrganizationsMode = 'off' | 'shadow' | 'enforce'
 
-export type AdmissionStage = 'hog_function_trigger' | 'hog_flow_trigger' | 'hog_function_dispatch' | 'hog_flow_dispatch'
+export type AdmissionStage =
+    | 'hog_function_trigger'
+    | 'hog_flow_trigger'
+    | 'hog_function_dispatch'
+    | 'hog_flow_dispatch'
+    | 'batch_export_invocation'
 
 export const ORGANIZATION_DEACTIVATED_FAILURE = {
     errorKind: 'organization_deactivated',
@@ -29,9 +34,13 @@ export function parseDeactivatedOrganizationsMode(value: string): DeactivatedOrg
 
 export class OrganizationAdmission {
     constructor(
-        private mode: DeactivatedOrganizationsMode,
+        public readonly mode: DeactivatedOrganizationsMode,
         private teamManager: Pick<TeamManager, 'getTeams'>
     ) {}
+
+    public skips(team: Pick<Team, 'organization_active'> | null): boolean {
+        return this.mode === 'enforce' && team?.organization_active === false
+    }
 
     public admits(team: Pick<Team, 'organization_active'> | null, stage: AdmissionStage): boolean {
         if (this.mode === 'off' || team?.organization_active !== false) {
@@ -42,19 +51,22 @@ export class OrganizationAdmission {
     }
 
     public async admitted<T>(items: T[], teamIdOf: (item: T) => number, stage: AdmissionStage): Promise<T[]> {
-        if (this.mode === 'off' || !items.length) {
+        if (!items.length) {
             return items
         }
-        const teams = await this.teamsOf([...new Set(items.map(teamIdOf))])
+        const teams = await this.teamsOf(items.map(teamIdOf))
         if (!teams) {
             return items
         }
         return items.filter((item) => this.admits(teams[String(teamIdOf(item))] ?? null, stage))
     }
 
-    private async teamsOf(teamIds: number[]): Promise<Record<string, Team | null> | null> {
+    public async teamsOf(teamIds: number[]): Promise<Record<string, Team | null> | null> {
+        if (this.mode === 'off' || !teamIds.length) {
+            return null
+        }
         try {
-            return await this.teamManager.getTeams(teamIds)
+            return await this.teamManager.getTeams([...new Set(teamIds)])
         } catch (error) {
             if (this.mode === 'enforce') {
                 throw error

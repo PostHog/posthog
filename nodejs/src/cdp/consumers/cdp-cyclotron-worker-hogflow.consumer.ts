@@ -120,16 +120,24 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return
                 }
 
-                if (!this.organizationAdmission.admits(team, 'hog_flow_dispatch')) {
-                    deactivatedInvocations.push({
-                        invocation: { ...item, hogFlow } as CyclotronJobInvocationHogFlow,
-                        ...ORGANIZATION_DEACTIVATED_FAILURE,
-                    })
-                    return
-                }
-
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
                 applyPendingWake(hogFlowInvocationState, item.pendingWake)
+
+                if (!this.organizationAdmission.admits(team, 'hog_flow_dispatch')) {
+                    deactivatedInvocations.push({
+                        invocation: {
+                            ...item,
+                            state: hogFlowInvocationState,
+                            hogFlow,
+                        } as CyclotronJobInvocationHogFlow,
+                        ...ORGANIZATION_DEACTIVATED_FAILURE,
+                    })
+                    this.invocationResultsService.emailStatusService.queueUnavailableRun(
+                        item,
+                        ORGANIZATION_DEACTIVATED_FAILURE.errorKind
+                    )
+                    return
+                }
 
                 const personLookup = hogFlowPersonLookup(hogFlow, hogFlowInvocationState)
                 // One-shot: consume the flag on this wake-resolution only. Later steps fall back to normal

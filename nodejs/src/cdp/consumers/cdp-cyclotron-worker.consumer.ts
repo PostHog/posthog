@@ -35,10 +35,6 @@ export type TerminalFailure = {
     error: string
 }
 
-// Attach the loaded function so the terminal 'failed' row serializes the real invocation globals
-// instead of '{}'. The row wins the ReplacingMergeTree argMax over the earlier 'running' row, so
-// without its globals the rerun paginator can't rehydrate the invocation and a re-run would
-// silently skip. Fall back to the raw item when state globals are absent (nothing to preserve).
 function withLoadedFunction(
     item: CyclotronJobInvocation,
     hogFunction: CyclotronJobInvocationHogFunction['hogFunction']
@@ -77,6 +73,12 @@ export class CdpCyclotronWorker<
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
+        if (this.organizationAdmission.mode === 'enforce' && !config.HOG_INVOCATION_RESULTS_ENABLED) {
+            throw new Error(
+                'CDP_DEACTIVATED_ORGANIZATIONS_MODE=enforce needs HOG_INVOCATION_RESULTS_ENABLED, so every skipped invocation gets a failed run'
+            )
+        }
+
         this.cyclotronJobQueue = jobQueue
         const checksOwnershipForTeam = buildIntegerMatcher(config.CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS, true)
         this.emailService.checkJobOwnershipBeforeSend((invocation) =>
@@ -110,9 +112,7 @@ export class CdpCyclotronWorker<
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
         const failedInvocations: TerminalFailure[] = []
-        const admitted = new Set(
-            await this.organizationAdmission.admitted(invocations, (x) => x.teamId, 'hog_function_dispatch')
-        )
+        const teams = await this.organizationAdmission.teamsOf(invocations.map((x) => x.teamId))
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -147,7 +147,7 @@ export class CdpCyclotronWorker<
                     return
                 }
 
-                if (!admitted.has(item)) {
+                if (!this.organizationAdmission.admits(teams?.[String(item.teamId)] ?? null, 'hog_function_dispatch')) {
                     failedInvocations.push({
                         invocation: withLoadedFunction(item, hogFunction),
                         ...ORGANIZATION_DEACTIVATED_FAILURE,
@@ -215,9 +215,6 @@ export class CdpCyclotronWorker<
         if (!failedInvocations.length) {
             return
         }
-        // Record the terminal lifecycle row BEFORE dequeuing (same ordering as the
-        // janitor's poison-pill recovery). Dropping the job without one leaves the
-        // invocation stuck 'running' in the runs UI and permanently un-rerunnable.
         const recorded = await Promise.all(
             failedInvocations.map(({ invocation, errorKind, error }) =>
                 this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(invocation, {
@@ -226,8 +223,6 @@ export class CdpCyclotronWorker<
                 })
             )
         )
-        // Keep any job whose terminal row could not be produced so a later fetch retries
-        // it, unless lifecycle recording is disabled (then there is no row to go stale).
         const dequeueable = failedInvocations.filter(
             (_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED
         )

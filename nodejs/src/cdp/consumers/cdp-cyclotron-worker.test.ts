@@ -714,6 +714,56 @@ describe('CdpCyclotronWorker', () => {
             expect(jobQueue.dequeueInvocations).toHaveBeenCalledWith([expect.objectContaining({ id: invocation.id })])
         })
 
+        it.each<[string, { id?: string; enabled?: boolean }, string]>([
+            ['missing', { id: new UUIDT().toString() }, 'function_not_found'],
+            ['disabled', { enabled: false }, 'function_disabled'],
+        ])(
+            'skips it in shadow mode as before when its function is %s, and does not count it',
+            async (_name, change, errorKind) => {
+                await setOrganizationActive(false)
+                const countBefore = await deactivatedWorkCount('shadow')
+                const changed = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        enabled: change.enabled ?? true,
+                    })
+                )
+                const { hogFunction: _unloaded, ...rest } = createExampleInvocation(changed, globals)
+                const invocation = { ...rest, functionId: change.id ?? changed.id } as CyclotronJobInvocationHogFunction
+
+                const results = await workerIn('shadow').processInvocations([invocation])
+
+                expect(results).toEqual([])
+                expect(
+                    mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                        .map((x) => x.value)
+                        .filter((row) => row.invocation_id === invocation.id)
+                        .map((row) => row.error_kind)
+                ).toEqual([errorKind])
+                expect((await deactivatedWorkCount('shadow')) - countBefore).toEqual(0)
+            }
+        )
+
+        it('refuses to start in enforce mode without invocation results', () => {
+            expect(
+                () =>
+                    new CdpCyclotronWorker(
+                        {
+                            ...hub,
+                            HOG_INVOCATION_RESULTS_ENABLED: false,
+                            CDP_DEACTIVATED_ORGANIZATIONS_MODE: 'enforce',
+                        },
+                        createCdpConsumerDeps(hub),
+                        jobQueue
+                    )
+            ).toThrow('HOG_INVOCATION_RESULTS_ENABLED')
+        })
+
         it('runs the next invocation once the organization is active again', async () => {
             const worker = workerIn('enforce')
             await setOrganizationActive(false)
