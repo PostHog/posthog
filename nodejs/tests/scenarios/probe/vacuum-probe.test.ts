@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import { defaultConfig } from '~/common/config/config'
 
 import { scratchSchema, withPostgres } from '../environment/stack'
@@ -70,16 +72,9 @@ describe('vacuum probe', () => {
         ['a role that reads every session', true, false],
         ['a role without pg_read_all_stats', false, true],
     ])('records whether %s sees the other sessions', async (_, readsAllStats, statsHidden) => {
-        const role = `scenario_vacuum_probe_${process.pid}`
-        const dropRole = async (): Promise<void> => {
-            await run(
-                `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN EXECUTE 'DROP OWNED BY ${role}'; END IF; END $$`
-            )
-            await run(`DROP ROLE IF EXISTS ${role}`)
-        }
-        await dropRole()
+        const role = `scenario_vacuum_probe_${randomUUID().replaceAll('-', '')}`
+        await run(`CREATE ROLE ${role} LOGIN PASSWORD '${role}'`)
         try {
-            await run(`CREATE ROLE ${role} LOGIN PASSWORD '${role}'`)
             await run(`GRANT USAGE ON SCHEMA ${SCHEMA_NAME} TO ${role}`)
             await run(`GRANT SELECT ON ALL TABLES IN SCHEMA ${SCHEMA_NAME} TO ${role}`)
             if (readsAllStats) {
@@ -93,7 +88,8 @@ describe('vacuum probe', () => {
 
             expect(settings.statsHidden).toBe(statsHidden)
         } finally {
-            await dropRole()
+            await run(`DROP OWNED BY ${role}`)
+            await run(`DROP ROLE ${role}`)
         }
     })
 

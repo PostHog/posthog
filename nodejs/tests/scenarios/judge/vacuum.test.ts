@@ -117,28 +117,34 @@ describe('soak measurements', () => {
         ).toEqual([])
     })
 
-    it.each([
+    it.each<[string, Partial<MeasureEvidence>, number | undefined, string]>([
         [
             'the probe role cannot read other sessions',
             { vacuumSettings: { settings: {}, types: {}, storage: {}, statsHidden: true } },
-            [],
+            undefined,
             'the probe role cannot read other sessions, so no autovacuum worker start is visible',
         ],
-        [
-            'a sample saw a worker with activity tracking off',
+        ...(
+            [
+                ['a sample in the drive', 300],
+                ['the sample that opens the drive', -5],
+                ['the sample that closes the drive', 1805],
+            ] as const
+        ).map(([where, at]): [string, Partial<MeasureEvidence>, number, string] => [
+            `${where} saw a worker with activity tracking off`,
             {},
-            [read(300, { autovacuums: 5, lastAutovacuumAt: atS(105), untrackedWorkers: 1 })],
+            at,
             'an autovacuum worker ran with track_activities off, so its start is not recorded',
-        ],
-    ])('leaves the run timing unmeasured when %s, and still counts the runs', (_, partial, extra, reason) => {
+        ]),
+    ])('leaves the run timing unmeasured when %s, and still counts the runs', (_, partial, untrackedAt, reason) => {
         const vacuum = [
             read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
             read(100, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(95) }),
             read(110, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
-            ...extra,
+            read(300, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
             read(900, { autovacuums: 7, lastAutovacuumAt: atS(895) }),
             read(1805, { autovacuums: 7, lastAutovacuumAt: atS(895) }),
-        ]
+        ].map((sample) => (sample.at === atS(untrackedAt ?? NaN) ? { ...sample, untrackedWorkers: 1 } : sample))
 
         expect(measured('autovacuum_runs', { vacuum, ...partial })).toEqual([
             { key: 'count', value: 3 },
@@ -164,6 +170,7 @@ describe('soak measurements', () => {
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
         const vacuum = [
+            read(-50, { autovacuums: 4, lastAutovacuumAt: atS(-60), untrackedWorkers: 1 }),
             read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
             read(100, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(95) }),
             read(110, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
