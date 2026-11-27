@@ -55,7 +55,7 @@ export interface adventEntryProgressLogicMeta {
 export type adventEntryProgressLogicType = MakeLogicType<
     adventEntryProgressLogicValues,
     adventEntryProgressLogicActions,
-    Record<string, unknown>,
+    Record<string, any>,
     adventEntryProgressLogicMeta
 >
 

@@ -54,12 +54,16 @@ describe('AdventEntryCard', () => {
         ['a Ctrl-click', (button) => fireEvent.click(button, { ctrlKey: true })],
         ['a middle click', (button) => fireEvent(button, new MouseEvent('auxclick', { bubbles: true, button: 1 }))],
     ])('reports %s on the button once', (_, open) => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const captured: [string, unknown][] = []
+        jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
+            captured.push([event, properties])
+            return undefined
+        })
         render(<AdventEntryCard />)
 
         open(screen.getByText('Open door 1'))
 
-        expect(capture.mock.calls.filter(([event]) => event.startsWith('workflows advent'))).toEqual([
+        expect(captured.filter(([event]) => event.startsWith('workflows advent'))).toEqual([
             ['workflows advent entry clicked', { entry: 'card', nav: undefined, has_workflows: null }],
         ])
     })
