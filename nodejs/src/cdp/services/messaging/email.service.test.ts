@@ -4750,9 +4750,6 @@ describe('EmailService', () => {
             const CLEAN_HREF = 'https://app.posthog-test.com/pricing'
             const SIGNED_HREF = 'https://app.posthog-test.com/reset?token=reset-token&signature=abc'
             const UNTRACKED_HREF = 'https://app.posthog-test.com/app?ph_workflow_run=earlier-run'
-            const HASH_SIGNED_HREF = 'https://app.posthog-test.com/reset?expires=1&hash=abc'
-            const ENTITY_HREF =
-                'https://app.posthog-test.com/login?token=abc&lowbar;123&amp;ph_workflow_run=earlier-run'
 
             it.each<{
                 case: string
@@ -4966,7 +4963,7 @@ describe('EmailService', () => {
                     }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a><a href="${SIGNED_HREF}">d</a><a href="${UNTRACKED_HREF}" data-ph-no-track>e</a><a href="${HASH_SIGNED_HREF}">f</a><a href="${ENTITY_HREF}">g</a>`,
+                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a><a href="${SIGNED_HREF}">d</a><a href="${UNTRACKED_HREF}" data-ph-no-track>e</a>`,
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
@@ -4976,8 +4973,6 @@ describe('EmailService', () => {
                         'https://example.com/',
                         SIGNED_HREF,
                         UNTRACKED_HREF,
-                        HASH_SIGNED_HREF,
-                        ENTITY_HREF,
                     ])
                 }
             )

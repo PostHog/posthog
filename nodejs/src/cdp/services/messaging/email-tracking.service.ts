@@ -200,6 +200,9 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
     })
 }
 
+export const hasUndecodableCharacterReference = (value: string): boolean =>
+    /&(?:#|[A-Za-z][A-Za-z0-9]*;)/.test(value.replace(HTML_ENTITY_REGEX, ''))
+
 // A browser drops tabs and newlines anywhere in a URL, and control characters before it, then reads the scheme.
 const isJavascriptHref = (href: string): boolean => {
     const url = href.replace(/[\t\n\r]/g, '')

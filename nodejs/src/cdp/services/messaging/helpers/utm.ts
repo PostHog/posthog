@@ -4,7 +4,7 @@ import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
 import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
 import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
-import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
+import { decodeHtmlEntitiesInHref, hasUndecodableCharacterReference } from '../email-tracking.service'
 import { escapeHtml } from './escape-html'
 import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
@@ -63,6 +63,15 @@ const attributeValue = (attribute: Attribute): string | undefined => attribute[2
 
 const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
     attributes.some((attribute) => attributeName(attribute) === 'data-ph-no-utm')
+
+const hrefOf = (attributes: Attribute[]): Attribute | undefined =>
+    attributes.find((attribute) => attributeName(attribute) === 'href')
+
+const hasUndecodableHref = ({ attributes }: Anchor): boolean => {
+    const href = hrefOf(attributes)
+    const value = href ? attributeValue(href) : undefined
+    return value !== undefined && hasUndecodableCharacterReference(value)
+}
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -193,7 +202,7 @@ const tagAnchor = (anchor: string, tagger: LinkTagger): string => {
     if (tagger.isOptedOut({ html: anchor, attributes })) {
         return anchor
     }
-    const href = attributes.find((attribute) => attributeName(attribute) === 'href')
+    const href = hrefOf(attributes)
     const value = href ? attributeValue(href) : undefined
     if (!href || value === undefined) {
         return anchor
@@ -258,14 +267,10 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
 
 // A link signed over its whole query, such as a framework signed route or a presigned storage URL, fails
 // verification once a parameter is added or removed. A sent email cannot be fixed, so these stay as written.
-const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash', 'hash'])
+const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash'])
 
 const isSigned = (parsed: URL): boolean =>
     [...parsed.searchParams.keys()].some((key) => SIGNATURE_PARAMS.has(key.toLowerCase()))
-
-// `decodeHtmlEntitiesInHref` reads only a few named references. Rewriting an href that still holds one, such as
-// `&lowbar;` in a login token, would escape its `&` and cut the token where the browser would have decoded it.
-const UNDECODED_NAMED_REFERENCE = /&[A-Za-z][A-Za-z0-9]*;/
 
 // The run tag always uses the fixed scanner: the legacy one only exists to keep UTM output unchanged for
 // teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS, and the run tag has its own allowlist.
@@ -278,11 +283,9 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     const isTaggable = (parsed: URL): boolean =>
         parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain && !isSigned(parsed)
     return addTagsToEmailLinks(html, {
-        isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
+        isOptedOut: (anchor) =>
+            isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor) || hasUndecodableHref(anchor),
         tagUrl: (url) => {
-            if (UNDECODED_NAMED_REFERENCE.test(url)) {
-                return null
-            }
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isTaggable)
             }
