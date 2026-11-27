@@ -281,7 +281,8 @@ posthog:llma-evaluation-create
   "output_config": { "allows_na": true },
   "model_configuration": {
     "provider": "openai",
-    "model": "gpt-6-luna"
+    "model": "gpt-6-luna",
+    "provider_key_id": "<id of an ok-state OpenAI key from llma-provider-key-list>"
   },
   "enabled": false
 }

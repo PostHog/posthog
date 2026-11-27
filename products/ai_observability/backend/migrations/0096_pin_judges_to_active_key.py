@@ -43,10 +43,11 @@ def pin_judges_to_active_key(apps, schema_editor):
             model_configuration = LLMModelConfiguration.objects.using(db).create(
                 team_id=config.team_id, provider=key.provider, model=model, provider_key=key
             )
-            # Someone may have picked a model for this judge since it was read, so only fill an empty slot.
+            # Someone may have picked a model for this judge, or turned it into a code check, since it was read,
+            # so only fill the empty slot of a judge that is still one.
             pinned = (
                 Evaluation.objects.using(db)
-                .filter(id=judge.id, model_configuration__isnull=True)
+                .filter(id=judge.id, model_configuration__isnull=True, evaluation_type="llm_judge", deleted=False)
                 .update(model_configuration=model_configuration)
             )
             if not pinned:

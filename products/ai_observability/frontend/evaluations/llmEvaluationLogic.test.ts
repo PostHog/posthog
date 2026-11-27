@@ -926,12 +926,16 @@ return result`,
                 logic.mount()
             })
 
-            it('allows existing legacy evaluations without a model configuration to remain editable', async () => {
+            it.each([
+                ['stays editable while paused', false, false],
+                // The API refuses to save a running judge without a key.
+                ['needs a model to save while running', true, true],
+            ] as const)('a legacy evaluation without a model configuration %s', async (_name, enabled, required) => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
-                logic.actions.loadEvaluationSuccess({ ...mockEvaluation, model_configuration: null })
+                logic.actions.loadEvaluationSuccess({ ...mockEvaluation, enabled, model_configuration: null })
 
-                await expectLogic(logic).toMatchValues({ modelSelectionRequired: false, formValid: true })
+                await expectLogic(logic).toMatchValues({ modelSelectionRequired: required, formValid: !required })
             })
 
             it.each(['llm', 'decision'] as const)(
@@ -974,18 +978,45 @@ return result`,
                 ['a working key', 'ok', true],
                 ['no working key', 'invalid', false],
             ] as const)(
-                'requires a model when the team has %s, even before models load',
+                'requires a model when the team has %s, once its models load',
                 async (_name, state, required) => {
+                    useMocks({
+                        get: {
+                            '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [
+                                { id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', supports_chat: true },
+                            ],
+                        },
+                    })
                     logic = llmEvaluationLogic({ evaluationId: 'new' })
                     logic.mount()
                     await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                     await expectLogic(logic).toFinishAllListeners()
 
                     keysLogic.actions.loadProviderKeysSuccess([{ ...mockProviderKeys[0], state }])
+                    await expectLogic(logic).toFinishAllListeners()
 
                     await expectLogic(logic).toMatchValues({ modelSelectionRequired: required })
                 }
             )
+        })
+
+        it('lets a paused judge save without a model when no model supports its judge method', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [
+                        { id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', supports_chat: true },
+                    ],
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'new' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            keysLogic.actions.loadProviderKeysSuccess([mockProviderKeys[0]])
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setJudgeMethod('decision')
+
+            await expectLogic(logic).toMatchValues({ modelSelectionRequired: false })
         })
 
         describe('enableSavedReason', () => {

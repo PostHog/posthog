@@ -69,6 +69,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         modelSelectionRequired,
         numericBoundsRequired,
         usesDecisionModel,
+        canEnableReason,
     } = useValues(llmEvaluationLogic)
     const { props: evaluationLogicProps } = useMountedLogic(llmEvaluationLogic)
     const { searchParams } = useValues(router)
@@ -135,7 +136,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
               ? 'Add evaluation code before saving'
               : 'Add an evaluation prompt before saving'
           : !hasSelectedJudgeModel
-            ? 'Select a judge model before saving'
+            ? evaluation.enabled && canEnableReason
+                ? `${canEnableReason} Or pause it to save without a model.`
+                : 'Select a judge model before saving'
             : evaluation.output_type === 'categorical'
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'

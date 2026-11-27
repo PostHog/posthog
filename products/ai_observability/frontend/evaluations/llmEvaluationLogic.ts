@@ -320,6 +320,7 @@ export interface llmEvaluationLogicValues {
     providerKeysLoading: boolean // llmProviderKeysLogic
     requiresProviderKey: boolean // llmProviderKeysLogic
     byokModels: ModelOption[] // modelPickerLogic
+    byokModelsLoading: boolean // modelPickerLogic
     evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
     breadcrumbs: Breadcrumb[]
@@ -590,8 +591,9 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string,
-            providerKeys: LLMProviderKey[],
-            providerKeysLoading: boolean
+            judgeModelGroups: ProviderModelGroup[],
+            providerKeysLoading: boolean,
+            byokModelsLoading: boolean
         ) => boolean
         selectedModelOption: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => ModelOption | null
         judgeMethod: (evaluation: EvaluationConfig | null, selectedModelOption: ModelOption | null) => JudgeMethod
@@ -672,7 +674,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading', 'requiresProviderKey'],
             modelPickerLogic,
-            ['byokModels', 'evaluationProviderModelGroups'],
+            ['byokModels', 'byokModelsLoading', 'evaluationProviderModelGroups'],
         ],
         actions: [llmProviderKeysLogic, ['loadProviderKeys']],
     })),
@@ -1685,25 +1687,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 s.evaluation,
                 s.originalEvaluation,
                 props.evaluationId,
-                s.providerKeys,
+                s.judgeModelGroups,
                 s.providerKeysLoading,
+                s.byokModelsLoading,
             ],
             (
                 evaluation: EvaluationConfig | null,
                 originalEvaluation: EvaluationConfig | null,
                 evaluationId: string,
-                providerKeys: LLMProviderKey[],
-                providerKeysLoading: boolean
+                judgeModelGroups: ProviderModelGroup[],
+                providerKeysLoading: boolean,
+                byokModelsLoading: boolean
             ): boolean => {
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
-                // A team with no working provider key has no model to pick. Its judge stays paused without one,
-                // and gets a model once a key is added.
+                // A running judge needs a model on a working key, so saving it on without one would be refused.
+                if (evaluation.enabled) {
+                    return true
+                }
+                // A paused draft can save without a model when the picker has none to offer: no working key, or none
+                // for the chosen judge method. It gets one before it is turned on.
                 if (
                     !evaluation.model_configuration &&
                     !providerKeysLoading &&
-                    !providerKeys.some((key) => key.state === 'ok')
+                    !byokModelsLoading &&
+                    !judgeModelGroups.some((group) => group.models.length > 0)
                 ) {
                     return false
                 }

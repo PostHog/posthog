@@ -217,7 +217,8 @@ posthog:llma-evaluation-create
   "output_config": { "allows_na": true },
   "model_configuration": {
     "provider": "<provider>",
-    "model": "<model>"
+    "model": "<model>",
+    "provider_key_id": "<id of an ok-state key for that provider, from llma-provider-key-list>"
   },
   "enabled": false,
   "conditions": [
