@@ -246,7 +246,12 @@ function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule[
 export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
     const rules: CompiledSamplingRule[] = []
     let hasRateLimitRules = false
+    let requireSecretKeyRuleId: string | null = null
     for (const row of rows) {
+        if (row.rule_type === 'require_secret_key') {
+            requireSecretKeyRuleId ??= row.id
+            continue
+        }
         // RE2 has linear-time matching; native RegExp here would expose the ingestion
         // worker to catastrophic-backtracking ReDoS from any admin-authored pattern.
         // Same engine choice as the new filter-group regex leaves and the rest of
@@ -314,5 +319,5 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             rateLimit,
         })
     }
-    return { rules, hasRateLimitRules }
+    return { rules, hasRateLimitRules, requireSecretKeyRuleId }
 }

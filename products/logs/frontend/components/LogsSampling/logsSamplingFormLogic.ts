@@ -139,7 +139,24 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     return form
 }
 
+export function ruleTypeTakesNoScope(ruleType: LogsExclusionRuleRuleTypeEnumApi): boolean {
+    return ruleType === LogsExclusionRuleRuleTypeEnumApi.RequireSecretKey
+}
+
+export function buildScopeAttributeFiltersPayload(
+    form: LogsSamplingFormType,
+    rule: LogsSamplingRuleApi | null
+): PatchedLogsSamplingRuleApi['scope_attribute_filters'] {
+    if (ruleTypeTakesNoScope(form.rule_type)) {
+        return []
+    }
+    return (rule?.scope_attribute_filters ?? []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
+}
+
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
+    if (ruleTypeTakesNoScope(form.rule_type)) {
+        return {}
+    }
     if (form.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit) {
         // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
         // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),
@@ -272,8 +289,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             submit: async (form: LogsSamplingFormType) => {
                 const projectId = String(values.currentTeamId)
                 try {
-                    const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
-                        []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
+                    const scope_attribute_filters = buildScopeAttributeFiltersPayload(form, props.rule ?? null)
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,

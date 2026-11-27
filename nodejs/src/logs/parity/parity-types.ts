@@ -58,6 +58,7 @@ export type ParityScenario = {
     team_by_id_faults: Record<string, ParityError & { times: number }>
     team_by_id_missing: number[]
     metric_rules_faults: Record<string, ParityError>
+    sampling_rules_faults?: Record<string, ParityError>
     metric_emit_faults: number[]
     pattern_keys_faults: Record<string, ParityError & { times: number }>
     omit_deps: ('patternMessageKeysCache' | 'tracingConfigCache' | 'metricsEmitter' | 'samplingRulesCache')[]

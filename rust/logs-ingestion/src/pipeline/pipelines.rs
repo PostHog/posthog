@@ -9,7 +9,8 @@ use ingestion_framework::{
 
 use super::admission::{
     create_backfill_gate_step, create_quota_limit_step, create_rate_limit_step,
-    create_record_allowed_usage_step, create_track_incoming_traffic_step, LogsAdmissionInput,
+    create_record_allowed_usage_step, create_require_secret_key_step,
+    create_track_incoming_traffic_step, LogsAdmissionInput,
 };
 use super::context::LogsPipelineContext;
 use super::parse::{create_settled_parse_step, ParseOutcome};
@@ -49,6 +50,7 @@ pub fn create_logs_admission_pipeline(
     new_chunk_pipeline::<LogsAdmissionInput, ()>()
         .pipe_chunk(create_track_incoming_traffic_step())
         .pipe_chunk(create_backfill_gate_step(context.clone()))
+        .pipe_chunk(create_require_secret_key_step(context.clone()))
         .pipe_chunk(create_quota_limit_step(context.clone()))
         .pipe_chunk(create_rate_limit_step(context))
         .pipe_chunk(create_record_allowed_usage_step())

@@ -28,6 +28,7 @@ import type { LogsIngestionMessage } from '../types'
 import {
     LogsPipelineContext,
     appliesTeamLogRules,
+    isSamplingEvalEnabledForTeam,
     retryOnDependencyUnavailable,
     teamIdMatchesCsv,
 } from './logs-pipeline-context'
@@ -45,10 +46,6 @@ type ResolvedDrops = {
 export type ResolvedLogBuffer =
     | ({ outcome: 'produce'; processedValue: Buffer } & ResolvedDrops)
     | ({ outcome: 'all_dropped'; reason: string } & ResolvedDrops)
-
-function isSamplingEvalEnabledForTeam(context: LogsPipelineContext, teamId: number): boolean {
-    return !context.gates.samplingKillswitch && teamIdMatchesCsv(context.gates.samplingEnabledTeams, teamId)
-}
 
 export function isRetentionEvalEnabledForTeam(context: LogsPipelineContext, teamId: number): boolean {
     return !context.gates.retentionKillswitch && teamIdMatchesCsv(context.gates.retentionEnabledTeams, teamId)
