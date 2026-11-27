@@ -141,9 +141,10 @@ export function SectionTile({
                             draft={draft}
                             onDraftChange={setDraft}
                         />
-                        {/* An open section shows its tiles, so the count only says something once it is closed. */}
-                        {collapsed && <SectionCount count={panel.tiles.length} />}
                         {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
+                        {/* An open section shows its tiles, so the count only says something once it is closed. It
+                            comes after the icon, so the icon stays where it is when the count appears. */}
+                        {collapsed && <SectionCount count={panel.tiles.length} />}
                         {description && descriptionMode === 'icon' && (
                             <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
                         )}
@@ -312,7 +313,8 @@ export function SectionTitle({
 }
 
 export function SectionCount({ count }: { count: number }): JSX.Element {
-    return <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{count}</span>
+    // The title's text size, so the digits sit on the title's baseline. A smaller size centered beside it sits higher.
+    return <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{count}</span>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {
