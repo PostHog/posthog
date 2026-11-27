@@ -1,4 +1,3 @@
-from collections import defaultdict
 from typing import Any
 from uuid import UUID
 
@@ -8,11 +7,11 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions import Conflict
 
-from products.notebooks.backend.app_releases import read_release
+from products.notebooks.backend.app_releases import read_release, widget_input_sources
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery, AppWidgetSlot
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookWidgetInstance
+from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_serializers import NotebookVariableSerializer
 from products.notebooks.backend.sql_v2_state import (
@@ -28,7 +27,7 @@ from products.notebooks.backend.sql_v2_variables import (
     build_notebook_variables,
     substitute_hogql_variables,
 )
-from products.notebooks.backend.widgets import widget_node_ids, widget_source_name
+from products.notebooks.backend.widgets import widget_node_ids
 
 
 def plan_viewer_queries(
@@ -70,23 +69,7 @@ def _plan_layout_queries(
         if block["kind"] == "cell" and block.get("display") != "source"
     }
     visible_widgets = visible & widget_node_ids(build_markdown_notebook_content(release.markdown))
-    instances = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .filter(notebook_id=notebook_id, node_id__in=visible_widgets)
-        .select_related("pinned_version", "widget__current_version")
-    )
-    widget_sources: dict[str, list[AppWidgetSlot]] = defaultdict(list)
-    for instance in instances:
-        version = instance.pinned_version or instance.widget.current_version
-        if version is None:
-            continue
-        for item in version.input_contract:
-            if isinstance(item, dict) and isinstance(item.get("slot"), str):
-                source = widget_source_name(instance, item)
-                widget_sources[source].append(
-                    AppWidgetSlot(node_id=instance.node_id, version_id=version.id, slot=item["slot"])
-                )
-    return resolve_viewer_queries(release, inputs, widget_sources)
+    return resolve_viewer_queries(release, inputs, widget_input_sources(team_id, notebook_id, visible_widgets))
 
 
 def resolve_viewer_queries(

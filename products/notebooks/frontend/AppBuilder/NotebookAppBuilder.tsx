@@ -144,6 +144,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             >
                                 {preview ? 'Back to builder' : 'Preview'}
                             </LemonButton>
+                            {preview && <NotebookRunAllButton type="secondary" size="small" />}
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -260,7 +261,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
             )}
             {preview ? (
                 <PublishedNotebookApp
-                    key={notebook?.version ?? savedNotebook.version}
+                    key={JSON.stringify([notebook?.version ?? savedNotebook.version, layout])}
                     shortId={shortId}
                     draft={{
                         revision: notebook?.version ?? savedNotebook.version ?? 0,
@@ -289,9 +290,6 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             <div className="mb-4">
                                 <h1 className="mb-2">{layout.title || notebook?.title || 'Untitled app'}</h1>
                                 {layout.description && <p className="text-secondary">{layout.description}</p>}
-                                {!editing && canEditNotebook && !isTemplate && (
-                                    <NotebookRunAllButton type="secondary" size="small" />
-                                )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 mb-4">
                                 <LemonTabs
