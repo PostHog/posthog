@@ -148,8 +148,16 @@ class TestActivityLogModel(BaseTest):
             expected_change.update(before=None, after=after)
         assert properties["detail"]["changes"] == [expected_change]
 
-    @parameterized.expand([("created",), ("deleted",)])
-    def test_destination_receives_a_correlatable_grant_summary(self, action) -> None:
+    @parameterized.expand(
+        [
+            ("created", "personal_api_key", False, "test-key-id"),
+            ("deleted", "service_jwt", False, None),
+            ("deleted", "session", True, None),
+        ]
+    )
+    def test_destination_receives_a_correlatable_grant_summary(
+        self, action, credential_type: str, impersonated: bool, expected_credential_id: str | None
+    ) -> None:
         recipient = "sample-recipient@example.com"
         notebook_id = "sample-notebook"
         with patch("products.cdp.backend.internal_events.produce_internal_event") as producer:
@@ -160,6 +168,11 @@ class TestActivityLogModel(BaseTest):
                 scope="Notebook",
                 activity="updated",
                 item_id=notebook_id,
+                client="audit-integration",
+                ip_address="192.0.2.10",
+                credential_type=credential_type,
+                credential_id="test-key-id",
+                was_impersonated=impersonated,
                 detail=Detail(
                     name="Sample notebook title",
                     short_id=notebook_id,
@@ -173,6 +186,11 @@ class TestActivityLogModel(BaseTest):
         assert properties["id"] == str(log.pk)
         assert properties["user"]["uuid"] == str(self.user.uuid)
         assert properties["detail"] == {"changes": [{"field": "app_view_grant", "action": action}]}
+        assert properties["ip_address"] == "192.0.2.10"
+        assert properties["client"] == "audit-integration"
+        assert properties["credential_type"] == credential_type
+        assert properties["credential_id"] == expected_credential_id
+        assert properties["was_impersonated"] is impersonated
         assert "item_id" not in properties
         assert recipient not in json.dumps(properties)
         log.refresh_from_db()

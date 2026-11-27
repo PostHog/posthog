@@ -637,10 +637,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     )
                     should_publish_update = True
 
+                was_deleted = locked_instance.deleted
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
-                elif "app_published" in validated_data:
+                if updated_notebook.deleted != was_deleted or (
+                    "app_published" in validated_data and updated_notebook.app_published is None
+                ):
                     revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
