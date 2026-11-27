@@ -11,8 +11,6 @@ import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { AdventCalendarResultsApi } from 'products/workflows/frontend/generated/api.schemas'
-
 import { adventCalendarLogic } from './adventCalendarLogic'
 
 const KEY = 'workflows-advent-calendar-progress'
@@ -167,11 +165,10 @@ describe('adventCalendarLogic', () => {
 
     it('keeps the progress and the pick another tab saved, shows its shares, and sends no second answer, when this tab answers again', async () => {
         const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+        useMocks(calendarApi({}, resultsOf({ ...DAY_TWO_ANSWERED, answer: null })).mocks)
+        await expectLogic(logic, () => logic.actions.loadPollResults()).toFinishAllListeners()
         const api = calendarApi()
         useMocks(api.mocks)
-        logic.actions.loadPollResultsSuccess(
-            resultsOf({ ...DAY_TWO_ANSWERED, answer: null }) as AdventCalendarResultsApi
-        )
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         window.localStorage.setItem(
@@ -350,38 +347,62 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
     })
 
-    it('keeps the results of a later answer when an earlier answer replies last', async () => {
-        let release = (): void => {}
-        const held = new Promise<void>((done) => (release = done))
-        const dayFive = {
-            day: 5,
-            answer: 'yes',
-            shares: [
-                { option: 'no', share: 30 },
-                { option: 'yes', share: 70 },
-            ],
-        }
-        useMocks({
-            post: {
-                [`${CALENDAR_API}/answer/`]: async ({ request }) => {
-                    const { day } = (await request.json()) as { day: number }
-                    if (day === 2) {
-                        await held
-                        return [200, resultsOf(DAY_TWO_ANSWERED)]
-                    }
-                    return [200, resultsOf(DAY_TWO_ANSWERED, dayFive)]
+    it.each(['before', 'after'])(
+        'shows the shares of both answers when the server reply to the first is held %s it saves the answer',
+        async (held) => {
+            let release = (): void => {}
+            const hold = new Promise<void>((done) => (release = done))
+            const dayFive = {
+                day: 5,
+                answer: 'yes',
+                shares: [
+                    { option: 'no', share: 30 },
+                    { option: 'yes', share: 70 },
+                ],
+            }
+            const saved: number[] = []
+            const snapshot = (): object =>
+                resultsOf(
+                    saved.includes(2) ? DAY_TWO_ANSWERED : { ...DAY_TWO_ANSWERED, answer: null },
+                    saved.includes(5) ? dayFive : { ...dayFive, answer: null }
+                )
+            useMocks({
+                post: {
+                    [`${CALENDAR_API}/answer/`]: async ({ request }) => {
+                        const { day } = (await request.json()) as { day: number }
+                        if (day === 2 && held === 'before') {
+                            await hold
+                        }
+                        saved.push(day)
+                        const reply = snapshot()
+                        if (day === 2 && held === 'after') {
+                            await hold
+                        }
+                        return [200, reply]
+                    },
+                    [`${CALENDAR_API}/open/`]: () => [200, {}],
                 },
-            },
-        })
+            })
+            jest.setSystemTime(new Date(2026, 11, 5, 9, 0))
+            logic.actions.refreshClock()
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.answerDoor('door-2', 'tim')
+            logic.actions.finishReveal()
+            for (const door of ['door-3-lower', 'door-4-lower']) {
+                logic.actions.activateDoor(door)
+                logic.actions.finishReveal()
+            }
 
-        logic.actions.savePollAnswer({ day: 2, option: 'tim' })
-        logic.actions.savePollAnswer({ day: 5, option: 'yes' })
-        await waitFor(() => expect(logic.values.pollResults).toEqual(resultsOf(DAY_TWO_ANSWERED, dayFive)))
-        release()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.answerDoor('door-5', 'yes')
+            await waitFor(() => expect(logic.values.pollShares[5]).toEqual({ no: 30, yes: 70 }))
+            release()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.pollResults).toEqual(resultsOf(DAY_TWO_ANSWERED, dayFive))
-    })
+            expect([...saved].sort()).toEqual([2, 5])
+            expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 }, 5: { no: 30, yes: 70 } })
+        }
+    )
 
     it('sends no door opens or answers while a staff user previews another day, and keeps the live doors shut', async () => {
         const api = calendarApi()
