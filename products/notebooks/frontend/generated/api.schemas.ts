@@ -1061,22 +1061,6 @@ export interface PaginatedActiveAppViewGrantListApi {
     results: ActiveAppViewGrantApi[]
 }
 
-export interface ActiveAppViewGrantApi {
-    recipient_uuid: string
-    email: string
-    revision: number
-    expires_at: string
-}
-
-export interface PaginatedActiveAppViewGrantListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ActiveAppViewGrantApi[]
-}
-
 export interface NotebookCollabCursorApi {
     /**
      * ProseMirror selection head position (rich v1 notebooks).
