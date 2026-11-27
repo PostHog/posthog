@@ -32,6 +32,7 @@ const read = (second: number, table: Table = {}): VacuumRead => ({
     vacuums: 0,
     lastAutovacuumAt: null,
     vacuumingSince: null,
+    untrackedWorkers: 0,
     heapBytes: 100_000,
     toastBytes: 10_000,
     indexBytes: { cyclotron_jobs_pkey: 20_000, idx_cyclotron_jobs_dequeue: 30_000 },
@@ -114,6 +115,38 @@ describe('soak measurements', () => {
                 vacuum: [read(10, { liveTuples: 0 }), read(900, { liveTuples: 500 }), read(1790, { liveTuples: 0 })],
             })
         ).toEqual([])
+    })
+
+    it.each([
+        [
+            'the probe role cannot read other sessions',
+            { vacuumSettings: { settings: {}, types: {}, storage: {}, statsHidden: true } },
+            [],
+            'the probe role cannot read other sessions, so no autovacuum worker start is visible',
+        ],
+        [
+            'a sample saw a worker with activity tracking off',
+            {},
+            [read(300, { autovacuums: 5, lastAutovacuumAt: atS(105), untrackedWorkers: 1 })],
+            'an autovacuum worker ran with track_activities off, so its start is not recorded',
+        ],
+    ])('leaves the run timing unmeasured when %s, and still counts the runs', (_, partial, extra, reason) => {
+        const vacuum = [
+            read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
+            read(100, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(95) }),
+            read(110, { autovacuums: 5, lastAutovacuumAt: atS(105) }),
+            ...extra,
+            read(900, { autovacuums: 7, lastAutovacuumAt: atS(895) }),
+            read(1805, { autovacuums: 7, lastAutovacuumAt: atS(895) }),
+        ]
+
+        expect(measured('autovacuum_runs', { vacuum, ...partial })).toEqual([
+            { key: 'count', value: 3 },
+            { key: 'timed', value: null, censored: true, unmeasured: reason },
+        ])
+        expect(measured('autovacuum_seconds', { vacuum, ...partial })).toEqual([
+            { value: null, censored: true, unmeasured: reason },
+        ])
     })
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
@@ -314,6 +347,7 @@ describe('soak measurements', () => {
                 autovacuum_vacuum_scale_factor: { unit: null, vartype: 'real' },
             },
             storage: { cyclotron_jobs: null, cyclotron_jobs_pkey: ['fillfactor=80'] },
+            statsHidden: false,
         }
         const autovacuumProfile = {
             autovacuum: 'true',

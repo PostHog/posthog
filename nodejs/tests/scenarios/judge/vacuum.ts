@@ -28,6 +28,16 @@ const MINUTE_MS = 60_000
 
 const ENDPOINT_WITHIN_MS = 2 * VACUUM_PROBE_EVERY_MS
 
+function workerStartsHidden({ vacuum, vacuumSettings }: MeasureEvidence): string | undefined {
+    if (vacuumSettings !== undefined && !('error' in vacuumSettings) && vacuumSettings.statsHidden) {
+        return 'the probe role cannot read other sessions, so no autovacuum worker start is visible'
+    }
+    if (readsOf(vacuum).some(({ untrackedWorkers }) => untrackedWorkers > 0)) {
+        return 'an autovacuum worker ran with track_activities off, so its start is not recorded'
+    }
+    return undefined
+}
+
 const readsOf = (vacuum: readonly VacuumRead[] | undefined): Read[] =>
     (vacuum ?? []).filter((read): read is Read => !('error' in read)).sort((a, b) => a.at - b.at)
 
@@ -254,12 +264,19 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
             return []
         }
         const incomplete = driven.incomplete ? { incomplete: true as const } : {}
+        const hidden = workerStartsHidden(evidence)
         return [
             { key: 'count', value: driven.runs.length, ...incomplete },
-            { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
+            hidden
+                ? { key: 'timed', ...unmeasured(hidden) }
+                : { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
         ]
     }),
     soakMeasure('autovacuum_seconds', 's', (evidence) => {
+        const hidden = workerStartsHidden(evidence)
+        if (hidden) {
+            return [unmeasured(hidden)]
+        }
         const timed = (drivenRunsOf(evidence)?.runs ?? [])
             .flatMap(({ seconds }) => (seconds === undefined ? [] : [seconds]))
             .sort((a, b) => a - b)

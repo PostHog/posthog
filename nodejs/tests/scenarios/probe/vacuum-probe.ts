@@ -7,6 +7,7 @@ export type VacuumSample = {
     vacuums: number
     lastAutovacuumAt: number | null
     vacuumingSince: number | null
+    untrackedWorkers: number
     heapBytes: number
     toastBytes: number
     indexBytes: Record<string, number>
@@ -18,6 +19,7 @@ export type VacuumSettings = {
     settings: Record<string, string>
     types: Record<string, SettingType>
     storage: Record<string, string[] | null>
+    statsHidden: boolean
 }
 
 export type VacuumRead = { at: number } & (VacuumSample | { error: string })
@@ -50,6 +52,9 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                           FROM pg_stat_progress_vacuum p JOIN pg_stat_activity a ON a.pid = p.pid
                           WHERE p.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
                             AND p.relid = s.relid AND a.backend_type = 'autovacuum worker') AS "vacuumingSince",
+                         (SELECT count(*) FROM pg_stat_activity a
+                          WHERE a.datid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                            AND a.backend_type = 'autovacuum worker' AND a.state = 'disabled') AS "untrackedWorkers",
                          pg_relation_size(s.relid) AS "heapBytes",
                          coalesce(pg_total_relation_size(nullif(c.reltoastrelid, 0)), 0) AS "toastBytes",
                          (SELECT coalesce(json_object_agg(i.indexrelname, pg_relation_size(i.indexrelid)), '{}')
@@ -65,6 +70,7 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                     vacuums: Number(row.vacuums),
                     lastAutovacuumAt: epochMs(row.lastAutovacuumAt),
                     vacuumingSince: epochMs(row.vacuumingSince),
+                    untrackedWorkers: Number(row.untrackedWorkers),
                     heapBytes: Number(row.heapBytes),
                     toastBytes: Number(row.toastBytes),
                     indexBytes: row.indexBytes,
@@ -83,12 +89,18 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                      WHERE c.oid = 'cyclotron_jobs'::regclass
                         OR c.oid IN (SELECT indexrelid FROM pg_index WHERE indrelid = 'cyclotron_jobs'::regclass)`
                 )
+                const hidden = await client.query<{ hidden: boolean }>(
+                    `SELECT EXISTS (
+                         SELECT 1 FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type IS NULL
+                     ) AS hidden`
+                )
                 return {
                     settings: Object.fromEntries(settings.rows.map(({ name, value }) => [name, value])),
                     types: Object.fromEntries(
                         settings.rows.map(({ name, unit, vartype }) => [name, { unit, vartype }])
                     ),
                     storage: Object.fromEntries(storage.rows.map(({ name, options }) => [name, options])),
+                    statsHidden: hidden.rows[0].hidden,
                 }
             }, cyclotronUrl),
     }

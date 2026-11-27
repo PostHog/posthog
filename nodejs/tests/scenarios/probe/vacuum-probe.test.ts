@@ -3,9 +3,8 @@ import { defaultConfig } from '~/common/config/config'
 import { scratchSchema, withPostgres } from '../environment/stack'
 import { createVacuumProbe } from './vacuum-probe'
 
-const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_vacuum_${process.pid}`, [
-    'cyclotron_jobs',
-])
+const SCHEMA_NAME = `scenario_vacuum_${process.pid}`
+const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, SCHEMA_NAME, ['cyclotron_jobs'])
 const PROBE_URL = SCHEMA.url
 
 const run = (sql: string): Promise<unknown> =>
@@ -65,6 +64,31 @@ describe('vacuum probe', () => {
         expect(before.deadTuples).toBeGreaterThan(0)
         expect(after.vacuums).toBe(before.vacuums + 1)
         expect(after.deadTuples).toBe(0)
+    })
+
+    it.each([
+        ['a role that reads every session', true, false],
+        ['a role without pg_read_all_stats', false, true],
+    ])('records whether %s sees the other sessions', async (_, readsAllStats, statsHidden) => {
+        const role = `scenario_vacuum_probe_${process.pid}`
+        await run(`DROP ROLE IF EXISTS ${role}`)
+        await run(`CREATE ROLE ${role} LOGIN PASSWORD '${role}'`)
+        await run(`GRANT USAGE ON SCHEMA ${SCHEMA_NAME} TO ${role}`)
+        await run(`GRANT SELECT ON ALL TABLES IN SCHEMA ${SCHEMA_NAME} TO ${role}`)
+        if (readsAllStats) {
+            await run(`GRANT pg_read_all_stats TO ${role}`)
+        }
+        const url = new URL(PROBE_URL)
+        url.username = role
+        url.password = role
+        try {
+            const settings = await createVacuumProbe(url.toString()).settings()
+
+            expect(settings.statsHidden).toBe(statsHidden)
+        } finally {
+            await run(`DROP OWNED BY ${role}`)
+            await run(`DROP ROLE ${role}`)
+        }
     })
 
     it('reads the autovacuum settings, and the storage options of the table and its indexes', async () => {
