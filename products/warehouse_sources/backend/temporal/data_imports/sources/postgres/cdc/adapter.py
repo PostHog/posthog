@@ -206,7 +206,8 @@ class PostgresCDCAdapter:
         drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
 
     def stream_exists(self, conn: Any, source: ExternalDataSource) -> bool:
-        return slot_exists(conn, self.parse_cdc_config(source).slot_name)
+        with client_side_deadline(conn, LAG_CHECK_CLIENT_DEADLINE_SECONDS):
+            return slot_exists(conn, self.parse_cdc_config(source).slot_name)
 
     def get_lag(self, conn: Any, source: ExternalDataSource) -> CDCLag | None:
         # The connect timeout ends at the handshake, and a server that then stops answering would hold
