@@ -59,8 +59,6 @@ function cardLayout(
 ): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean; facesDown: boolean } {
     const { isLeftward, left, width, faceInset } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
-    // The present's card holds the raffle details, so it is taller than the room under the present.
-    // It grows upward with its face at the bottom, over the present, and opens from there.
     const facesDown = isUpward && door.day === ADVENT_LAST_DAY
     const faceTop = face.top - ADVENT_CARD_INSET
     const faceBottom = face.top + face.size + ADVENT_CARD_INSET
@@ -81,21 +79,22 @@ function cardLayout(
 }
 
 function headline(door: AdventDoor): { title: string; detail: string | null } {
-    if (door.day === ADVENT_LAST_DAY && door.status !== 'open') {
-        return { title: '', detail: null }
-    }
     if (door.status === 'open') {
         return { title: door.reward?.name ?? `Door ${door.day}`, detail: door.reward?.line ?? null }
     }
     if (door.status === 'locked') {
         return {
-            title: door.question ? door.question.topic : 'Locked',
+            title: door.day === ADVENT_LAST_DAY ? '' : door.question ? door.question.topic : 'Locked',
             detail: door.lockReason === 'date' ? `Opens December ${door.day}.` : 'Open the earlier doors first.',
         }
     }
-    return door.question
-        ? { title: door.question.topic, detail: 'Pick a side to open this door.' }
-        : { title: 'Ready to open', detail: 'Select the door to see who is behind it.' }
+    if (door.question) {
+        return { title: door.question.topic, detail: 'Pick a side to open this door.' }
+    }
+    return {
+        title: door.day === ADVENT_LAST_DAY ? '' : 'Ready to open',
+        detail: 'Select the door to see who is behind it.',
+    }
 }
 
 function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: boolean }): JSX.Element {
@@ -143,7 +142,7 @@ export function AdventDoorCard({
 
     return (
         <div
-            className={cn('AdventCard', facesDown && 'flex-col-reverse', isOpen && 'AdventCard--open')}
+            className={cn('AdventCard', facesDown && 'AdventCard--facesDown', isOpen && 'AdventCard--open')}
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
@@ -173,13 +172,15 @@ export function AdventDoorCard({
                 )}
             </div>
 
-            <div className={cn('AdventCard__fade AdventCard__body', detailsBesideFace && 'hidden')}>
-                <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
-                {isPresent && !detailsBesideFace && <AdventRaffleDetails />}
-                {door.status === 'open' && (
-                    <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
-                )}
-            </div>
+            {!detailsBesideFace && (
+                <div className="AdventCard__fade AdventCard__body">
+                    <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
+                    {isPresent && <AdventRaffleDetails />}
+                    {door.status === 'open' && (
+                        <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
+                    )}
+                </div>
+            )}
         </div>
     )
 }

@@ -16,6 +16,7 @@ import { adventCalendarLogic } from './adventCalendarLogic'
 import { ADVENT_QUESTIONS } from './adventContent'
 
 const KEY = 'workflows-advent-calendar-progress'
+const TICKETS_KEY = 'workflows-advent-calendar-tickets'
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
 const CALENDAR_API = '/api/projects/:team_id/workflow_advent_calendar'
 
@@ -60,10 +61,14 @@ function calendarApi(
                 return replyWith(replies.answer ?? 200, results)
             },
             [`${CALENDAR_API}/open/`]: async ({ request }) => {
-                const open = (await request.json()) as { day: number }
+                const open = (await request.json()) as { day: number; utc_offset_minutes: number }
                 opens.push(open)
                 const openedAt = replies.openedAt?.(open.day) ?? '2026-12-03T09:00:00Z'
-                return replyWith(replies.open ?? 200, { day: open.day, opened_at: openedAt })
+                return replyWith(replies.open ?? 200, {
+                    day: open.day,
+                    opened_at: openedAt,
+                    utc_offset_minutes: open.utc_offset_minutes,
+                })
             },
         },
     }
@@ -195,7 +200,7 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-upper')
 
         expect(logic.values.ticketDays).toEqual([3])
-        expect(logic.values.ticketFlight).toEqual({ day: 3, total: 1, landed: 0 })
+        expect(logic.values.ticketFlight).toBe(3)
         expect(logic.values.ticketsShown).toBe(0)
 
         logic.actions.finishReveal()
@@ -209,16 +214,25 @@ describe('adventCalendarLogic', () => {
         ['first opened each door on its day', 200, (day) => `2026-12-0${day}T12:00:00Z`, [1, 2, 3]],
         ['first opened each door a day late', 200, (day) => `2026-12-0${day + 1}T12:00:00Z`, []],
         ['failed every open', 500, (day) => `2026-12-0${day}T12:00:00Z`, []],
-    ])('keeps only the tickets the server confirms when it %s', async (_, reply, openedAt, ticketDays) => {
-        useMocks(calendarApi({ open: reply, openedAt }).mocks)
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
-        logic.actions.answerDoor('door-2', 'james')
-        logic.actions.finishReveal()
-        logic.actions.activateDoor('door-3-upper')
+    ])(
+        'keeps only the tickets the server confirms, after a reload too, when it %s',
+        async (_, reply, openedAt, ticketDays) => {
+            useMocks(calendarApi({ open: reply, openedAt }).mocks)
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+            logic.actions.answerDoor('door-2', 'james')
+            logic.actions.finishReveal()
+            logic.actions.activateDoor('door-3-upper')
+            await waitFor(() => expect(logic.values.ticketDays).toEqual(ticketDays))
+            await expectLogic(logic).toFinishAllListeners()
 
-        await waitFor(() => expect(logic.values.ticketDays).toEqual(ticketDays))
-    })
+            logic.unmount()
+            logic = adventCalendarLogic()
+            logic.mount()
+
+            expect([logic.values.ticketDays, logic.values.tickets]).toEqual([ticketDays, ticketDays.length])
+        }
+    )
 
     it('earns a ticket for every door a preview opens, and saves none of them', async () => {
         const api = calendarApi()
@@ -232,13 +246,17 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-upper')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.ticketDays).toEqual([1, 2, 3])
-        expect(logic.values.ticketFlight).toEqual({ day: 3, total: 1, landed: 0 })
+        expect([logic.values.ticketDays, logic.values.ticketFlight]).toEqual([[1, 2, 3], 3])
         expect({
             saved: logic.values.progressByUser,
+            tickets: logic.values.ticketsByUser,
             opens: api.opens,
             events: sent.filter(([event]) => event === 'workflows advent door opened'),
-        }).toEqual({ saved: {}, opens: [], events: [] })
+        }).toEqual({ saved: {}, tickets: {}, opens: [], events: [] })
+
+        router.actions.push('/workflows/advent')
+
+        expect(logic.values.tickets).toBe(0)
     })
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
@@ -270,19 +288,21 @@ describe('adventCalendarLogic', () => {
         window.localStorage.setItem(
             KEY,
             JSON.stringify({
-                [UUID]: { opened: [1, 2], answers: { 2: 'tim' }, onTime: [2] },
+                [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
                 [other]: { opened: [1], answers: {} },
             })
         )
 
+        window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: [2] }))
+
         await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'james')).toFinishAllListeners()
 
         expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
-            [UUID]: { opened: [1, 2], answers: { 2: 'tim' }, onTime: [2] },
+            [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
             [other]: { opened: [1], answers: {} },
         })
+        expect(JSON.parse(window.localStorage.getItem(TICKETS_KEY)!)).toEqual({ [UUID]: [2] })
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        expect(logic.values.tickets).toBe(1)
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
         expect(api.answers).toEqual([])
     })

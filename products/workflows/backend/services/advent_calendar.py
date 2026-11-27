@@ -42,7 +42,9 @@ def open_advent_calendar_door(
         door_open, _ = AdventCalendarDoorOpen.objects.get_or_create(
             user_id=user_id, day=day, defaults={"hoggy": hoggy, "utc_offset_minutes": utc_offset_minutes}
         )
-    return AdventCalendarDoorOpenResult(day=door_open.day, opened_at=door_open.opened_at)
+    return AdventCalendarDoorOpenResult(
+        day=door_open.day, opened_at=door_open.opened_at, utc_offset_minutes=door_open.utc_offset_minutes
+    )
 
 
 def advent_calendar_results(user_id: int) -> list[AdventCalendarQuestionResult]:

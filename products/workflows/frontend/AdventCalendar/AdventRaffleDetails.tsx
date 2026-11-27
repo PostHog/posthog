@@ -22,7 +22,7 @@ export function AdventRaffleDetails(): JSX.Element {
             </p>
             <p className="m-0 flex items-center gap-1.5 font-semibold">
                 <AdventTicketIcon className="h-3 w-5 shrink-0" />
-                {`You have ${adventTicketsLabel(tickets)}.`}
+                <span>{`You have ${adventTicketsLabel(tickets)}.`}</span>
             </p>
             <p className="m-0 text-secondary">
                 Free to enter for every PostHog user. Winners are drawn after December 24 and get an email.

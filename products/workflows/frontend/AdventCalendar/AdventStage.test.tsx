@@ -73,7 +73,7 @@ describe('AdventStage', () => {
         logic.unmount()
     })
 
-    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines', () => {
+    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines, and keeps the date on the present', () => {
         const logic = adventCalendarLogic()
         logic.mount()
         const noop = (): void => {}
@@ -107,6 +107,7 @@ describe('AdventStage', () => {
         expect(layout(bottom)).toEqual(layout(top))
         expect(bottom.textContent).toBe('21MondayCoffee or teaOpens December 21.')
         expect(top.textContent).toBe('4FridayLockedOpens December 4.')
+        expect(cardOf(24).textContent).toMatch(/Opens December 24\.Open each door on its day to enter the raffle\./)
 
         logic.unmount()
     })

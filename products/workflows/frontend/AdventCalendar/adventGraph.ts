@@ -15,22 +15,14 @@ export const ADVENT_DOOR_SIZE = 56
 export interface AdventProgress {
     opened: number[]
     answers: Record<number, string>
-    /** The doors opened on their own day. Optional, because older stored records have no list. */
-    onTime?: number[]
 }
 
 export const EMPTY_ADVENT_PROGRESS: AdventProgress = { opened: [], answers: {} }
 
-function union(first: number[], then: number[]): number[] {
-    return [...new Set([...first, ...then])].sort((x, y) => x - y)
-}
-
 export function mergeAdventProgress(first: AdventProgress, then: AdventProgress): AdventProgress {
-    const onTime = union(first.onTime ?? [], then.onTime ?? [])
     return {
-        opened: union(first.opened, then.opened),
+        opened: [...new Set([...first.opened, ...then.opened])].sort((x, y) => x - y),
         answers: { ...then.answers, ...first.answers },
-        ...(onTime.length ? { onTime } : {}),
     }
 }
 
