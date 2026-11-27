@@ -201,12 +201,6 @@ describe('measurements', () => {
         appliedAt: at(5000),
         exit: { signalledAt: at(5000), ...exit },
     })
-    const killed = (target: string): ValveTimelineEntry => ({
-        valve: 'role.kill',
-        target,
-        requestedAt: at(6000),
-        appliedAt: at(6000),
-    })
     const resent = [
         { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
         { ...record(2, 'run-a-1', 42_000), invocationId: 'inv-a' },
@@ -272,101 +266,18 @@ describe('measurements', () => {
         ])
     })
 
-    it.each([
-        [
-            'times each send that was in flight at the signal and went out again under the same invocation id',
-            [
-                { ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' },
-                { ...record(2, 'run-a-2', 4500), invocationId: 'inv-b' },
-                { ...record(3, 'run-a-1', 42_000), invocationId: 'inv-a' },
-                { ...record(4, 'run-a-3', 20_000, 503), invocationId: 'inv-c' },
-                { ...record(5, 'run-a-3', 25_000), invocationId: 'inv-c' },
-            ],
-            [{ key: 'run-a-1 inv-a', value: 32_000 }],
-            {},
-        ],
-        [
-            'skips a send refused before the signal and retried after the exit, which the stop did not strand',
-            [
-                { ...record(1, 'run-a-1', 4000, 429), invocationId: 'inv-a' },
-                { ...record(2, 'run-a-1', 12_000), invocationId: 'inv-a' },
-            ],
-            [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
-            {},
-        ],
-        [
-            'reports no send that went out again',
-            [{ ...record(1, 'run-a-1', 4000), invocationId: 'inv-a' }],
-            [{ value: null, censored: true, unmeasured: 'no send in flight at the signal went out again' }],
-            {},
-        ],
-        [
-            'reports a role that never exited',
-            [],
-            [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
-            { timeline: [terminated({})] },
-        ],
-        [
-            'leaves unmeasured a resend that another stop could have caused',
-            resent,
-            [
-                {
-                    value: null,
-                    censored: true,
-                    unmeasured: 'the card stopped more than one role, so a resend has no single cause',
-                },
-            ],
-            { timeline: [terminated({ exitedAt: at(10_000), code: 0 }), killed('cdp-api')] },
-        ],
-        [
-            'leaves unmeasured the terminate of a role that sends no email',
-            resent,
-            [
-                {
-                    value: null,
-                    censored: true,
-                    unmeasured: 'only a stop of cdp-cyclotron-worker-email strands a send',
-                },
-            ],
-            { timeline: [{ ...terminated({ exitedAt: at(10_000), code: 0 }), target: 'cdp-api' }] },
-        ],
-        [
-            'leaves unmeasured a role that exited in the millisecond of its signal',
-            [{ ...record(1, 'run-a-1', 5000), invocationId: 'inv-a' }],
-            [
-                {
-                    value: null,
-                    censored: true,
-                    unmeasured:
-                        'the role exited in the millisecond of its signal, so a resend cannot be told from the send',
-                },
-            ],
-            { timeline: [terminated({ exitedAt: at(5000), code: 0 })] },
-        ],
-        [
-            'leaves unmeasured a truth it could not read',
-            resent,
-            [{ value: null, censored: true, unmeasured: 'the truth could not be read: the edge did not answer' }],
-            { unread: 'the edge did not answer' },
-        ],
-        [
-            'leaves unmeasured a run that did not converge, though no resend landed yet',
-            resent.slice(0, 1),
-            [
-                {
-                    value: null,
-                    censored: true,
-                    unmeasured: 'the run did not converge, so a resend could still land after the final read',
-                },
-            ],
-            { converged: false },
-        ],
-    ])('lease_reclaim_ms %s, from the exit of the role', (_story, truth, measured, overrides) => {
+    it('leaves lease_reclaim_ms unmeasured in this release, though a stranded send went out again', () => {
         const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
 
-        expect(
-            measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth, ...overrides }))
-        ).toEqual(measured.map((value) => ({ name: 'lease_reclaim_ms', unit: 'ms', ...value })))
+        expect(measure([{ name: 'lease_reclaim_ms', params: {} }], evidence({ timeline, truth: resent }))).toEqual([
+            {
+                name: 'lease_reclaim_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'not measured in this release',
+            },
+        ])
     })
 
     it.each([

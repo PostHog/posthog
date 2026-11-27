@@ -195,10 +195,6 @@ export const roleExitMs: MeasurementDefinition = {
     },
 }
 
-const SENDING_ROLE = 'cdp-cyclotron-worker-email'
-
-const STOPS = new Set(['role.kill', 'role.terminate', 'role.freeze'])
-
 const unreadTruthOf = ({ unread, unsettled, converged }: MeasureEvidence): string | undefined =>
     unread !== undefined
         ? `the truth could not be read: ${unread}`
@@ -211,48 +207,7 @@ export const leaseReclaimMs: MeasurementDefinition = {
     name: 'lease_reclaim_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: (evidence) => {
-        const { timeline, truth } = evidence
-        const stops = timeline.filter(({ valve, appliedAt }) => STOPS.has(valve) && appliedAt !== undefined)
-        const unattributable =
-            unreadTruthOf(evidence) ??
-            (stops.length > 1 ? 'the card stopped more than one role, so a resend has no single cause' : undefined)
-        return terminationsOf(timeline).flatMap(({ target, exit }): Measured[] => {
-            if (exit.exitedAt === undefined) {
-                return [unmeasured(`${target} did not exit`)]
-            }
-            if (unattributable !== undefined) {
-                return [unmeasured(unattributable)]
-            }
-            if (target !== SENDING_ROLE) {
-                return [unmeasured(`only a stop of ${SENDING_ROLE} strands a send`)]
-            }
-            const signalledAt = Date.parse(exit.signalledAt)
-            const exitedAt = Date.parse(exit.exitedAt)
-            if (exitedAt <= signalledAt) {
-                return [
-                    unmeasured(
-                        'the role exited in the millisecond of its signal, so a resend cannot be told from the send'
-                    ),
-                ]
-            }
-            const sends = Map.groupBy(
-                truth.filter(({ invocationId, unitId }) => invocationId !== undefined && unitId !== undefined),
-                ({ unitId, invocationId }) => `${unitId} ${invocationId}`
-            )
-            const reclaimed = [...sends].flatMap(([key, requests]) => {
-                const acceptedBySignal = requests.some(
-                    ({ at, status }) => Date.parse(at) <= signalledAt && isAccepted(status)
-                )
-                const resentAt = requests
-                    .map(({ at }) => Date.parse(at))
-                    .filter((at) => at >= exitedAt)
-                    .sort((a, b) => a - b)[0]
-                return acceptedBySignal && resentAt !== undefined ? [{ key, value: resentAt - exitedAt }] : []
-            })
-            return reclaimed.length > 0 ? reclaimed : [unmeasured('no send in flight at the signal went out again')]
-        })
-    },
+    measure: () => [unmeasured('not measured in this release')],
 }
 
 export const resentInvocations: MeasurementDefinition = {
