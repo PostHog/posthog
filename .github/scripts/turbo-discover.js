@@ -1237,6 +1237,9 @@ function selectionMetrics(selection) {
         full_run_reasons_count: selection ? (selection.ast?.full_run_reasons ?? []).length : null,
         selected_test_seconds: selection?.durations?.selected_seconds ?? null,
         skipped_test_seconds: selection?.durations?.skipped_seconds ?? null,
+        selected_django_seconds: selection?.durations?.selected_django_seconds ?? null,
+        django_baseline_seconds: selection?.durations?.narrowable_baseline_seconds ?? null,
+        selected_product_seconds: selection?.durations?.selected_product_seconds ?? null,
     }
 }
 

@@ -989,6 +989,13 @@ def selected_seconds_by_segment(test_files: list[str], durations: dict[str, floa
     }
 
 
+def selected_seconds_by_suite(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
+    return {
+        "django": round(estimate_duration([f for f in test_files if segments_for_test_file(f)], durations)),
+        "product": round(estimate_duration([f for f in test_files if _product_name(f)], durations)),
+    }
+
+
 def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     """Total test-execution seconds across the Core/POE/Temporal universe that
     selection can narrow. Excludes product/turbo tests, which run regardless of selection,
@@ -1015,6 +1022,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
     baseline_seconds = narrowable_baseline_seconds(durations)
+    seconds_by_suite = selected_seconds_by_suite(combined_tests, durations)
     return {
         "mode": "shadow",
         "base_ref": base_ref,
@@ -1041,6 +1049,8 @@ def build_result(base_ref: str) -> dict[str, Any]:
             "selected_seconds": round(selected_seconds),
             "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
             "selected_seconds_by_segment": selected_seconds_by_segment(combined_tests, durations),
+            "selected_django_seconds": seconds_by_suite["django"],
+            "selected_product_seconds": seconds_by_suite["product"],
         },
     }
 
