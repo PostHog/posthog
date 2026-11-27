@@ -111,9 +111,9 @@ async function resultsOrNull(request: Promise<AdventCalendarResultsApi>): Promis
 
 export type AdventPollShares = Record<number, Record<string, number>>
 
-function sharesOfAnswered(results: AdventCalendarResultsApi | null): AdventPollShares {
+function sharesOfAnswered(results: AdventCalendarResultsApi | null, picks: Record<number, string>): AdventPollShares {
     const answered = (results?.questions ?? []).filter(
-        (question) => question.answer && question.shares.some((share) => share.share > 0)
+        (question) => question.answer && question.answer === picks[question.day]
     )
     return Object.fromEntries(
         answered.map((question) => [
@@ -271,7 +271,7 @@ export interface adventCalendarLogicMeta {
         ) => number
         rewards: (user: UserType | null) => AdventRewards
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
-        pollShares: (pollResults: AdventCalendarResultsApi | null) => AdventPollShares
+        pollShares: (pollResults: AdventCalendarResultsApi | null, progress: AdventProgress) => AdventPollShares
         openCount: (graph: AdventGraph) => number
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
         revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
@@ -326,9 +326,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         pollResults: [
             null as AdventCalendarResultsApi | null,
             {
-                loadPollResults: async () =>
-                    (await resultsOrNull(api.workflowAdventCalendarResults(String(values.currentProjectId)))) ??
-                    values.pollResults,
+                loadPollResults: async () => {
+                    const results = await resultsOrNull(
+                        api.workflowAdventCalendarResults(String(values.currentProjectId))
+                    )
+                    return values.pollResults ?? results
+                },
                 savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
                     (await resultsOrNull(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer))) ??
                     values.pollResults,
@@ -419,8 +422,11 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             ): AdventGraph => buildAdventGraph(progress, today, rewards),
         ],
         pollShares: [
-            (s) => [s.pollResults],
-            (pollResults: adventCalendarLogicValues['pollResults']): AdventPollShares => sharesOfAnswered(pollResults),
+            (s) => [s.pollResults, s.progress],
+            (
+                pollResults: adventCalendarLogicValues['pollResults'],
+                progress: adventCalendarLogicValues['progress']
+            ): AdventPollShares => sharesOfAnswered(pollResults, progress.answers),
         ],
         openCount: [(s) => [s.graph], (graph: adventCalendarLogicValues['graph']): number => openDoors(graph).length],
         selectedDoor: [
@@ -447,6 +453,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
             return door?.status === 'ready' ? door : null
         }
+        const isLive = (): boolean =>
+            values.today === adventToday(new Date(values.localDate), { requestedDay: null, canPickDay: false })
         return {
             activateDoor: ({ doorId }) => {
                 const door = readyDoor(doorId)
@@ -463,14 +471,19 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 if (!door || index < 0) {
                     return
                 }
+                const uuid = values.user?.uuid ?? ''
+                if (cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]) {
+                    actions.openDoor(uuid, door.day, null)
+                    return
+                }
                 const notTaken = index === 0 ? 'lower' : 'upper'
                 const vanishing = values.graph.doors.filter(
                     (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
                 )
                 posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
-                actions.openDoor(values.user?.uuid ?? '', door.day, optionId)
+                actions.openDoor(uuid, door.day, optionId)
                 const answer = pollAnswerOf(door.day, optionId)
-                if (answer) {
+                if (answer && isLive()) {
                     actions.savePollAnswer(answer)
                 }
                 if (!prefersReducedMotion()) {
@@ -483,7 +496,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             openDoor: ({ day }) => {
                 posthog.capture(EVENTS.doorOpened, { day })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
-                if (hoggy) {
+                if (hoggy && isLive()) {
                     void api
                         .workflowAdventCalendarOpen(String(values.currentProjectId), {
                             day,

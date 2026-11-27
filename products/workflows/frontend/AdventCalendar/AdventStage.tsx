@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventCanvas } from './AdventCanvas'
 import { AdventCardFace, AdventDoorCard } from './AdventDoorCard'
-import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorGround, adventHogSize } from './adventGraph'
+import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorCenter, adventDoorGround, adventHogSize } from './adventGraph'
 import { adventPaletteStyle } from './adventPalette'
 import { AdventPictureBackdrop } from './AdventPictureBackdrop'
 import { AdventPictureCast, AdventPictureReveal } from './AdventPictureCast'
@@ -58,7 +58,8 @@ export function AdventStage(): JSX.Element {
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
 
-    const todayX = graph.doors.find((door) => door.day === today)?.x ?? 0
+    const todayDoor = graph.doors.find((door) => door.day === today)
+    const todayX = todayDoor ? adventDoorCenter(todayDoor).x : 0
     useLayoutEffect(() => {
         if (scrollsSideways && track.current) {
             track.current.scrollLeft = todayX * zoom - stage.width / 2
@@ -77,7 +78,6 @@ export function AdventStage(): JSX.Element {
                     <div
                         ref={track}
                         className={cn('AdventStage__track', scrollsSideways && 'AdventStage__track--scrolls')}
-                        data-attr="advent-stage-track"
                         onScroll={cardDoor ? dismiss : undefined}
                     >
                         <div className="relative h-full" style={{ width: Math.max(stage.width, box.width) }}>

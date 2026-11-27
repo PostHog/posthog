@@ -38,13 +38,19 @@ function resultsOf(...questions: object[]): { questions: object[] } {
 
 function calendarApi(
     replies: { answer?: Reply; results?: Reply; open?: Reply } = {},
-    results = resultsOf(DAY_TWO_ANSWERED)
-): { mocks: Mocks; answers: unknown[]; opens: unknown[] } {
+    results = resultsOf(DAY_TWO_ANSWERED),
+    resultsHeld: Promise<void> = Promise.resolve()
+): { mocks: Mocks; answers: unknown[]; opens: unknown[]; reads: number[] } {
     const answers: unknown[] = []
     const opens: unknown[] = []
+    const reads: number[] = []
     const mocks: Mocks = {
         get: {
-            [`${CALENDAR_API}/results/`]: () => replyWith(replies.results ?? 200, results),
+            [`${CALENDAR_API}/results/`]: async () => {
+                reads.push(reads.length + 1)
+                await resultsHeld
+                return replyWith(replies.results ?? 200, results)
+            },
         },
         post: {
             [`${CALENDAR_API}/answer/`]: async ({ request }) => {
@@ -52,12 +58,13 @@ function calendarApi(
                 return replyWith(replies.answer ?? 200, results)
             },
             [`${CALENDAR_API}/open/`]: async ({ request }) => {
-                opens.push(await request.json())
-                return replyWith(replies.open ?? 200, { day: 1, opened_at: '2026-12-03T09:00:00Z' })
+                const open = (await request.json()) as { day: number }
+                opens.push(open)
+                return replyWith(replies.open ?? 200, { day: open.day, opened_at: '2026-12-03T09:00:00Z' })
             },
         },
     }
-    return { mocks, answers, opens }
+    return { mocks, answers, opens, reads }
 }
 
 function signIn(user: Partial<UserType>): void {
@@ -156,8 +163,10 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-4-upper')?.status).toBe('ready')
     })
 
-    it('keeps the progress another tab saved when this tab saves an answer', () => {
+    it('keeps the progress and the pick another tab saved, and sends no second answer, when this tab answers again', async () => {
         const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+        const api = calendarApi()
+        useMocks(api.mocks)
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         window.localStorage.setItem(
@@ -168,12 +177,14 @@ describe('adventCalendarLogic', () => {
             })
         )
 
-        logic.actions.answerDoor('door-2', 'james')
+        await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'james')).toFinishAllListeners()
 
         expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
             [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
             [other]: { opened: [1], answers: {} },
         })
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(api.answers).toEqual([])
     })
 
     it('keeps the opened doors of each account apart in one browser', () => {
@@ -283,12 +294,7 @@ describe('adventCalendarLogic', () => {
     it.each<[string, Reply, object, object]>([
         ['an answered question', 200, DAY_TWO_ANSWERED, { 2: { james: 38, tim: 62 } }],
         ['a question the person did not answer', 200, { ...DAY_TWO_ANSWERED, answer: null }, {}],
-        [
-            'a question nobody answered',
-            200,
-            { ...DAY_TWO_ANSWERED, shares: DAY_TWO_ANSWERED.shares.map((share) => ({ ...share, share: 0 })) },
-            {},
-        ],
+        ['an answer this browser did not pick', 200, { ...DAY_TWO_ANSWERED, answer: 'james' }, {}],
         ['a 403', 403, DAY_TWO_ANSWERED, {}],
         ['a 429', 429, DAY_TWO_ANSWERED, {}],
         ['a 500', 500, DAY_TWO_ANSWERED, {}],
@@ -296,6 +302,7 @@ describe('adventCalendarLogic', () => {
     ])('loads the shares when the calendar opens, and shows them only for %s', async (_, reply, question, shares) => {
         useMocks(calendarApi({ results: reply }, resultsOf(question)).mocks)
         logic.unmount()
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
         logic = adventCalendarLogic()
 
         await expectLogic(logic, () => {
@@ -303,6 +310,48 @@ describe('adventCalendarLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.pollShares).toEqual(shares)
+    })
+
+    it('keeps the shares of a saved answer when the results the calendar loaded first arrive later', async () => {
+        let release = (): void => {}
+        const api = calendarApi(
+            {},
+            resultsOf({ ...DAY_TWO_ANSWERED, answer: null }),
+            new Promise((done) => (release = done))
+        )
+        useMocks(api.mocks)
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+        await waitFor(() => expect(api.reads).toEqual([1]))
+        useMocks(calendarApi().mocks)
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+
+        logic.actions.answerDoor('door-2', 'tim')
+        await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
+    })
+
+    it('sends no door opens or answers while a staff user previews another day', async () => {
+        const api = calendarApi()
+        useMocks(api.mocks)
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', { day: '2' })
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'tim')
+        logic.actions.loadPollResults()
+
+        await waitFor(() => expect(api.reads).toHaveLength(1))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect({ opens: api.opens, answers: api.answers }).toEqual({ opens: [], answers: [] })
     })
 
     it.each([
