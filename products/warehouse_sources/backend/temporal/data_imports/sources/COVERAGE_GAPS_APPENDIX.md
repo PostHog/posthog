@@ -13065,7 +13065,7 @@ Note: The official OpenAPI JSON was fetched with curl and all GET paths, paramet
 
 ## Secoda — gaps
 
-Today (17): `charts`, `collections`, `columns`, `databases`, `event_categories`, `event_properties`, `events`, `groups`, `incidents`, `integrations`, `lineage`, `monitor_measurements`, `monitors`, `schemas`, `tables`, `tags`, `users`
+Today (21): `audit_logs`, `charts`, `collections`, `columns`, `custom_properties`, `dashboards`, `databases`, `event_categories`, `event_properties`, `events`, `groups`, `incidents`, `integrations`, `lineage`, `monitor_measurements`, `monitors`, `queries`, `schemas`, `tables`, `tags`, `users`
 
 Diffed against: <https://docs.secoda.co/llms.txt>
 
@@ -13075,12 +13075,13 @@ Diffed against: <https://docs.secoda.co/llms.txt>
 - [x] `lineage (GET /api/v1/lineage/manual/)` — the dependency graph between resources — the core analytical object of a catalog (high)
 - [x] `monitors and incidents (/api/v1/monitor/monitors, /monitor/incidents)` — data-quality monitors and the incidents they raise, Secoda's headline reliability metric (high)
 - [x] `monitor measurements (GET /api/v1/monitor/measurements)` — the time series behind each monitor; required for any quality trend analysis (high)
-- [ ] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)
-- [ ] `dashboards (GET /api/v1/dashboard/dashboards)` — BI assets, the downstream consumers in lineage (medium)
+- [x] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)
+- [x] `dashboards (GET /api/v1/dashboard/dashboards)` — BI assets, the downstream consumers in lineage (medium)
 - [x] `charts (GET /api/v1/dashboard/charts)` — chart-level assets under dashboards, needed for column-to-chart impact analysis (medium)
 - [x] `events and event properties (/api/v1/event/events, /event/event_properties, /event/category)` — the event taxonomy tracked in the catalog plus its lookup categories (medium)
-- [ ] `audit logs and resource logs (/api/v1/activity_log/audit_logs/, /resource_logs/)` — who touched which asset when — governance and adoption reporting (medium)
-- [ ] `custom properties (GET /api/v1/resource/all_v2/custom_properties/)` — lookup resolving customer-defined property values attached to tables and columns (medium)
+- [x] `audit logs (GET /api/v1/activity_log/audit_logs/)` — who touched which asset when — governance and adoption reporting (medium)
+- [ ] `resource logs (GET /api/v1/activity_log/resource_logs/)` — activity for a single resource (medium). Skipped: The route requires a resource ID, and the catalog list caps results at 10,000 per filter.
+- [x] `custom properties (GET /api/v1/resource/all_v2/custom_properties/)` — workspace property definitions, not values attached to resources (medium)
 
 Note: Each docs page embeds its own OpenAPI fragment (fetch the .md variant, e.g. /api/reference/monitors.md, to read paths). Also available but lower value: teams (/auth/teams/), documents, questions and replies, and the generic /resource/all_v2 super-list.
 
