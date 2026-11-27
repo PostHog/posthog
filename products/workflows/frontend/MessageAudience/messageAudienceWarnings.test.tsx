@@ -373,6 +373,19 @@ describe('message audience warnings', () => {
         },
     }
 
+    const isBroadcast = (body: Record<string, unknown>): boolean => body.origin_product === 'broadcasts'
+
+    const createdOnClick = async (control: HTMLElement, broadcast: boolean): Promise<unknown> => {
+        const before = createRequests.length
+        fireEvent.click(control)
+        const created = await waitFor(() => {
+            const own = createRequests.slice(before).filter((body) => isBroadcast(body) === broadcast)
+            expect(own).toHaveLength(1)
+            return own[0]
+        })
+        return created.entry_attempt_id
+    }
+
     const savedAttempt: Record<MessageAudienceDestination, () => Promise<unknown>> = {
         workflow: async () => {
             const { container } = render(<WorkflowScene id="new" tab="workflow" />)
@@ -381,9 +394,7 @@ describe('message audience warnings', () => {
                 expect(button).toBeEnabled()
                 return button!
             })
-            fireEvent.click(save)
-            await waitFor(() => expect(createRequests).toHaveLength(1))
-            return createRequests[0].entry_attempt_id
+            return await createdOnClick(save, false)
         },
         broadcast: async () => {
             const { container } = render(
@@ -396,9 +407,7 @@ describe('message audience warnings', () => {
                 expect(step).toBeEnabled()
                 return step!
             })
-            fireEvent.click(content)
-            await waitFor(() => expect(createRequests).toHaveLength(1))
-            return createRequests[0].entry_attempt_id
+            return await createdOnClick(content, true)
         },
     }
 
@@ -500,9 +509,9 @@ describe('message audience warnings', () => {
             await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             cleanup()
 
-            const [clicked] = clickAttempts(capture)
-            expect(clicked).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
-            expect(await savedAttempt[destination]()).toEqual(clicked)
+            const clicks = clickAttempts(capture)
+            expect(clicks).toEqual([expect.stringMatching(/^[0-9a-f-]{36}$/)])
+            expect(await savedAttempt[destination]()).toEqual(clicks[0])
         }
     )
 
