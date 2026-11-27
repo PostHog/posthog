@@ -2719,6 +2719,11 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         )
 
 
+_LOGIN_DATA = {"email": APIBaseTest.CONFIG_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
+_NO_ORGANIZATION_EMAIL = "no-organization@example.com"
+_NO_ORGANIZATION_LOGIN_DATA = {"email": _NO_ORGANIZATION_EMAIL, "password": APIBaseTest.CONFIG_PASSWORD}
+
+
 class TestActivityLoggingMiddleware(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2773,6 +2778,73 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         credential = self.captured["credential"]
         assert (credential.type if credential else None) == expected_type
         assert self.activity_storage.get_credential() is None
+
+    @parameterized.expand(
+        [
+            ("session", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished", "entry"),
+            ("personal_api_key", "posthog.urls", "get", "/api/users/@me/", {}, "request_finished", None),
+            ("session", __name__, "get", "/api/_raising_probe/", {}, "request_failed", "entry"),
+            ("session", __name__, "get", "/api/_rotating_raising_probe/", {}, "request_failed", "entry"),
+            ("session", "posthog.urls", "post", "/logout", {}, "request_finished", "entry"),
+            (
+                "session",
+                "posthog.urls",
+                "patch",
+                "/api/users/@me/",
+                {"current_password": APIBaseTest.CONFIG_PASSWORD, "password": "a_new_example_password"},
+                "request_finished",
+                "entry",
+            ),
+            ("anonymous", "posthog.urls", "post", "/api/login", _LOGIN_DATA, "request_finished", "exit"),
+            (
+                "anonymous",
+                "posthog.urls",
+                "post",
+                "/api/login",
+                _NO_ORGANIZATION_LOGIN_DATA,
+                "request_finished",
+                "exit",
+            ),
+            ("another_user_session", "posthog.urls", "post", "/api/login", _LOGIN_DATA, "request_finished", None),
+        ]
+    )
+    def test_request_log_names_the_credential(
+        self,
+        client_state: str,
+        urlconf: str,
+        method: str,
+        path: str,
+        data: dict[str, Any],
+        event: str,
+        logged_session: str | None,
+    ) -> None:
+        expected_id: object = None
+        if client_state == "personal_api_key":
+            self.client.logout()
+            token = generate_random_token_personal()
+            key = PersonalAPIKey.objects.create(
+                user=self.user, label="Example key", secure_value=hash_key_value(token), scopes=["user:read"]
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            expected_id = key.id
+        elif client_state == "anonymous":
+            self.client.logout()
+            User.objects.create_user(_NO_ORGANIZATION_EMAIL, APIBaseTest.CONFIG_PASSWORD, first_name="")
+        elif client_state == "another_user_session":
+            self.client.force_login(User.objects.create_and_join(self.organization, "another@example.com", None))
+        entry_session_key = self.client.session.session_key
+
+        self.client.raise_request_exception = False
+        with capture_logs() as logs, override_settings(ROOT_URLCONF=urlconf):
+            getattr(self.client, method)(path, data)
+
+        if logged_session is not None:
+            session_key = entry_session_key if logged_session == "entry" else self.client.session.session_key
+            assert session_key is not None
+            expected_id = str(session_public_id(session_key))
+        [entry] = [log for log in logs if log["event"] == event]
+        expected_type = "personal_api_key" if client_state == "personal_api_key" else "session"
+        assert (entry["credential_type"], entry["credential_id"]) == (expected_type, expected_id)
 
     def test_captures_x_posthog_client_header(self):
         request = self.factory.get("/", HTTP_X_POSTHOG_CLIENT="posthog-js/1.234.0")
@@ -3231,9 +3303,15 @@ def _raising_probe(request: HttpRequest) -> HttpResponse:
     raise RuntimeError("probe")
 
 
+def _rotating_raising_probe(request: HttpRequest) -> HttpResponse:
+    request.session.cycle_key()
+    raise RuntimeError("probe")
+
+
 urlpatterns = [
     path("api/_http_request_id_probe/", _http_request_id_probe),
     path("api/_raising_probe/", _raising_probe),
+    path("api/_rotating_raising_probe/", _rotating_raising_probe),
     path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
 ]
 
