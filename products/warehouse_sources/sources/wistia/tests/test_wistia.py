@@ -281,3 +281,136 @@ class TestAccountStatsByDate:
         )
         assert resumed.raised is None
         assert resumed.params("start_date") == ["2026-01-01"]
+
+
+class TestWebinarRegistrations:
+    def test_follows_page_info_until_has_next_page_is_false(self) -> None:
+        def registrations(keys: list[str], has_next: bool, end_cursor: str | None) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "registrations": [{"visitor_key": key, "email": f"{key}@example.com"} for key in keys],
+                    "page_info": {"has_next_page": has_next, "end_cursor": end_cursor},
+                }
+            )
+
+        result = _driver().run(
+            "webinar_registrations",
+            [
+                _page([{"hashed_id": "w1"}, {"hashed_id": "w2"}]),
+                registrations(["v1"], True, "next-1"),
+                # The last page still carries an end cursor; `has_next_page` ends the walk.
+                registrations(["v2"], False, "last-cursor"),
+                registrations(["v1"], False, None),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/modern/webinars",
+            "/modern/webinars/w1/registrations",
+            "/modern/webinars/w1/registrations",
+            "/modern/webinars/w2/registrations",
+        ]
+        assert [request.param("cursor") for request in result.requests[1:]] == [None, "next-1", None]
+        assert [(row["webinar_hashed_id"], row["visitor_key"]) for row in result.rows] == [
+            ("w1", "v1"),
+            ("w1", "v2"),
+            ("w2", "v1"),
+        ]
+
+
+def _media_window_answer(request: RecordedRequest) -> ScriptedResponse:
+    if request.path == "/modern/medias":
+        return _page(
+            [
+                {"hashed_id": "m1", "created": "2025-06-15T03:00:00Z"},
+                {"hashed_id": "gone", "created": "2026-11-01T00:00:00Z"},
+            ]
+        )
+    if "/gone/" in request.path:
+        return ScriptedResponse(status=404, json={"error": "Media not found"})
+    return _page([{"date": request.param("start_date"), "load_count": 1}])
+
+
+class TestMediaDateWindows:
+    @parameterized.expand(
+        [
+            (
+                "stats_full_refresh_from_the_day_before_creation",
+                "media_stats_by_date",
+                "/modern/stats/medias/m1/by_date",
+                None,
+                [("2025-06-14", "2026-06-13"), ("2026-06-14", "2026-11-12")],
+            ),
+            (
+                "analytics_end_date_is_exclusive",
+                "media_analytics_timeseries",
+                "/modern/analytics/medias/m1/timeseries",
+                None,
+                [("2025-06-14", "2026-06-14"), ("2026-06-14", "2026-11-13")],
+            ),
+            (
+                "incremental_starts_at_the_watermark_day",
+                "media_stats_by_date",
+                "/modern/stats/medias/m1/by_date",
+                date(2026, 11, 10),
+                [("2026-11-10", "2026-11-12")],
+            ),
+            (
+                "watermark_before_creation_keeps_the_creation_start",
+                "media_analytics_timeseries",
+                "/modern/analytics/medias/m1/timeseries",
+                datetime(2025, 1, 1, 12, 0, tzinfo=UTC),
+                [("2025-06-14", "2026-06-14"), ("2026-06-14", "2026-11-13")],
+            ),
+        ]
+    )
+    def test_windows_per_media(
+        self,
+        _name: str,
+        endpoint: str,
+        media_path: str,
+        last_value: Any,
+        expected: list[tuple[str, str]],
+    ) -> None:
+        kwargs: dict[str, Any] = (
+            {"should_use_incremental_field": False}
+            if last_value is None
+            else {
+                "incremental_field": "date" if endpoint == "media_stats_by_date" else "timestamp",
+                "db_incremental_field_last_value": last_value,
+            }
+        )
+        result = _driver().run(endpoint, _media_window_answer, **kwargs)
+
+        assert result.raised is None
+        media_requests = [request for request in result.requests if request.path == media_path]
+        assert [(r.param("start_date"), r.param("end_date")) for r in media_requests] == expected
+        # The deleted media returns 404 once and is skipped.
+        assert [request.path for request in result.requests if "/gone/" in request.path] == [
+            media_path.replace("m1", "gone")
+        ]
+        assert result.rows == [{"date": start, "load_count": 1, "media_hashed_id": "m1"} for start, _ in expected]
+
+    def test_resumes_from_the_saved_media_page(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/modern/medias":
+                page = int(request.param("page") or 0)
+                count = 100 if page == 1 else 1
+                return _page([{"hashed_id": f"p{page}m{i}", "created": "2026-11-12T00:00:00Z"} for i in range(count)])
+            return _page([{"date": request.param("start_date"), "load_count": 1}])
+
+        first = _driver().run("media_stats_by_date", answer, should_use_incremental_field=False)
+        assert first.raised is None
+        assert len(first.rows) == 101
+        assert first.committed_states[-1] == WistiaResumeConfig(page=2)
+
+        resumed = _driver().run(
+            "media_stats_by_date",
+            answer,
+            should_use_incremental_field=False,
+            resume_state=WistiaResumeConfig(page=2),
+        )
+        assert resumed.raised is None
+        assert [request.param("page") for request in resumed.requests if request.path == "/modern/medias"] == ["2"]
+        assert [row["media_hashed_id"] for row in resumed.rows] == ["p2m0"]
