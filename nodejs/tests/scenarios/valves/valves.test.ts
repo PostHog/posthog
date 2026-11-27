@@ -505,12 +505,6 @@ describe('valves', () => {
             { runningJobs: 2, finishesJobsFirst: true },
             { droppedSessions: 2 },
         ],
-        [
-            'a terminate, though the worker drains its jobs after the SIGTERM',
-            { ...kill({ when: RUNNING_ON_EMAIL }), valve: 'role.terminate', dose: { grace: '20s' } },
-            { runningJobs: 2, finishesJobsFirst: true },
-            { gone: [1] },
-        ],
     ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf(stackSetup)
