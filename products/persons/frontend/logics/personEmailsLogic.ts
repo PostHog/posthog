@@ -19,12 +19,12 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 
 export type EmailOutcome = 'clicked' | 'opened' | EmailDeliveryStatusEnumApi
 
-export type EmailLookup = EmailOutcome | 'looking' | 'not_logged' | 'failed'
+export type EmailLookup = EmailOutcome | 'looking' | 'not_logged' | 'unavailable'
 
 const LOOKUP_CONCURRENCY = 4
 
 export function isEmailOutcome(lookup: EmailLookup): lookup is EmailOutcome {
-    return lookup !== 'looking' && lookup !== 'not_logged' && lookup !== 'failed'
+    return lookup !== 'looking' && lookup !== 'not_logged' && lookup !== 'unavailable'
 }
 
 function emailOutcome(send: TransactionalEmailLogEntryApi): EmailOutcome {
@@ -204,9 +204,9 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             },
             lookUpOutcomes: async ({ emails }, breakpoint) => {
                 const oldest = dayjs.utc().subtract(LOG_RETENTION_DAYS, 'day')
-                const queue = emails.map((email) => email.invocation_id)
+                const queue = [...new Set(emails.map((email) => email.invocation_id))]
                 const lookUpNext = async (): Promise<void> => {
-                    for (let id = queue.shift(); id; id = queue.shift()) {
+                    for (let id = queue.shift(); id && values.outcomesShown; id = queue.shift()) {
                         let lookup: EmailLookup
                         try {
                             const page = await transactionalEmailLogList(String(props.teamId), {
@@ -217,7 +217,7 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                             const send = page.results.find((result) => result.message_id === id)
                             lookup = send ? emailOutcome(send) : 'not_logged'
                         } catch {
-                            lookup = 'failed'
+                            lookup = 'unavailable'
                         }
                         breakpoint()
                         if (cache.disposables.isDisposed) {

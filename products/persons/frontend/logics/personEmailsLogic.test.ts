@@ -16,6 +16,7 @@ const CLICKED = '0190a000-0000-7000-8000-000000000001'
 const OPENED = '0190a000-0000-7000-8000-000000000002'
 const NO_OPEN = '0190a000-0000-7000-8000-000000000003'
 const BOUNCED = '0190a000-0000-7000-8000-000000000004'
+const NOT_SENT = '0190a000-0000-7000-8000-000000000007'
 const WORKFLOW = '0190a000-0000-7000-8000-000000000005'
 const OLD = '0190a000-0000-7000-8000-000000000006'
 const FLAGS = [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]
@@ -40,11 +41,12 @@ const logEntry = (
     recipient: string,
     status: string,
     opened: boolean,
-    clicked: boolean
+    clicked: boolean,
+    created_at = '2026-03-14T09:00:00Z'
 ): Record<string, unknown> => ({
     message_id,
     recipient,
-    created_at: '2026-03-14T09:00:00Z',
+    created_at,
     status,
     opened,
     clicked,
@@ -64,6 +66,8 @@ const LOG = [
     logEntry(OPENED, 'ada@example.com', 'delivered', true, false),
     logEntry(NO_OPEN, 'ada@example.com', 'delivered', false, false),
     logEntry(BOUNCED, 'ada@example.com', 'bounced', false, false),
+    logEntry(NOT_SENT, 'ada@example.com', 'failed', false, false),
+    logEntry(OLD, 'ada@example.com', 'delivered', true, true, '2026-01-01T09:00:00Z'),
 ]
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -72,7 +76,7 @@ describe('personEmailsLogic', () => {
     let logic: ReturnType<typeof personEmailsLogic.build>
     let searches: string[]
     let failing: Set<string>
-    let held: { id: string; answer: Promise<void> } | null
+    let held: { ids: string[]; reached: () => void; answer: Promise<void> } | null
 
     beforeEach(() => {
         jest.useFakeTimers({
@@ -91,6 +95,7 @@ describe('personEmailsLogic', () => {
                         asset(OPENED, '2026-03-13T09:00:01Z'),
                         asset(NO_OPEN, '2026-03-12T09:00:01Z'),
                         asset(BOUNCED, '2026-03-11T09:00:01Z'),
+                        asset(NOT_SENT, '2026-03-10T10:00:01Z'),
                         asset(WORKFLOW, '2026-03-10T09:00:01Z'),
                         asset(OLD, '2026-01-01T09:00:01Z'),
                     ],
@@ -99,17 +104,21 @@ describe('personEmailsLogic', () => {
                     const params = new URL(request.url).searchParams
                     const search = params.get('search') ?? ''
                     const limit = Number(params.get('limit') ?? 50)
+                    const from = params.get('date_from') ?? '2026-03-08T12:00:00.000Z'
                     searches.push(search)
-                    if (held?.id === search) {
+                    if (held?.ids.includes(search)) {
+                        held.reached()
                         await held.answer
                     }
                     if (failing.has(search)) {
                         return [500, { detail: 'Server error' }]
                     }
-                    const matches = LOG.filter((entry) =>
-                        UUID.test(search)
-                            ? entry.message_id === search
-                            : (entry.recipient as string).includes(search.toLowerCase())
+                    const matches = LOG.filter(
+                        (entry) =>
+                            (entry.created_at as string) >= from &&
+                            (UUID.test(search)
+                                ? entry.message_id === search
+                                : (entry.recipient as string).includes(search.toLowerCase()))
                     )
                     return [200, { results: matches.slice(0, limit), has_more: matches.length > limit }]
                 },
@@ -137,14 +146,35 @@ describe('personEmailsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     }
 
+    const hold = (...ids: string[]): { reached: Promise<void>; release: () => void } => {
+        let release = (): void => {}
+        let waiting = ids.length
+        const reached = new Promise<void>((resolve) => {
+            held = {
+                ids,
+                reached: () => (--waiting === 0 ? resolve() : undefined),
+                answer: new Promise<void>((answer) => (release = answer)),
+            }
+        })
+        return { reached, release: () => release() }
+    }
+
     const lookupsInOrder = (): (string | null)[] =>
         logic.values.emails.map((email) => logic.values.lookups?.[email.invocation_id] ?? null)
 
     it('says what each recent email led to, looking each one up by its message ID', async () => {
         await open(true)
 
-        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED, WORKFLOW, OLD].sort())
-        expect(lookupsInOrder()).toEqual(['clicked', 'opened', 'delivered', 'bounced', 'not_logged', 'not_logged'])
+        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED, NOT_SENT, WORKFLOW, OLD].sort())
+        expect(lookupsInOrder()).toEqual([
+            'clicked',
+            'opened',
+            'delivered',
+            'bounced',
+            'failed',
+            'not_logged',
+            'not_logged',
+        ])
         expect(logic.values.outcomeColumnShown).toBe(true)
     })
 
@@ -153,12 +183,20 @@ describe('personEmailsLogic', () => {
 
         await open(true)
 
-        expect(lookupsInOrder()).toEqual(['clicked', 'failed', 'delivered', 'bounced', 'not_logged', 'not_logged'])
+        expect(lookupsInOrder()).toEqual([
+            'clicked',
+            'unavailable',
+            'delivered',
+            'bounced',
+            'failed',
+            'not_logged',
+            'not_logged',
+        ])
     })
 
     it('opens the send page for a logged email and the preview for any other', async () => {
         await open(true)
-        const [clicked, , , , workflow] = logic.values.emails
+        const [clicked, , , , notSent, workflow] = logic.values.emails
 
         logic.actions.openEmail(workflow)
         expect(logic.values.previewed).toEqual(workflow)
@@ -166,30 +204,26 @@ describe('personEmailsLogic', () => {
         logic.actions.closePreview()
         logic.actions.openEmail(clicked)
         expect(router.values.location.pathname).toContain(urls.transactionalEmailLogEntry(CLICKED))
+
+        logic.actions.openEmail(notSent)
+        expect(router.values.location.pathname).toContain(urls.transactionalEmailLogEntry(NOT_SENT))
         expect(logic.values.previewed).toBeNull()
     })
 
     it('opens an email clicked while its lookup runs once the lookup answers', async () => {
-        let answer = (): void => {}
-        held = { id: CLICKED, answer: new Promise<void>((resolve) => (answer = resolve)) }
+        const lookup = hold(CLICKED)
         setFlags(true)
         logic = personEmailsLogic({ teamId: 1, personId: 'person-1' })
         logic.mount()
         logic.actions.loadEmails()
-        await expectLogic(logic, () => {}).toDispatchActions([
-            'setLookup',
-            'setLookup',
-            'setLookup',
-            'setLookup',
-            'setLookup',
-        ])
+        await lookup.reached
         expect(logic.values.lookups?.[CLICKED]).toBe('looking')
 
         logic.actions.openEmail(logic.values.emails[0])
         expect(logic.values.previewed).toBeNull()
         expect(router.values.location.pathname).not.toContain(CLICKED)
 
-        answer()
+        lookup.release()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain(urls.transactionalEmailLogEntry(CLICKED))
@@ -208,5 +242,21 @@ describe('personEmailsLogic', () => {
         logic.actions.openEmail(logic.values.emails[0])
         expect(logic.values.outcomeColumnShown).toBe(false)
         expect(logic.values.previewed).toEqual(logic.values.emails[0])
+    })
+
+    it('stops looking up once a flag turns off', async () => {
+        const firstLookups = hold(CLICKED, OPENED, NO_OPEN, BOUNCED)
+        setFlags(true)
+        logic = personEmailsLogic({ teamId: 1, personId: 'person-1' })
+        logic.mount()
+        logic.actions.loadEmails()
+        await firstLookups.reached
+
+        setFlags(false)
+        firstLookups.release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED].sort())
+        expect(logic.values.outcomeColumnShown).toBe(false)
     })
 })

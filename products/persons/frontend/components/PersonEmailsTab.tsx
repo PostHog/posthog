@@ -24,7 +24,7 @@ function EmailOutcomeCell({ lookup }: { lookup: EmailLookup | undefined }): JSX.
     if (lookup === 'looking') {
         return <LemonSkeleton className="h-4 w-20" />
     }
-    if (lookup === 'failed') {
+    if (lookup === 'unavailable') {
         return <span className="text-secondary">Couldn't load</span>
     }
     if (!lookup || !isEmailOutcome(lookup)) {
