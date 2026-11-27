@@ -80,7 +80,7 @@ import {
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const ALERTS_FILE = 'alerts.jsonl'
-const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
+const EDGE_HOSTS = ['ses', 's3', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>

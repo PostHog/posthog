@@ -180,8 +180,8 @@ export const attachmentsIntact: InvariantDefinition = {
     params: z.object({}).strict(),
     check: ({ journal, truth }) => {
         const byDelivery = recordsByDelivery(truth)
-        const altered = journal.flatMap(({ unitId, answer, expect }) =>
-            answer.accepted && expect.attachments
+        const altered = journal.flatMap(({ unitId, expect }) =>
+            expect.attachments
                 ? expect.deliveries.flatMap((actionId) =>
                       (byDelivery.get(deliveryKey(unitId, actionId)) ?? [])
                           .filter(({ status }) => isAccepted(status))
@@ -199,7 +199,6 @@ export const attachmentsIntact: InvariantDefinition = {
                 first &&
                 `${first.unitId}: SES accepted the files [${shortShas(first.sent)}] where the unit uploaded [${shortShas(first.expected)}]`,
             unitIds: firstUnitIds(altered.map(({ unitId }) => unitId)),
-            ...crossing(crossedByOf(journal, altered, 0)),
         }
     },
 }

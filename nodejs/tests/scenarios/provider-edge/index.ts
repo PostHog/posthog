@@ -443,8 +443,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         close: async () => {
             proxy?.close()
             await Promise.all(
-                [...pgProxies.values(), ...s3Proxies.values()].map((pg) =>
-                    pg.then(
+                [...pgProxies.values(), ...s3Proxies.values()].map((opened) =>
+                    opened.then(
                         (started) => started.close(),
                         () => undefined
                     )
