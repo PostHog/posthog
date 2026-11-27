@@ -432,7 +432,7 @@ describe('judge', () => {
     const RECEIPT = Buffer.from('scenario receipt')
     const shaOf = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
 
-    it.each<[string, Buffer[], Buffer[], object]>([
+    it.each<[string, Buffer[], Buffer[], object, JournalEntry['answer']?]>([
         ['carried every file it uploaded', [INVOICE, RECEIPT], [RECEIPT, INVOICE], { passed: true, observed: 0 }],
         ['carried no file, as it uploaded none', [], [], { passed: true, observed: 0 }],
         [
@@ -447,14 +447,25 @@ describe('judge', () => {
             },
         ],
         ['carried other bytes than it uploaded', [INVOICE], [RECEIPT], { passed: false, observed: 1 }],
-    ])('attachments_intact for a unit that %s', async (_story, uploaded, sent, expected) => {
-        judge.record({ ...offered(), expect: { deliveries: ['email'], attachments: uploaded.map(shaOf) } })
-        await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, sent)
+        [
+            'lost its intake reply, and SES carried other bytes than it uploaded',
+            [INVOICE],
+            [RECEIPT],
+            { passed: false, observed: 1 },
+            { accepted: false, transportError: 'socket hang up' },
+        ],
+    ])(
+        'attachments_intact for a unit that %s',
+        async (_story, uploaded, sent, expected, answer = { accepted: true }) => {
+            judge.record({ ...offered(answer), expect: { deliveries: ['email'], attachments: uploaded.map(shaOf) } })
+            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, sent)
 
-        const [result] = await judge.check([{ name: 'attachments_intact', params: {} }], {}, NO_RESETS)
+            const [result] = await judge.check([{ name: 'attachments_intact', params: {} }], {}, NO_RESETS)
 
-        expect(result).toMatchObject({ name: 'attachments_intact', ...expected })
-    })
+            expect(result).toMatchObject({ name: 'attachments_intact', ...expected })
+            expect(result.crossedBy).toBeUndefined()
+        }
+    )
 
     it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {
         const units = [

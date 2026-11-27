@@ -16,7 +16,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
-import { Duration, durationMs } from '../duration'
 import type { FollowUpAnswer, IntakeAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 import type { SesFeedback } from './ses-feedback'
@@ -28,8 +27,6 @@ export type UnitFile = { seed: number; sizeBytes: number }
 export type Unit = { unitId: string; teamId: number; flowId: string; files?: readonly UnitFile[] }
 
 export type OfferAnswer = JournalEntry['answer'] & { attachments?: readonly string[] }
-
-export type Burst = { fromMs: number; forMs: number; scale: number }
 
 export type Emit = (unit: Unit, event: string, properties: object) => Promise<IntakeAnswer>
 
@@ -51,8 +48,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     unitLoad?(parks: number): UnitLoad
     flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
     offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<OfferAnswer>
-    burstOf?(params: unknown): Burst | undefined
-    filesOf?(chance: Chance.Chance, profile: unknown, atLimit: boolean): UnitFile[]
+    filesOf?(chance: Chance.Chance, profile: unknown): UnitFile[]
     followUp?: {
         flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
         offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<FollowUpAnswer>
@@ -363,43 +359,26 @@ async function postReading(
 const FILE_CONTENT_TYPE = 'application/pdf'
 const BLOCK_BYTES = 64 * 1024
 const PUT_TIMEOUT_MS = 60_000
-// The send check counts the rendered bodies too, which outgrow the template by the links and pixel added at send.
-const RENDERED_BODY_ALLOWANCE_BYTES = 16 * 1024
+const TRACKED_BODY_GROWTH_BYTES = 16 * 1024
 
 const fitsOneEmail = (sizes: readonly number[]): boolean =>
-    estimateMessageBytes(sizes, [BODY.html, BODY.text], BODY.subject) + RENDERED_BODY_ALLOWANCE_BYTES <=
-    MESSAGE_MAX_BYTES
-
-function largestFittingFile(): number {
-    let [fits, overflows] = [1, MESSAGE_MAX_BYTES]
-    while (overflows - fits > 1) {
-        const size = Math.floor((fits + overflows) / 2)
-        if (fitsOneEmail([size])) {
-            fits = size
-        } else {
-            overflows = size
-        }
-    }
-    return fits
-}
-
-export const FILE_BYTES_AT_LIMIT = largestFittingFile()
+    estimateMessageBytes(sizes, [BODY.html, BODY.text], BODY.subject) + TRACKED_BODY_GROWTH_BYTES <= MESSAGE_MAX_BYTES
 
 export function fileBytes({ seed, sizeBytes }: UnitFile): Buffer {
     const block = Buffer.alloc(Math.min(BLOCK_BYTES, sizeBytes))
     let state = (seed ^ 0x9e3779b9) >>> 0 || 1
-    for (let at = 0; at + 4 <= block.length; at += 4) {
+    for (let at = 0; at < block.length; at += 4) {
         state ^= state << 13
         state ^= state >>> 17
         state ^= state << 5
-        block.writeUInt32LE(state >>> 0, at)
+        const word = Buffer.alloc(4)
+        word.writeUInt32LE(state >>> 0)
+        word.copy(block, at)
     }
     return Buffer.alloc(sizeBytes, block)
 }
 
 const sha256Of = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
-
-const FileSize = z.union([z.number().int().positive(), z.literal('limit')])
 
 const FilesShape = Shape.extend({
     parks: z.literal(0, { error: 'a send with files cannot park, its workflow is trigger, email, exit' }).default(0),
@@ -407,27 +386,19 @@ const FilesShape = Shape.extend({
         .object({
             share: z.number().min(0).max(1),
             perSend: z.number().int().min(1).max(MAX_EMAIL_ATTACHMENTS).default(1),
-            sizes: z.array(z.object({ bytes: FileSize, weight: z.number().positive() }).strict()).min(1),
+            sizes: z
+                .array(z.object({ bytes: z.number().int().positive(), weight: z.number().positive() }).strict())
+                .min(1),
         })
         .strict(),
 })
     .strict()
     .refine(
-        ({ files }) => {
-            const sizes = files.sizes.flatMap(({ bytes }) => (bytes === 'limit' ? [] : [bytes]))
-            return sizes.length === 0 || fitsOneEmail(Array(files.perSend).fill(Math.max(...sizes)))
-        },
-        { message: `perSend files of the largest size must fit one email; use "limit" for a send at the limit` }
+        ({ files }) => fitsOneEmail(Array(files.perSend).fill(Math.max(...files.sizes.map(({ bytes }) => bytes)))),
+        {
+            message: 'perSend files of the largest size must fit one email',
+        }
     )
-
-const FilesParams = z
-    .object({
-        burst: z
-            .object({ at: Duration, for: Duration, scale: z.number().gt(1) })
-            .strict()
-            .optional(),
-    })
-    .strict()
 
 const UploadSlots = z.object({
     files: z.array(
@@ -455,10 +426,16 @@ async function upload(unit: Unit, cdpApi: CdpApi, files: BuiltFile[]): Promise<I
         { files: files.map(({ bytes, sha256 }) => ({ sha256, size: bytes.length })) }
     )
     if (!answer.accepted) {
-        return 'status' in answer ? { ...answer, outcome: `uploads ${answer.outcome}` } : answer
+        return 'status' in answer
+            ? { ...answer, outcome: answer.outcome ? `uploads ${answer.outcome}` : 'uploads' }
+            : answer
     }
     const bytesOf = new Map(files.map(({ bytes, sha256 }) => [sha256, bytes]))
-    const puts = UploadSlots.parse(parseJSON(body!)).files.map(async (slot): Promise<IntakeAnswer> => {
+    const slots = slotsOf(body!, [...bytesOf.keys()])
+    if (typeof slots === 'string') {
+        return { accepted: false, transportError: `uploads ${slots}` }
+    }
+    const puts = slots.map(async (slot): Promise<IntakeAnswer> => {
         if (slot.status === 'present') {
             return { accepted: true }
         }
@@ -474,7 +451,25 @@ async function upload(unit: Unit, cdpApi: CdpApi, files: BuiltFile[]): Promise<I
             return { accepted: false, transportError: `put ${String(error)}` }
         }
     })
-    return (await Promise.all(puts)).find((put) => !put.accepted) ?? { accepted: true }
+    const failed = (await Promise.all(puts)).filter((put) => !put.accepted)
+    return failed.find((put) => 'status' in put && put.status >= 500) ?? failed[0] ?? { accepted: true }
+}
+
+function slotsOf(body: string, requested: readonly string[]): z.infer<typeof UploadSlots>['files'] | string {
+    let parsed: unknown
+    try {
+        parsed = parseJSON(body)
+    } catch {
+        return 'answered with a body that is not JSON'
+    }
+    const slots = UploadSlots.safeParse(parsed)
+    if (!slots.success) {
+        return `answered with no upload slots: ${slots.error.issues[0]?.message ?? 'invalid'}`
+    }
+    const answered = new Set(slots.data.files.map(({ sha256 }) => sha256))
+    return answered.size === requested.length && requested.every((sha256) => answered.has(sha256))
+        ? slots.data.files
+        : `answered slots for ${answered.size} files where ${requested.length} were asked`
 }
 
 async function sendWithFiles(unit: Unit, cdpApi: CdpApi, signal: AbortSignal): Promise<OfferAnswer> {
@@ -493,6 +488,7 @@ async function sendWithFiles(unit: Unit, cdpApi: CdpApi, signal: AbortSignal): P
     }
     const answer = await retried(cdpApi, signal, async () => {
         const uploaded = files.length > 0 ? await upload(unit, cdpApi, files) : { accepted: true as const }
+        signal.throwIfAborted()
         return uploaded.accepted
             ? post(
                   cdpApi,
@@ -508,7 +504,7 @@ async function sendWithFiles(unit: Unit, cdpApi: CdpApi, signal: AbortSignal): P
 
 export const transactionalEmailFiles: TrafficKind = {
     name: 'transactional_email_files',
-    params: FilesParams,
+    params: z.object({}).strict(),
     profile: FilesShape,
     intake: 'transactional',
     deliveries: [EMAIL_ACTION],
@@ -525,16 +521,9 @@ export const transactionalEmailFiles: TrafficKind = {
             parks: 0,
         }),
     offer: (unit, { cdpApi }, signal) => sendWithFiles(unit, localOnly(cdpApi, 'CDP API'), signal),
-    burstOf: (params) => {
-        const { burst } = FilesParams.parse(params)
-        return burst && { fromMs: durationMs(burst.at), forMs: durationMs(burst.for), scale: burst.scale }
-    },
-    filesOf: (chance, profile, atLimit) => {
+    filesOf: (chance, profile) => {
         const { files } = FilesShape.parse(profile)
         const seed = (): number => chance.integer({ min: 0, max: 2 ** 32 - 1 })
-        if (atLimit) {
-            return [{ seed: seed(), sizeBytes: FILE_BYTES_AT_LIMIT }]
-        }
         if (!chance.bool({ likelihood: files.share * 100 })) {
             return []
         }
@@ -544,8 +533,7 @@ export const transactionalEmailFiles: TrafficKind = {
                 files.sizes.map(({ weight }) => weight)
             )
         )
-        const sizes = drawn.includes('limit') ? [FILE_BYTES_AT_LIMIT] : (drawn as number[])
-        return sizes.map((sizeBytes) => ({ seed: seed(), sizeBytes }))
+        return drawn.map((sizeBytes) => ({ seed: seed(), sizeBytes }))
     },
 }
 
