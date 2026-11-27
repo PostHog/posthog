@@ -7,7 +7,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
-import { emailCohortToastButton } from 'scenes/cohorts/cohortSavedToast'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -127,6 +127,9 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
         },
     })
 }
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 describe('message audience warnings', () => {
     const projectId = (): number => ApiConfig.getCurrentProjectId()
@@ -488,7 +491,7 @@ describe('message audience warnings', () => {
             warning: NO_SENDER,
         },
     ])(
-        'saves the $destination opened $how with the attempt of the click that opened it',
+        'sends the attempt of the click that opened it in the create request of the $destination opened $how',
         async ({ destination, label, path, warning }) => {
             const capture = jest.spyOn(posthog, 'capture')
             useEnvironmentMocks({
@@ -505,36 +508,50 @@ describe('message audience warnings', () => {
             if (warning) {
                 expect(await screen.findByText(warning)).toBeInTheDocument()
                 fireEvent.click(screen.getByText('Continue'))
+                await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
             }
             await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             cleanup()
 
             const clicks = clickAttempts(capture)
-            expect(clicks).toEqual([expect.stringMatching(/^[0-9a-f-]{36}$/)])
+            expect(clicks).toEqual([expect.stringMatching(UUID)])
             expect(await savedAttempt[destination]()).toEqual(clicks[0])
         }
     )
 
-    it('saves the attempt of the click whose broadcast opens when a second click lands during its checks', async () => {
+    it('sends the attempt of the click whose broadcast opens when a second toast is clicked during its checks', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
         allowWorkflowEditing()
         router.actions.push('/project/997/cohorts/7')
-        const button = emailCohortToastButton({ id: 7, name: 'Signups' }, 'cohort_saved')!
+        render(<ToastContainer />)
+        cohortSavedToast({ id: 7, name: 'Signups' }, 'cohort_saved', 'first-save')
+        cohortSavedToast({ id: 7, name: 'Signups' }, 'cohort_saved', 'second-save')
+        const buttons = await waitFor(() => {
+            const found = document.querySelectorAll<HTMLElement>(
+                '[data-attr="message-audience-cohort_saved-broadcast"]'
+            )
+            expect(found).toHaveLength(2)
+            return found
+        })
 
-        button.action()
-        button.action()
+        fireEvent.click(buttons[0])
+        fireEvent.click(buttons[1])
         await waitFor(() =>
             expect(router.values.location.pathname).toEqual(`/project/${projectId()}${urls.broadcastNew()}`)
         )
+        toast.dismiss()
+        cleanup()
 
-        const [opened, ignored] = clickAttempts(capture)
+        const clicks = clickAttempts(capture)
+        expect(clicks).toEqual([expect.stringMatching(UUID), expect.stringMatching(UUID)])
+        const [opened, ignored] = clicks
         expect(ignored).not.toEqual(opened)
         expect(await savedAttempt.broadcast()).toEqual(opened)
     })
 
     it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
-        'saves a %s opened from a hand-edited attempt link without the attempt',
+        'sends no attempt in the create request of a %s opened from a hand-edited attempt link',
         async (destination) => {
             useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
             const link =
