@@ -1,0 +1,56 @@
+# serializer version: 1
+# name: TestSeriesValuesRewrite.test_the_count_query_as_written_served_and_stored_only
+  '''
+  -- as written
+  SELECT
+      count() AS total,
+      toStartOfDay(timestamp) AS day_start
+  FROM
+      events
+  WHERE
+      and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-08 00:00:00')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-15 23:59:59'))), equals(event, 'signed_up'), equals(properties.plan, 'pro'))
+  GROUP BY
+      day_start
+  LIMIT 50000
+  
+  -- serve
+  SELECT
+      sum(total) AS total,
+      day_start AS day_start
+  FROM
+      (SELECT
+          toInt(sum(value)) AS total,
+          toStartOfDay(time_window_start) AS day_start
+      FROM
+          series_values_preaggregated
+      WHERE
+          and(in(job_id, ['<job id>', '<job id>', '<job id>']), greaterOrEquals(time_window_start, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(time_window_end, toDateTime('2024-01-15 00:00:00.000000')), greater(time_window_end, time_window_start))
+      GROUP BY
+          day_start
+      UNION ALL
+      SELECT
+          toInt(count()) AS total,
+          toStartOfDay(timestamp) AS day_start
+      FROM
+          events
+      WHERE
+          and(greaterOrEquals(timestamp, toDateTime('2024-01-15 00:00:00.000000')), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-15 23:59:59'))), equals(event, 'signed_up'), equals(properties.plan, 'pro'))
+      GROUP BY
+          day_start)
+  GROUP BY
+      day_start
+  LIMIT 50000
+  
+  -- stored only
+  SELECT
+      toInt(sum(value)) AS total,
+      toStartOfDay(time_window_start) AS day_start
+  FROM
+      series_values_preaggregated
+  WHERE
+      and(in(job_id, ['<job id>', '<job id>', '<job id>']), greaterOrEquals(time_window_start, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(time_window_end, toDateTime('2024-01-15 00:00:00.000000')), greater(time_window_end, time_window_start))
+  GROUP BY
+      day_start
+  LIMIT 50000
+  '''
+# ---
