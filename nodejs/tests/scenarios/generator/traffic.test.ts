@@ -8,6 +8,7 @@ import express from 'ultimate-express'
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
+import { INTAKE_ACK_DEADLINE_MS } from '~/cdp/intake/intake-producer'
 import { HogFlowSchema } from '~/cdp/schema/hogflow'
 import {
     TEMPLATE_SEND_TOKEN_CLAIMS,
@@ -26,6 +27,7 @@ import { Hub } from '~/types'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
+    INTAKE_ANSWER_TIMEOUT_MS,
     OfferContext,
     REAL_CLOCK,
     SendClock,
@@ -216,6 +218,33 @@ describe('traffic', () => {
                 }
             })
 
+            it("waits for cdp-api's answer past its broker's ack deadline, so a refusal it retries is not cut off", () => {
+                expect(INTAKE_ANSWER_TIMEOUT_MS).toBeGreaterThan(INTAKE_ACK_DEADLINE_MS)
+            })
+
+            it.each<[string, Answer, object]>([
+                [
+                    'an attempt cdp-api could not confirm',
+                    UNAVAILABLE,
+                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1, unconfirmedAttempt: true },
+                ],
+                [
+                    'a failure that queued nothing',
+                    { status: 500, body: { error: 'internal_error' } },
+                    { accepted: false, status: 429, outcome: 'quota_limited', retries: 1 },
+                ],
+            ])('journals a refusal on a retry after %s', async (_story, first, journaled) => {
+                const clock = controlledClock()
+                const cdpApi = await startCdpApi([first, { status: 429, body: { error: 'quota_limited' } }], clock)
+                try {
+                    expect(
+                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
+                    ).toEqual(journaled)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
+
             it('backs off from half a second to five, retries until a minute after the first send, then journals the last refusal', async () => {
                 const clock = controlledClock()
                 const cdpApi = await startCdpApi(
@@ -226,7 +255,13 @@ describe('traffic', () => {
                 try {
                     expect(
                         await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
-                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable', retries: backoffs.length })
+                    ).toEqual({
+                        accepted: false,
+                        status: 503,
+                        outcome: 'intake_unavailable',
+                        retries: backoffs.length,
+                        unconfirmedAttempt: true,
+                    })
                     expect(cdpApi.receivedAt).toEqual(
                         backoffs.reduce((sentAt, backoff) => [...sentAt, sentAt[sentAt.length - 1] + backoff], [0])
                     )

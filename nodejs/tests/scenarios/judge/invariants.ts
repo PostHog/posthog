@@ -361,12 +361,15 @@ type Bounds = { min: number; max: number }
 
 const NONE: Bounds = { min: 0, max: 0 }
 
+export const mayHaveQueued = (answer: IntakeAnswer): boolean =>
+    !answer.accepted && ('transportError' in answer || answer.outcome === 'intake_unavailable')
+
 function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, horizonAt: number): Bounds {
     if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt) {
         return NONE
     }
     if (!answer.accepted) {
-        return 'transportError' in answer ? { min: 0, max: 1 } : NONE
+        return mayHaveQueued(answer) || answer.unconfirmedAttempt ? { min: 0, max: 1 } : NONE
     }
     const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
     return { min: flows, max: flows }
