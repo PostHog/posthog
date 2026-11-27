@@ -11,6 +11,7 @@ import structlog
 
 from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
+from posthog.schema_enums import SlackIntegrationScopeInReview
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +37,9 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 
 SLACK_FILE_SCOPE = "files:write"
 SLACK_CANVAS_SCOPE = "canvases:write"
+# Still in Slack review, so only DEV and local installs request it. Taking it from the enum makes the move
+# to SlackIntegrationScope fail here rather than leave a stale copy.
+SLACK_USERGROUPS_SCOPE = SlackIntegrationScopeInReview.USERGROUPS_READ.value
 
 
 def has_scopes(integration: IntegrationRecord, required: Iterable[str]) -> bool:

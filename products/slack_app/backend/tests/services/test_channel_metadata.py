@@ -73,6 +73,7 @@ class TestRefreshChannelMetadata:
     def test_names_an_unlabeled_group_only_with_the_usergroups_scope(
         self, missing_scopes: frozenset, expected_handle: str
     ) -> None:
+        cache.clear()
         slack = _slack(
             {"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}}, missing_scopes=missing_scopes
         )
