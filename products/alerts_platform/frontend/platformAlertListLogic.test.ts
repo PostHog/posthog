@@ -38,7 +38,7 @@ describe('platformAlertListLogic', () => {
                 .toMatchValues({ alerts: [ALERT], alertsLoaded: true })
             expect(mockList).toHaveBeenCalledWith(
                 expect.any(String),
-                expect.objectContaining({ source_kind: sourceKind })
+                expect.objectContaining({ source_kind: [sourceKind] })
             )
 
             mockPartialUpdate.mockResolvedValue(ALERT)

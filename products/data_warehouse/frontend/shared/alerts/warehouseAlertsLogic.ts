@@ -188,7 +188,7 @@ export const warehouseAlertsLogic = kea<warehouseAlertsLogicType>([
                         let page
                         try {
                             page = await platformAlertsList(projectId, {
-                                source_kind: props.kind,
+                                source_kind: [props.kind],
                                 limit: PAGE_SIZE,
                                 offset,
                             })

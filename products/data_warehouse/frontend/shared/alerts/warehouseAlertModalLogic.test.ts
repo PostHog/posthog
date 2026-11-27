@@ -118,7 +118,7 @@ describe('warehouse alert logics', () => {
 
         expect(platformApi.platformAlertsList).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ source_kind: 'warehouse_destination', offset: 0 })
+            expect.objectContaining({ source_kind: ['warehouse_destination'], offset: 0 })
         )
         expect(logic.values.alerts?.map((alert) => alert.id)).toEqual(['on-page-1', 'on-page-2'])
     })
