@@ -216,3 +216,38 @@ if (navScroller instanceof HTMLElement && currentNavLink instanceof HTMLElement)
         navScroller.scrollTop = linkBottom - navScroller.clientHeight / 2
     }
 }
+
+// Without the script, the button submits whatever is ticked and the operation form says when nothing is.
+const syncSelection = (form) => {
+    const boxes = [...form.querySelectorAll('input[type="checkbox"]:not([data-console-select-all])')]
+    const ticked = boxes.filter((box) => box.checked).length
+    const all = form.querySelector('[data-console-select-all]')
+    if (all) {
+        all.checked = ticked > 0 && ticked === boxes.length
+        all.indeterminate = ticked > 0 && ticked < boxes.length
+    }
+    for (const button of form.querySelectorAll('button[type="submit"]')) {
+        button.disabled = ticked === 0
+    }
+}
+
+document.addEventListener('change', (event) => {
+    const box = event.target
+    const form = box instanceof HTMLInputElement ? box.closest('form[data-console-select]') : null
+    if (!form) {
+        return
+    }
+    if (box.hasAttribute('data-console-select-all')) {
+        for (const row of form.querySelectorAll('input[type="checkbox"]:not([data-console-select-all])')) {
+            row.checked = box.checked
+        }
+    }
+    syncSelection(form)
+})
+
+// pageshow also fires when the back button restores the page with its rows still ticked.
+window.addEventListener('pageshow', () => {
+    for (const form of document.querySelectorAll('form[data-console-select]')) {
+        syncSelection(form)
+    }
+})
