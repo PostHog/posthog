@@ -1,5 +1,8 @@
 import { fireEvent, render } from '@testing-library/react'
 
+import { initKeaTests } from '~/test/init'
+
+import { adventCalendarLogic } from './adventCalendarLogic'
 import { drawAdventRewards } from './adventDraw'
 import { buildAdventGraph } from './adventGraph'
 import { AdventPictureCast } from './AdventPictureCast'
@@ -12,24 +15,27 @@ const GRAPH = buildAdventGraph(
 
 describe('AdventPictureCast', () => {
     it.each([
-        ['while no door is revealing', false, ['door-1']],
-        ['while another door is revealing', true, []],
-    ])('selects a hog clicked %s', (_, isRevealing, activated) => {
-        const onActivateDoor = jest.fn()
+        ['while no door is revealing', false, 'door-1'],
+        ['while another door is revealing', true, null],
+    ])('selects a hog clicked %s', (_, isRevealing, selectedDoorId) => {
+        initKeaTests()
+        const logic = adventCalendarLogic()
+        logic.mount()
         const revealing = GRAPH.doors.find((door) => door.id === 'door-3-lower')!
         const { container } = render(
             <AdventPictureCast
                 graph={GRAPH}
                 reveal={isRevealing ? { door: revealing, phase: 'shown', zoom: 1 } : null}
-                onActivateDoor={onActivateDoor}
+                onActivateDoor={logic.actions.activateDoor}
             />
         )
 
         const hog = container.querySelector<HTMLButtonElement>('[data-attr="advent-hog-1"]')!
         fireEvent.click(hog)
 
-        expect(onActivateDoor.mock.calls.map(([doorId]) => doorId)).toEqual(activated)
+        expect(logic.values.selectedDoorId).toBe(selectedDoorId)
         expect(hog.disabled).toBe(isRevealing)
+        logic.unmount()
     })
 
     it('keeps a landed hog in place while another door reveals, so it does not land again', () => {

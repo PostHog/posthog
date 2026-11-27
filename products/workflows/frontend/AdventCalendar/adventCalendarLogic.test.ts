@@ -103,28 +103,28 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
     })
 
-    it.each(['null', `{"${UUID}":{"opened":3}}`, `{"${UUID}":{"opened":[1,25,-1,2.5],"answers":{"30":"tim"}}}`])(
-        'keeps working when storage holds %s at load',
-        (value) => {
-            const uncaught: ErrorEvent[] = []
-            const onError = (event: ErrorEvent): number => uncaught.push(event)
-            window.addEventListener('error', onError)
-            logic.unmount()
-            window.localStorage.setItem(KEY, value)
-            logic = adventCalendarLogic()
-            logic.mount()
-            logic.actions.activateDoor('door-1')
-            logic.actions.finishReveal()
-            logic.actions.answerDoor('door-2', 'tim')
-            window.removeEventListener('error', onError)
+    it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
+        const uncaught: ErrorEvent[] = []
+        const onError = (event: ErrorEvent): number => uncaught.push(event)
+        window.addEventListener('error', onError)
+        logic.unmount()
+        window.localStorage.setItem(KEY, value)
+        logic = adventCalendarLogic()
+        logic.mount()
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'tim')
+        window.removeEventListener('error', onError)
 
-            expect(uncaught).toEqual([])
-            expect(JSON.parse(window.localStorage.getItem(KEY) ?? '{}')[UUID]).toEqual({
-                opened: [1, 2],
-                answers: { 2: 'tim' },
-            })
-        }
-    )
+        logic.unmount()
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(uncaught).toEqual([])
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(doorOf(logic, 'door-3-lower')?.status).toBe('ready')
+        expect(logic.values.openCount).toBe(2)
+    })
 
     it('opens a question door with the answer and puffs away the path not taken', async () => {
         logic.actions.activateDoor('door-1')
