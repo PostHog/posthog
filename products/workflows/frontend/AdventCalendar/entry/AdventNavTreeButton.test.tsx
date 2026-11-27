@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { CategorySuffixNav, CustomCategorySuffix } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
+import { CategorySuffixNav, CustomCategorySuffix } from '~/layout/panel-layout/ProjectTree/CustomCategorySuffix'
 import { ProductItemCategory } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
