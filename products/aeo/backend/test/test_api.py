@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -35,7 +35,15 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_overview,
     refresh_stored_results,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.models import (
+    AEOBrand,
+    AEOCheckBrand,
+    AEOCitationCheck,
+    AEOKeyword,
+    AEOPrompt,
+    AEOPromptVersion,
+)
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
@@ -1107,6 +1115,21 @@ class TestAEOPromptAPI(APIBaseTest):
             ("acme.co.uk", "Acme", 1),
             ("example.com", "example", 1),
         ]
+        assert {row["domain"]: row["positive_share"] for row in rankings["brands"]} == {
+            "acme.co.uk": None,
+            "example.com": None,
+        }
+
+        with team_scope(self.team.pk), self.captureOnCommitCallbacks(execute=True), transaction.atomic():
+            AEOCheckBrand.objects.filter(team=self.team, brand__domain="acme.co.uk").update(sentiment="positive")
+            bump_data_version_on_commit(self.team.id)
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        # A competitor's share comes from its own brand rows, not from the own brand's sentiment on the check.
+        assert {row["domain"]: row["positive_share"] for row in rankings["brands"]} == {
+            "acme.co.uk": 1.0,
+            "example.com": None,
+        }
 
         with team_scope(self.team.pk):
             acme_id = AEOBrand.objects.get(team=self.team, domain="acme.co.uk").id
@@ -1573,6 +1596,31 @@ class TestAEOPromptAPI(APIBaseTest):
                 "previous_citation_rate": 0.0,
                 "change": 3 / 16,
             }
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_pages_count_once_whatever_tracking_parameters_the_engines_added(self) -> None:
+        create_own_brand(self.team, "example.com")
+        prompt_id = self._import_one_prompt()
+        page = "https://example.com/docs/feature-flags"
+        for minutes_ago, cited_urls in [
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (10, [f"{page}?utm_source=openai"]),
+            (10, [page]),
+            # Both variants in one answer still make one answer that cites the page.
+            (10, [f"{page}?utm_source=chatgpt.com&utm_medium=referral", page]),
+        ]:
+            self._record_check(prompt_id, "exa-answer", minutes_ago=minutes_ago, cited_urls=cited_urls, cited=True)
+
+        movers = self.client.get(f"{self.url}movers/").json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+        citations = self.client.get(f"{self.url}citations/", {"url": f"{page}?utm_source=openai"}).json()
+
+        assert [(row["url"], row["answers_citing"]) for row in movers["page_gainers"]] == [(page, 3)]
+        assert [(row["url"], row["answers"]) for row in rankings["top_pages"] if row["is_target"]] == [(page, 3)]
+        assert {row["domain"]: row["urls"] for row in rankings["top_domains"]}["example.com"] == 1
+        assert citations["count"] == 3
 
     @parameterized.expand(
         [

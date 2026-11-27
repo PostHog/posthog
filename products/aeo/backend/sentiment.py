@@ -9,7 +9,7 @@ module only prepares its input and folds its output back into one label per answ
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_labeling import select_sentiment_label
@@ -50,7 +50,19 @@ class SentenceSentiment:
 
 def brand_sentences(answer_text: str | None, target_domains: list[str]) -> list[BrandSentence]:
     """The sentences of an answer that name the brand, in order, trimmed and bounded."""
-    pattern = brand_pattern(target_domains)
+    return matching_sentences(answer_text, brand_pattern(target_domains))
+
+
+def surface_pattern(surfaces: Iterable[str]) -> re.Pattern[str] | None:
+    """A word-bounded pattern for the words an answer named a catalog brand with, as `AEOCheckBrand.mentions` stores them."""
+    words = sorted({surface.strip() for surface in surfaces if surface and surface.strip()}, key=len, reverse=True)
+    if not words:
+        return None
+    return re.compile(r"(?<!\w)(" + "|".join(re.escape(word) for word in words) + r")(?!\w)", re.IGNORECASE)
+
+
+def matching_sentences(answer_text: str | None, pattern: re.Pattern[str] | None) -> list[BrandSentence]:
+    """The sentences of an answer that the pattern matches, in order, trimmed and bounded."""
     if not answer_text or pattern is None:
         return []
     sentences: list[BrandSentence] = []
