@@ -21,7 +21,7 @@ export interface DiagnosticsEntityOpened {
 
 export interface DiagnosticsReadFailed {
     kind: DiagnosticsEntityKind
-    read: 'list' | 'detail' | 'recent_traces' | 'first_seen' | 'new_count'
+    read: 'list' | 'detail' | 'recent_traces' | 'first_seen' | 'new_count' | 'trace_shares'
 }
 
 export const diagnosticsTracking = {
@@ -33,10 +33,12 @@ export const diagnosticsTracking = {
         posthog.capture(EVENTS.entityOpened, { kind, trigger })
     },
     /**
-     * Sent each time a read fails: a page of the list, the drawer's detail or recent traces, the errors' first seen, or
-     * the count of new errors. First seen is also read for the error open in the drawer when it is off the page, where
-     * a failure only leaves out the New tag. A date range the server refuses as too long sends nothing for the list, the
-     * drawer's detail and recent traces, and the count of new errors, because the list shows the range banner instead.
+     * Sent each time a read fails: a page of the list, the drawer's detail or recent traces, the errors' first seen, the
+     * count of new errors, or the tools' shares of traces. First seen is also read for the error open in the drawer when
+     * it is off the page, where a failure only leaves out the New tag. A date range the server refuses as too long sends
+     * nothing for the list, the drawer's detail and recent traces, and the count of new errors, because the list shows
+     * the range banner instead. The shares of traces send it for a range too heavy to read, because the list stays on
+     * screen and each share shows the failure.
      */
     readFailed: ({ kind, read }: DiagnosticsReadFailed): void => {
         posthog.capture(EVENTS.readFailed, { kind, read })

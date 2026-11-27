@@ -21,6 +21,7 @@ import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { ToolsSetupState } from './components/ToolsSetupState'
 import { toolsTableColumns } from './components/ToolsTableColumns'
 import { TOOLS_LIST_FILTERS, toolsListLogic } from './toolsListLogic'
+import { toolTraceSharesLogic } from './toolTraceSharesLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
 const DATA_ATTR = 'tools-list'
@@ -40,6 +41,7 @@ export function ToolsListHost(): JSX.Element {
         rangeTooLongDetail,
     } = useValues(toolsListLogic)
     const { setPageIndex, setOrder, reload } = useActions(toolsListLogic)
+    const { traceShares } = useValues(toolTraceSharesLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(TOOLS_LIST_FILTERS))
     const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearFilters } = useActions(
         listFiltersLogic(TOOLS_LIST_FILTERS)
@@ -50,8 +52,8 @@ export function ToolsListHost(): JSX.Element {
 
     const maxCalls = counts?.maxCalls ?? 0
     const columns = useMemo(
-        () => toolsTableColumns({ maxCalls, order: sortedBy, onOrder: setOrder, 'data-attr': DATA_ATTR }),
-        [maxCalls, sortedBy, setOrder]
+        () => toolsTableColumns({ maxCalls, order: sortedBy, onOrder: setOrder, traceShares, 'data-attr': DATA_ATTR }),
+        [maxCalls, sortedBy, setOrder, traceShares]
     )
 
     return (

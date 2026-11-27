@@ -8,6 +8,7 @@ import { CountCell } from '../../diagnostics/components/CountCell'
 import { sortableColumn } from '../../diagnostics/components/sortableColumn'
 import { TrendSparkline } from '../../diagnostics/components/TrendSparkline'
 import { VolumeCell } from '../../diagnostics/components/VolumeCell'
+import type { CellLoads } from '../../shared/cellLoads'
 import { TraceCellValue } from '../../traces/components/TraceCellValue'
 import { FailureRateCell } from './FailureRateCell'
 
@@ -17,6 +18,7 @@ export interface ToolsTableColumnsOptions {
     /** The order the list is sorted by, or null before the list knows it. */
     order: AiObservabilityToolsListOrder | null
     onOrder: (order: AiObservabilityToolsListOrder) => void
+    traceShares: CellLoads<number>
     'data-attr': string
 }
 
@@ -24,6 +26,7 @@ export function toolsTableColumns({
     maxCalls,
     order,
     onOrder,
+    traceShares,
     'data-attr': dataAttr,
 }: ToolsTableColumnsOptions): LemonTableColumns<ToolListItemApi> {
     const sortable = sortableColumn<ToolListItemApi, AiObservabilityToolsListOrder>({
@@ -61,7 +64,7 @@ export function toolsTableColumns({
         {
             ...sortable('Traces', AiObservabilityToolsListOrder.Traces),
             align: 'right',
-            render: (_, { traces }) => <CountCell value={traces} />,
+            render: (_, { key, traces }) => <CountCell value={traces} share={traceShares.get(key)} />,
         },
         {
             ...sortable('Failure rate', AiObservabilityToolsListOrder.FailureRate),
