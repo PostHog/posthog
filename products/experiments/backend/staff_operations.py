@@ -301,7 +301,7 @@ def _get_experiment(experiment_id: int) -> Experiment | None:
 
 
 def team_experiment_counts(team_id: int) -> StaffTeamExperimentCounts:
-    experiments = Experiment.objects.filter(team_id=team_id).exclude(deleted=True)
+    experiments = Experiment.objects.for_team(team_id).live()
     return StaffTeamExperimentCounts(
         total=experiments.count(),
         running=experiments.filter(start_date__isnull=False, end_date__isnull=True).count(),
@@ -309,12 +309,7 @@ def team_experiment_counts(team_id: int) -> StaffTeamExperimentCounts:
 
 
 def list_team_experiments(team_id: int, limit: int) -> list[StaffExperiment]:
-    experiments = (
-        Experiment.objects.select_related("team")
-        .filter(team_id=team_id)
-        .exclude(deleted=True)
-        .order_by("-created_at")[:limit]
-    )
+    experiments = Experiment.objects.for_team(team_id).live().select_related("team").order_by("-created_at")[:limit]
     return [_to_staff_experiment(experiment) for experiment in experiments]
 
 
