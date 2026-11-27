@@ -4,9 +4,10 @@ import { z } from 'zod'
 import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import type { RunManifest } from '../cloud/lease'
-import { durationMs } from '../duration'
+import { Duration, durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { Observation } from '../environment/failover'
+import type { RoleTermination } from '../environment/supervisor'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { AmbiguousParams, FaultRule, SesRejectParams, SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
@@ -47,6 +48,7 @@ export type ValveTimelineEntry = {
     releaseIntentAt?: string
     releaseObservations?: Observation[]
     releaseError?: string
+    exit?: RoleTermination
     error?: string
 }
 
@@ -69,6 +71,21 @@ export const roleKill: ValveDefinition = {
     target: CdpRole,
     strandsRunningJobs: true,
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
+}
+
+const Grace = z.object({ grace: Duration }).strict()
+
+export const roleTerminate: ValveDefinition = {
+    name: 'role.terminate',
+    params: Grace,
+    target: CdpRole,
+    strandsRunningJobs: true,
+    apply: ({ environment }, target, dose) =>
+        environment.actuate({
+            kind: 'terminate',
+            role: CdpRole.parse(target),
+            graceMs: durationMs(Grace.parse(dose).grace),
+        }),
 }
 
 export const roleFreeze: ValveDefinition = {
@@ -214,6 +231,7 @@ export const pgCommitReplyLost: ValveDefinition = {
 
 export const VALVES: ValveDefinition[] = [
     roleKill,
+    roleTerminate,
     roleFreeze,
     pgDropConnections,
     pgFailover,

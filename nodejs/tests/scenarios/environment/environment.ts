@@ -53,7 +53,7 @@ import {
     terminateRoleConnections,
     untilMigrated,
 } from './stack'
-import { RoleExit, createSupervisor } from './supervisor'
+import { RoleExit, RoleTermination, createSupervisor } from './supervisor'
 import {
     WORKFLOWS_ADAPTER,
     Wiring,
@@ -93,6 +93,7 @@ export type RoleHandle = { name: Role; replica: number; url: string; metricsUrl:
 
 export type Action =
     | { kind: 'kill'; role: Role }
+    | { kind: 'terminate'; role: Role; graceMs: number }
     | { kind: 'freeze'; role: Role }
     | { kind: 'pg.terminate'; share: number }
     | { kind: 'edge.fault'; rule: FaultRule }
@@ -104,7 +105,7 @@ export type Action =
           signal: AbortSignal
       }
 
-export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
+export type Actuation = FaultHold & { journal?(): FailoverJournal & { exit?: RoleTermination }; refused?(): boolean }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -284,6 +285,8 @@ export function createEnvironment({
                     gone.catch(() => undefined)
                     return { observed: () => gone, release: () => Promise.resolve() }
                 }
+                case 'terminate':
+                    return supervisor.terminate({ role: action.role, replica: 0 }, action.graceMs)
                 case 'freeze':
                     return supervisor.freeze({ role: action.role, replica: 0 }, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {

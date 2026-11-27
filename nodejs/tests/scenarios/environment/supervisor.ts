@@ -9,6 +9,7 @@ import { processState, signal, terminate } from './processes'
 import { RoleId, RoleSpec } from './roles'
 
 const EXIT_REPORTED_WITHIN_MS = 2000
+const KILLED_EXIT_WITHIN_MS = 10_000
 const STATE_POLL_MS = 20
 
 const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null
@@ -22,6 +23,20 @@ export type RoleExit = RoleId & {
     byValve: boolean
     error?: string
     relaunchedAt?: string
+}
+
+export type RoleTermination = {
+    signalledAt: string
+    killedAt?: string
+    exitedAt?: string
+    code?: number | null
+    signal?: string | null
+}
+
+export type Termination = {
+    observed(): Promise<boolean>
+    release(): Promise<void>
+    journal(): { exit: RoleTermination; unobserved?: string }
 }
 
 export type SupervisorOptions = {
@@ -38,6 +53,7 @@ export type Supervisor = {
     stop(): Promise<void>
     kill(id: RoleId, withinMs: number): Promise<boolean>
     freeze(id: RoleId, withinMs: number): { observed(): Promise<boolean>; release(): Promise<void> }
+    terminate(id: RoleId, graceMs: number): Termination
     exits(): RoleExit[]
 }
 
@@ -46,6 +62,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     const killedByValve = new WeakSet<ChildProcess>()
+    const terminatedByValve = new WeakSet<ChildProcess>()
     let stopping = false
 
     const runningChild = (id: RoleId): ChildProcess & { pid: number } => {
@@ -110,7 +127,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 at: new Date().toISOString(),
                 code,
                 signal,
-                byValve: killedByValve.has(child) && signal === 'SIGKILL',
+                byValve: terminatedByValve.has(child) || (killedByValve.has(child) && signal === 'SIGKILL'),
             }
             recorded.push(exit)
             relaunchLater(spec, exit)
@@ -176,6 +193,35 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                     signal(-pid, 'SIGCONT')
                     return Promise.resolve()
                 },
+            }
+        },
+
+        terminate(id, graceMs) {
+            const child = runningChild(id)
+            terminatedByValve.add(child)
+            const exit: RoleTermination = { signalledAt: new Date().toISOString() }
+            const exited = once(child, 'exit').then(([code, signal]) => {
+                Object.assign(exit, { exitedAt: new Date().toISOString(), code, signal })
+            })
+            process.kill(-child.pid, 'SIGTERM')
+            const kill = setTimeout(() => {
+                exit.killedAt = new Date().toISOString()
+                signal(-child.pid, 'SIGKILL')
+            }, graceMs)
+            void exited.then(() => clearTimeout(kill))
+            let gaveUp = false
+            return {
+                observed: () => Promise.resolve(true),
+                release: async () => {
+                    const waitMs = Date.parse(exit.signalledAt) + graceMs + KILLED_EXIT_WITHIN_MS - Date.now()
+                    gaveUp = !(await Promise.race([exited.then(() => true), sleep(waitMs, false, { ref: false })]))
+                },
+                journal: () => ({
+                    exit: { ...exit },
+                    ...(gaveUp && exit.exitedAt === undefined
+                        ? { unobserved: `${nameOf(id)} did not exit ${KILLED_EXIT_WITHIN_MS / 1000}s after its grace` }
+                        : {}),
+                }),
             }
         },
 

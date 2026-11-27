@@ -23,6 +23,7 @@ import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment, proxiesOf } from './environment'
+import { nameOf } from './identity'
 import { startProbeProcess } from './probe-process'
 import * as processes from './processes'
 import {
@@ -1310,6 +1311,61 @@ describe('scenario environment', () => {
                 Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
             }
         }
+
+        const READY = "process.on('SIGTERM', ON_SIGTERM); console.log('ready'); setInterval(() => {}, 1000)"
+
+        it.each([
+            [
+                'lets a role that stops on SIGTERM exit within its grace',
+                '() => setTimeout(() => process.exit(0), 100)',
+                { code: 0, signal: null },
+            ],
+            [
+                'kills a role that outlasts its grace and records when the SIGKILL went out',
+                '() => {}',
+                { killedAt: expect.any(String), code: null, signal: 'SIGKILL' },
+            ],
+        ])(
+            'terminate %s, and records the exit as the valve',
+            async (_story, onSigterm, exit) => {
+                const logDir = mkdtempSync(path.join(tempRoot, 'logs-'))
+                const terminating = createSupervisor({
+                    command: process.execPath,
+                    args: ['-e', READY.replace('ON_SIGTERM', onSigterm)],
+                    cwd: os.tmpdir(),
+                    logDir,
+                    graceMs: 1000,
+                    restartBackoffMs: 60_000,
+                })
+                const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+                try {
+                    await terminating.start([spec])
+                    await waitForExpect(
+                        () => expect(readFileSync(path.join(logDir, `${nameOf(spec)}.log`), 'utf8')).toContain('ready'),
+                        5000,
+                        20
+                    )
+
+                    const termination = terminating.terminate(spec, 1000)
+                    await termination.release()
+
+                    expect(termination.journal()).toEqual({
+                        exit: { signalledAt: expect.any(String), exitedAt: expect.any(String), ...exit },
+                    })
+                    expect(terminating.exits()).toEqual([
+                        expect.objectContaining({
+                            role: spec.role,
+                            code: exit.code,
+                            signal: exit.signal,
+                            byValve: true,
+                        }),
+                    ])
+                } finally {
+                    await terminating.stop()
+                }
+            },
+            15_000
+        )
 
         it('refuses to kill a role that something else killed before its exit was reported', async () => {
             const killedElsewhere = createSupervisor({

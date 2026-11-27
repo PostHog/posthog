@@ -609,7 +609,7 @@ It rejects:
 - a `stopOnBreak` ramp with a step of `0ms`, because a held step repeats its own length;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
-- an `edge_accepted` entry on any valve but `role.kill` on the email worker, because the held send is an email worker's;
+- an `edge_accepted` entry on any valve but `role.kill` or `role.terminate` on the email worker, because the held send is an email worker's;
 - an `edge_accepted` entry under a profile that runs more than one email worker, because the valve stops replica 0 and another replica may own the held send;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
 
@@ -828,6 +828,7 @@ export interface Valves {
 | Valve                  | Target              | Dose                                                  | Acts through              |
 | ---------------------- | ------------------- | ----------------------------------------------------- | ------------------------- |
 | `role.kill`            | a role              | none                                                  | `actuate`, `kill`         |
+| `role.terminate`       | a role              | `grace`, a duration                                   | `actuate`, `terminate`    |
 | `role.freeze`          | a role              | none                                                  | `actuate`, `freeze`       |
 | `pg.drop_connections`  | `postgres`          | `share`                                               | `actuate`, `pg.terminate` |
 | `pg.failover`          | `cyclotron`         | none                                                  | `actuate`, `rds.failover` |
@@ -839,7 +840,8 @@ export interface Valves {
 | `pg.enqueue_refused`   | `cyclotron`         | a `count` or a `share` of enqueues                    | `actuate`, `edge.fault`   |
 | `pg.commit_reply_lost` | `cyclotron`         | a `count` or a `share` of committed enqueues          | `actuate`, `edge.fault`   |
 
-- **Scheduling.** `at` fires at an offset from the drive's start. An entry with both waits out its `at` before its `when` asks the probe or holds the edge, and one released during that wait is never applied, released before its offset. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed. A `running_on_queue` entry whose valve strands running jobs, `role.kill` or `role.freeze`, asks again once observed, and an entry applied after its predicate stopped holding is not observed. `edge_accepted` holds one SES answer and applies the valve once the edge records the send as accepted. With `share`, the valve records the qualifying send's unit in `faults.json`. The edge answers the held send when the entry releases, unless its connection is gone.
+- **Scheduling.** `at` fires at an offset from the drive's start. An entry with both waits out its `at` before its `when` asks the probe or holds the edge, and one released during that wait is never applied, released before its offset. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed. A `running_on_queue` entry whose valve strands running jobs, `role.kill`, `role.terminate` or `role.freeze`, asks again once observed, and an entry applied after its predicate stopped holding is not observed. `edge_accepted` holds one SES answer and applies the valve once the edge records the send as accepted. With `share`, the valve records the qualifying send's unit in `faults.json`. The edge answers the held send when the entry releases, unless its connection is gone.
+- **Termination.** `role.terminate` sends SIGTERM to replica 0's process group, as a rollout does, and SIGKILL once its `grace` passes with the role still running. It is observed once the signal is sent. Its release waits for the exit, up to 10 seconds past the grace, and the timeline entry records `exit`: when the signal went out, when SIGKILL went out if it was needed, when the role exited, and its exit code or signal. The exit counts as caused by the valve however the role exited.
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
 - **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`, unless an unexplained exit, a failed invariant or a stack that did not converge already fails it. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.

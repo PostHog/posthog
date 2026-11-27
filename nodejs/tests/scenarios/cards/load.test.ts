@@ -298,7 +298,7 @@ describe('load', () => {
             `edge_accepted on ${valve} of ${target}`,
             { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
         [
             'edge_accepted while the profile runs more than one email worker',
