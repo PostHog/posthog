@@ -272,6 +272,7 @@
     'is_remote_configuration',
     'key',
     'name',
+    'rollback_suggestions_disabled',
     'updated_at',
     'version',
   ])
@@ -891,6 +892,7 @@
     'last_modified_by_id',
     'objects',
     'objects_including_soft_deleted',
+    'observation_windows',
     'product_tours_internal_targeting_flag',
     'product_tours_linked_flag',
     'rollout_percentage',
