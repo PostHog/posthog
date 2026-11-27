@@ -27,6 +27,7 @@ export type TruthRecord = {
             eventType: string
             snsMessageId: string
             sesMessageId: string
+            postedAt: string
             durationMs: number
             bouncedRecipients?: string[]
         }

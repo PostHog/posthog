@@ -35,7 +35,15 @@ const answered = (
     status,
     detail:
         kind === 'ses.feedback'
-            ? { feedback: { eventType, snsMessageId: 'sns', sesMessageId: 'ses', durationMs: 1 } }
+            ? {
+                  feedback: {
+                      eventType,
+                      snsMessageId: 'sns',
+                      sesMessageId: 'ses',
+                      postedAt: '2026-01-01T00:00:00.000Z',
+                      durationMs: 1,
+                  },
+              }
             : status === 429
               ? { errorType: 'TooManyRequestsException' }
               : {},

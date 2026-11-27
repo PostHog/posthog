@@ -3602,8 +3602,9 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Sending health across every project in this PostHog region over the last 30 whole days, which "
-            "all send through the same infrastructure. Null when AWS is unreachable or has no data, or "
-            "while the feature is not yet released to this project."
+            "all send through the same infrastructure. Null when AWS is unreachable or has no data, when "
+            "the region sent too few emails for its totals to stay private, or while the feature is not "
+            "yet released to this project."
         ),
     )
 

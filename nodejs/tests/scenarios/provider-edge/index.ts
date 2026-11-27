@@ -212,16 +212,24 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             detail: { message: truthMessageOf(accepted) },
         })
         if (fault?.answer.kind === 'bounce' && feedback) {
-            setImmediate(() => void sendFeedback(feedback, accepted, ['hardBounce'], correlation.unitId, fault.name))
+            postInBackground(() => sendFeedback(feedback, accepted, ['hardBounce'], correlation.unitId, fault.name))
         } else if (plan && feedback && accepted.configurationSet !== undefined) {
-            const events = plan.eventsOfNextSend()
-            setImmediate(() => void sendFeedback(feedback, accepted, events, correlation.unitId))
+            const events = plan.eventsOfNextSend(accepted.tracked !== false)
+            postInBackground(() => sendFeedback(feedback, accepted, events, correlation.unitId))
         }
         const reply = { status: 200, body: { MessageId: messageId } }
         if (fault?.answer.kind === 'hold-answer') {
             return { heldBy: fault.id, reply }
         }
         return fault?.answer.kind === 'ambiguous' ? 'drop-connection' : reply
+    }
+
+    const posting = new Set<Promise<void>>()
+
+    const postInBackground = (post: () => Promise<void>): void => {
+        const posted = new Promise<void>((resolve) => setImmediate(resolve)).then(post)
+        posting.add(posted)
+        void posted.finally(() => posting.delete(posted))
     }
 
     const sendFeedback = async (
@@ -243,7 +251,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         for (const event of events) {
             const { envelope, eventType, bouncedRecipients } = notificationOf(message, event, signer)
-            const postedAt = performance.now()
+            const postedAt = new Date().toISOString()
+            const started = performance.now()
             const answer = await postFeedback(url, envelope)
             truth.append({
                 kind: 'ses.feedback',
@@ -256,7 +265,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                         eventType,
                         snsMessageId: envelope.MessageId,
                         sesMessageId: message.messageId,
-                        durationMs: performance.now() - postedAt,
+                        postedAt,
+                        durationMs: performance.now() - started,
                         ...(bouncedRecipients ? { bouncedRecipients } : {}),
                     },
                 },
@@ -364,6 +374,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (url === null) {
             respond(res, { status: 400, body: { message: 'The request target is not a URL.' } })
             return
+        }
+        if (req.method === 'GET' && url.pathname === '/_truth/head') {
+            // The judge takes its final truth from this head, so feedback still posting must land in the truth first.
+            await Promise.all(posting)
         }
         const reply = route(req, url, body)
         if (reply === 'drop-connection') {
