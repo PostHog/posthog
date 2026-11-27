@@ -22,7 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.helpers.email_utils import email_domain
@@ -1008,7 +1008,7 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
-_SUPPORT_CHANNEL_SETTING_RESPONSES = {
+_SUPPORT_CHANNEL_SETTING_RESPONSES: dict[int, ResponseDeclaration] = {
     200: EmailChannelOperationResponseSerializer,
     400: OpenApiResponse(response=EmailChannelErrorSerializer),
     404: OpenApiResponse(response=EmailChannelErrorSerializer),

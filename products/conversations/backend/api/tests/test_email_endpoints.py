@@ -1768,6 +1768,7 @@ class TestEmailSenderNameTemplate(SimpleTestCase):
                 "Sam at Acme",
             ),
             ("control_character_falls_back", "{author_first_name} at Acme", "S\x00am", "Acme Support"),
+            ("direction_override_falls_back", "{author_first_name} at Acme", "Sam\u202eTaylor", "Acme Support"),
         ]
     )
     def test_sender_name_for(self, _name, template, first_name, expected):
