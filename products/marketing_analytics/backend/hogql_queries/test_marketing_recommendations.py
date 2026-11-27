@@ -1199,10 +1199,30 @@ class TestMarketingRecommendations(SimpleTestCase):
                     ),
                 },
             ),
+            (
+                "rank_below_the_account_cpa",
+                "task tracker",
+                {
+                    "scale_campaign": (
+                        "Raise the target CPA or improve its asset groups",
+                        ["PMax"],
+                        ["Campaigns", "Asset groups"],
+                    ),
+                },
+                10,
+                2000,
+            ),
+            ("rank_above_the_account_cpa", "task tracker", {}, 10, 300),
+            ("rank_with_too_few_conversions", "task tracker", {}, 4),
         ]
     )
     def test_performance_max_gets_brand_exclusion_or_rank_advice(
-        self, _name: str, top_term: str, expected: dict[str, tuple[str, list[str], list[str]]]
+        self,
+        _name: str,
+        top_term: str,
+        expected: dict[str, tuple[str, list[str], list[str]]],
+        conversions: float = 10,
+        search_cost: float | None = None,
     ) -> None:
         pmax = _campaign(
             id="pmax",
@@ -1210,13 +1230,19 @@ class TestMarketingRecommendations(SimpleTestCase):
             channel_type="PERFORMANCE_MAX",
             status_reasons=("HAS_ASSET_GROUPS_LIMITED_BY_POLICY",),
             lost_to_rank=0.6,
+            conversions=conversions,
         )
+        search = () if search_cost is None else (_campaign(cost=search_cost),)
         terms = (
-            _term(top_term, "pmax", cost=300, conversions=2),
-            _term("project planning software", "pmax", cost=700, conversions=8),
+            _term(top_term, "pmax", cost=300, conversions=conversions / 5),
+            _term("project planning software", "pmax", cost=700, conversions=conversions * 4 / 5),
         )
 
-        recs = [rec for rec in recommend(_inputs((pmax,), terms)) if rec.level == "campaign"]
+        recs = [
+            rec
+            for rec in recommend(_inputs((pmax, *search), terms))
+            if rec.level == "campaign" and rec.identity.campaign_id == "pmax"
+        ]
 
         assert {
             rec.rule.value: (
@@ -1233,7 +1259,7 @@ class TestMarketingRecommendations(SimpleTestCase):
                 ["Campaigns", "Asset groups", "Policy manager"],
             ),
         }
-        assert all(rec.cpa is None for rec in recs)
+        assert [rec.rule.value for rec in recs if rec.cpa] == [rule for rule in expected if rule == "scale_campaign"]
 
     @parameterized.expand(
         [
