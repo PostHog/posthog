@@ -77,11 +77,17 @@ export const transactionalPushFingerprints = (
 ): string[] => signer.signatures(FINGERPRINT_PURPOSE, requestFingerprint([hogFlowId, distinct_id, variables]))
 
 // A token for one workflow can only run that workflow, so this only stops a push token reaching a workflow that
-// someone changed to send something else. The token is for one person, so the one push step must send to the person
-// the request names.
+// someone changed to send something else.
+export const sendsOnlyPush = (hogFlow: HogFlow): boolean => {
+    const steps = hogFlow.actions.filter((action) => action.type !== 'trigger' && action.type !== 'exit')
+    return steps.length > 0 && steps.every((action) => action.type === 'function_push')
+}
+
 const REQUEST_PERSON = new Set(['{{ event.distinct_id }}', '{{event.distinct_id}}', '{event.distinct_id}'])
 
-export const sendsOnlyPush = (hogFlow: HogFlow): boolean => {
+// The token is for one person, so a transactional push runs only a workflow whose one push step sends to the person
+// the request names.
+export const sendsOnePushToRequestPerson = (hogFlow: HogFlow): boolean => {
     const steps = hogFlow.actions.filter((action) => action.type !== 'trigger' && action.type !== 'exit')
     if (steps.length !== 1 || steps[0].type !== 'function_push') {
         return false

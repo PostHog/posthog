@@ -97,6 +97,7 @@ import {
     TransactionalPushRequestSchema,
     expiresBeforeItsUseRecord,
     isTokenForPerson,
+    sendsOnePushToRequestPerson,
     sendsOnlyPush,
     transactionalPushFingerprints,
     transactionalPushRequestsTotal,
@@ -1973,7 +1974,11 @@ export class CdpApi {
                     return answerClaim(recalled.claimedFingerprint)
                 }
             }
-            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active' || !sendsOnlyPush(hogFlow)) {
+            if (
+                hogFlow.trigger?.type !== 'api' ||
+                hogFlow.status !== 'active' ||
+                !sendsOnePushToRequestPerson(hogFlow)
+            ) {
                 return reply('not_sendable', 400, { error: 'not_sendable' })
             }
 
