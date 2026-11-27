@@ -513,18 +513,18 @@ function windowsOf(phase: Phase): Phase[] {
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase) => WindowP99
+    p99: (window: Phase, final: boolean) => WindowP99
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
     const recent = recentBaselineOf(baseline)
     if (valve === undefined || recent === undefined) {
         return undefined
     }
-    const reference = p99(recent)
+    const reference = p99(recent, false)
     const usable = reference.value !== null && reference.clean && !reference.censored
     const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
     const points = windowsOf(valve).map((window): SeriesPoint => {
-        const { value, clean, censored, incomplete } = p99(window)
+        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to)
         return {
             offsetS: seconds(window.from - valve.from),
             value,
@@ -565,7 +565,10 @@ function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Serie
             .filter(({ ok }) => ok)
             .map(({ latencyMs }) => latencyMs)
             .sort((a, b) => a - b)
-        const bounds = [window.from, ...probed.map(({ at }) => at), window.to]
+        // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
+        const previous = writer.findLast(({ at }) => at < window.from)?.at ?? window.from
+        const next = writer.find(({ at }) => at >= window.to)?.at ?? window.to
+        const bounds = [previous, ...probed.map(({ at }) => at), next]
         const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
         return {
             value: committed.length === 0 ? null : nearestRank(committed, 0.99),
@@ -580,8 +583,9 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
         if (!samples.some((sample) => sample.role === role)) {
             return []
         }
-        const series = seriesOver({ drive, timeline }, (window) => {
-            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: false })
+        // Only the last minute takes the interval that straddles the valve end, since no later minute would.
+        const series = seriesOver({ drive, timeline }, (window, final) => {
+            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: final })
             if ('unread' in pickups) {
                 return { value: null, clean: false, incomplete: true }
             }
@@ -591,7 +595,12 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
             }
             // The value is the bound of the histogram bucket that holds the p99, so the bar compares bucket bounds.
             const { value, beyond } = p99Of(buckets)
-            return { value, clean: !beyond, ...(beyond ? { censored: true as const } : {}) }
+            return {
+                value,
+                clean: !beyond && !pickups.unobservedTail,
+                ...(beyond ? { censored: true as const } : {}),
+                ...(pickups.unobservedTail ? { incomplete: true as const } : {}),
+            }
         })
         return series ? [[queue, series] as [string, Series]] : []
     })
