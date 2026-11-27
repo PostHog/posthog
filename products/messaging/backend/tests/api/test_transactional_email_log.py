@@ -34,7 +34,7 @@ from products.messaging.backend.facade.contracts import EmailStatsInterval
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.messaging.backend.services.transactional_email_log import MAX_IMPACT_SESSIONS, _bucket_starts
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
@@ -71,6 +71,7 @@ IMPACT_COUNTS = {
 LONG_ID_SENDS = 20
 CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
+TIED_SENDS = 30
 
 
 @time_machine.travel(NOW, tick=False)
@@ -920,14 +921,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_session", True, 200, ["b-tied-session", "b-session", "a-session", "old-session"], False),
-            ("newest_only", True, 1, ["b-tied-session"], True),
-            ("link_tagging_off", False, 200, [], False),
+            ("every_session", True, ["b-tied-session", "b-session", "a-session", "old-session"]),
+            ("link_tagging_off", False, []),
         ]
     )
-    def test_lists_the_sessions_from_this_emails_links_newest_first(
-        self, _flag, _name, link_tagging_enabled, limit, expected, has_more
-    ):
+    def test_lists_the_sessions_from_this_emails_links_newest_first(self, _flag, _name, link_tagging_enabled, expected):
         self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging_enabled
         self.team.workflows_config.save()
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
@@ -946,8 +944,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._land("b", "untagged-session", None)
         flush_persons_and_events()
 
-        with patch("products.messaging.backend.services.transactional_email_log.MAX_IMPACT_SESSIONS", limit):
-            listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
+        listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
         first_pageviews = {
             "a-session": {"session_id": "a-session", "message_id": a, "first_pageview_at": "2026-06-15T11:10:00Z"},
@@ -959,9 +956,47 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             },
             "old-session": {"session_id": "old-session", "message_id": b, "first_pageview_at": "2026-06-15T10:20:00Z"},
         }
-        assert listed == {"sessions": [first_pageviews[session] for session in expected], "has_more": has_more}
+        assert listed == {"sessions": [first_pageviews[session] for session in expected], "has_more": False}
 
-    def test_lists_only_the_sessions_of_the_newest_sends_one_query_reads(self, _flag):
+    def test_breaks_ties_in_the_query_before_the_session_cap(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        sends = sorted(self._send(30, f"tied-{n}@example.com", clicked) for n in range(TIED_SENDS))
+        for run_id in reversed(sends):
+            self._land("tied", "tied-sends-session", run_id, at=NOW - timedelta(minutes=10))
+        tied_sessions = [f"tied-session-{n:03d}" for n in range(MAX_IMPACT_SESSIONS + 2)]
+        for session_id in tied_sessions:
+            self._land("tied", session_id, sends[-1], at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert listed["has_more"] is True
+        assert listed["sessions"][0] == {
+            "session_id": "tied-sends-session",
+            "message_id": sends[0],
+            "first_pageview_at": "2026-06-15T11:50:00Z",
+        }
+        assert [session["session_id"] for session in listed["sessions"][1:]] == sorted(tied_sessions, reverse=True)[
+            : MAX_IMPACT_SESSIONS - 1
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "past_one_query",
+                lambda team_id: patch.dict(
+                    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(team_id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+                ),
+            ),
+            (
+                "past_the_send_cap",
+                lambda _team_id: patch(
+                    "products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1
+                ),
+            ),
+        ]
+    )
+    def test_lists_only_the_sessions_of_the_newest_sends_read(self, _flag, _name, sends_left_out):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_ids = [
             self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
@@ -972,9 +1007,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._land("reader", "oldest-send-session", oldest_send, at=NOW - timedelta(minutes=20))
         flush_persons_and_events()
 
-        with patch.dict(
-            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
-        ):
+        with sends_left_out(self.team.id):
             listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert listed == {

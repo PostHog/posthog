@@ -130655,9 +130655,9 @@ export namespace Schemas {
     }
 
     export interface TransactionalEmailImpactSessions {
-      /** The sessions `impact` counts, newest first pageview first, 200 at most. Each had a pageview whose URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period. Empty while link tagging is off, when `impact` returns no session count. */
+      /** Sessions with a pageview whose URL carries the ph_workflow_run tag of a clicked send read, up to 7 days after the period, newest first pageview first, 200 at most. Empty while link tagging is off, when `impact` returns no session count. */
       sessions: TransactionalEmailImpactSession[];
-      /** True when sessions may be left out: there are more than 200, or the clicked sends are more than one query reads, so only the newest sends were read. */
+      /** True when sessions may be left out: there are more than 200, or only the newest clicked sends were read, because they reach 10,000 or more than one query holds. */
       has_more: boolean;
     }
 

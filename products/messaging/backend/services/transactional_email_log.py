@@ -798,17 +798,17 @@ def transactional_email_impact_sessions(
     if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     period = _window(date_from, date_to)
-    batches = list(
-        _batches_by_query_size(team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes)
-    )
+    clicked = _clicked_message_ids(team, workflow_id, period)
+    batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
     if not batches:
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
-    newest_sends, sends_past_one_query = batches[0], len(batches) > 1
+    newest_sends = batches[0]
+    sends_left_out = len(batches) > 1 or len(clicked) >= MAX_RESULTS_RECIPIENTS
     landings = _session_landings_in_batch(team, user, newest_sends, period)
     newest = sorted(landings, key=lambda session: (session.first_pageview_at, session.session_id), reverse=True)
     return TransactionalEmailImpactSessions(
         sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
-        has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_past_one_query,
+        has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_left_out,
     )
 
 
