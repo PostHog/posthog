@@ -46,7 +46,7 @@ from products.experiments.backend.health.skips import (
     fewer_than_two_in_split,
     not_applicable,
 )
-from products.experiments.backend.health.split_changes import format_change_time
+from products.experiments.backend.health.split_changes import format_change_time, format_day
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
@@ -590,30 +590,40 @@ class _MismatchStart:
 
 
 def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
-    """The day a mismatch starts, when the persons or groups first exposed before it match the split, those first
-    exposed from it on don't, and the two groups differ. Of the days that qualify, the one where the groups differ
-    most, which is the day the cause took effect. None when the mismatch was there from the first day."""
+    """The day a mismatch starts, when the persons or groups first exposed before it match the split, also in each half
+    of those days, those first exposed from it on don't, and the two groups differ. Of the days that qualify, the one
+    where the two groups differ most. None when no day qualifies, such as when the mismatch was there from the first
+    day."""
     weights = exposures.sample_ratio_expected
     daily = {variant: exposures.daily_exposures.get(variant, {}) for variant in weights}
-    totals = {variant: sum(counts.values()) for variant, counts in daily.items()}
     days = sorted({day for counts in daily.values() for day, count in counts.items() if count > 0})
-    before = dict.fromkeys(weights, 0)
-    best: tuple[float, date, dict[str, int]] | None = None
+    exposed_before = [dict.fromkeys(weights, 0)]
     for day in days:
+        exposed_before.append(
+            {variant: exposed_before[-1][variant] + daily[variant].get(day, 0) for variant in weights}
+        )
+    totals = exposed_before[-1]
+    best: tuple[float, date, dict[str, int]] | None = None
+    for index, day in enumerate(days):
+        before = exposed_before[index]
         after = {variant: totals[variant] - before[variant] for variant in weights}
         before_test = sample_ratio_test(before, weights)
         after_test = sample_ratio_test(after, weights)
         if (
-            before_test is not None
-            and after_test is not None
-            and before_test.p_value >= MATCHED_SPLIT_P_VALUE
-            and after_test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+            before_test is None
+            or after_test is None
+            or before_test.p_value < MATCHED_SPLIT_P_VALUE
+            or after_test.p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE
         ):
-            difference = _homogeneity_p_value(before, after)
-            if difference < SAMPLE_RATIO_MISMATCH_P_VALUE and (best is None or difference < best[0]):
-                best = (difference, day, after)
-        for variant in weights:
-            before[variant] += daily[variant].get(day, 0)
+            continue
+        difference = _difference(before, after)
+        # The statistic ranks the days, because at large counts the p-values of several days round to 0.
+        if (
+            difference.significant
+            and _matches_throughout(exposed_before, index, weights)
+            and (best is None or difference.statistic > best[0])
+        ):
+            best = (difference.statistic, day, after)
     if best is None:
         return None
     _, day, after = best
@@ -628,16 +638,50 @@ def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
     )
 
 
-def _homogeneity_p_value(before: Mapping[str, int], after: Mapping[str, int]) -> float:
+def _matches_throughout(exposed_before: list[dict[str, int]], index: int, weights: Mapping[str, float]) -> bool:
+    """Whether neither half of the days before `index` shows a material mismatch on its own, which is significant and
+    off the split by at least `MATERIAL_SHARE_OFF_SPLIT`. Two stretches on opposite sides of the split can add up to a
+    match, and then the mismatch doesn't start on that day."""
+    middle = index // 2
+    if middle == 0:
+        return True
+    first = exposed_before[middle]
+    second = {variant: exposed_before[index][variant] - first[variant] for variant in first}
+    return not any(_materially_off(half, weights) for half in (first, second))
+
+
+def _materially_off(exposed: Mapping[str, int], weights: Mapping[str, float]) -> bool:
+    test = sample_ratio_test(exposed, weights)
+    return (
+        test is not None
+        and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+        and _share_off_split(exposed, weights) >= MATERIAL_SHARE_OFF_SPLIT
+    )
+
+
+@frozen
+class _Difference:
+    """The chi-squared homogeneity test of two groups of persons or groups across the variants."""
+
+    statistic: float
+    p_value: float
+
+    @property
+    def significant(self) -> bool:
+        return self.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
+
+def _difference(first: Mapping[str, int], second: Mapping[str, int]) -> _Difference:
     # A variant without exposures in either group has an expected count of 0, which the test can't take.
-    variants = [variant for variant in before if before[variant] or after[variant]]
+    variants = [variant for variant in first if first[variant] or second[variant]]
     if len(variants) < 2:
-        return 1.0
-    return float(chi2_contingency([[before[v] for v in variants], [after[v] for v in variants]]).pvalue)
+        return _Difference(statistic=0.0, p_value=1.0)
+    result = chi2_contingency([[first[v] for v in variants], [second[v] for v in variants]])
+    return _Difference(statistic=float(result.statistic), p_value=float(result.pvalue))
 
 
 def _started_on(start: _MismatchStart, unit: str) -> list[str]:
-    day = f"{start.day:%B} {start.day.day}, {start.day.year}"
+    day = format_day(start.day)
     return [
         f"The {unit}s first exposed before {day} match the split. From that day on, "
         f'"{start.variant}" has {_percentage(start.share)} of the {unit}s first exposed, against '

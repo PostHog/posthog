@@ -23,6 +23,11 @@ PAGE = ExposureSegmentDimension.PAGE
 SCREEN = ExposureSegmentDimension.SCREEN
 MISMATCH = "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001)."
 NO_LOCATION = f"{MISMATCH} This may indicate issues with randomization or data collection."
+STARTED_ON_OCTOBER_6 = (
+    f"{MISMATCH} The users first exposed before October 6, 2026 match the split. From that day on, "
+    '"test" has 37.5% of the users first exposed, against 50% planned. A mismatch that starts on one day '
+    'often follows a release, so check what changed in the code or tracking of "test" on that day.'
+)
 NEXT_STEP = "Check that the code there sends the exposure for every user in every variant."
 OWN_PAGE = (
     "When each variant has its own page or site, users who leave before their variant's exposure is sent are missing "
@@ -386,16 +391,21 @@ class TestSrmCauses(TestCase):
 
     @parameterized.expand(
         [
+            ("starts_on_the_sixth_day", [(100, 100)] * 5 + [(100, 60)] * 5, "2026-10-06", STARTED_ON_OCTOBER_6),
             (
-                "starts_on_the_sixth_day",
-                [(100, 100)] * 5 + [(100, 60)] * 5,
+                "too_many_users_for_the_p_value_to_rank_the_days",
+                [(50000, 50000)] * 5 + [(50000, 30000)] * 5,
                 "2026-10-06",
-                f"{MISMATCH} The users first exposed before October 6, 2026 match the split. From that day on, "
-                '"test" has 37.5% of the users first exposed, against 50% planned. A mismatch that starts on one day '
-                'often follows a release, so check what changed in the code or tracking of "test" on that day.',
+                STARTED_ON_OCTOBER_6,
             ),
             ("off_the_split_before_the_change_too", [(100, 40)] * 5 + [(100, 80)] * 5, None, NO_LOCATION),
             ("first_days_too_few_to_differ", [(60, 50)] * 2 + [(100, 80)] * 8, None, NO_LOCATION),
+            (
+                "earlier_stretches_on_both_sides_of_the_split",
+                [(140, 60)] * 4 + [(60, 140)] * 4 + [(100, 60)] * 6,
+                None,
+                NO_LOCATION,
+            ),
         ]
     )
     def test_names_the_day_a_mismatch_starts(
