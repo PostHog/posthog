@@ -70,6 +70,10 @@ KNOWN_GAPS: dict[tuple[str, str, str], str] = {
     ("detail_action", "HogFlowViewSet.cancel_invocations", ""): (
         "A deleted workflow has no row to check, so the view requires project-wide editor access instead."
     ),
+    ("detail_action", "HogFlowViewSet.invocations", ""): (
+        "A workflow that is not saved yet has no row to check, so testing it requires project-wide editor access "
+        "instead."
+    ),
 }
 
 _REFERENCE_KEY = re.compile(r"(^|_)(id|ids|pk|item|items)$|^(use|source|from)_")
