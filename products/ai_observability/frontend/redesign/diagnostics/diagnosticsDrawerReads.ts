@@ -1,4 +1,4 @@
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, isAbortError } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
@@ -8,8 +8,9 @@ import { ListRequestScope, listRequestParams } from '../lists/cursorPaging'
 import type { ListFilters } from '../lists/listFiltersLogic'
 import type { ListScopeKind } from '../lists/listScopes'
 import type { CellLoads, TraceCellLoad } from '../shared/cellLoads'
+import { createCellReader } from '../shared/cellReader'
 import { rangeTooLongDetail } from '../shared/rangeTooLong'
-import { readOrFailure, toLoadFailure } from '../shared/readOrFailure'
+import { toLoadFailure } from '../shared/readOrFailure'
 import { shellHref, shellLinkParams } from '../shell/shellNavigation'
 import { withRawParams } from '../trace/rawSearchParam'
 import { TRACE_DRAWER_PARAMS } from '../trace/traceDrawerRows'
@@ -17,6 +18,8 @@ import type { TraceListRow } from '../trace/traceListRows'
 import type { LoadFailure } from '../trace/types'
 
 export const RECENT_TRACES_LIMIT = 5
+// The server hands out entity keys as unpadded base64url.
+const ENTITY_KEY = /^[A-Za-z0-9_-]+$/
 
 export type DiagnosticsDrawerParams = Pick<
     AiObservabilityTracesListParams,
@@ -65,6 +68,22 @@ export function drawerReadParams(
         searchEnabled: false,
     })
     return { date_from, date_to, properties, filter_test_accounts }
+}
+
+/** The key in a URL param when it can be a key the server handed out. The reads put it in an API path, so a value with
+ * any other character, such as `../`, never reaches a request. */
+export function entityKeyParam(value: string | null): string | null {
+    return value !== null && ENTITY_KEY.test(value) ? value : null
+}
+
+/**
+ * The signal of a drawer read under `key`. The next read under the same key aborts it, as does `dispose(key)` and the
+ * logic's unmount, so a superseded scan frees its query slot. A hidden tab keeps it going.
+ */
+export function replaceableRead(cache: Record<string, any>, key: string): AbortSignal {
+    const controller = new AbortController()
+    cache.disposables.add(() => () => controller.abort(), key, { pauseOnPageHidden: false })
+    return controller.signal
 }
 
 // A read that is no longer the latest drops its answer and its failure, so neither lands over the newer one.
@@ -152,34 +171,47 @@ export function recentTracesLoadOf<T>(
     return readLoadOf(value, failed)
 }
 
-/** Whether a failed read is one to report: a range too long shows its own message, and nothing found is no failure. */
+/** Whether a failed read is one to report: a range too long shows its own message, and neither nothing found nor an
+ * aborted read is a failure. */
 export function isReportedFailure(errorObject: unknown): boolean {
-    return toLoadFailure(errorObject) === 'failed' && rangeTooLongDetail(errorObject) === null
-}
-
-export function tracesToPreview(traces: TraceListItemApi[], previews: CellLoads<TracePreviewApi>): string[] {
-    return traces.map((trace) => trace.id).filter((id) => previews.get(id)?.status !== 'ready')
-}
-
-/** Reads the inputs of the recent traces that have none yet, and drops the answer once a newer read replaces it. */
-export async function readMissingPreviews(
-    traces: TraceListItemApi[],
-    previews: CellLoads<TracePreviewApi>,
-    actions: PreviewReadActions,
-    breakpoint: () => void
-): Promise<void> {
-    const traceIds = tracesToPreview(traces, previews)
-    if (traceIds.length === 0) {
-        return
-    }
-    actions.previewsRequested(traceIds)
-    const result = await readOrFailure(
-        aiObservabilityTracesPreviewsCreate(String(ApiConfig.getCurrentProjectId()), { trace_ids: traceIds })
+    return (
+        !isAbortError(errorObject) &&
+        toLoadFailure(errorObject) === 'failed' &&
+        rangeTooLongDetail(errorObject) === null
     )
-    breakpoint()
-    if ('failure' in result) {
-        actions.previewsFailed(traceIds)
-    } else {
-        actions.previewsLoaded(result.value.items)
-    }
+}
+
+/** The traces whose preview is neither read nor in flight, so a failed one is read again. */
+export function tracesToPreview(traces: TraceListItemApi[], previews: CellLoads<TracePreviewApi>): string[] {
+    return traces
+        .map((trace) => trace.id)
+        .filter((id) => {
+            const status = previews.get(id)?.status
+            return status !== 'ready' && status !== 'loading'
+        })
+}
+
+/**
+ * Reads the previews of the traces that have none yet or whose read failed, for every list of traces a drawer shows.
+ * A preview belongs to its trace whatever list shows it, so lists that share a trace share its read.
+ */
+export function createPreviewReader(
+    cache: Record<string, any>,
+    actions: PreviewReadActions
+): (traces: TraceListItemApi[], previews: CellLoads<TracePreviewApi>) => Promise<void> {
+    const readCells = createCellReader<string, 'previews', TracePreviewApi>({
+        cache,
+        idOf: (traceId) => traceId,
+        itemIdOf: (preview) => preview.traceId,
+        requested: (_read, traceIds) => actions.previewsRequested(traceIds),
+        failed: (_read, traceIds) => actions.previewsFailed(traceIds),
+    })
+    return (traces, previews) =>
+        readCells(
+            'previews',
+            tracesToPreview(traces, previews),
+            (traceIds) =>
+                aiObservabilityTracesPreviewsCreate(String(ApiConfig.getCurrentProjectId()), { trace_ids: traceIds }),
+            actions.previewsLoaded
+        )
 }

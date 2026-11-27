@@ -47,7 +47,7 @@ const LIST_URL = combineUrl(LIST_PATH, {
 
 const NARROWER_RANGE = '-14d'
 
-type DrawerRead = 'detail' | 'recent_traces' | 'first_seen'
+type DrawerRead = 'detail' | 'recent_traces' | 'first_seen' | 'previews'
 const FIRST_SEEN_PARAMS = { date_from: '-30d', filter_test_accounts: 'true' }
 
 function makeDetail(message: string, occurrences: number): ErrorGroupDetailApi {
@@ -61,6 +61,8 @@ function makeDetail(message: string, occurrences: number): ErrorGroupDetailApi {
 describe('errorDrawerLogic', () => {
     let detailRequests: { key: string; params: Record<string, string> }[]
     let traceRequests: Record<string, string>[]
+    let readSignals: { detail: AbortSignal[]; recent_traces: AbortSignal[] }
+    let previewReads: string[][]
     let pageKeys: string[]
     let firstSeenReads: { params: Record<string, string>; keys: string[] }[]
     let pageHeld: Promise<void> | null
@@ -84,6 +86,8 @@ describe('errorDrawerLogic', () => {
         localStorage.clear()
         detailRequests = []
         traceRequests = []
+        readSignals = { detail: [], recent_traces: [] }
+        previewReads = []
         pageKeys = ['error-a', 'error-b']
         firstSeenReads = []
         pageHeld = null
@@ -94,6 +98,7 @@ describe('errorDrawerLogic', () => {
                 [DETAIL_URL]: async ({ request, params }) => {
                     const searchParams = new URL(request.url).searchParams
                     detailRequests.push({ key: String(params.key), params: Object.fromEntries(searchParams) })
+                    readSignals.detail.push(request.signal)
                     await held
                     if (failing?.read === 'detail') {
                         return [failing.status, { detail: 'failed' }]
@@ -108,6 +113,7 @@ describe('errorDrawerLogic', () => {
                 [TRACES_URL]: async ({ request }) => {
                     const searchParams = new URL(request.url).searchParams
                     traceRequests.push(Object.fromEntries(searchParams))
+                    readSignals.recent_traces.push(request.signal)
                     await held
                     if (failing?.read === 'recent_traces') {
                         return [failing.status, { detail: 'failed' }]
@@ -128,6 +134,10 @@ describe('errorDrawerLogic', () => {
                 },
                 [TRACE_CELL_URLS.previews]: async ({ request }: { request: Request }) => {
                     const body: TracePageRequestApi = await request.json()
+                    previewReads.push(body.trace_ids)
+                    if (failing?.read === 'previews') {
+                        return [500, { detail: 'failed' }]
+                    }
                     return [200, { items: body.trace_ids.map((id) => makeTracePreview(id)) }]
                 },
             },
@@ -328,4 +338,65 @@ describe('errorDrawerLogic', () => {
             })
         }
     )
+
+    it.each(['../../../../users/@me', 'a/b', 'a%2Fb', 'key=='])(
+        'reads nothing for an error param the server never hands out: %s',
+        async (value) => {
+            await mountAt(combineUrl(LIST_URL, { error: value }).url)
+
+            expect(logic.values.openKey).toBeNull()
+            expect(detailRequests).toEqual([])
+        }
+    )
+
+    it.each([
+        ['another error opens', () => logic.actions.openError(makeErrorListItem({ key: 'T3RoZXI', message: 'Other' }))],
+        ['the drawer closes', () => logic.actions.close()],
+    ])('aborts the reads in flight when %s', async (_name, discard) => {
+        let release = (): void => {}
+        held = new Promise((resolve) => {
+            release = resolve
+        })
+        router.actions.push(combineUrl(LIST_URL, { error: MESSAGE_KEY }).url)
+        logic = errorDrawerLogic()
+        logic.mount()
+        await waitFor(() => expect(readSignals.detail).toHaveLength(1))
+        const [detailRead] = readSignals.detail
+
+        discard()
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(detailRead.aborted).toBe(true)
+        expect(captured('llma diagnostics read failed')).toEqual([])
+        expect(logic.values.detailFailure).toBeNull()
+    })
+
+    it('clears a recent traces failure when another error opens, while that error loads', async () => {
+        silenceKeaLoadersErrors()
+        failing = { read: 'recent_traces', status: 500 }
+        await mountAt(combineUrl(LIST_URL, { error: MESSAGE_KEY }).url)
+        expect(logic.values.recentTracesLoad).toEqual({ status: 'error' })
+        held = new Promise(() => {})
+
+        router.actions.push(combineUrl(LIST_URL, { error: 'T3RoZXI' }).url)
+        await expectLogic(logic).toDispatchActions(['loadErrorDetail'])
+
+        expect(logic.values.recentTracesLoad).toEqual({ status: 'loading' })
+    })
+
+    it('reads the failed trace previews again on retry', async () => {
+        failing = { read: 'previews', status: 500 }
+        await mountAt(combineUrl(LIST_URL, { error: MESSAGE_KEY }).url)
+        expect(logic.values.previews.get('trace-1')).toEqual({ status: 'error' })
+
+        failing = null
+        await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
+
+        expect(previewReads).toEqual([
+            ['trace-1', 'trace-2'],
+            ['trace-1', 'trace-2'],
+        ])
+        expect(logic.values.previews.get('trace-1')).toEqual({ status: 'ready', value: makeTracePreview('trace-1') })
+    })
 })
