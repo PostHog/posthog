@@ -483,7 +483,7 @@ Every query binds the owner from the token.
 - A row of another team answers 404, the same as a row that does not exist, so a caller cannot probe ids.
 - `mirror` copies Django rows, keyed by `legacy_id`, for the token's owner. Each row carries the Django `row_version` as `source_version`.
   An older version answers `stale`, the same version answers `unchanged` (no KMS call, no audit row) unless `force` is set, and a newer one replaces every field and seals the secret again.
-  A delete soft-deletes the row and removes its secret. `tombstone: true` on an unknown id stores a deleted row, so a late upsert of that id answers `stale`.
+  A delete soft-deletes the row and removes its secret, whatever its `source_version`, because a deleted Django id never comes back. `tombstone: true` on an unknown id stores a deleted row, so a late upsert of that id answers `stale`.
   Each row answers `created`, `updated`, `deleted`, `unchanged`, `stale`, `absent`, `owner_mismatch`, `conflict` (with `conflicting_legacy_id`, or with `code: concurrent_write` when the row lost a race twice and can be sent again) or `rejected` (with `code`), and one bad row does not fail the others.
   [`tests/fixtures/mirror-request.json`](tests/fixtures/mirror-request.json) is a request the route must accept as-is.
 

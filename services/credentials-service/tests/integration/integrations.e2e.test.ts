@@ -1776,16 +1776,15 @@ describe('mirror', () => {
             })
         ).toEqual(['stale'])
 
-        expect(await outcomes([{ ...deleteRow(502, false), source_version: 4 }])).toEqual(['stale'])
-
         expect(await resolveAccessToken(502)).toBe(ACCESS_TOKEN)
         expect(await stored(502)).toMatchObject({ source_version: '5', version: 1 })
     })
 
     it('deletes, keeps the tombstone, and tombstones an unknown id only when asked', async () => {
         expect(await outcomes([mirrorRow(503, 1)])).toEqual(['created'])
-        expect(await outcomes([deleteRow(503, false)])).toEqual(['deleted'])
-        expect(await stored(503)).toMatchObject({ secret_id: null, version: 2 })
+        // A delete with an older version still wins, and the stored version does not go down.
+        expect(await outcomes([{ ...deleteRow(503, false), source_version: 0 }])).toEqual(['deleted'])
+        expect(await stored(503)).toMatchObject({ secret_id: null, version: 2, source_version: '1' })
         expect((await stored(503)).deleted_at).not.toBeNull()
         expect(await outcomes([mirrorRow(503, 9)])).toEqual(['stale'])
         expect(await outcomes([deleteRow(503, true)])).toEqual(['unchanged'])

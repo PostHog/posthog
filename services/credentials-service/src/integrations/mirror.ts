@@ -84,14 +84,13 @@ export function decideMirror(
     if (stored.deletedAt !== null) {
         return { outcome: row.deleted ? 'unchanged' : 'stale' }
     }
+    // A delete wins whatever its version: a deleted Django id never comes back, and the version
+    // a delete signal carries can be older than the last update.
+    if (row.deleted) {
+        return { write: 'delete' }
+    }
     // A live row with a legacy id but no source version was not written by the mirror.
     const storedVersion = stored.sourceVersion ?? -1
-    if (row.deleted) {
-        // A delete without a version still wins: a deleted Django id never comes back.
-        return row.source_version !== undefined && row.source_version < storedVersion
-            ? { outcome: 'stale' }
-            : { write: 'delete' }
-    }
     if (row.source_version < storedVersion) {
         return { outcome: 'stale' }
     }
