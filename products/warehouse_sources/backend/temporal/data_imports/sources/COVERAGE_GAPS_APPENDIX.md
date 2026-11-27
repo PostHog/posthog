@@ -833,7 +833,7 @@ Note: The API has no OpenAPI spec (the openapi.json path returns 404), so I pars
 
 ## Appdynamics — gaps
 
-Today (13): `anomalies`, `applications`, `backends`, `business_transactions`, `database_servers`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metrics`, `nodes`, `request_snapshots`, `tiers`
+Today (16): `anomalies`, `applications`, `backends`, `business_transactions`, `controller_audit_history`, `database_health_rule_violations`, `database_servers`, `events`, `health_rule_violations`, `health_rules`, `metric_data`, `metric_data_v2`, `metrics`, `nodes`, `request_snapshots`, `tiers`
 
 Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdynamics/26.4.0/extend-splunk-appdynamics/splunk-appdynamics-apis>
 
@@ -843,11 +843,11 @@ Diffed against: <https://help.splunk.com/en/appdynamics-saas/extend-splunk-appdy
 - [x] `/controller/rest/applications/{app}/metrics (metric tree browse)` — lookup of available metric paths — without it metric_data has to be hand-configured (high)
 - [x] `/controller/rest/applications/{app}/backends` — lookup for remote services/databases referenced by tiers and business transactions (high)
 - [x] `/controller/anomaly/rest/api/v1/applications/{id}/anomalies` — anomaly-detection violations, the ML counterpart to health rule violations (medium)
-- [ ] `/events/query (Analytics Events API, ADQL)` — transaction/log/browser analytics records not exposed by the controller REST API (medium)
+- [ ] `/events/query (Analytics Events API, ADQL)` — transaction/log/browser analytics records not exposed by the controller REST API (medium) Skipped: Events Service host with its own credentials, and rows are whatever a user-written ADQL query selects, so no fixed table.
 - [x] `/controller/rest/databases/servers` — database visibility inventory joinable to backends and tiers (medium)
-- [ ] `/controller/rest/databases/servers/healthrule-violations` — database-side violations alongside the APM ones already synced (medium)
-- [ ] `/controller/rest/applications/{app}/metric-data-v2` — v2 metric retrieval with richer rollup semantics than the v1 metric_data we sync (low)
-- [ ] `/controller/ControllerAuditHistory` — who changed what in the controller, for correlating config changes to incidents (low)
+- [x] `/controller/rest/databases/servers/healthrule-violations` — database-side violations alongside the APM ones already synced (medium)
+- [x] `/controller/rest/applications/{app}/metric-data-v2` — v2 metric retrieval with richer rollup semantics than the v1 metric_data we sync (low)
+- [x] `/controller/ControllerAuditHistory` — who changed what in the controller, for correlating config changes to incidents (low)
 
 Note: `/events/query` is left unticked on purpose. The Analytics Events API is not served by
 the controller: it addresses the Events Service host with its own `X-Events-API-AccountName` /
