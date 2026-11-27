@@ -1939,6 +1939,11 @@ describe('runner through seed, drive and judge', () => {
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+                vacuum: expect.arrayContaining([expect.objectContaining({ deadTuples: expect.any(Number) })]),
+                vacuumSettings: expect.objectContaining({
+                    settings: expect.objectContaining({ autovacuum: 'on' }),
+                    storage: expect.objectContaining({ cyclotron_jobs: null }),
+                }),
                 dependencies: [],
             })
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)

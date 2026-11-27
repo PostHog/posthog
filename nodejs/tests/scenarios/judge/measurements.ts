@@ -9,6 +9,7 @@ import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
+import type { VacuumRead, VacuumSettingsRead } from '../probe/vacuum-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
@@ -37,7 +38,12 @@ export type Sampled = { samples: MetricSample[]; missed: MissedScrape[]; host: H
 
 export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
-export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
+export type Probed = {
+    writer: WriterSample[]
+    queue: QueueSample[]
+    vacuum?: VacuumRead[]
+    vacuumSettings?: VacuumSettingsRead
+}
 
 export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
