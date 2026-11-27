@@ -10,7 +10,7 @@ import { getDefaultConfig } from '~/common/config/config'
 import { durationMs } from '../duration'
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
 import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
-import { roleFreeze, roleKill } from '../valves/valves'
+import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { AdmissionTargets, loadTargetsOf } from './load-targets'
 import { AlertsProfile, Card, Load, Named, Profile, SeedOverride, stepsOf } from './schema'
@@ -202,7 +202,7 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
-const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+const ROLE_STOPPING_VALVES = [roleKill.name, roleTerminate.name, roleFreeze.name]
 
 function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
     if ((profile.replicas['cdp-api'] ?? 1) === 1) {
@@ -219,14 +219,16 @@ function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 
+const SEND_STRANDING_VALVES = [roleKill.name, roleTerminate.name]
+
 const killsEmailWorker = ({ valve, target }: Card['valves'][number]): boolean =>
-    valve === roleKill.name && target === EMAIL_WORKER
+    SEND_STRANDING_VALVES.includes(valve) && target === EMAIL_WORKER
 
 function checkAcceptedBoundary(card: Card): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && !killsEmailWorker(entry)
             ? [
-                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only role.kill on ${EMAIL_WORKER}`,
+                  `valves.${i}.when: edge_accepted holds an email worker's send, so it fires only ${SEND_STRANDING_VALVES.join(' or ')} on ${EMAIL_WORKER}`,
               ]
             : []
     )
@@ -239,7 +241,7 @@ function checkAcceptedBoundaryReplicas(card: Card, profile: Profile): string[] {
     return card.valves.flatMap((entry, i) =>
         entry.when?.name === 'edge_accepted' && killsEmailWorker(entry)
             ? [
-                  `valves.${i}.target: role.kill stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+                  `valves.${i}.target: ${entry.valve} stops ${EMAIL_WORKER} replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
               ]
             : []
     )

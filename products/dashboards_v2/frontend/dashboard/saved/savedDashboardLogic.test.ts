@@ -140,6 +140,18 @@ describe('savedDashboardLogic', () => {
         expect(logic.values.canUndo).toBe(false)
     })
 
+    it('fails the save, rather than showing a conflict, when their version is not a dashboard', async () => {
+        useBoard(() => [409, {}])
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { [BOARD_URL]: () => ({ ...board(2, 'Theirs'), spec: { version: 2, title: 'No tabs' } }) } })
+
+        retitle('Mine, edited')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.conflict).toBeNull()
+        expect(logic.values.saveState).toBe('failed')
+    })
+
     it('keeps an edit that failed to save, and saves it on retry', async () => {
         let fail = true
         useBoard((save) => (fail ? [500, {}] : [200, { ...board(2, save.spec.title), spec: save.spec }]))
