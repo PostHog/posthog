@@ -118,8 +118,8 @@ export interface issueAffectedBroadcastLogicActions {
     offerAfterResolve: () => {
         value: true
     }
-    openModal: () => {
-        value: true
+    openModal: (attemptId?: string) => {
+        attemptId: string | undefined
     }
     openModalAfterResolve: () => {
         value: true
@@ -153,7 +153,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
     connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
 
     actions({
-        openModal: true,
+        openModal: (attemptId?: string) => ({ attemptId }),
         openModalAfterResolve: true,
         closeModal: true,
         offerAfterResolve: true,
@@ -219,9 +219,9 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
     })),
 
     listeners(({ actions, props, values, cache }) => ({
-        openModal: () => {
+        openModal: ({ attemptId }) => {
             // The click on the entry point, before any outcome, so abandoned attempts count too.
-            captureMessageAudienceClicked(ISSUE_AFFECTED_SOURCE, 'broadcast')
+            captureMessageAudienceClicked(ISSUE_AFFECTED_SOURCE, 'broadcast', attemptId)
             actions.loadAffectedCount()
             actions.loadSendWarnings()
         },

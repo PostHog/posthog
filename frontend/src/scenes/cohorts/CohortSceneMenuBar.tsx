@@ -32,7 +32,10 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
-import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
+import {
+    MessageAudienceSpot,
+    useMessageAudienceAttempts,
+} from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -55,6 +58,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const audienceAttempts = useMessageAudienceAttempts()
 
     if (!cohort) {
         return null
@@ -75,7 +79,11 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
                                 onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'broadcast')
+                                    captureMessageAudienceClicked(
+                                        'cohort',
+                                        'broadcast',
+                                        audienceAttempts.idFor('broadcast')
+                                    )
                                     void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
                                 }}
                                 disabled={!!broadcastDisabledReason}
@@ -84,6 +92,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             >
                                 <IconLetter />
                                 <MessageAudienceSpot
+                                    attempts={audienceAttempts}
                                     source="cohort"
                                     destination="broadcast"
                                     disabled={!!broadcastDisabledReason}
@@ -93,7 +102,11 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'workflow')
+                                    captureMessageAudienceClicked(
+                                        'cohort',
+                                        'workflow',
+                                        audienceAttempts.idFor('workflow')
+                                    )
                                     router.actions.push(urlForCohortWorkflow(cohort))
                                 }}
                                 disabled={!!accessDisabledReason}
@@ -102,6 +115,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             >
                                 <IconSend />
                                 <MessageAudienceSpot
+                                    attempts={audienceAttempts}
                                     source="cohort"
                                     destination="workflow"
                                     disabled={!!accessDisabledReason}

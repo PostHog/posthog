@@ -11,7 +11,7 @@ import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, Prop
 
 import { MessageAudience, captureMessageAudienceClicked } from './messageAudience'
 import { MessageAudienceButton } from './MessageAudienceButton'
-import { MessageAudienceSpot } from './MessageAudienceSpot'
+import { MessageAudienceSpot, useMessageAudienceAttempts } from './MessageAudienceSpot'
 
 const audience: MessageAudience = {
     source: 'early_access_feature',
@@ -129,11 +129,15 @@ describe('message audience on-screen events', () => {
     })
 
     it('reports a button that was disabled only once it is on screen while usable', () => {
-        const spot = (disabled: boolean): JSX.Element => (
-            <MessageAudienceSpot source="cohort" destination="broadcast" disabled={disabled}>
-                Email this cohort
-            </MessageAudienceSpot>
-        )
+        function Spot({ disabled }: { disabled: boolean }): JSX.Element {
+            const attempts = useMessageAudienceAttempts()
+            return (
+                <MessageAudienceSpot attempts={attempts} source="cohort" destination="broadcast" disabled={disabled}>
+                    Email this cohort
+                </MessageAudienceSpot>
+            )
+        }
+        const spot = (disabled: boolean): JSX.Element => <Spot disabled={disabled} />
         const { rerender } = render(spot(true))
         act(() => mockAllIsIntersecting(true))
         act(() => mockAllIsIntersecting(false))
@@ -208,6 +212,31 @@ describe('message audience on-screen events', () => {
         const [firstShown] = events('message audience shown')
         expect(events('message audience clicked')).toEqual([
             { source: 'early_access_feature', destination: 'broadcast', attempt_id: firstShown.attempt_id },
+        ])
+    })
+
+    it('gives a click before the button is reported the attempt its later report carries', async () => {
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Email them" />)
+
+        await clickAndOpen('Email them')
+        act(() => mockAllIsIntersecting(true))
+
+        const [clicked] = events('message audience clicked')
+        expect(events('message audience shown')).toEqual([
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: clicked.attempt_id },
+        ])
+    })
+
+    it('gives a click the attempt of its own button whichever button came on screen first', async () => {
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Mounted first" />)
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Seen first" />)
+        act(() => mockIsIntersecting(screen.getByText('Seen first'), true))
+        act(() => mockIsIntersecting(screen.getByText('Mounted first'), true))
+
+        await clickAndOpen('Seen first')
+        const [seenFirst] = events('message audience shown')
+        expect(events('message audience clicked')).toEqual([
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: seenFirst.attempt_id },
         ])
     })
 

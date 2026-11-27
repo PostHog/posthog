@@ -10,7 +10,10 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
-import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
+import {
+    MessageAudienceSpot,
+    useMessageAudienceAttempts,
+} from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
@@ -34,12 +37,13 @@ function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
 
 export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string }): JSX.Element {
     const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const attempts = useMessageAudienceAttempts()
     return (
         <ButtonPrimitive
             menuItem
             tooltip="Open a workflow that emails each person who responds to this survey"
             onClick={() => {
-                captureMessageAudienceClicked(SOURCE, 'workflow')
+                captureMessageAudienceClicked(SOURCE, 'workflow', attempts.idFor('workflow'))
                 router.actions.push(
                     urlForNewWorkflowWithTrigger(
                         surveyFollowUpTrigger(surveyId),
@@ -53,7 +57,12 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            <MessageAudienceSpot source={SOURCE} destination="workflow" disabled={!!accessDisabledReason}>
+            <MessageAudienceSpot
+                attempts={attempts}
+                source={SOURCE}
+                destination="workflow"
+                disabled={!!accessDisabledReason}
+            >
                 Email everyone who responds
             </MessageAudienceSpot>
         </ButtonPrimitive>

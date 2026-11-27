@@ -5,7 +5,7 @@ import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
 
 import { MessageAudience, MessageAudienceDestination, messageAudienceAccessDisabledReason } from './messageAudience'
 import { messageAudienceOpenLogic } from './messageAudienceOpenLogic'
-import { MessageAudienceSpot } from './MessageAudienceSpot'
+import { MessageAudienceSpot, useMessageAudienceAttempts } from './MessageAudienceSpot'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
     broadcast: 'Send a one-time email',
@@ -33,6 +33,7 @@ export function MessageAudienceButton({
     const logic = messageAudienceOpenLogic({ audience })
     const { opening } = useValues(logic)
     const { open } = useActions(logic)
+    const attempts = useMessageAudienceAttempts()
     const buttonProps = {
         type,
         size,
@@ -46,10 +47,11 @@ export function MessageAudienceButton({
         return (
             <LemonButton
                 {...buttonProps}
-                onClick={() => open(destinations[0])}
+                onClick={() => open(destinations[0], attempts.idFor(destinations[0]))}
                 data-attr={`message-audience-${audience.source}-${destinations[0]}`}
             >
                 <MessageAudienceSpot
+                    attempts={attempts}
                     source={audience.source}
                     destination={destinations[0]}
                     disabled={!!buttonProps.disabledReason}
@@ -63,11 +65,11 @@ export function MessageAudienceButton({
         <LemonMenu
             items={destinations.map((destination) => ({
                 label: (
-                    <MessageAudienceSpot source={audience.source} destination={destination}>
+                    <MessageAudienceSpot attempts={attempts} source={audience.source} destination={destination}>
                         {DESTINATION_LABELS[destination]}
                     </MessageAudienceSpot>
                 ),
-                onClick: () => open(destination),
+                onClick: () => open(destination, attempts.idFor(destination)),
                 'data-attr': `message-audience-${audience.source}-${destination}`,
             }))}
         >

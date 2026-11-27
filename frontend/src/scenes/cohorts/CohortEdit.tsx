@@ -87,7 +87,10 @@ import {
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceOpenLogic'
-import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
+import {
+    MessageAudienceSpot,
+    useMessageAudienceAttempts,
+} from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -256,6 +259,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const broadcastLogic = messageAudienceOpenLogic({ audience: cohortBroadcastAudience(cohort) })
     const { opening: openingBroadcast } = useValues(broadcastLogic)
     const { open: openBroadcast } = useActions(broadcastLogic)
+    const audienceAttempts = useMessageAudienceAttempts()
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
@@ -317,7 +321,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                     <ScenePanelActionsSection>
                         <ButtonPrimitive
-                            onClick={() => openBroadcast('broadcast')}
+                            onClick={() => openBroadcast('broadcast', audienceAttempts.idFor('broadcast'))}
                             disabledReasons={{
                                 ...(broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}),
                                 'Checking whether this email can go out': openingBroadcast,
@@ -328,6 +332,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                         >
                             <IconLetter />{' '}
                             <MessageAudienceSpot
+                                attempts={audienceAttempts}
                                 source="cohort"
                                 destination="broadcast"
                                 disabled={!!broadcastDisabledReason}
@@ -338,7 +343,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                         <ButtonPrimitive
                             onClick={() => {
-                                captureMessageAudienceClicked('cohort', 'workflow')
+                                captureMessageAudienceClicked('cohort', 'workflow', audienceAttempts.idFor('workflow'))
                                 router.actions.push(urlForCohortWorkflow(cohort))
                             }}
                             disabledReasons={{
@@ -351,6 +356,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                         >
                             <IconSend />{' '}
                             <MessageAudienceSpot
+                                attempts={audienceAttempts}
                                 source="cohort"
                                 destination="workflow"
                                 disabled={isNewCohort || !!accessDisabledReason}

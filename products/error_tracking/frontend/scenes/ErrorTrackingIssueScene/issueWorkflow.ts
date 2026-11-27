@@ -21,8 +21,8 @@ function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
 }
 
 /** Opens a new workflow that emails people each time they hit this issue. */
-export function openIssueWorkflow(issueId: string): void {
-    captureMessageAudienceClicked(ISSUE_WORKFLOW_SOURCE, 'workflow')
+export function openIssueWorkflow(issueId: string, attemptId?: string): void {
+    captureMessageAudienceClicked(ISSUE_WORKFLOW_SOURCE, 'workflow', attemptId)
     router.actions.push(
         urlForNewWorkflowWithTrigger(
             issueWorkflowTrigger(issueId),
