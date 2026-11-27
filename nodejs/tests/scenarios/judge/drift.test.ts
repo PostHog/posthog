@@ -56,10 +56,7 @@ const counted = (partial: Partial<Counted> = {}): Counted => ({
     ...partial,
 })
 
-type Judged = Pick<
-    MeasureEvidence,
-    'counters' | 'unread' | 'horizonAt' | 'converged' | 'unsettled' | 'feedbackInFlight'
->
+type Judged = Pick<MeasureEvidence, 'counters' | 'unread' | 'horizonAt' | 'converged' | 'unsettled'>
 
 const evidence = (journal: JournalEntry[], truth: TruthRecord[], judged: Judged): MeasureEvidence => ({
     journal,
@@ -160,14 +157,6 @@ describe('counter drift', () => {
             { email_sent: null, email_sent_counted: 6, email_sent_sink: 3 },
         ],
         [
-            'leaves the delivery drift unknown and keeps the send drift when SES notifications were still in flight',
-            {
-                counters: { counted: counted({ email_sent: 3, email_delivered: 2 }), consumers: 1 },
-                feedbackInFlight: 1,
-            },
-            { email_sent: 0, email_delivered: null, email_delivered_counted: 2, email_delivered_sink: 1 },
-        ],
-        [
             'leaves owed unknown when the run reached no recovery horizon',
             { counters: { counted: counted(), consumers: 1 }, horizonAt: undefined },
             { owed: null, email_sent_sink: 3 },
@@ -206,12 +195,6 @@ describe('counter drift', () => {
             { counters: { counted: counted(), consumers: 1 }, unsettled: 'the edge kept accepting sends' },
             'email_sent',
             /kept accepting sends/,
-        ],
-        [
-            'records why the delivery drift is unknown when SES notifications were still in flight',
-            { counters: { counted: counted(), consumers: 1 }, feedbackInFlight: 2 },
-            'email_delivered',
-            /2 SES notifications were still in flight/,
         ],
         [
             'records why the drift is unknown when two Kafka tables feed the counters',

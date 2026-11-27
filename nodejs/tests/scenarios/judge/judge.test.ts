@@ -952,6 +952,37 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
     })
 
+    it("judges no_loss when only this run's SES feedback kept landing through every final read", async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await judge.converge(20, NEVER_ABORTED)
+        await deliver('run-b-1')
+        duringFinalPage = () =>
+            Promise.resolve(
+                edgeRecords.append({
+                    kind: 'ses.feedback',
+                    status: 200,
+                    unitId: UNIT,
+                    detail: {
+                        feedback: {
+                            eventType: 'Delivery',
+                            snsMessageId: 'sns-1',
+                            sesMessageId: 'ses-1',
+                            postedAt: new Date(0).toISOString(),
+                            durationMs: 1,
+                        },
+                    },
+                })
+            )
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+        expect({ result, unsettled: judge.evidence().unsettled }).toEqual({
+            result: expect.not.objectContaining({ unjudged: expect.stringContaining('kept accepting') }),
+            unsettled: undefined,
+        })
+    })
+
     const TEAM = 2_100_000_000
     const BACKLOG: Backlog = {
         teams: 1,
@@ -1319,10 +1350,15 @@ describe('judge', () => {
                     ConfigurationSetName: 'scenario-tracking',
                 })
             )
+            await judge.converge(20, NEVER_ABORTED)
 
-            await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
-            expect(judge.evidence().feedbackInFlight).toBe(1)
+            const reason = 'feedback in flight at the final read: the edge was still posting 1 SES notification'
+            expect({ result, evidence: judge.evidence() }).toMatchObject({
+                result: { name: 'no_loss', passed: false, unjudged: reason },
+                evidence: { feedbackInFlight: 1, unsettled: reason },
+            })
         } finally {
             hanging.closeAllConnections()
             await new Promise<void>((resolve) => hanging.close(() => resolve()))

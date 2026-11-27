@@ -471,8 +471,9 @@ describe('provider edge SES feedback', () => {
         holding = false
         releases.shift()?.()
 
+        const answered = await head
         const delivered = await feedbackOf()
-        expect({ answered: await head, feedback: delivered.length }).toEqual({
+        expect({ answered, feedback: delivered.length }).toEqual({
             answered: { head: Math.max(...delivered.map(({ seq }) => seq)), feedbackInFlight: 0 },
             feedback: 2,
         })

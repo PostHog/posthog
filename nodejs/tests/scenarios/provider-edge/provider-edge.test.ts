@@ -1,4 +1,4 @@
-import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, holdOf, startProviderEdge } from '.'
+import { CardFault, FaultHold, ProviderEdge, TruthHead, TruthPage, headWaitOf, holdOf, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -625,6 +625,14 @@ describe('provider edge', () => {
             answer: 'MessageRejected',
             observed: false,
         })
+    })
+
+    it.each<[string, string | null, number]>([
+        ['no wait when the head names none', null, 0],
+        ['the wait the head names', '5000', 5000],
+        ['the longest wait a timer holds when the head names more', String(2 ** 31), 2 ** 31 - 1],
+    ])('waits for feedback on a truth head read for %s', (_story, param, waitMs) => {
+        expect(headWaitOf(param)).toBe(waitMs)
     })
 
     it.each<[string, string, TruthPage | TruthHead]>([

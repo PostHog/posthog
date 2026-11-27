@@ -152,6 +152,10 @@ function parseBody(raw: string): unknown {
     }
 }
 
+const LONGEST_TIMER_MS = 2 ** 31 - 1
+
+export const headWaitOf = (waitMs: string | null): number => Math.min(integerAtLeast(waitMs, 0, 0), LONGEST_TIMER_MS)
+
 function integerAtLeast(value: string | null, min: number, fallback: number): number {
     const parsed = Number(value ?? fallback)
     return Number.isInteger(parsed) && parsed >= min ? parsed : fallback
@@ -390,7 +394,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         if (req.method === 'GET' && url.pathname === '/_truth/head') {
-            await feedbackLanded(integerAtLeast(url.searchParams.get('waitMs'), 0, 0))
+            await feedbackLanded(headWaitOf(url.searchParams.get('waitMs')))
         }
         const reply = route(req, url, body)
         if (reply === 'drop-connection') {
