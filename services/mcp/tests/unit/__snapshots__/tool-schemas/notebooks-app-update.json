@@ -68,6 +68,11 @@
                                         "minimum": 0.000001,
                                         "type": "number"
                                     },
+                                    "submit_action": {
+                                        "description": "Action viewers can explicitly submit with rows from a SQL cell.\n\n* `create_cohort` - Create a cohort\n* `run_workflow` - Run a workflow",
+                                        "enum": ["create_cohort", "run_workflow"],
+                                        "type": "string"
+                                    },
                                     "tab_id": {
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
@@ -97,6 +102,10 @@
                                         "maximum": 12,
                                         "minimum": 1,
                                         "type": "number"
+                                    },
+                                    "workflow_id": {
+                                        "description": "Workflow to run with the submitted rows.",
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["id", "kind", "tab_id"],
@@ -218,6 +227,11 @@
                                         "minimum": 0.000001,
                                         "type": "number"
                                     },
+                                    "submit_action": {
+                                        "description": "Action viewers can explicitly submit with rows from a SQL cell.\n\n* `create_cohort` - Create a cohort\n* `run_workflow` - Run a workflow",
+                                        "enum": ["create_cohort", "run_workflow"],
+                                        "type": "string"
+                                    },
                                     "tab_id": {
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
@@ -247,6 +261,10 @@
                                         "maximum": 12,
                                         "minimum": 1,
                                         "type": "number"
+                                    },
+                                    "workflow_id": {
+                                        "description": "Workflow to run with the submitted rows.",
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["id", "kind", "tab_id"],

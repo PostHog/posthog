@@ -26,6 +26,7 @@ class AppBlockSource:
     variable: str = ""
     node_id: str = ""
     display: str = ""
+    submit_action: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)

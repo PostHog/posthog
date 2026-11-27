@@ -1,6 +1,6 @@
 import './NotebookAppBuilder.scss'
 
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useId, useMemo, useState } from 'react'
 
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
+import { notebookAppSubmissionLogic } from './notebookAppSubmissionLogic'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
@@ -37,9 +38,11 @@ export default function PublishedNotebookApp({ shortId }: { shortId: string }): 
 
 function AppSession({ viewer, release }: { viewer: ViewerProps; release: NotebookAppReleaseApi }): JSX.Element {
     const { shortId, sessionId } = viewer
+    const submissionSession = sessionId + '-' + release.revision
+    useMountedLogic(notebookAppSubmissionLogic({ sessionId: submissionSession }))
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
+    const { variables, results, publishedResults, dirty, resultsLoading, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
@@ -96,9 +99,13 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 selectedId={null}
                 canInteract
                 onInput={changeInput}
-                renderOutput={(cell) =>
+                renderOutput={(cell, block) =>
                     cell.type === 'component' && cell.tagName === 'SQLV2' ? (
                         <PublishedNotebookQuery
+                            block={block}
+                            submissionSession={submissionSession}
+                            project={viewer.project}
+                            pendingInputs={dirty || resultsLoading || error}
                             cell={cell}
                             sessionId={sessionId}
                             current={results?.outputs[cell.id]}

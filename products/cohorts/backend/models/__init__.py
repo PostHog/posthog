@@ -22,6 +22,7 @@ from .cohort import (
     get_or_create_internal_test_users_cohort,
 )
 from .realtime_request import RealtimeCohortRequest, RealtimeCohortRequestKind, RealtimeCohortRequestState
+from .selection_submission import CohortSelectionSubmission
 from .team_access import RealtimeCohortAccessPurpose, RealtimeCohortLevel, RealtimeCohortTeamAccess
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
     "CohortManager",
     "CohortOrEmpty",
     "CohortPeople",
+    "CohortSelectionSubmission",
     "CohortType",
     "RealtimeCohortAccessPurpose",
     "RealtimeCohortLevel",

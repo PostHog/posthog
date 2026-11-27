@@ -9,7 +9,9 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import type { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { type PublishedRunResult, type SavedRows, savedQueryResult } from './notebookAppPublishedResults'
+import { NotebookAppSubmission } from './NotebookAppSubmission'
 import type { ViewerOutput } from './notebookAppViewerLogic'
 
 function publishedVisualization(
@@ -63,12 +65,20 @@ function publishedQueryHeight(
 
 export function PublishedNotebookQuery({
     cell,
+    block,
+    submissionSession,
+    project,
+    pendingInputs,
     current,
     pinned,
     sessionId,
     chartInputFilters,
 }: {
     cell: NotebookComponentBlockNode
+    block: NotebookAppBlockApi
+    submissionSession: string
+    project: string
+    pendingInputs: boolean
     current?: ViewerOutput
     pinned?: PublishedRunResult
     sessionId: string
@@ -88,12 +98,30 @@ export function PublishedNotebookQuery({
         return <LemonBanner type="info">No published result for this cell.</LemonBanner>
     }
     const { result, rows } = output
+    const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
+    if (block.submit_action) {
+        return (
+            <>
+                <NotebookAppSubmission
+                    key={key}
+                    sessionId={submissionSession}
+                    draftKey={JSON.stringify([block.id, cell.id, current?.generation ?? 'published'])}
+                    action={block.submit_action}
+                    workflowId={block.workflow_id}
+                    project={project}
+                    columns={(result.columns ?? []).map(String)}
+                    rows={result.results}
+                    pendingInputs={pendingInputs}
+                />
+                {!current && <small className="text-secondary">{rowSummary(rows, result.results.length)}</small>}
+            </>
+        )
+    }
     const viz = publishedVisualization(
         rows === 'partial' ? { ...attributes, outputTab: 'results' } : attributes,
         result,
         current?.query
     )
-    const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
     const height = publishedQueryHeight(viz.display, attributes.height)
     return (
         <div className="NotebookAppBuilder__published-query min-w-0">

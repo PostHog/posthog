@@ -1,9 +1,10 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { MarkdownNotebookEntityPicker } from 'scenes/notebooks/Notebook/MarkdownNotebookEntityPicker'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
@@ -36,6 +37,7 @@ export function NotebookAppInspector({
     onSource: (id: string) => void
 }): JSX.Element {
     const variableType = variables.find((variable) => variable.name === block?.variable)?.type
+    const source = cells.find((cell) => cell.id === block?.node_id)
     return (
         <aside
             className="NotebookAppBuilder__inspector border rounded bg-surface-primary p-3 flex flex-col gap-3"
@@ -123,7 +125,9 @@ export function NotebookAppInspector({
                                             (cell.type === 'component' && !!cell.props.nodeId)
                                     )
                                     .map((cell) => ({ value: cell.id, label: appCellTitle(cell) }))}
-                                onChange={(node_id) => onBlock(block.id, { node_id })}
+                                onChange={(node_id) =>
+                                    onBlock(block.id, { node_id, submit_action: undefined, workflow_id: undefined })
+                                }
                             />
                             <LemonLabel>Display</LemonLabel>
                             <LemonSelect
@@ -134,8 +138,16 @@ export function NotebookAppInspector({
                                     { value: 'source', label: 'Source' },
                                     { value: 'both', label: 'Source and output' },
                                 ]}
-                                onChange={(display) => onBlock(block.id, { display })}
+                                onChange={(display) =>
+                                    onBlock(
+                                        block.id,
+                                        display === 'source'
+                                            ? { display, submit_action: undefined, workflow_id: undefined }
+                                            : { display }
+                                    )
+                                }
                             />
+                            <RowActionSettings source={source} block={block} onBlock={onBlock} />
                             <LemonButton size="small" type="secondary" onClick={() => onSource(block.node_id || '')}>
                                 Open source cell
                             </LemonButton>
@@ -205,5 +217,73 @@ export function NotebookAppInspector({
                 </>
             )}
         </aside>
+    )
+}
+
+function RowActionSettings({
+    source,
+    block,
+    onBlock,
+}: {
+    source?: NotebookBlockNode
+    block: NotebookAppBlockApi
+    onBlock: (id: string, patch: Partial<NotebookAppBlockApi>) => void
+}): JSX.Element | null {
+    const [workflowPickerBlock, setWorkflowPickerBlock] = useState<string | null>(null)
+    if (source?.type !== 'component' || source.tagName !== 'SQLV2' || block.display === 'source') {
+        return null
+    }
+    return (
+        <>
+            <LemonLabel>Row action</LemonLabel>
+            <LemonSelect
+                fullWidth
+                value={block.submit_action ?? 'none'}
+                options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'create_cohort', label: 'Create a cohort' },
+                    { value: 'run_workflow', label: 'Run a workflow' },
+                ]}
+                onChange={(value) => {
+                    if (value === 'run_workflow') {
+                        setWorkflowPickerBlock(block.id)
+                    } else {
+                        onBlock(block.id, {
+                            submit_action: value === 'none' ? undefined : value,
+                            workflow_id: undefined,
+                        })
+                    }
+                }}
+            />
+            {workflowPickerBlock === block.id && (
+                <MarkdownNotebookEntityPicker
+                    action="select"
+                    kind="workflow"
+                    runnableWorkflowsOnly
+                    onClose={() => setWorkflowPickerBlock(null)}
+                    onSelect={({ props }) => {
+                        onBlock(block.id, {
+                            submit_action: 'run_workflow',
+                            workflow_id: String(props.id),
+                        })
+                        setWorkflowPickerBlock(null)
+                    }}
+                />
+            )}
+            {block.submit_action === 'create_cohort' && (
+                <p className="text-xs text-secondary">Return person UUIDs in a column named person_id.</p>
+            )}
+            {block.submit_action === 'run_workflow' && (
+                <>
+                    <LemonButton type="secondary" size="small" onClick={() => setWorkflowPickerBlock(block.id)}>
+                        Change workflow
+                    </LemonButton>
+                    <p className="text-xs text-secondary">
+                        Choose an active manual or scheduled workflow. It receives the selected records in the rows
+                        variable.
+                    </p>
+                </>
+            )}
+        </>
     )
 }

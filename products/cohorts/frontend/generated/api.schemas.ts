@@ -921,6 +921,26 @@ export interface CohortUsedInResponseApi {
     workflows: CohortUsedInWorkflowsBlockApi
 }
 
+export interface CohortFromSelectionApi {
+    /** Reuse this key when retrying the same submission. */
+    request_id: string
+    /**
+     * Name for the new static cohort.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Selected person UUIDs from this project.
+     * @maxItems 1000
+     */
+    person_ids: string[]
+}
+
+export interface CohortSelectionResultApi {
+    /** ID of the cohort created by this submission. */
+    cohort_id: number
+}
+
 /**
  * * `serving` - Serving
  * * `setting_up` - Setting up

@@ -33,6 +33,7 @@ export type MarkdownNotebookEntityPickerSelection = {
 }
 
 type MarkdownNotebookEntityPickerProps = {
+    runnableWorkflowsOnly?: boolean
     action: 'add' | 'select'
     kind: MarkdownNotebookEntityPickerKind | null
     onClose: () => void
@@ -154,20 +155,36 @@ async function loadLLMTracePickerItems(): Promise<MarkdownNotebookEntityListPick
     }))
 }
 
-async function loadWorkflowPickerItems(): Promise<MarkdownNotebookEntityListPickerItem[]> {
+async function loadWorkflowPickerItems(runnableOnly = false): Promise<MarkdownNotebookEntityListPickerItem[]> {
     const projectId = currentProjectId()
     if (!projectId) {
         return []
     }
-    const response = await workflowsApi.hogFlowsList(projectId, { limit: 100 })
-    return response.results.map((workflow) => ({
-        id: workflow.id,
-        name: workflow.name || workflow.id,
-        description: workflow.description,
-    }))
+    const pages = runnableOnly
+        ? await Promise.all(
+              ['manual', 'schedule'].map((type) =>
+                  workflowsApi.hogFlowsList(projectId, {
+                      limit: 100,
+                      status: 'active',
+                      trigger: JSON.stringify({ type }),
+                  })
+              )
+          )
+        : [await workflowsApi.hogFlowsList(projectId, { limit: 100 })]
+    return pages
+        .flatMap((page) => page.results)
+        .map((workflow) => ({
+            id: workflow.id,
+            name: workflow.name || workflow.id,
+            description: workflow.description,
+        }))
 }
 
+const loadRunnableWorkflowPickerItems = (): Promise<MarkdownNotebookEntityListPickerItem[]> =>
+    loadWorkflowPickerItems(true)
+
 export function MarkdownNotebookEntityPicker({
+    runnableWorkflowsOnly = false,
     action,
     kind,
     onClose,
@@ -335,7 +352,7 @@ export function MarkdownNotebookEntityPicker({
         workflow: {
             searchPlaceholder: 'Search workflows',
             entityIcon: undefined,
-            loadItems: loadWorkflowPickerItems,
+            loadItems: runnableWorkflowsOnly ? loadRunnableWorkflowPickerItems : loadWorkflowPickerItems,
             tagName: 'Workflow',
         },
     }[kind]

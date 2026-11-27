@@ -14,6 +14,7 @@ from posthog.models import Team
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 LAYOUT = {
     "tabs": [{"id": "overview", "title": "Overview"}],
@@ -47,6 +48,54 @@ def test_partial_notebook_update_requires_a_complete_valid_app_layout(layout: di
 
 
 class TestNotebookAppLayout(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("active", "manual", False, 200),
+            ("active", "schedule", False, 200),
+            ("draft", "manual", False, 400),
+            ("active", "event", False, 400),
+            ("active", "manual", True, 400),
+        ]
+    )
+    def test_publish_checks_workflow_eligibility(
+        self, status: str, trigger: str, other_project: bool, expected: int
+    ) -> None:
+        team = Team.objects.create(organization=self.organization, name="Other project") if other_project else self.team
+        workflow = create_workflow_for_test(team_id=team.id, status=status, trigger={"type": trigger})
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        run = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=notebook,
+            node_id="rows",
+            node_type="hogql",
+            code="SELECT 1",
+            status="done",
+            envelope={"columns": ["value"], "first_page": [[1]]},
+        )
+        notebook.content = build_markdown_notebook_content(
+            f'<SQLV2 nodeId="rows" code="SELECT 1" runId="{run.id}" result={{{{"first_page":[[1]]}}}} />'
+        )
+        notebook.save(update_fields=["content"])
+        layout = {
+            **LAYOUT,
+            "blocks": [
+                {
+                    "id": "rows",
+                    "kind": "cell",
+                    "tab_id": "overview",
+                    "node_id": "rows",
+                    "submit_action": "run_workflow",
+                    "workflow_id": workflow.id,
+                }
+            ],
+        }
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/",
+            {"app_revision": 0, "app_published": layout},
+            format="json",
+        )
+        assert response.status_code == expected, response.json()
+
     def setUp(self) -> None:
         super().setUp()
         self.app_flag = self.enterContext(

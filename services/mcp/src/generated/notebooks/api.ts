@@ -348,6 +348,14 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .describe(
                                     'Whether to display cell source, output, or both.\n\n\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output'
                                 ),
+                            submit_action: zod
+                                .enum(['create_cohort', 'run_workflow'])
+                                .describe('\* `create_cohort` - Create a cohort\n\* `run_workflow` - Run a workflow')
+                                .optional()
+                                .describe(
+                                    'Action viewers can explicitly submit with rows from a SQL cell.\n\n\* `create_cohort` - Create a cohort\n\* `run_workflow` - Run a workflow'
+                                ),
+                            workflow_id: zod.string().optional().describe('Workflow to run with the submitted rows.'),
                         })
                     )
                     .describe('Ordered components, arranged in rows within each tab.'),
@@ -472,6 +480,14 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .describe(
                                     'Whether to display cell source, output, or both.\n\n\* `output` - Output\n\* `source` - Source\n\* `both` - Source and output'
                                 ),
+                            submit_action: zod
+                                .enum(['create_cohort', 'run_workflow'])
+                                .describe('\* `create_cohort` - Create a cohort\n\* `run_workflow` - Run a workflow')
+                                .optional()
+                                .describe(
+                                    'Action viewers can explicitly submit with rows from a SQL cell.\n\n\* `create_cohort` - Create a cohort\n\* `run_workflow` - Run a workflow'
+                                ),
+                            workflow_id: zod.string().optional().describe('Workflow to run with the submitted rows.'),
                         })
                     )
                     .describe('Ordered components, arranged in rows within each tab.'),

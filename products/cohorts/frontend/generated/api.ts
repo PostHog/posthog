@@ -12,8 +12,10 @@ import type {
     ActivityLogPaginatedResponseApi,
     CohortApi,
     CohortCalculationHistoryResponseApi,
+    CohortFromSelectionApi,
     CohortPersonsResponseApi,
     CohortRealtimeRequestApi,
+    CohortSelectionResultApi,
     CohortUsedInResponseApi,
     CohortUsedInWorkflowsBlockApi,
     CohortsActivityRetrieveParams,
@@ -434,6 +436,26 @@ export const cohortsAllActivityRetrieve = async (projectId: string, options?: Re
     return apiMutator<void>(getCohortsAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCohortsFromSelectionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/cohorts/from_selection/`
+}
+
+/**
+ * Create a static cohort from selected people. A retry with the same key returns the original cohort.
+ */
+export const cohortsFromSelectionCreate = async (
+    projectId: string,
+    cohortFromSelectionApi: CohortFromSelectionApi,
+    options?: RequestInit
+): Promise<CohortSelectionResultApi> => {
+    return apiMutator<CohortSelectionResultApi>(getCohortsFromSelectionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(cohortFromSelectionApi),
     })
 }
 

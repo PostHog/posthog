@@ -133,6 +133,7 @@ rules:
                               |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |CohortSelectionSubmission
                               |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
@@ -701,6 +702,7 @@ rules:
                         |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |CohortSelectionSubmission
                         |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
