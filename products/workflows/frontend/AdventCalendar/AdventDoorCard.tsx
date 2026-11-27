@@ -27,6 +27,7 @@ export interface AdventCardFace {
 
 export interface AdventDoorCardProps {
     door: AdventDoor
+    shares?: Record<string, number>
     face: AdventCardFace
     stage: { width: number; height: number }
     isOpen: boolean
@@ -95,6 +96,7 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
 
 export function AdventDoorCard({
     door,
+    shares,
     face,
     stage,
     isOpen,
@@ -147,7 +149,7 @@ export function AdventDoorCard({
             </div>
 
             <div className="AdventCard__fade AdventCard__body">
-                <AdventDoorAnswer door={door} onAnswer={onAnswer} />
+                <AdventDoorAnswer door={door} shares={shares} onAnswer={onAnswer} />
                 {door.status === 'open' && (
                     <AdventTipCard tip={ADVENT_TIPS[door.day]} onLinkClick={() => onTipClick(door.day)} />
                 )}

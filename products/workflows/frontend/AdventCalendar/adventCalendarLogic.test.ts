@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -22,13 +23,32 @@ function replyWith(reply: Reply, body: unknown): Response | [number, unknown] {
     return reply === 'network error' ? HttpResponse.error() : [reply, body]
 }
 
-function calendarApi(answerReply: Reply = 200): { mocks: Mocks; answers: unknown[] } {
+const DAY_TWO_ANSWERED = {
+    day: 2,
+    answer: 'tim',
+    shares: [
+        { option: 'james', share: 38 },
+        { option: 'tim', share: 62 },
+    ],
+}
+
+function resultsOf(...questions: object[]): { questions: object[] } {
+    return { questions }
+}
+
+function calendarApi(
+    replies: { answer?: Reply; results?: Reply } = {},
+    results = resultsOf(DAY_TWO_ANSWERED)
+): { mocks: Mocks; answers: unknown[] } {
     const answers: unknown[] = []
     const mocks: Mocks = {
+        get: {
+            [`${CALENDAR_API}/results/`]: () => replyWith(replies.results ?? 200, results),
+        },
         post: {
             [`${CALENDAR_API}/answer/`]: async ({ request }) => {
                 answers.push(await request.json())
-                return replyWith(answerReply, { questions: [] })
+                return replyWith(replies.answer ?? 200, results)
             },
         },
     }
@@ -51,14 +71,16 @@ describe('adventCalendarLogic', () => {
     let logic: ReturnType<typeof adventCalendarLogic.build>
     let capture: jest.SpyInstance
 
-    beforeEach(() => {
+    beforeEach(async () => {
         jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
         capture = jest.spyOn(posthog, 'capture').mockImplementation()
         initKeaTests()
+        await expectLogic(userLogic).toFinishAllListeners()
         signIn({ uuid: UUID, is_staff: false })
         logic = adventCalendarLogic()
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
@@ -168,25 +190,56 @@ describe('adventCalendarLogic', () => {
         expect(capture).toHaveBeenCalledWith('workflows advent answer picked', { day: 2, option: 'tim' })
     })
 
-    it.each<Reply>([200, 500, 'network error'])(
-        'sends a picked answer to the server and keeps the pick when it replies %s',
-        async (reply) => {
-            const sent = calendarApi(reply)
-            useMocks(sent.mocks)
+    it.each<[Reply, object]>([
+        [200, { 2: { james: 38, tim: 62 } }],
+        [403, {}],
+        [429, {}],
+        [500, {}],
+        ['network error', {}],
+    ])(
+        'sends a picked answer to the server, keeps the pick, and shows the shares when it replies %s',
+        async (reply, shares) => {
+            const api = calendarApi({ answer: reply, results: 403 })
+            useMocks(api.mocks)
             logic.actions.activateDoor('door-1')
             logic.actions.finishReveal()
 
             await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'tim')).toFinishAllListeners()
 
-            expect(sent.answers).toEqual([{ day: 2, option: 'tim' }])
+            expect(api.answers).toEqual([{ day: 2, option: 'tim' }])
             expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+            expect(logic.values.pollShares).toEqual(shares)
         }
     )
+
+    it.each<[string, Reply, object, object]>([
+        ['an answered question', 200, DAY_TWO_ANSWERED, { 2: { james: 38, tim: 62 } }],
+        ['a question the person did not answer', 200, { ...DAY_TWO_ANSWERED, answer: null }, {}],
+        [
+            'a question nobody answered',
+            200,
+            { ...DAY_TWO_ANSWERED, shares: DAY_TWO_ANSWERED.shares.map((share) => ({ ...share, share: 0 })) },
+            {},
+        ],
+        ['a 403', 403, DAY_TWO_ANSWERED, {}],
+        ['a 429', 429, DAY_TWO_ANSWERED, {}],
+        ['a 500', 500, DAY_TWO_ANSWERED, {}],
+        ['a network error', 'network error', DAY_TWO_ANSWERED, {}],
+    ])('loads the shares when the calendar opens, and shows them only for %s', async (_, reply, question, shares) => {
+        useMocks(calendarApi({ results: reply }, resultsOf(question)).mocks)
+        logic.unmount()
+        logic = adventCalendarLogic()
+
+        await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+
+        expect(logic.values.pollShares).toEqual(shares)
+    })
 
     it.each([
         ['a staff user', 'locked', true],
         ['anyone else', 'ready', false],
     ])('shows %s door 2 as %s with ?day=1 on 3 December', (_, doorTwo, isStaff) => {
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
         signIn({ is_staff: isStaff })
         router.actions.push('/workflows/advent', { day: '1' })
         logic.actions.activateDoor('door-1')

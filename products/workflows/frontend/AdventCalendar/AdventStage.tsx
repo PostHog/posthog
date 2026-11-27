@@ -38,7 +38,7 @@ function castReveal(
 }
 
 export function AdventStage(): JSX.Element {
-    const { graph, today, selectedDoor, revealingDoor, snowPuffs } = useValues(adventCalendarLogic)
+    const { graph, today, selectedDoor, revealingDoor, snowPuffs, pollShares } = useValues(adventCalendarLogic)
     const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip, clearSnowPuffs } =
         useActions(adventCalendarLogic)
     const fit = useAdventStageFit()
@@ -94,6 +94,7 @@ export function AdventStage(): JSX.Element {
                     <div className="AdventPicture AdventPicture--cast" style={box}>
                         <AdventPictureCast
                             graph={graph}
+                            shares={pollShares}
                             reveal={castReveal(revealingDoor, reveal.phase, zoom)}
                             onActivateDoor={activateDoor}
                             onEnterDoor={card.onEnterDoor}
@@ -105,6 +106,7 @@ export function AdventStage(): JSX.Element {
                         <AdventDoorCard
                             key={cardDoor.id}
                             door={cardDoor}
+                            shares={pollShares[cardDoor.day]}
                             face={faceOf(cardDoor, fit)}
                             stage={stage}
                             isOpen={card.isOpen}
