@@ -204,6 +204,8 @@ class SlackMentionChannel:
             # A Slack user has no GitHub login, and a display name is text they choose.
             requester="The requester",
             requested_via="Slack",
+            channel="slack",
+            slack_user_id=command.slack_user_id,
         )
 
     def admit(self) -> Admission | Answer | DispatchOutcome:
