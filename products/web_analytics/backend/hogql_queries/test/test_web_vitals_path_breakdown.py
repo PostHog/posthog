@@ -52,6 +52,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
         filter_test_accounts: bool = False,
+        min_samples: int | None = None,
     ):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebVitalsPathBreakdownQuery(
@@ -61,6 +62,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 thresholds=thresholds,
                 properties=properties or [],
                 filterTestAccounts=filter_test_accounts,
+                minSamples=min_samples,
             )
 
             runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
@@ -157,36 +159,36 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 WebVitalsPathBreakdownResult(
                     good=[
-                        WebVitalsPathBreakdownResultItem(path="/path1", value=50),
-                        WebVitalsPathBreakdownResultItem(path="/path2", value=100),
+                        WebVitalsPathBreakdownResultItem(path="/path2", value=100, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path1", value=50, count=1),
                     ],
                     needs_improvements=[
-                        WebVitalsPathBreakdownResultItem(path="/path3", value=150),
-                        WebVitalsPathBreakdownResultItem(path="/path4", value=200),
+                        WebVitalsPathBreakdownResultItem(path="/path4", value=200, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path3", value=150, count=1),
                     ],
                     poor=[
-                        WebVitalsPathBreakdownResultItem(path="/path5", value=250),
-                        WebVitalsPathBreakdownResultItem(path="/path6", value=300),
+                        WebVitalsPathBreakdownResultItem(path="/path6", value=300, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path5", value=250, count=1),
                     ],
                 )
             ],
             results,
         )
 
-    def test_limit_of_20_paths(self):
+    def test_limit_of_20_paths_keeps_the_worst_of_each_band(self):
         self._create_events(
             [
                 (
                     "distinct_id_1",
                     [
-                        ("2025-01-10", f"/path/a/{idx}", 50)
+                        ("2025-01-10", f"/path/a/{idx}", 50 + idx)
                         for idx in range(30)  # Creating 30, but should be limited to 20
                     ],
                 ),
                 (
                     "distinct_id_1",
                     [
-                        ("2025-01-10", f"/path/b/{idx}", 150)
+                        ("2025-01-10", f"/path/b/{idx}", 150 + idx)
                         for idx in range(25)  # Creating 25, but should be limited to 20
                     ],
                 ),
@@ -212,6 +214,50 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(20, len(results[0].good))
         self.assertEqual(20, len(results[0].needs_improvements))
         self.assertEqual(5, len(results[0].poor))
+        # Worst first: the cap drops the fastest pages, not the slowest ones.
+        self.assertEqual([item.value for item in results[0].good], [float(v) for v in range(79, 59, -1)])
+        self.assertEqual(
+            [item.value for item in results[0].needs_improvements], [float(v) for v in range(174, 154, -1)]
+        )
+
+    def test_min_samples_drops_thinly_sampled_pages(self):
+        self._create_events(
+            [
+                (
+                    "distinct_id_1",
+                    [
+                        ("2025-01-10", "/one-slow-load", 900),
+                        *[("2025-01-10", "/busy", 250 + idx) for idx in range(4)],
+                        ("2025-01-10", "/busy", None),
+                        *[("2025-01-10", "/fast", 40) for _ in range(3)],
+                    ],
+                ),
+            ],
+            WebVitalsMetric.INP,
+        )
+
+        unfloored = self._run_web_vitals_path_breakdown_query("2025-01-08", "2025-01-15", (100, 200)).results
+        floored = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08", "2025-01-15", (100, 200), min_samples=3
+        ).results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResultItem(path="/one-slow-load", value=900, count=1),
+                WebVitalsPathBreakdownResultItem(path="/busy", value=252.25, count=4),
+            ],
+            unfloored[0].poor,
+        )
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/fast", value=40, count=3)],
+                    needs_improvements=[],
+                    poor=[WebVitalsPathBreakdownResultItem(path="/busy", value=252.25, count=4)],
+                )
+            ],
+            floored,
+        )
 
     def test_percentile_is_applied(self):
         self._create_events(
@@ -249,7 +295,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     WebVitalsPathBreakdownResult(
                         good=[],
                         needs_improvements=[],
-                        poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value)],
+                        poor=[WebVitalsPathBreakdownResultItem(path="/path1", value=value, count=6)],
                     )
                 ],
                 results,
@@ -279,7 +325,9 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 WebVitalsPathBreakdownResult(
-                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
+                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50, count=1)],
+                    needs_improvements=[],
+                    poor=[],
                 )
             ],
             results,
@@ -311,8 +359,8 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     good=[],
                     needs_improvements=[],
                     poor=[
-                        WebVitalsPathBreakdownResultItem(path="/path1", value=387.5),
-                        WebVitalsPathBreakdownResultItem(path="/path2", value=500),
+                        WebVitalsPathBreakdownResultItem(path="/path2", value=500, count=1),
+                        WebVitalsPathBreakdownResultItem(path="/path1", value=387.5, count=2),
                     ],
                 )
             ],
@@ -321,7 +369,9 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 WebVitalsPathBreakdownResult(
-                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
+                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50, count=1)],
+                    needs_improvements=[],
+                    poor=[],
                 )
             ],
             filtered,
@@ -363,8 +413,8 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 WebVitalsPathBreakdownResult(
-                    good=[WebVitalsPathBreakdownResultItem(path="/cleaned/<id>", value=50)],
-                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/not-cleaned", value=150)],
+                    good=[WebVitalsPathBreakdownResultItem(path="/cleaned/<id>", value=50, count=2)],
+                    needs_improvements=[WebVitalsPathBreakdownResultItem(path="/not-cleaned", value=150, count=1)],
                     poor=[],
                 )
             ],

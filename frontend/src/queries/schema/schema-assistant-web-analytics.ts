@@ -172,8 +172,10 @@ export interface AssistantWebVitalsPathBreakdownQuery {
     properties?: (EventPropertyFilter | PersonPropertyFilter)[]
 
     /**
-     * Apply the team's path-cleaning rules to the returned paths.
-     * @default false
+     * Apply the team's path-cleaning rules to the returned paths, so `/project/123/settings`
+     * and `/project/456/settings` roll up into one row. On by default, like the Web vitals tab;
+     * a team with no rules sees raw paths either way.
+     * @default true
      */
     doPathCleaning?: boolean
 
@@ -182,6 +184,13 @@ export interface AssistantWebVitalsPathBreakdownQuery {
      * @default false
      */
     filterTestAccounts?: boolean
+
+    /**
+     * Drop pages with fewer than this many samples in the period. Each row carries its
+     * `count`; set this (e.g. 50 or 100 on a busy site) so one-off slow loads on rarely
+     * visited pages do not fill the `poor` band ahead of real problems.
+     */
+    minSamples?: positive_integer
 
     /**
      * Required. Which Core Web Vital to break down by: `LCP` (load, ms),

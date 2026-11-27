@@ -19,6 +19,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     drive: DRIVE,
     steps: [],
     timeline: [],
+    truthFrom: 0,
     ...partial,
 })
 

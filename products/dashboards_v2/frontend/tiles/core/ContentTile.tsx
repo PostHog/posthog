@@ -15,10 +15,10 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
 import { TileActions } from './TileActions'

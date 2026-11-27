@@ -12,7 +12,7 @@ import { adventCalendarLogic } from './adventCalendarLogic'
 import { ADVENT_LAST_DAY } from './adventContent'
 import { AdventShareCard } from './AdventShareCard'
 
-const SHARE_URL = 'https://posthog.com/workflows'
+const SHARE_URL = 'https://app.posthog.com/workflows/advent'
 
 export interface AdventShareModalProps {
     isOpen: boolean

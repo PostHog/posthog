@@ -31,7 +31,7 @@ export function FeatureFlagRequestAllowlist(): JSX.Element {
                         id: 'feature-flag-allowed-ips',
                         dataAttr: 'feature-flag-allowed-ips-select',
                         label: 'Allowed IP addresses',
-                        help: "Only requests from these addresses get flags. This includes your servers and your users' browsers, even on allowed domains, so leave it empty unless every caller has a fixed address. Behind a reverse proxy, the proxy's address is checked, so allowed IP addresses don't work with the managed reverse proxy. Enter up to 100 single addresses or CIDR ranges.",
+                        help: "Only requests from these addresses get flags. This includes your servers and your users' browsers, even on allowed domains, so leave it empty unless every caller has a fixed address. Requests over IPv6 are checked by their IPv6 address, so add your IPv6 addresses too. Behind a reverse proxy, the proxy's address is checked, so allowed IP addresses don't work with the managed reverse proxy. Enter up to 100 single addresses or CIDR ranges.",
                         value: allowedIps,
                         onChange: setAllowedIps,
                     },

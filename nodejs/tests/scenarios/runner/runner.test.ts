@@ -1944,6 +1944,7 @@ describe('runner through seed, drive and judge', () => {
                     settings: expect.objectContaining({ autovacuum: expect.stringMatching(/^(on|off)$/) }),
                     storage: expect.objectContaining({ cyclotron_jobs: null }),
                 }),
+                activity: expect.arrayContaining([{ at: expect.any(Number), backends: expect.any(Array) }]),
                 dependencies: [],
             })
             const { drive, vacuum } = evidenceOf(result, 'probes.json') as {

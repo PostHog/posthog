@@ -3,10 +3,10 @@ import { type ComponentType, Suspense, memo, useContext, useLayoutEffect } from 
 import { IconLineGraph, IconPuzzle, IconWarning, IconWrench } from '@posthog/icons'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
-import type { SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { PanelType } from './panelDefinition'
 import { PanelErrorBoundary } from './PanelErrorBoundary'
 import { PanelHostContext } from './panelHostContext'
+import { type SavedPanel } from './panelSchema'
 
 // A panel that suspends before its query starts would otherwise let the load end without it.
 function HoldsLoad(): null {

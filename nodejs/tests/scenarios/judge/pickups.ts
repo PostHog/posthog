@@ -33,7 +33,7 @@ export function pickupsBetween(
     samples: readonly MetricSample[],
     roles: readonly string[],
     { from, to }: { from: number; to: number },
-    { straddlesEnd = true, fetchedBefore }: { straddlesEnd?: boolean; fetchedBefore?: number } = {}
+    { straddlesEnd = true }: { straddlesEnd?: boolean } = {}
 ): { picked: Record<string, Buckets>; reset?: true } | { unread: string; reset?: true } {
     const picked: Record<string, Buckets> = {}
     let reset = false
@@ -44,9 +44,7 @@ export function pickupsBetween(
     let unread: string | undefined
     const workers = samples.filter(({ role }) => roles.includes(role))
     for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
-        const sorted = series
-            .filter(({ fetchedAt }) => fetchedBefore === undefined || (fetchedAt ?? Infinity) < fetchedBefore)
-            .sort((a, b) => a.at - b.at)
+        const sorted = [...series].sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
         const inside = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
         const bounds = [...inside.map(({ at }) => at), to]

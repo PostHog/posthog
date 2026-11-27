@@ -15,12 +15,13 @@ from posthog.models.team import Team
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
 from products.aeo.backend.engines import CitationCheck, own_domains_key
-from products.aeo.backend.facade.contracts import CheckMode
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus, CheckMode
+from products.aeo.backend.models import AEOBrand, AEOCheckBrand, AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
+from products.aeo.backend.sentiment import UNSCORABLE
 from products.aeo.backend.temporal.brand_sentiment import AEOBrandSentimentInputs, classify_aeo_brand_sentiment
-from products.aeo.backend.test.factories import create_own_brand
+from products.aeo.backend.test.factories import create_own_brand, store_what_the_runner_stores
 
 _MODULE = "products.aeo.backend.temporal.brand_sentiment"
 _CURRENT_KEY = own_domains_key(["example.com"])
@@ -113,7 +114,7 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
         )
 
-    assert result == {"scored": 3, "answers": 3}
+    assert result == {"scored": 3, "answers": 3, "brands_scored": 0}
     assert [call.args[0] for call in classify.call_args_list] == [
         ["Example is fast."],
         ["Example is slow.", "Still, Example is cheap."],
@@ -156,6 +157,109 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
     }
 
 
+def _seed_competitor_answers(team: Team) -> tuple[uuid.UUID, AEOCitationCheck, AEOCitationCheck]:
+    create_own_brand(team, "example.com")
+    with team_scope(team.pk):
+        AEOBrand.objects.create(
+            team=team,
+            name="Rival",
+            domain="rival.io",
+            kind=BrandKind.COMPETITOR,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        prompt = AEOPrompt.objects.create(
+            team=team, prompt="best tool?", prompt_hash="h", prompt_source=AEOPrompt.Source.MANUAL
+        )
+    run_id = uuid.uuid4()
+    recent = _check(team, prompt, run_id, "Example is fast. Rival is slow and pricey.")
+    old = _check(team, prompt, uuid.uuid4(), "Rival long ago.")
+    _age(old, 31)
+    for check in (recent, old):
+        store_what_the_runner_stores(check.id)
+    return run_id, recent, old
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_activity_scores_each_other_brand_on_the_sentences_that_name_it(settings) -> None:
+    team = await sync_to_async(_team)()
+    run_id, recent, old = await sync_to_async(_seed_competitor_answers)(team)
+    classify = MagicMock(
+        side_effect=[
+            [_result(positive=0.9, neutral=0.08, negative=0.02)],
+            [_result(positive=0.05, neutral=0.15, negative=0.8)],
+        ]
+    )
+
+    with patch("posthog.temporal.ai_observability.sentiment.model.classify", classify):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
+        )
+
+    assert result == {"scored": 1, "answers": 1, "brands_scored": 1}
+    # The own brand's sentence and the competitor's are classified apart, so praise of one is never the other's.
+    assert [call.args[0] for call in classify.call_args_list] == [["Example is fast."], ["Rival is slow and pricey."]]
+
+    def brand_sentiments() -> set[tuple[str, str, str | None]]:
+        with team_scope(team.pk):
+            rows = AEOCheckBrand.objects.filter(team=team).values_list(
+                "citation_check_id", "brand__domain", "sentiment"
+            )
+        names = {recent.id: "recent", old.id: "old"}
+        return {(names[check_id], domain, sentiment) for check_id, domain, sentiment in rows}
+
+    # The own brand's row stays empty, because its sentiment is on the check, and the old answer is past the window.
+    assert await sync_to_async(brand_sentiments)() == {
+        ("recent", "example.com", None),
+        ("recent", "rival.io", "negative"),
+        ("old", "rival.io", None),
+    }
+
+
+def _seed_an_unscorable_row_before_a_scorable_one(team: Team) -> tuple[AEOCitationCheck, AEOCitationCheck]:
+    _, recent, _ = _seed_competitor_answers(team)
+    with team_scope(team.pk):
+        prompt = AEOPrompt.objects.get(team=team)
+    blocked = _check(team, prompt, uuid.uuid4(), "Rival is fine.")
+    _age(blocked, 2)
+    store_what_the_runner_stores(blocked.id)
+    # A stored mention whose offset no longer reads as its surface has no sentence to score.
+    with team_scope(team.pk):
+        AEOCheckBrand.objects.filter(team=team, citation_check=blocked).update(
+            mentions=[{"surface": "Rival", "kind": "name", "start": 40}]
+        )
+    return blocked, recent
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_unscorable_brand_rows_are_marked_so_the_backlog_moves_past_them(settings) -> None:
+    team = await sync_to_async(_team)()
+    blocked, recent = await sync_to_async(_seed_an_unscorable_row_before_a_scorable_one)(team)
+    classify = MagicMock(return_value=[_result(positive=0.05, neutral=0.15, negative=0.8)])
+
+    def rival_sentiments() -> dict[str, str | None]:
+        with team_scope(team.pk):
+            rows = AEOCheckBrand.objects.filter(
+                team=team, brand__domain="rival.io", citation_check__in=[blocked, recent]
+            )
+            return {
+                ("blocked" if row.citation_check_id == blocked.id else "recent"): row.sentiment
+                for row in rows.only("citation_check_id", "sentiment")
+            }
+
+    # With one row per pass, the oldest row is the unscorable one. The first pass marks it, the second scores the next.
+    with (
+        patch("posthog.temporal.ai_observability.sentiment.model.classify", classify),
+        patch(f"{_MODULE}.MAX_ROWS_PER_RUN", 1),
+    ):
+        for _ in range(2):
+            await ActivityEnvironment().run(classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id))
+
+    assert await sync_to_async(rival_sentiments)() == {"blocked": UNSCORABLE, "recent": "negative"}
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) -> None:
@@ -181,7 +285,7 @@ async def test_a_pass_without_a_run_scores_the_whole_recent_backlog(settings) ->
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
         )
 
-    assert result == {"scored": 4, "answers": 4}
+    assert result == {"scored": 4, "answers": 4, "brands_scored": 0}
     assert [sentence for call in classify.call_args_list for sentence in call.args[0]] == [
         "Example before sentences.",
         "Example elsewhere.",
@@ -216,7 +320,7 @@ async def test_a_pass_that_runs_out_of_time_keeps_the_scores_it_finished(setting
             classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=None)
         )
 
-    assert result == {"scored": 1, "answers": 1}
+    assert result == {"scored": 1, "answers": 1, "brands_scored": 0}
 
     def labels() -> dict[str, str | None]:
         with team_scope(team.pk):
