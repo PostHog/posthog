@@ -618,6 +618,8 @@ export interface PersonalAPIKeyType {
     scopes: string[]
     scoped_organizations?: OrganizationType['id'][] | null
     scoped_teams?: TeamType['id'][] | null
+    /** Name of the partner application that created the key while provisioning a project. */
+    provisioned_by_name?: string | null
 }
 
 export interface ProjectSecretAPIKeyRequest {
@@ -803,6 +805,7 @@ export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
     blockSelector?: string
+    mobile?: { maskAllText?: boolean; maskAllImages?: boolean }
 }
 
 export enum ActivationTaskStatus {
@@ -858,6 +861,7 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_rerun_mode?: 'first_message' | 'until_team_reply' | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
     ai_context_account_property_ids?: string[] | null
@@ -4779,6 +4783,7 @@ export interface PrevalidatedInvite {
     target_email: string
     first_name: string
     organization_name: string
+    radar_client_id?: string
 }
 
 interface InstancePreferencesInterface {
@@ -4804,6 +4809,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** False on an instance that runs no batch exports, where their API is absent. */
+    batch_exports_enabled?: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
@@ -4842,6 +4849,8 @@ export interface PreflightStatus {
     webmcp_available?: boolean
     /** Origin of the PostHog instance that issues CIMD verification tokens. Empty when this instance issues them. */
     cimd_verification_token_issuer_url?: string
+    /** ISO time from which a new experiment counts `$experiment_exposure` (`EXPERIMENT_EXPOSURE_EVENT_CUTOFF`). Null when every experiment counts `$feature_flag_called`. */
+    experiment_exposure_event_cutoff?: string | null
     object_storage: boolean
     wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
@@ -5169,7 +5178,7 @@ export interface Experiment {
     status?: ExperimentStatus | null
     /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
     is_legacy?: boolean
-    /** Server-computed: the event exposures are counted on when no custom exposure event is configured — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
+    /** Server-computed: the event exposures are counted on when no custom exposure event is configured: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (`experiment_exposure_event_cutoff` in preflight), otherwise `$feature_flag_called`. Resolve display and filters through `experimentLogic`'s `resolvedExposureEvent` rather than reading this directly, so locally-constructed experiments still get a value. */
     resolved_exposure_event?: string
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
@@ -6222,6 +6231,8 @@ export enum ActivityScope {
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
+    TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
@@ -6772,6 +6783,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /** Whether this table uses webhook sync, but its source has no enabled webhook. */
     webhook_not_registered?: boolean
+    webhook_issue?: ExternalDataSchemaApi['webhook_issue']
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.

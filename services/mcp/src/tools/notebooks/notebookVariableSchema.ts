@@ -15,12 +15,12 @@ export const NotebookVariableSchema = z
                 "Identifier cells read: `{name}` in a SQL cell, a plain global in a Python cell. Letters, numbers, and underscores; must not start with a number, repeat another variable, or reuse a cell's dataframe_name."
             ),
         type: z
-            .enum(['string', 'number', 'boolean', 'date'])
+            .enum(['string', 'number', 'boolean', 'date', 'list'])
             .describe(
-                "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first."
+                "A 'list' binds an array of text values for a multi-select filter. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first."
             ),
         value: z
-            .union([z.string(), z.number(), z.boolean(), z.null()])
+            .union([z.string(), z.number(), z.boolean(), z.array(z.string()).max(100), z.null()])
             .optional()
             .describe('The current value. Omit or pass null for a declared-but-unset variable.'),
     })

@@ -25,6 +25,12 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadTagDefinitions',
+    'loadTagDestinations',
+    'loadTagMergePreview',
+    'renameManagedTag',
+    'mergeManagedTag',
+    'deleteManagedTag',
     'loadRecommendations',
     'startAnalysis',
     'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
@@ -132,7 +138,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadImportRuns: 'products.workflows.providerImportLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
-    loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
@@ -163,10 +168,14 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTracesPage: 'products.ai_observability.frontend.redesign.traces.tracesListLogic', // The traces list shows the error, or toasts its own when rows stay on screen
     loadMetrics: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home shows the error, or the range banner
     loadDashboardId: 'products.ai_observability.frontend.redesign.home.homeLogic', // Home hides the dashboard link
+    loadSessionsPage: 'products.ai_observability.frontend.redesign.sessions.sessionsListLogic', // The sessions list shows the error, or toasts its own when rows stay on screen
+    loadConversationPage: 'products.ai_observability.frontend.redesign.sessions.sessionConversationLogic', // The conversation shows the error in place, with a retry
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The submission page shows its own retry, and the floating request card stays hidden when the read fails
+    loadSubmission: 'products.agent_transcripts.frontend.agentTranscriptSubmissionLogic',
     // The logic toasts every failure itself, including network errors that have no HTTP status
     setIssueSummariesEnabled:
         'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',

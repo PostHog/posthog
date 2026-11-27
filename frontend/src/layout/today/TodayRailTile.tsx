@@ -5,6 +5,7 @@ import { cn } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SEVERITY_DOT_CLASS, SEVERITY_INDICATOR, TodayRailSeverity } from './todayRailSeverity'
+import { TODAY_RAIL_SHORT_ICON_CLASS, TODAY_RAIL_SHORT_TILE_CLASS } from './todayRailShort'
 
 export interface TodayRailTileProps extends Omit<React.HTMLAttributes<HTMLElement>, 'onClick'> {
     label: string
@@ -30,6 +31,7 @@ export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(functio
             to={to}
             aria-current={to && active ? 'page' : undefined}
             data-attr={dataAttr}
+            data-today-rail-hover
             onClick={
                 to
                     ? (event) => {
@@ -41,12 +43,15 @@ export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(functio
             }
             className={cn(
                 'group flex w-full shrink-0 cursor-pointer flex-col items-center gap-1 outline-none hover:text-foreground',
+                TODAY_RAIL_SHORT_TILE_CLASS,
                 active ? 'text-foreground' : 'text-muted-foreground'
             )}
         >
             <span
+                data-today-rail-active={active || undefined}
                 className={cn(
                     'relative flex size-10 items-center justify-center rounded-md [&_svg]:size-5',
+                    TODAY_RAIL_SHORT_ICON_CLASS,
                     'group-focus-visible:ring-2 group-focus-visible:ring-[var(--ring)]',
                     active ? 'bg-[var(--fill-selected)]' : 'group-hover:bg-[var(--fill-hover)]'
                 )}

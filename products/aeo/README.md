@@ -28,13 +28,18 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
 | `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
+| `AEO_SETUP_MODEL`                          | Model for setup's site research and prompt writing (default `claude-haiku-5-5`, faster than the engines' model).               |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
 The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
 The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
 The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
-PostHog pays for every engine call and nothing caps a team's active prompts yet, so add organizations to it by hand and do not roll it out widely.
+PostHog pays for every engine call, so each project can keep at most `AEOTeamConfig.max_active_prompts` prompts turned on (100 by default).
+A change that would turn on more is refused with a 400, and setup saves the prompts past the limit paused.
+Prompts already on when the limit was added, or when it was lowered, stay on.
+Staff raise the limit for one project with `python manage.py set_aeo_prompt_limit --team-id <id> --max-active-prompts <n>`.
+Add organizations to the flag by hand and do not roll it out widely.
 Removing an organization from it stops that organization's runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
@@ -84,6 +89,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 ```
 
 - A request takes up to 2,000 prompts. Send larger sets in batches of a few hundred.
+- New prompts are saved turned on. An import that would take the project past its limit on active prompts is refused whole, and nothing is saved.
 - A re-import matches prompts by the normalized text of their current version. It updates the topic, merges the new evidence into the stored evidence (an omitted `external_visibility` keeps its value), and keeps each prompt's on/off state. A new text creates a prompt with version 1.
 - A re-import of an archived prompt's text leaves it archived and counts it as `skipped`.
 - The same operations are PostHog MCP tools (`products/aeo/mcp/tools.yaml`), gated by the same flag: `aeo-prompts-list`, `aeo-prompts-get`, `aeo-prompts-update`, `aeo-prompts-archive`, `aeo-prompts-versions-list`, `aeo-prompts-import`, `aeo-prompts-topics-list`, `aeo-prompts-checks-list`, `aeo-prompts-stats-get`, `aeo-prompts-overview-get` and `aeo-prompts-citations-list`.
@@ -118,7 +124,7 @@ A project with no setting for an engine gets its default, so only the engines so
 
 - The web-search engines (Claude, OpenAI, Perplexity, Exa) default to on and daily. An engine the deployment cannot run (no gateway, no Exa key, or the Perplexity gate off) never runs, whatever its setting says.
 - `claude-no-search` and `openai-no-search` send the same model the prompt without its web search tool, so the answer comes from training data alone. They default to off. They are their own engines, so they get their own column wherever engines are split.
-- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
+- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. An engine set to every 72 hours does the same over a 3-day period, so about a third of the set runs each day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
 - A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
 - The overview, rankings, gaps, opportunities, the "needs improvement" filter and the prompt page KPIs read web-search checks only. A prompt's per-engine stats, check history and the prompts table show every engine, no-search ones included.
 

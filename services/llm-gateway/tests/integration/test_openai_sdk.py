@@ -120,7 +120,8 @@ class TestChatCompletions:
         stream = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'hi' and nothing else."}],
-            max_tokens=300,
+            # GLM streams reasoning deltas before content, so a tight budget can end the stream with none.
+            max_tokens=1024,
             stream=True,
         )
 

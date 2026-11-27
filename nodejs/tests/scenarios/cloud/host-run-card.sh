@@ -59,9 +59,14 @@ finish() {
     local uploaded=true
     upload_evidence || uploaded=false
     mark 'done' "{\"exitCode\":$code,\"uploaded\":$uploaded,\"at\":\"$(now)\"}"
-    if [ -n "${live:-}" ]; then
-        wait "$live" 2>/dev/null || true
+    if [ ${#live[@]} -gt 0 ]; then
+        wait "${live[@]}" 2>/dev/null || true
     fi
+}
+
+copy_live() {
+    bash "$repo/nodejs/tests/scenarios/cloud/host-live-copy.sh" "$XDG_CACHE_HOME/posthog-scenarios/$1/live.jsonl" "$prefix/$2" "$card" "$$" &
+    live+=("$!")
 }
 
 stop() {
@@ -71,19 +76,25 @@ stop() {
 }
 
 mkdir -p "$evidence"
+live=()
 trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
 card_id=$(jq -r '.card // empty' "$SCENARIO_RUN_MANIFEST") && [[ $card_id =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit
+pair=()
+[ "$(jq -r '.pair // false' "$SCENARIO_RUN_MANIFEST")" = true ] && pair=(--pair)
 SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
-(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
+(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml" "${pair[@]}") >"$evidence/card.log" 2>&1 &
 card=$!
-bash "$repo/nodejs/tests/scenarios/cloud/host-live-copy.sh" "$XDG_CACHE_HOME/posthog-scenarios/$SCENARIO_RUN_ID/live.jsonl" "$prefix/live.jsonl" "$card" "$$" &
-live=$!
+copy_live "$SCENARIO_RUN_ID" live.jsonl
+control_id=$(jq -r '.controlRunId // empty' "$SCENARIO_RUN_MANIFEST")
+if [ ${#pair[@]} -gt 0 ] && [[ $control_id =~ ^[0-9a-f-]{36}$ ]]; then
+    copy_live "$control_id" control/live.jsonl
+fi
 while kill -0 "$card" 2>/dev/null; do
     wait "$card"
 done
 wait "$card"
 code=$?
-kill -TERM "$live" 2>/dev/null || true
+kill -URG "${live[@]}" 2>/dev/null || true

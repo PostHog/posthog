@@ -67,6 +67,10 @@ One-time approval does not change saved MCP permissions or override locked organ
 
 The token verifies the call binding and prevents reuse. It does not prove human presence: an authenticated API caller can complete the protocol directly. The trusted host owns the permission UI. It never forwards approval tokens to the iframe, and `ph.connectors.call` cannot submit them.
 
+On the web, connection and one-time tool permission dialogs show the requesting canvas's name and ID, with a link that opens the canvas in a new tab.
+The canvas page, editor, and dashboard tiles supply this identity from the canvas API response, not from the canvas's request.
+Use the ID to distinguish canvases with the same name.
+
 Results are limited to 256 KiB. Large results become a bounded `preview` with `truncated: true`. Provider parsing failures return `upstream_error`, not an unhandled exception.
 
 ## Providers

@@ -21,4 +21,17 @@ describe('aiObservabilitySessionsViewLogic', () => {
         expect(router.values.searchParams).toEqual({ date_from: '-7d' })
         logic.unmount()
     })
+
+    it('keeps a session whose id needs encoding selected after the url round trip', () => {
+        useMocks({ post: { '/api/environments/:team_id/query/:kind/': () => [200, { results: [] }] } })
+        initKeaTests()
+        router.actions.push(urls.aiObservabilitySessions())
+        const logic = aiObservabilitySessionsViewLogic()
+        logic.mount()
+
+        logic.actions.selectSession('a/b%c ü')
+
+        expect(logic.values.selectedSessionId).toEqual('a/b%c ü')
+        logic.unmount()
+    })
 })

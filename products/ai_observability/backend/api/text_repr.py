@@ -138,17 +138,14 @@ class AIObservabilityTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         """Apply rate limiting to prevent abuse of text formatting endpoint."""
         return [AIObservabilityTextReprBurstThrottle(), AIObservabilityTextReprSustainedThrottle()]
 
-    def _get_cache_key(self, event_type: str, entity_id: str, options: dict) -> str:
+    def _get_cache_key(self, event_type: str, data: object, options: object) -> str:
         """Generate cache key for text repr results.
 
-        Since options can vary widely, we hash them to create a stable key.
+        The rendering depends only on what the caller sends, so the key hashes the whole payload. Keying on the
+        event ID would serve one member's payload, such as a copy fetched before a property restriction, to another.
         """
-        # Sort options dict for consistent hashing
-        options_str = json.dumps(options, sort_keys=True)
-        # this hash has no security impact
-        # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-        options_hash = hashlib.md5(options_str.encode()).hexdigest()[:8]
-        return f"llm_text_repr:{self.team_id}:{event_type}:{entity_id}:{options_hash}"
+        payload = json.dumps({"data": data, "options": options}, sort_keys=True, default=str)
+        return f"llm_text_repr:{self.team_id}:{event_type}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
     @extend_schema(
         request=TextReprRequestSerializer,
@@ -284,7 +281,7 @@ The response includes the formatted text and metadata about the rendering.
             elif "properties" not in data:
                 raise ValidationError(f"{event_type} events require 'properties' object in data field")
 
-            # Validate that entity IDs are present to prevent cache collisions
+            # Entity IDs identify the rendering in logs.
             if event_type == "$ai_trace":
                 trace_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data.get("trace", {}).get(
                     "id"
@@ -295,14 +292,13 @@ The response includes the formatted text and metadata about the rendering.
                 if not data.get("id"):
                     raise ValidationError(f"{event_type} events require an 'id' field")
 
-            # Extract entity ID for cache key generation (validated above)
             if event_type == "$ai_trace":
                 entity_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data["trace"]["id"]
             else:
                 entity_id = data["id"]
 
             # Check cache
-            cache_key = self._get_cache_key(event_type, entity_id, options)
+            cache_key = self._get_cache_key(event_type, data, options)
             cached_result = cache.get(cache_key)
             if cached_result is not None:
                 logger.info(

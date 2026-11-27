@@ -78,6 +78,7 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
         "_posthog/console",
         "_posthog/progress",
         "_posthog/sandbox_output",
+        "_posthog/session_log_gap",
     }
 )
 

@@ -21,6 +21,7 @@ export const OOB_DOMAINS: readonly string[] = [
     'oast.site',
     'oastify.com',
     'rbndr.us',
+    'requestrepo.com',
 ]
 
 /** The guard that saw the host. One value per call site, so a log line names the path. */

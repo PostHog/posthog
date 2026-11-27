@@ -125,6 +125,14 @@ def _flatten_card_verifiers(card: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _ensure_group_id(access: dict[str, Any]) -> dict[str, Any]:
+    # groupId is part of the merge key; fall back to the nested group's id, and fail loudly
+    # when both are missing instead of writing a null key.
+    if access.get("groupId"):
+        return access
+    return {**access, "groupId": access["group"]["id"]}
+
+
 def _flatten_team_stats(body: dict[str, Any]) -> list[dict[str, Any]]:
     # Team stats come back as one object that maps a stat key to its counters.
     return [{"statKey": key, **stat} for key, stat in body["stats"].items()]
@@ -191,6 +199,8 @@ def _fanout_source(
     child = cast(Resource, resource)
     if config.name == "group_members":
         child = child.add_map(_normalize_member)
+    elif config.name == "collection_group_access":
+        child = child.add_map(_ensure_group_id)
 
     return SourceResponse(
         name=config.name,

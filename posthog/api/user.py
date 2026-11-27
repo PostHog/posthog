@@ -1387,7 +1387,7 @@ class UserViewSet(
         user_uuid = body.validated_data["uuid"]
 
         try:
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: Optional[User] = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             user = None
 
@@ -2319,6 +2319,9 @@ def redirect_to_site(request):
 
 @session_auth_required
 def redirect_to_website(request):
+    if is_impersonated(request):
+        return JsonResponse({"detail": "End impersonation before signing in to posthog.com."}, status=403)
+
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 
