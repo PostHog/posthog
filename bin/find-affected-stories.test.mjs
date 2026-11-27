@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
     affectedStoriesFor,
@@ -87,6 +89,67 @@ describe('find-affected-stories', () => {
             assert.match(unboundedChangeReason(dateFilter, libGraph, null), /frontend\/src\/lib\//)
             assert.equal(unboundedChangeReason('frontend/src/lib/components/owners.yaml', libGraph, null), null)
             assert.equal(unboundedChangeReason(lazyScene, libGraph, null), null)
+        })
+
+        const runCliAgainstChange = (changedFile) => {
+            const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'story-selection-'))
+            const git = (...args) =>
+                execFileSync(
+                    'git',
+                    [
+                        '-c',
+                        'user.name=test',
+                        '-c',
+                        'user.email=test@example.com',
+                        '-c',
+                        'commit.gpgsign=false',
+                        '-c',
+                        'core.hooksPath=/dev/null',
+                        ...args,
+                    ],
+                    { cwd: repo, stdio: 'ignore' }
+                )
+            try {
+                git('init', '-q')
+                git('commit', '-q', '--allow-empty', '-m', 'base')
+                git('tag', 'base')
+                fs.mkdirSync(path.join(repo, path.dirname(changedFile)), { recursive: true })
+                fs.writeFileSync(path.join(repo, changedFile), '')
+                git('add', '.')
+                git('commit', '-q', '-m', 'change')
+                const graphPath = path.join(repo, 'module-graph.json')
+                fs.writeFileSync(graphPath, JSON.stringify({ modules }))
+                const stdout = execFileSync(
+                    process.execPath,
+                    [
+                        fileURLToPath(new URL('./find-affected-stories', import.meta.url)),
+                        '--graph',
+                        graphPath,
+                        '--base-ref',
+                        'base',
+                        '--timings',
+                        path.join(repo, 'missing-timings.json'),
+                    ],
+                    { cwd: repo, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }
+                )
+                return JSON.parse(stdout)
+            } finally {
+                fs.rmSync(repo, { recursive: true, force: true })
+            }
+        }
+
+        test('the CLI runs every story for a change to a module the preview imports statically', () => {
+            assert.deepEqual(runCliAgainstChange(button), {
+                mode: 'full',
+                reason: `changed file is loaded by the Storybook preview for every story: ${button}`,
+                total_story_count: 1,
+            })
+        })
+
+        test('the CLI narrows a change to a library module the preview reaches only lazily', () => {
+            const output = runCliAgainstChange(dateFilter)
+            assert.equal(output.mode, 'selective')
+            assert.deepEqual(output.affected_stories, [dateFilterStory])
         })
     })
 
