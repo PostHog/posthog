@@ -257,7 +257,7 @@ def credential_owner_eligible(credential_owner_id: int, team_id: int) -> bool:
 
 
 def eligible_credential_owners(owner_ids: Iterable[int], team_id: int) -> set[int]:
-    """The subset of `owner_ids` that pass `credential_owner_eligible`, checked in one batch."""
+    """The subset of `owner_ids` that pass `credential_owner_eligible`."""
     active_owner_ids = list(User.objects.filter(id__in=owner_ids, is_active=True).values_list("id", flat=True))
     if not active_owner_ids:
         return set()
