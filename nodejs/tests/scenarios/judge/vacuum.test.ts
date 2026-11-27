@@ -109,11 +109,22 @@ describe('soak measurements', () => {
             { key: 'index_cyclotron_jobs_pkey', value: 2, incomplete: true },
             { key: 'index_idx_cyclotron_jobs_dequeue', value: 2, incomplete: true },
         ])
+        const noLiveRows = { value: null, censored: true, unmeasured: 'no live rows at an end of the drive' }
         expect(
             measured('bloat_growth', {
                 vacuum: [read(10, { liveTuples: 0 }), read(900, { liveTuples: 500 }), read(1790, { liveTuples: 0 })],
             })
-        ).toEqual([])
+        ).toEqual(
+            ['heap', 'toast', 'indexes', 'index_cyclotron_jobs_pkey', 'index_idx_cyclotron_jobs_dequeue'].map(
+                (key) => ({ key, ...noLiveRows })
+            )
+        )
+        expect(
+            measured('index_bytes_per_row', { vacuum: [read(10, { liveTuples: 0 }), read(1790, { liveTuples: 500 })] })
+        ).toEqual([
+            { key: 'start', value: null, censored: true, unmeasured: 'no live rows at the start of the drive' },
+            { key: 'end', value: 100 },
+        ])
     })
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
@@ -252,7 +263,7 @@ describe('soak measurements', () => {
         ])
     })
 
-    it('counts the scrape interval that straddles a window edge in the later window only', () => {
+    it('counts the scrape interval that straddles a window edge in the later window only, and the one across the drive end in the last', () => {
         const worker = (second: number, early: number, late: number): MetricSample => ({
             role: 'cdp-cyclotron-worker-hogflow',
             replica: 0,
@@ -269,6 +280,14 @@ describe('soak measurements', () => {
         const samples = Array.from({ length: 122 }, (_, i) => worker(-5 + i * 10, i * 100, i < 61 ? 0 : 1000))
 
         expect(measured('pickup_p99_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })).toEqual([
+            { key: 'hogflow_t0', value: 1 },
+            { key: 'hogflow_t600', value: 10 },
+        ])
+
+        const lateAtTheEnd = Array.from({ length: 122 }, (_, i) => worker(-5 + i * 10, i * 100, i < 121 ? 0 : 1000))
+        expect(
+            measured('pickup_p99_seconds', { samples: lateAtTheEnd, drive: { startedAt: atS(0), endedAt: atS(1200) } })
+        ).toEqual([
             { key: 'hogflow_t0', value: 1 },
             { key: 'hogflow_t600', value: 10 },
         ])
