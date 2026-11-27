@@ -244,6 +244,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === 401 || isTransientGatewayStatus(status)) {
         return false
     }
+    if (status === 429 && (failure.code === 'usage_limit_exceeded' || failure.data?.type === 'billing_limit')) {
+        return false
+    }
     if (isScopeNotFoundError(failure)) {
         return false
     }
