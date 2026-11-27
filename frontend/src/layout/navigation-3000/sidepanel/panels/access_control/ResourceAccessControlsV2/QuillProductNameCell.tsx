@@ -1,4 +1,4 @@
-import type { CellContext } from '@tanstack/react-table'
+import type { CellContext, ColumnDef } from '@tanstack/react-table'
 
 import { IconInfo } from '@posthog/icons'
 import { Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -32,4 +32,13 @@ export function QuillProductNameCell({ row }: CellContext<ProductRow, unknown>):
             )}
         </div>
     )
+}
+
+export function productAccessColumns(
+    AccessCell: (context: CellContext<ProductRow, unknown>) => JSX.Element
+): ColumnDef<ProductRow>[] {
+    return [
+        { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: QuillProductNameCell },
+        { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
+    ]
 }

@@ -1,4 +1,4 @@
-import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import type { CellContext } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { createContext, useContext } from 'react'
 
@@ -11,7 +11,7 @@ import type { AccessDetailSubjectScope } from './accessDetailLogic'
 import { getEntryId, inheritedFor, productLevelOptions } from './helpers'
 import { QuillAccessDetailSection } from './QuillAccessDetailSection'
 import { QuillLevelSelect } from './QuillLevelSelect'
-import { type ProductRow, QuillProductNameCell } from './QuillProductNameCell'
+import { type ProductRow, productAccessColumns } from './QuillProductNameCell'
 import type { AccessControlSettingsEntry } from './types'
 
 interface ProductRowEditing {
@@ -51,10 +51,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
     )
 }
 
-const COLUMNS: ColumnDef<ProductRow>[] = [
-    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: QuillProductNameCell },
-    { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
-]
+const COLUMNS = productAccessColumns(AccessCell)
 
 export function QuillProductAccessRules({
     projectId,

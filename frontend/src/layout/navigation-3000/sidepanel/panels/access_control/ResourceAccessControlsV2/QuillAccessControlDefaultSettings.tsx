@@ -1,4 +1,4 @@
-import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import type { CellContext } from '@tanstack/react-table'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconHome } from '@posthog/icons'
@@ -22,7 +22,7 @@ import { getLevelOptionsForResource, productLevelOptions } from './helpers'
 import { QuillAddLevelMenu } from './QuillAddLevelMenu'
 import { QuillLevelSelect } from './QuillLevelSelect'
 import { QuillObjectAccessRules } from './QuillObjectAccessRules'
-import { type ProductRow, QuillProductNameCell } from './QuillProductNameCell'
+import { type ProductRow, productAccessColumns } from './QuillProductNameCell'
 import { QuillPropertyAccessRules } from './QuillPropertyAccessRules'
 
 function getDefaultsDisabledReason(
@@ -76,10 +76,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
 
 // DataTable renders each cell function as a component, so the cells live at module scope and read the logic
 // themselves. Rebuilding them on each save would remount the access select and drop keyboard focus.
-const COLUMNS: ColumnDef<ProductRow>[] = [
-    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: QuillProductNameCell },
-    { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
-]
+const COLUMNS = productAccessColumns(AccessCell)
 
 export function QuillAccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
