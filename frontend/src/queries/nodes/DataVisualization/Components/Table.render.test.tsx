@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 
 import * as hog from 'lib/hog'
 import { themeLogic } from 'lib/logic/themeLogic'
+import { toCachedResults } from 'scenes/notebooks/Nodes/NotebookNodeSQLV2'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -24,7 +25,7 @@ import { ChartDisplayType } from '~/types'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
-import { dataVisualizationLogic } from '../dataVisualizationLogic'
+import { columnsFromResponse, dataVisualizationLogic, getAutoVisualizationType } from '../dataVisualizationLogic'
 import { Table } from './Table'
 
 const response: HogQLQueryResponse = {
@@ -72,6 +73,18 @@ function mountResult(
     const logic = dataVisualizationLogic(props)
     logic.mount()
     return { logic, props, sourceProps }
+}
+
+function renderBoldNumber(node: VisualizationNode, result: HogQLQueryResponse): string | null {
+    const { props, sourceProps } = mountResult(node, result)
+    const { container } = render(
+        <BindLogic logic={dataNodeLogic} props={sourceProps}>
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <HogQLBoldNumber />
+            </BindLogic>
+        </BindLogic>
+    )
+    return container.querySelector('.BoldNumber__value')?.textContent ?? null
 }
 
 describe('SQL table rendering', () => {
@@ -400,6 +413,60 @@ describe('SQL table rendering', () => {
     })
 
     it.each([
+        { tableSettings: { columns: [{ column: 'Comparison' }] }, expected: '12.75' },
+        { tableSettings: { columns: [{ column: 'Comparison' }, { column: 'Total' }] }, expected: '12.75' },
+        {
+            tableSettings: { columns: [{ column: 'Total', settings: { formatting: { decimalPlaces: 0 } } }] },
+            expected: '13',
+        },
+        { tableSettings: { transpose: true }, expected: null },
+    ])('renders the first response cell as a big number with $tableSettings', ({ tableSettings, expected }) => {
+        const node: VisualizationNode = { ...query, display: ChartDisplayType.BoldNumber, tableSettings }
+        const result: HogQLQueryResponse = {
+            columns: ['Total', 'Comparison'],
+            types: [
+                ['Total', 'Float64'],
+                ['Comparison', 'Int64'],
+            ],
+            results: [
+                [12.75, 24],
+                [35, 46],
+            ],
+        }
+        expect(renderBoldNumber(node, result)).toBe(expected)
+    })
+
+    it.each([
+        {
+            first: '123.4567890123456789',
+            type: undefined,
+            auto: ChartDisplayType.ActionsTable,
+            expected: '123.4567890123456789',
+        },
+        { first: 17, type: undefined, auto: ChartDisplayType.BoldNumber, expected: '17' },
+        {
+            first: '123.4567890123456789',
+            type: 'float64',
+            auto: ChartDisplayType.BoldNumber,
+            expected: '123.45678901234568',
+        },
+    ])(
+        'uses the cached column type for a single $type column beginning with $first',
+        ({ first, type, auto, expected }) => {
+            const result = toCachedResults({
+                columns: ['Total'],
+                types: type ? [['Total', type]] : undefined,
+                first_page: [[first], [29]],
+                row_count: 2,
+            })
+            expect(getAutoVisualizationType(columnsFromResponse(result), result.results.length)).toBe(auto)
+            expect(
+                renderBoldNumber({ ...query, display: ChartDisplayType.BoldNumber, tableSettings: {} }, result)
+            ).toBe(expected)
+        }
+    )
+
+    it.each([
         { results: [[10]], expected: 'USD 10' },
         { results: [[0]], expected: 'USD 0' },
         { results: [], expected: null },
@@ -407,14 +474,6 @@ describe('SQL table rendering', () => {
     ])('renders SQL big numbers for $results', ({ results, expected }) => {
         const node = { ...query, display: ChartDisplayType.BoldNumber }
         const result: HogQLQueryResponse = { columns: ['value'], types: [['value', 'Float64']], results }
-        const { props, sourceProps } = mountResult(node, result)
-        const { container } = render(
-            <BindLogic logic={dataNodeLogic} props={sourceProps}>
-                <BindLogic logic={dataVisualizationLogic} props={props}>
-                    <HogQLBoldNumber />
-                </BindLogic>
-            </BindLogic>
-        )
-        expect(container.querySelector('.BoldNumber__value')?.textContent ?? null).toBe(expected)
+        expect(renderBoldNumber(node, result)).toBe(expected)
     })
 })

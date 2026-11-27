@@ -13,13 +13,13 @@ from django.utils import timezone
 
 from django_redis.cache import RedisCache
 from redis.exceptions import LockNotOwnedError
-from rest_framework import serializers
-from rest_framework.exceptions import NotFound, Throttled
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException, NotFound, Throttled
 
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change
-from posthog.token_bucket import BucketDecision, Budget, consume
+from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.app_release_results import MAX_RELEASE_RESULT_BYTES
@@ -34,7 +34,7 @@ from products.notebooks.backend.sql_v2_state import (
 )
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
-APP_OUTPUT_VERSION = 7
+APP_OUTPUT_VERSION = 8
 MAX_SHARED_CHART_SERIES = 200
 APP_VIEW_RECIPIENT_BUDGET = Budget(burst=60, per_hour=960)
 APP_VIEW_PROJECT_RECIPIENT_BUDGET = Budget(burst=15, per_hour=240)
@@ -289,6 +289,59 @@ class SharedOutputBudget:
         return output
 
 
+def plain_scalar_columns(viz: dict[str, Any], columns: list[str]) -> list[str]:
+    table = viz.get("tableSettings", {})
+    if not columns or not isinstance(table, dict) or table.get("transpose"):
+        return []
+    axes = table.get("columns", [])
+    if not isinstance(axes, list) or any(
+        not isinstance(axis, dict) or (axis.get("column") == columns[0] and plain_chart_axis(axis) is None)
+        for axis in axes
+    ):
+        return []
+    return columns[:1]
+
+
+def numeric_scalar_column(result: dict[str, Any]) -> bool | None:
+    if not result.get("types"):
+        for row in result["first_page"]:
+            if not isinstance(row, list) or not row:
+                return None
+            if row[0] is not None:
+                return type(row[0]) in (int, float)
+        return False
+    kind = pinned_chart_types(result).get(result["columns"][0])
+    if not kind:
+        return None
+    if re.fullmatch(r"(?:u?int(?:8|16|32|64)|float(?:16|32|64))", kind, flags=re.IGNORECASE):
+        return True
+    if re.fullmatch(r"(?:Decimal(?:32|64|128|256)?\([\d, ]+\)|U?Int(?:128|256))", kind):
+        return True
+    if kind in ("String", "Nullable(String)", "LowCardinality(String)") or kind.lower() in (
+        "str",
+        "object",
+        "category",
+    ):
+        return False
+    return None
+
+
+def plain_scalar_rows(rows: list, result: dict[str, Any]) -> list[list] | None:
+    if not rows:
+        return []
+    if not isinstance(rows[0], list) or not rows[0]:
+        return None
+    value = rows[0][0]
+    if value is None:
+        return []
+    if isinstance(value, str):
+        if numeric_scalar_column(result) is not False:
+            return None
+    elif type(value) not in (int, float) or not -(2**53 - 1) <= value <= 2**53 - 1:
+        return None
+    return [[value]]
+
+
 def shared_display_columns(props: dict[str, Any], result: dict[str, Any]) -> tuple[str, list[str]] | None:
     viz = props.get("vizQuery", {})
     columns = result["columns"]
@@ -300,7 +353,10 @@ def shared_display_columns(props: dict[str, Any], result: dict[str, Any]) -> tup
     if display == "ActionsTable":
         return display, table_columns(viz, columns)
     if display == "BoldNumber" or (display == "Auto" and len(columns) == 1):
-        return "BoldNumber", table_columns(viz, columns)[:1]
+        if display == "Auto" and numeric_scalar_column(result) is not True:
+            return None
+        scalar = plain_scalar_columns(viz, columns)
+        return ("BoldNumber", scalar) if scalar else None
     if display == "Auto" and len(columns) != 2:
         return None
     if display not in (
@@ -345,7 +401,13 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
             )
             continue
         projection = shared_display_columns(props, result)
-        if projection is None:
+        raw_rows = result["first_page"]
+        rows = (
+            plain_scalar_rows(raw_rows, result)
+            if projection is not None and projection[0] == "BoldNumber"
+            else raw_rows
+        )
+        if projection is None or rows is None:
             tab["blocks"].append(
                 {
                     "title": block.get("title"),
@@ -354,20 +416,18 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
             )
             continue
         columns = result["columns"]
-        rows = result["first_page"]
         row_count = result.get("row_count")
-        partial = isinstance(row_count, int) and len(rows) < row_count
+        partial = isinstance(row_count, int) and len(raw_rows) < row_count
         display, displayed = projection
-        if display == "BoldNumber":
-            rows = rows[:1]
         if displayed:
-            budget.count(displayed)
+            headings = ["Value"] if display == "BoldNumber" else displayed
+            budget.count(headings)
             budget.count([props.get("title")])
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(
                 {
                     "title": block.get("title") or props.get("title"),
-                    "columns": displayed,
+                    "columns": headings,
                     "partial": partial,
                     "rows": budget.project_rows(rows, indexes),
                 }
@@ -375,12 +435,21 @@ def app_output_tabs(release: NotebookAppRelease) -> list[AppOutputTab]:
     return [AppOutputTab(title=tab["title"], blocks=tab["blocks"]) for tab in tabs.values()]
 
 
+class AppViewBudgetUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "app_view_budget_unavailable"
+    default_detail = "This app is temporarily unavailable. Try again shortly."
+    wait = 5
+
+
 def check_app_view_budget(recipient_id: int, *, team_id: int | None = None) -> None:
     if team_id is None:
         decision = consume(f"notebooks:app-view-lookup:{recipient_id}", APP_VIEW_RECIPIENT_BUDGET)
     else:
         decision = consume(f"notebooks:app-view:{team_id}:{recipient_id}", APP_VIEW_PROJECT_RECIPIENT_BUDGET)
-    if isinstance(decision, BucketDecision) and not decision.allowed:
+    if isinstance(decision, BucketUnavailable):
+        raise AppViewBudgetUnavailable()
+    if not decision.allowed:
         raise Throttled(wait=decision.retry_after)
 
 

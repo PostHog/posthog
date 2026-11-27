@@ -11,7 +11,7 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
-Notebook readers can see ordinary edits in the individual activity history. Sharing recipient details and grant changes there require organization admin, owner or authorized staff access.
+Notebook readers can see ordinary edits in the individual activity history. Sharing recipient details and grant changes there require organization admin, owner or authorized staff access. The notification feed applies the same visibility rules before grouping notebook edits, so a private sharing change cannot displace a visible edit.
 Organization admins and owners can also read grants and revocations in their organization’s audit log and in project audit feeds and CSV exports, including after the notebook is deleted.
 Staff who can access a project’s audit log can read its grant records there. The organization-wide endpoint requires an admin or owner membership.
 The `system.activity_logs` SQL table omits these records.
