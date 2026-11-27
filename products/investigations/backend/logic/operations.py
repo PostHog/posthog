@@ -5,9 +5,7 @@ from django.db import transaction
 from django.db.models import Func, IntegerField, QuerySet
 from django.db.models.fields.json import KT
 
-from posthog.models import Team, User
-
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from posthog.permissions import filter_visible_project_objects
 
 from ..facade.contracts import (
     InvestigationConflict,
@@ -39,12 +37,13 @@ def saved(obj: Investigation) -> SavedInvestigation:
 
 
 def list_investigations(
-    team: Team, search: str, offset: int, limit: int, *, user: User | None
+    team_id: int, search: str, offset: int, limit: int, *, user_id: int | None
 ) -> tuple[list[InvestigationSummary], int]:
-    queryset: QuerySet[Investigation] = Investigation.objects.for_team(team.pk).filter(deleted=False)
-    if user is not None:
-        user_access_control = UserAccessControl(user=user, team=team)
-        queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="investigation")
+    queryset: QuerySet[Investigation] = Investigation.objects.for_team(team_id).filter(deleted=False)
+    if user_id is not None:
+        queryset = filter_visible_project_objects(
+            queryset, team_id=team_id, include_all_if_admin=False, user_id=user_id
+        )
     if search:
         queryset = queryset.filter(document__question__icontains=search)
     count = queryset.count()

@@ -69190,18 +69190,6 @@ export namespace Schemas {
       Link: 'link',
     } as const;
 
-    export interface PatchedInvestigationUpdate {
-      /**
-         * Last read revision. Stale writes are rejected with HTTP 409.
-         * @minimum 1
-         */
-      revision?: number;
-      /** Replacement document, preserving existing evidence and run IDs. */
-      document?: InvestigationDocument;
-      /** Archive this investigation and remove it from the list. */
-      deleted?: boolean;
-    }
-
     export interface InvestigationEvidence {
       /**
          * @minLength 1
@@ -96340,6 +96328,18 @@ export namespace Schemas {
          * @nullable
          */
       values_query_connection_id?: string | null;
+    }
+
+    export interface PatchedInvestigationUpdate {
+      /**
+         * Last read revision. Stale writes are rejected with HTTP 409.
+         * @minimum 1
+         */
+      revision?: number;
+      /** Replacement document, preserving existing evidence and run IDs. */
+      document?: InvestigationDocument;
+      /** Archive this investigation and remove it from the list. */
+      deleted?: boolean;
     }
 
     export interface PatchedJsSnippetVersion {

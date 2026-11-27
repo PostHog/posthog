@@ -1,4 +1,3 @@
-from typing import cast
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
@@ -9,7 +8,6 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import User
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import InvestigationWriteBurstRateThrottle, InvestigationWriteSustainedRateThrottle
 
@@ -55,9 +53,12 @@ class InvestigationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request, **kwargs) -> Response:
         query = InvestigationListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        service = is_service_auth(request)
+        if not service and request.user.pk is None:
+            raise NotAuthenticated()
         results, count = api.list_investigations(
-            self.team,
-            user=None if is_service_auth(request) else cast(User, request.user),
+            self.team_id,
+            user_id=None if service else request.user.pk,
             **query.validated_data,
         )
         return Response(InvestigationListSerializer({"results": results, "count": count}).data)
