@@ -47,8 +47,10 @@ def _layered(query: ast.SelectQuery) -> ast.SelectQuery | None:
     if query.where is not None and _sibling_reads(query.where, names) != Counter():
         return None
     depths = _alias_depths(aliases, names)
+    if depths is None:
+        return None
     layer_count = max(depths.values()) + 1
-    if layer_count > _MAX_LAYERS or layer_count * (len(source_columns) + len(aliases)) > _MAX_LAYERED_COLUMNS:
+    if layer_count * (len(source_columns) + len(aliases)) > _MAX_LAYERED_COLUMNS:
         return None
     qualifier = _SiblingAliasQualifier(names, source_alias)
     layer = source
@@ -137,18 +139,17 @@ def _sibling_reads(expr: ast.Expr, names: set[str]) -> Counter[str] | None:
     return None if finder.defines_inline_alias or finder.has_lambda else finder.reads
 
 
-def _alias_depths(aliases: dict[str, ast.Expr], names: set[str]) -> dict[str, int]:
+def _alias_depths(aliases: dict[str, ast.Expr], names: set[str]) -> dict[str, int] | None:
+    pending = {name: set(_sibling_reads(expr, names) or ()) for name, expr in aliases.items()}
     depths: dict[str, int] = {}
-
-    def depth_of(name: str) -> int:
-        if name not in depths:
-            reads = _sibling_reads(aliases[name], names) or Counter()
-            depths[name] = 1 + max((depth_of(read) for read in reads), default=-1)
-        return depths[name]
-
-    for name in aliases:
-        depth_of(name)
-    return depths
+    for depth in range(_MAX_LAYERS):
+        ready = [name for name, reads in pending.items() if reads.issubset(depths)]
+        for name in ready:
+            depths[name] = depth
+            del pending[name]
+        if not pending:
+            return depths
+    return None
 
 
 def _sibling_alias_read(node: ast.Field, names: set[str]) -> str | None:
