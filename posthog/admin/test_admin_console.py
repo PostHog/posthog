@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
-from types import FunctionType
+from types import FunctionType, SimpleNamespace
 from urllib.parse import urlencode
 
 import time_machine
@@ -44,7 +44,17 @@ from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import (
+    COLLAPSE_FACT_CHARS,
+    MAX_FACTS_PER_PANEL,
+    Fact,
+    Gate,
+    Operation,
+    Owner,
+    Panel,
+    ReasonForm,
+    Tone,
+)
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.results import (
@@ -74,6 +84,7 @@ from posthog.admin.console.tools import (
     Stat,
     Stats,
     Table,
+    TableSelect,
     ToolOperation,
 )
 from posthog.admin.console.urls import moved_url_patterns
@@ -701,6 +712,24 @@ class TestAdminConsoleOverriddenAdminViews(BaseTest):
             match.func(request, *match.args, **match.kwargs)
 
 
+class TestAdminConsoleLongFacts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("short_value", Fact(label="Query", value="SELECT 1"), False),
+            ("long_value", Fact(label="Query", value="x" * (COLLAPSE_FACT_CHARS + 1)), True),
+            ("many_lines", Fact(label="Query", value="a\nb\nc\nd"), True),
+            ("long_link", Fact(label="Team", value="x" * 200, href="/admin/console/teams/1/"), False),
+        ]
+    )
+    def test_a_long_plain_fact_collapses_to_its_start(self, _name: str, fact: Fact, collapsed: bool) -> None:
+        html = render_to_string(
+            "admin_console/_panel.html", {"rendered": SimpleNamespace(panel=None, facts=[fact], operations=[])}
+        )
+
+        assert ("Show all" in html) == collapsed
+        assert fact.value in html
+
+
 class TestAdminConsoleFormField(SimpleTestCase):
     @parameterized.expand(
         [
@@ -722,6 +751,21 @@ class TestAdminConsoleFormField(SimpleTestCase):
 
         assert "Not found." in html
         assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
+
+    def test_a_checkbox_list_shown_again_after_an_error_keeps_what_staff_ticked(self) -> None:
+        class _PickForm(forms.Form):
+            picks = forms.MultipleChoiceField(
+                choices=[("a", "First"), ("b", "Second")], widget=forms.CheckboxSelectMultiple
+            )
+
+        form = _PickForm(data={"picks": ["b"]})
+        form.is_valid()
+        form.add_error("picks", "Pick again.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form["picks"]})
+
+        ticked = re.findall(r'value="(\w)"\s+class="mt-0.5"\s+checked', html)
+        assert (ticked, "Pick again." in html) == (["b"], True)
 
 
 class TestAdminConsoleViews(BaseTest):
@@ -1042,6 +1086,20 @@ class TestAdminConsoleViews(BaseTest):
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
             with self.assertRaisesRegex(ValueError, "must offer with a form"):
                 self.client.get("/admin/console/tools/deciding-tool/?runs=missing")
+
+    def test_a_table_that_selects_for_an_operation_without_a_multiple_choice_field_fails_the_page(self) -> None:
+        tool = _DecidingTool()
+        table = Table(
+            columns=("Item",),
+            rows=(Row(cells=(Cell(text="Item 3"),), select_value="3"),),
+            select=TableSelect(operation_key="judge", field="verdict", label="Judge selected"),
+        )
+        with (
+            patch.object(console, "get_tool", return_value=tool),
+            patch.object(tool, "page", return_value=Page(blocks=(table,))),
+        ):
+            with self.assertRaisesRegex(ValueError, "multiple choice field 'verdict'"):
+                self.client.get("/admin/console/tools/deciding-tool/")
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)
