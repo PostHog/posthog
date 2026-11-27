@@ -2107,6 +2107,68 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         assert schema.should_sync is True
 
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_to_xmin_discovers_every_table_in_one_call_outside_transaction(
+        self, _mock_workflow_exists
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schemas = {
+            name: ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=False,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                sync_type_config={"primary_key_columns": ["id"]},
+            )
+            for name in ("orders", "users", "orders_view")
+        }
+
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        discovery_calls: list[tuple[list[str], int]] = []
+
+        def discover(_config, _team_id, names=None, api_version=None):
+            discovery_calls.append((sorted(names or []), len(connection.savepoint_ids)))
+            return [
+                _SourceSchema(
+                    name=name,
+                    supports_incremental=False,
+                    supports_append=False,
+                    supports_xmin=name != "orders_view",
+                )
+                for name in names or []
+            ]
+
+        with patch.object(PostgresSource, "get_schemas", side_effect=discover):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "sync_type": "xmin"} for schema in schemas.values()]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        detail = response.json()["detail"]
+        assert "orders_view (xmin replication is not available" in detail
+        assert discovery_calls == [(["orders", "orders_view", "users"], baseline_savepoint_depth)]
+        for name, schema in schemas.items():
+            schema.refresh_from_db()
+            expected = (
+                ExternalDataSchema.SyncType.FULL_REFRESH if name == "orders_view" else ExternalDataSchema.SyncType.XMIN
+            )
+            assert schema.sync_type == expected, name
+
     @parameterized.expand(
         [
             (
