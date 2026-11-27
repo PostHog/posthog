@@ -731,6 +731,7 @@ export const NotebookAppBlockKindEnumApi = {
 /**
  * * `auto` - Automatic
  * * `select` - Dropdown
+ * * `query_select` - Query dropdown
  * * `slider` - Slider
  */
 export type NotebookAppInputKindEnumApi = (typeof NotebookAppInputKindEnumApi)[keyof typeof NotebookAppInputKindEnumApi]
@@ -738,6 +739,7 @@ export type NotebookAppInputKindEnumApi = (typeof NotebookAppInputKindEnumApi)[k
 export const NotebookAppInputKindEnumApi = {
     Auto: 'auto',
     Select: 'select',
+    QuerySelect: 'query_select',
     Slider: 'slider',
 } as const
 
@@ -809,8 +811,14 @@ export interface NotebookAppBlockApi {
      *
      * * `auto` - Automatic
      * * `select` - Dropdown
+     * * `query_select` - Query dropdown
      * * `slider` - Slider */
     input_kind?: NotebookAppInputKindEnumApi
+    /**
+     * Column supplying choices for a query dropdown.
+     * @maxLength 256
+     */
+    option_column?: string
     /**
      * Allowed values for a dropdown.
      * @maxItems 100

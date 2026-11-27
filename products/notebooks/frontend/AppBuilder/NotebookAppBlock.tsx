@@ -50,6 +50,7 @@ export function NotebookAppBlock({
         return (
             <NotebookAppInput
                 block={block}
+                cell={cell}
                 variable={variables.find((variable) => variable.name === block.variable)}
                 disabled={!canInteract}
                 onChange={(value) => onInput(block.variable || '', value)}

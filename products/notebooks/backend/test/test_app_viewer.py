@@ -148,6 +148,36 @@ def test_date_filter_only_recomputes_native_outputs_with_changed_bindings() -> N
     assert plans["constant"].matches_defaults
 
 
+def test_query_dropdown_refreshes_hidden_choices_with_upstream_input() -> None:
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Accounts",
+        has_previous=False,
+        markdown='<SQLV2 nodeId="accounts" code="select {region} as account" />',
+        variables=[
+            {"name": "region", "type": "string", "value": "All"},
+            {"name": "account", "type": "string", "value": ""},
+        ],
+        layout={
+            "blocks": [
+                {"kind": "input", "variable": "region"},
+                {
+                    "kind": "input",
+                    "variable": "account",
+                    "input_kind": "query_select",
+                    "node_id": "accounts",
+                    "option_column": "account",
+                },
+            ]
+        },
+    )
+    [plan] = resolve_viewer_queries(release, {"region": "West"})
+    assert plan.node_id == "accounts"
+    assert "West" in plan.query and not plan.matches_defaults
+
+
 class TestPublishedAppResults(APIBaseTest):
     @patch(
         "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True

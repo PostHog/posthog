@@ -7,6 +7,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
+import { NotebookAppChoiceSettings } from './NotebookAppChoiceSettings'
 import { appCellTitle } from './notebookAppLayout'
 import { NotebookAppSizeControls } from './NotebookAppSizeControls'
 
@@ -156,6 +157,7 @@ export function NotebookAppInspector({
                                 value={block.input_kind ?? 'auto'}
                                 options={[
                                     { value: 'auto', label: 'Match variable type' },
+                                    { value: 'query_select', label: 'Dropdown from query' },
                                     {
                                         value: 'select',
                                         label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
@@ -169,21 +171,12 @@ export function NotebookAppInspector({
                                 ]}
                                 onChange={(input_kind) => onBlock(block.id, { input_kind })}
                             />
-                            {block.input_kind === 'select' && (
-                                <>
-                                    <LemonLabel>Options (one per line)</LemonLabel>
-                                    <LemonTextArea
-                                        value={(block.options ?? []).join('\n')}
-                                        onChange={(text) => onBlock(block.id, { options: text.split('\n') })}
-                                        aria-label="Dropdown options"
-                                    />
-                                    {variableType !== 'list' && (
-                                        <span className="text-xs text-secondary">
-                                            To allow multiple selections, choose List of text in the notebook variables.
-                                        </span>
-                                    )}
-                                </>
-                            )}
+                            <NotebookAppChoiceSettings
+                                cells={cells}
+                                block={block}
+                                variableType={variableType}
+                                onChange={(patch) => onBlock(block.id, patch)}
+                            />
                             {block.input_kind === 'slider' &&
                                 SLIDER_FIELDS.map(({ key, label, defaultValue }) => (
                                     <Fragment key={key}>

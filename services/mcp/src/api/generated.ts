@@ -78484,6 +78484,7 @@ export namespace Schemas {
     /**
      * * `auto` - Automatic
      * * `select` - Dropdown
+     * * `query_select` - Query dropdown
      * * `slider` - Slider
      */
     export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
@@ -78492,6 +78493,7 @@ export namespace Schemas {
     export const NotebookAppInputKindEnum = {
       Auto: 'auto',
       Select: 'select',
+      QuerySelect: 'query_select',
       Slider: 'slider',
     } as const;
 
@@ -78563,8 +78565,14 @@ export namespace Schemas {
        *
        * * `auto` - Automatic
        * * `select` - Dropdown
+       * * `query_select` - Query dropdown
        * * `slider` - Slider */
       input_kind?: NotebookAppInputKindEnum;
+      /**
+         * Column supplying choices for a query dropdown.
+         * @maxLength 256
+         */
+      option_column?: string;
       /**
          * Allowed values for a dropdown.
          * @maxItems 100

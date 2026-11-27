@@ -13,7 +13,9 @@ import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
+import { NotebookAppQueryChoicesContext, queryChoices, sqlChoiceSource } from './notebookAppChoices'
 import { appSourceCells } from './notebookAppLayout'
+import { savedQueryResult } from './notebookAppPublishedResults'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
@@ -86,29 +88,49 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 onChange={setActiveTab}
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
-            <NotebookAppCanvas
-                layout={layout}
-                activeTab={activeTab}
-                cells={cells}
-                staleNodeIds={{}}
-                variables={variables}
-                editing={false}
-                selectedId={null}
-                canInteract
-                onInput={changeInput}
-                renderOutput={(cell) =>
-                    cell.type === 'component' && cell.tagName === 'SQLV2' ? (
-                        <PublishedNotebookQuery
-                            cell={cell}
-                            sessionId={sessionId}
-                            current={results?.outputs[cell.id]}
-                            pinned={publishedResults[cell.id]}
-                            chartInputFilters={chartInputFilters}
-                        />
-                    ) : undefined
-                }
-                onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
-            />
+            <NotebookAppQueryChoicesContext.Provider
+                value={(cell, column) => {
+                    const attributes = sqlChoiceSource(cell)
+                    if (!cell || !attributes) {
+                        return null
+                    }
+                    const current = results?.outputs[cell.id]?.result
+                    if (current) {
+                        return queryChoices(current.columns, current.results, column, !!current.hasMore)
+                    }
+                    const saved = savedQueryResult(attributes, publishedResults[cell.id])
+                    if (saved === 'unavailable') {
+                        return saved
+                    }
+                    return saved && typeof saved === 'object'
+                        ? queryChoices(saved.result.columns, saved.result.results, column, saved.rows !== 'complete')
+                        : null
+                }}
+            >
+                <NotebookAppCanvas
+                    layout={layout}
+                    activeTab={activeTab}
+                    cells={cells}
+                    staleNodeIds={{}}
+                    variables={variables}
+                    editing={false}
+                    selectedId={null}
+                    canInteract
+                    onInput={changeInput}
+                    renderOutput={(cell) =>
+                        cell.type === 'component' && cell.tagName === 'SQLV2' ? (
+                            <PublishedNotebookQuery
+                                cell={cell}
+                                sessionId={sessionId}
+                                current={results?.outputs[cell.id]}
+                                pinned={publishedResults[cell.id]}
+                                chartInputFilters={chartInputFilters}
+                            />
+                        ) : undefined
+                    }
+                    onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
+                />
+            </NotebookAppQueryChoicesContext.Provider>
         </main>
     )
 }
