@@ -49,3 +49,8 @@ bars:
 measure:
     - name: delivery_latency_ms
     - name: step_claims_per_second
+    - name: step_host_busy_percent
+    - name: step_role_cpu_cores
+    - name: step_role_busiest_cpu_cores
+    - name: step_writer_backends
+    - name: step_writer_active_waits

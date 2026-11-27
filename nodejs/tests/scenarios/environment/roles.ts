@@ -126,6 +126,7 @@ export function roleSpecs(
     const {
         AWS_PROFILE: _profile,
         SCENARIO_POOLER_URLS: poolerUrls,
+        SCENARIO_WRITER_URL: _writer,
         CDP_RATE_LIMITER_REFILL_RATE: _refillRate,
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: _sesRefill,
         CDP_SES_RATE_LIMIT_CAPACITY: _sesCapacity,

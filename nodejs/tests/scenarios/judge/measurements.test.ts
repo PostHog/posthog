@@ -19,6 +19,7 @@ import {
     janitorResetsOf,
     measure,
     phasesOf,
+    readActivity,
     sampleOf,
     startSampler,
 } from './measurements'
@@ -1452,6 +1453,165 @@ describe('measurements', () => {
             { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
             { name: 'step_claims_per_second', key: 'fetch_10x', unit: 'jobs/s', value: 53 / 55, incomplete: true },
             { name: 'step_claims_per_second', key: 'fanout_10x', unit: 'jobs/s', value: 1, incomplete: true },
+        ])
+    })
+
+    it("reads each step's host busy share, each role's CPU cores and busiest replica, and the writer's mean backends", () => {
+        const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+        const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
+        const cpuAt = (second: number, coresBefore: number, coresAfter: number): number =>
+            Math.min(second, 60) * coresBefore + Math.max(second - 60, 0) * coresAfter
+        const worker = (role: string, replica: number, cores: [number, number]): MetricSample[] =>
+            every5s.map((second) => ({
+                ...sample(second, -60, cpuAt(second, ...cores), 100, replica),
+                role,
+            }))
+        const recorded = evidence({
+            samples: [
+                ...worker(HOGFLOW, 0, [0.5, 1]),
+                ...worker(HOGFLOW, 1, [0.25, 0.5]),
+                ...worker(ROLE, 0, [0.25, 0.25]),
+            ],
+            host: every5s.map((second) => ({
+                at: atS(second),
+                totalTicks: second * 80,
+                busyTicks: cpuAt(second, 20, 60),
+            })),
+            activity: [
+                ...every5s.map((second) => ({
+                    at: atS(second),
+                    backends:
+                        second < 60
+                            ? [
+                                  { state: 'active', wait: 'cpu', count: 2 },
+                                  { state: 'idle', wait: 'client', count: 6 },
+                              ]
+                            : [
+                                  { state: 'active', wait: 'cpu', count: 3 },
+                                  { state: 'active', wait: 'lock', count: second % 10 === 0 ? 4 : 6 },
+                                  { state: 'idle in transaction', wait: 'client', count: 1 },
+                              ],
+                })),
+                { at: atS(87), error: 'Postgres at db failed: timeout' },
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+
+        expect(
+            measure(
+                [
+                    { name: 'step_writer_backends', params: {} },
+                    { name: 'step_writer_active_waits', params: {} },
+                    { name: 'step_host_busy_percent', params: {} },
+                    { name: 'step_role_cpu_cores', params: {} },
+                    { name: 'step_role_busiest_cpu_cores', params: {} },
+                ],
+                recorded
+            )
+        ).toEqual([
+            { name: 'step_writer_backends', key: 'active_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 6 },
+            { name: 'step_writer_backends', key: 'active_10x', unit: 'backends', value: 8, incomplete: true },
+            {
+                name: 'step_writer_backends',
+                key: 'idle_in_transaction_10x',
+                unit: 'backends',
+                value: 1,
+                incomplete: true,
+            },
+            { name: 'step_writer_active_waits', key: 'cpu_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_active_waits', key: 'cpu_10x', unit: 'backends', value: 3, incomplete: true },
+            { name: 'step_writer_active_waits', key: 'lock_10x', unit: 'backends', value: 5, incomplete: true },
+            { name: 'step_host_busy_percent', key: '1x', unit: '%', value: 25 },
+            { name: 'step_host_busy_percent', key: '10x', unit: '%', value: 75 },
+            { name: 'step_role_cpu_cores', key: `${ROLE}_1x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_cpu_cores', key: `${HOGFLOW}_1x`, unit: 'cores', value: 0.75 },
+            { name: 'step_role_cpu_cores', key: `${ROLE}_10x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_cpu_cores', key: `${HOGFLOW}_10x`, unit: 'cores', value: 1.5 },
+            { name: 'step_role_busiest_cpu_cores', key: `${ROLE}_1x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_1x`, unit: 'cores', value: 0.5 },
+            { name: 'step_role_busiest_cpu_cores', key: `${ROLE}_10x`, unit: 'cores', value: 0.25 },
+            { name: 'step_role_busiest_cpu_cores', key: `${HOGFLOW}_10x`, unit: 'cores', value: 1 },
+        ])
+    })
+
+    it("calls a step's writer backends unmeasured when no read landed in it or every read failed, and marks one whose reads failed in part", () => {
+        const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
+        const recorded = evidence({
+            samples: every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
+            activity: every5s.map((second) =>
+                second < 60 && second !== 25
+                    ? { at: atS(second), backends: [{ state: 'idle', wait: 'client', count: 3 }] }
+                    : { at: atS(second), error: 'timeout' }
+            ),
+            drive: { startedAt: atS(0), endedAt: atS(180) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+                { scale: 100, fromMs: 120_000, toMs: 180_000 },
+            ],
+        })
+        const unread = {
+            key: '10x',
+            unit: 'backends',
+            value: null,
+            censored: true,
+            unmeasured: 'every pg_stat_activity read in the step failed: timeout',
+        }
+        const unlanded = {
+            key: '100x',
+            unit: 'backends',
+            value: null,
+            censored: true,
+            unmeasured: 'no pg_stat_activity read landed in the step',
+        }
+
+        expect(
+            measure(
+                [
+                    { name: 'step_writer_backends', params: {} },
+                    { name: 'step_writer_active_waits', params: {} },
+                ],
+                recorded
+            )
+        ).toEqual([
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 3, incomplete: true },
+            { name: 'step_writer_backends', ...unread },
+            { name: 'step_writer_backends', ...unlanded },
+            { name: 'step_writer_active_waits', key: '1x', unit: 'backends', value: 0, incomplete: true },
+            { name: 'step_writer_active_waits', ...unread },
+            { name: 'step_writer_active_waits', ...unlanded },
+        ])
+    })
+
+    it('counts a writer read for the step in which the writer answered it, also when that step was halted short', async () => {
+        const clock = [atS(58), atS(61)]
+        const answeredLate = await readActivity(
+            () => Promise.resolve([{ state: 'active', wait: 'lock', count: 4 }]),
+            () => clock.shift()!
+        )
+        const recorded = evidence({
+            activity: [
+                ...Array.from({ length: 12 }, (_, i) => ({
+                    at: atS(i * 5),
+                    backends: [{ state: 'idle', wait: 'client', count: 2 }],
+                })),
+                answeredLate,
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(62) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 62_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_writer_backends', params: {} }], recorded)).toEqual([
+            { name: 'step_writer_backends', key: 'idle_1x', unit: 'backends', value: 2 },
+            { name: 'step_writer_backends', key: 'active_10x', unit: 'backends', value: 4 },
         ])
     })
 
