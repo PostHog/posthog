@@ -4,7 +4,7 @@ import { Placeholder } from '@tiptap/extensions'
 import { type Editor, EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { type MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconCode } from '@posthog/icons'
 import {
@@ -16,6 +16,10 @@ import {
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
+    Input,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
     Separator,
     Toggle,
 } from '@posthog/quill'
@@ -23,6 +27,7 @@ import {
 import {
     DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS,
     INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY,
+    type InlineMarkdownSlashLinkHostRef,
     createInlineMarkdownSlashCommandsExtension,
 } from 'lib/components/MarkdownEditor/inline/inlineMarkdownSlashCommands'
 
@@ -30,16 +35,10 @@ import type { PanelComponentProps } from '../core/panelDefinition'
 import { MARKDOWN_EXTENSIONS, markdownContent, serializeMarkdown } from './markdownContent'
 import type { MarkdownConfig } from './markdownSpec'
 
-// Images only show as links (see markdownContent), links come from pasting, and Markdown has no underline.
+// Images only show as links (see markdownContent), and Markdown has no underline.
 const SLASH_COMMANDS = DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS.filter(
-    (item) => !item.isImagePick && !item.isLinkPopover && item.title !== 'Underline'
+    (item) => !item.isImagePick && item.title !== 'Underline'
 )
-
-const EXTENSIONS = [
-    ...MARKDOWN_EXTENSIONS,
-    Placeholder.configure({ placeholder: "Write something, or type '/' for commands" }),
-    createInlineMarkdownSlashCommandsExtension(INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY, SLASH_COMMANDS),
-]
 
 /**
  * Text that edits in place: what a person types is what viewers see. The config stays Markdown, so text written
@@ -50,9 +49,18 @@ export function MarkdownPanel({ panel, setConfig }: PanelComponentProps<Markdown
     const editable = !!setConfig
     const dirty = useRef(false)
     const focusedOnPress = useRef(false)
+    // The format menu's link button fills this in, so the `/` menu's Link opens the same box.
+    const linkHost = useRef<InlineMarkdownSlashLinkHostRef | null>(null)
+    const [extensions] = useState(() => [
+        ...MARKDOWN_EXTENSIONS,
+        Placeholder.configure({ placeholder: "Write something, or type '/' for commands" }),
+        createInlineMarkdownSlashCommandsExtension(INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY, SLASH_COMMANDS, {
+            slashLinkHostRef: linkHost,
+        }),
+    ])
 
     const editor = useEditor({
-        extensions: EXTENSIONS,
+        extensions,
         ...markdownContent(text),
         editable,
         editorProps: {
@@ -115,7 +123,7 @@ export function MarkdownPanel({ panel, setConfig }: PanelComponentProps<Markdown
 
     return (
         <>
-            {editable && <FormatMenu editor={editor} />}
+            {editable && <FormatMenu editor={editor} linkHost={linkHost} />}
             <EditorContent
                 editor={editor}
                 className={clsx(
@@ -136,7 +144,7 @@ interface BlockType {
 
 const BLOCK_TYPES: BlockType[] = [
     {
-        label: 'Text',
+        label: 'Plain text',
         isActive: (editor) =>
             editor.isActive('paragraph') &&
             !editor.isActive('bulletList') &&
@@ -153,7 +161,7 @@ const BLOCK_TYPES: BlockType[] = [
         })
     ),
     {
-        label: 'Bulleted list',
+        label: 'Bullet list',
         isActive: (editor) => editor.isActive('bulletList'),
         apply: (editor) => editor.chain().focus().clearNodes().toggleBulletList().run(),
     },
@@ -163,17 +171,17 @@ const BLOCK_TYPES: BlockType[] = [
         apply: (editor) => editor.chain().focus().clearNodes().toggleOrderedList().run(),
     },
     {
-        label: 'To-do list',
+        label: 'Task list',
         isActive: (editor) => editor.isActive('taskList'),
         apply: (editor) => editor.chain().focus().clearNodes().toggleTaskList().run(),
     },
     {
-        label: 'Quote',
+        label: 'Blockquote',
         isActive: (editor) => editor.isActive('blockquote'),
         apply: (editor) => editor.chain().focus().clearNodes().setBlockquote().run(),
     },
     {
-        label: 'Code',
+        label: 'Code block',
         isActive: (editor) => editor.isActive('codeBlock'),
         apply: (editor) => editor.chain().focus().clearNodes().setCodeBlock().run(),
     },
@@ -183,18 +191,25 @@ const BLOCK_TYPES: BlockType[] = [
  * The menu over selected text: what the block is, and the marks people reach for most. Everything else, such as
  * dividers, is in the `/` menu.
  */
-function FormatMenu({ editor }: { editor: Editor }): JSX.Element {
+function FormatMenu({
+    editor,
+    linkHost,
+}: {
+    editor: Editor
+    linkHost: MutableRefObject<InlineMarkdownSlashLinkHostRef | null>
+}): JSX.Element {
     // The block menu mounts inside the toolbar, so the toolbar doesn't read opening it as the editor losing focus.
     const [menuElement, setMenuElement] = useState<HTMLDivElement | null>(null)
     const [blockMenuOpen, setBlockMenuOpen] = useState(false)
     const active = useEditorState({
         editor,
         selector: ({ editor }) => ({
-            block: BLOCK_TYPES.find((type) => type.isActive(editor))?.label ?? 'Text',
+            block: BLOCK_TYPES.find((type) => type.isActive(editor))?.label ?? 'Plain text',
             bold: editor.isActive('bold'),
             italic: editor.isActive('italic'),
             strike: editor.isActive('strike'),
             code: editor.isActive('code'),
+            link: editor.isActive('link'),
         }),
     })
 
@@ -268,6 +283,108 @@ function FormatMenu({ editor }: { editor: Editor }): JSX.Element {
                     {mark.icon}
                 </Toggle>
             ))}
+            <LinkButton editor={editor} active={active.link} container={menuElement} linkHost={linkHost} />
         </BubbleMenu>
+    )
+}
+
+// @posthog/icons has no link icon.
+function IconLink(): JSX.Element {
+    return (
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+            <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" strokeLinecap="round" />
+            <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" strokeLinecap="round" />
+        </svg>
+    )
+}
+
+function linkHref(editor: Editor): string {
+    return (editor.getAttributes('link').href as string | undefined) ?? ''
+}
+
+/** Adds, changes or removes the link on the selected text. An empty address removes it. */
+function LinkButton({
+    editor,
+    active,
+    container,
+    linkHost,
+}: {
+    editor: Editor
+    active: boolean
+    container: HTMLElement | null
+    linkHost: MutableRefObject<InlineMarkdownSlashLinkHostRef | null>
+}): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const [href, setHref] = useState('')
+    useEffect(() => {
+        linkHost.current = {
+            // The menu only shows over selected text, so with nothing selected the link gets a word to sit on.
+            openLinkPopover: () => {
+                const { empty, from } = editor.state.selection
+                if (empty) {
+                    editor
+                        .chain()
+                        .focus()
+                        .insertContent('link')
+                        .setTextSelection({ from, to: from + 4 })
+                        .run()
+                }
+                setHref(linkHref(editor))
+                setOpen(true)
+            },
+        }
+        return () => {
+            linkHost.current = null
+        }
+    }, [editor, linkHost])
+    const apply = (): void => {
+        const url = href.trim()
+        const chain = editor.chain().focus().extendMarkRange('link')
+        if (url) {
+            chain.setLink({ href: /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(url) ? url : `https://${url}` }).run()
+        } else {
+            chain.unsetLink().run()
+        }
+        setOpen(false)
+    }
+    return (
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                setOpen(next)
+                if (next) {
+                    setHref(linkHref(editor))
+                }
+            }}
+        >
+            <PopoverTrigger
+                render={
+                    <Toggle
+                        size="icon"
+                        aria-label="Link"
+                        pressed={active}
+                        onMouseDown={(event) => event.preventDefault()}
+                    />
+                }
+            >
+                <IconLink />
+            </PopoverTrigger>
+            <PopoverContent container={container} className="w-72 p-2">
+                <form
+                    onSubmit={(event) => {
+                        event.preventDefault()
+                        apply()
+                    }}
+                >
+                    <Input
+                        autoFocus
+                        size="sm"
+                        placeholder="Paste a link"
+                        value={href}
+                        onChange={(event) => setHref(event.target.value)}
+                    />
+                </form>
+            </PopoverContent>
+        </Popover>
     )
 }

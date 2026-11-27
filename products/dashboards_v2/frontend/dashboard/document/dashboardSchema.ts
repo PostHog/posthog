@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { AccessControlLevel } from '~/types'
 
 import { timeRangeSchema } from '../../filters/time/timeRangeSchema'
-import { ACCENT_COLOR_KEYS } from '../../panels/core/accentColors'
+import { ACCENT_COLOR_KEYS, HEX_COLOR } from '../../panels/core/accentColors'
 import {
     contentPanelPartsSchema,
     contentPanelSchema,
@@ -59,7 +59,7 @@ export const tileSchema = z.object({
     },
 })
 
-const tabColorSchema = z.enum(ACCENT_COLOR_KEYS).optional()
+const tabColorSchema = z.union([z.enum(ACCENT_COLOR_KEYS), z.string().regex(HEX_COLOR)]).optional()
 
 export const gridTabSchema = z.object({
     id: z.string().min(1),

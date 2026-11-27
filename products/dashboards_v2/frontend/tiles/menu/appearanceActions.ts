@@ -1,7 +1,7 @@
 import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTypes'
 import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
-import { ACCENT_COLOR_KEYS, ACCENT_COLORS } from '../../panels/core/accentColors'
+import { ACCENT_COLOR_KEYS, ACCENT_COLORS, HEX_COLOR } from '../../panels/core/accentColors'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { type TileDescriptionMode, shownDescription } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
@@ -105,12 +105,17 @@ export function backgroundColorAction(
         group: 'display',
         disabledReason,
         choice: true,
+        customColor: {
+            value: current && HEX_COLOR.test(current) ? current : null,
+            onPick: (hex) => onEdit({ edit: 'setTilesAppearance', ids, appearance: { backgroundColor: hex } }),
+        },
         submenu: choices.map(({ key, color, label }) => ({
             key,
             label,
             dataAttr: `${menu.dataAttr}-item`,
             disabledReason,
             checked: current === color,
+            swatch: color === NO_BACKGROUND ? null : (color ?? 'var(--card)'),
             keepOpen: true,
             onSelect: () => onEdit({ edit: 'setTilesAppearance', ids, appearance: { backgroundColor: color } }),
         })),
