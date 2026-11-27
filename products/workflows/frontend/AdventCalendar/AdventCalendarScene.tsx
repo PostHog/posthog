@@ -1,13 +1,9 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
+import { adventCalendarAccessLogic } from './adventCalendarAccessLogic'
 import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
@@ -16,17 +12,16 @@ export const scene: SceneExport = {
 }
 
 export function AdventCalendarScene(): JSX.Element {
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-    const hasCalendar = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]
+    const { hasCalendar, flagsSettled } = useValues(adventCalendarAccessLogic)
+    const { leaveWithoutCalendar } = useActions(adventCalendarAccessLogic)
 
     useEffect(() => {
-        if (receivedFeatureFlags && !hasCalendar) {
-            router.actions.replace(urls.workflows())
+        if (flagsSettled && !hasCalendar) {
+            leaveWithoutCalendar()
         }
-    }, [receivedFeatureFlags, hasCalendar])
+    }, [flagsSettled, hasCalendar, leaveWithoutCalendar])
 
-    if ((!receivedFeatureFlags && !featureFlagsTimedOut) || !hasCalendar) {
+    if (!flagsSettled || !hasCalendar) {
         return <div className="flex-1" />
     }
 

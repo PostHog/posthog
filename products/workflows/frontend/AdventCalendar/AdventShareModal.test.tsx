@@ -1,5 +1,4 @@
 import { act, render, screen } from '@testing-library/react'
-import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -8,7 +7,6 @@ import { AdventShareModal } from './AdventShareModal'
 
 describe('AdventShareModal', () => {
     let clipboard: string | null
-    let capture: jest.SpyInstance
 
     beforeEach(() => {
         clipboard = null
@@ -20,13 +18,11 @@ describe('AdventShareModal', () => {
                 },
             },
         })
-        capture = jest.spyOn(posthog, 'capture').mockImplementation()
         initKeaTests()
         adventCalendarLogic.mount()
     })
 
     afterEach(() => {
-        capture.mockRestore()
         Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
     })
 
