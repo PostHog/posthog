@@ -1,6 +1,4 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
@@ -9,22 +7,30 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { EMAIL_STATUS_LABEL } from 'products/workflows/frontend/Transactional/log/emailLogStatus'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
-import { EmailOutcome, personEmailsLogic } from '../logics/personEmailsLogic'
-
-const OUTCOME_LABEL: Record<EmailOutcome, string> = {
-    clicked: 'Clicked',
-    opened: 'Opened',
-    not_opened: 'Not opened',
-}
+import { EmailLookup, isEmailOutcome, personEmailsLogic } from '../logics/personEmailsLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
 interface PersonEmailsTabProps {
     teamId: number
     personId: string
+}
+
+function EmailOutcomeCell({ lookup }: { lookup: EmailLookup | undefined }): JSX.Element | null {
+    if (lookup === 'looking') {
+        return <LemonSkeleton className="h-4 w-20" />
+    }
+    if (lookup === 'failed') {
+        return <span className="text-secondary">Couldn't load</span>
+    }
+    if (!lookup || !isEmailOutcome(lookup)) {
+        return null
+    }
+    return <>{lookup === 'delivered' ? 'No open recorded' : EMAIL_STATUS_LABEL[lookup]}</>
 }
 
 function EmptyEmails(): JSX.Element {
@@ -41,8 +47,8 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading, outcomes, outcomesLoading } = useValues(logic)
-    const [selected, setSelected] = useState<MessageAsset | null>(null)
+    const { emails, emailsLoading, lookups, outcomeColumnShown, previewed } = useValues(logic)
+    const { openEmail, closePreview } = useActions(logic)
 
     return (
         <>
@@ -50,10 +56,7 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                 loading={emailsLoading}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () =>
-                        outcomes?.[asset.invocation_id]
-                            ? router.actions.push(urls.transactionalEmailLogEntry(asset.invocation_id))
-                            : setSelected(asset),
+                    onClick: () => openEmail(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}
@@ -82,31 +85,27 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                         key: 'sent_at',
                         render: (_, asset: MessageAsset) => <TZLabel time={asset.sent_at} />,
                     },
-                    ...(outcomes || outcomesLoading
+                    ...(outcomeColumnShown
                         ? [
                               {
                                   title: 'What it led to',
                                   key: 'outcome',
-                                  render: (_: unknown, asset: MessageAsset) => {
-                                      const outcome = outcomes?.[asset.invocation_id]
-                                      if (outcome) {
-                                          return OUTCOME_LABEL[outcome]
-                                      }
-                                      return outcomesLoading ? <LemonSkeleton className="h-4 w-20" /> : null
-                                  },
+                                  render: (_: unknown, asset: MessageAsset) => (
+                                      <EmailOutcomeCell lookup={lookups?.[asset.invocation_id]} />
+                                  ),
                               },
                           ]
                         : []),
                 ]}
             />
             <EmailViewerModal
-                workflowId={selected?.function_id ?? ''}
-                invocationId={selected?.invocation_id ?? ''}
-                actionId={selected?.action_id ?? ''}
-                isOpen={!!selected}
-                onClose={() => setSelected(null)}
-                title={selected?.subject || 'Email'}
-                description={selected ? `Sent to ${selected.recipient}` : undefined}
+                workflowId={previewed?.function_id ?? ''}
+                invocationId={previewed?.invocation_id ?? ''}
+                actionId={previewed?.action_id ?? ''}
+                isOpen={!!previewed}
+                onClose={closePreview}
+                title={previewed?.subject || 'Email'}
+                description={previewed ? `Sent to ${previewed.recipient}` : undefined}
             />
         </>
     )
