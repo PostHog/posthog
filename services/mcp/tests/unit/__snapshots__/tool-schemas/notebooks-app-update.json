@@ -9,16 +9,16 @@
                             "description": "Ordered components, arranged in rows within each tab.",
                             "items": {
                                 "properties": {
-                                    "end_variable": {
-                                        "default": "",
-                                        "description": "End date variable for a date range.",
-                                        "maxLength": 80,
-                                        "type": "string"
-                                    },
                                     "display": {
                                         "default": "output",
                                         "description": "Whether to display cell source, output, or both.\n\n* `output` - Output\n* `source` - Source\n* `both` - Source and output",
                                         "enum": ["output", "source", "both"],
+                                        "type": "string"
+                                    },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
                                         "type": "string"
                                     },
                                     "height": {
@@ -171,16 +171,16 @@
                             "description": "Ordered components, arranged in rows within each tab.",
                             "items": {
                                 "properties": {
-                                    "end_variable": {
-                                        "default": "",
-                                        "description": "End date variable for a date range.",
-                                        "maxLength": 80,
-                                        "type": "string"
-                                    },
                                     "display": {
                                         "default": "output",
                                         "description": "Whether to display cell source, output, or both.\n\n* `output` - Output\n* `source` - Source\n* `both` - Source and output",
                                         "enum": ["output", "source", "both"],
+                                        "type": "string"
+                                    },
+                                    "end_variable": {
+                                        "default": "",
+                                        "description": "End date variable for a date range.",
+                                        "maxLength": 80,
                                         "type": "string"
                                     },
                                     "height": {
