@@ -91,13 +91,14 @@ describe('funnel drop-off audience checked', () => {
         for (let tick = 0; tick < 100 && !sentEvents.some(({ event }) => event === SETTLED); tick++) {
             await jest.advanceTimersByTimeAsync(10)
         }
+        await jest.advanceTimersByTimeAsync(100)
         expect(sentEvents.map(({ event }) => event)).toContain(SETTLED)
         const sharedKeys = new Set(Object.keys(sentEvents.find(({ event }) => event === SETTLED)?.properties ?? {}))
         return sentEvents
             .filter(({ event }) => event === 'funnel drop-off audience checked')
             .map(({ properties }) =>
                 Object.fromEntries(
-                    Object.entries(properties).filter(([key]) => !key.startsWith('$') && !sharedKeys.has(key))
+                    Object.entries(properties).filter(([key]) => !key.startsWith('$sdk_debug_') && !sharedKeys.has(key))
                 )
             )
     }

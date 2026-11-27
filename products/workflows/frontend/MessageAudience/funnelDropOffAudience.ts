@@ -36,7 +36,6 @@ export function captureFunnelDropOffAudienceChecked(
     if (!isPersonFunnelDropOff(query)) {
         return
     }
-    // pinned: analytics event name and properties
     posthog.capture('funnel drop-off audience checked', {
         has_results: firstPage.length > 0,
         with_email_bucket: emailBucket(firstPage.filter(hasEmailAddress).length),
