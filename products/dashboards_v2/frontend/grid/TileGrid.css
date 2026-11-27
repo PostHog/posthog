@@ -30,8 +30,8 @@
         display: none;
     }
 
-    .react-grid-item.react-draggable-dragging > .dash-WidgetCard,
-    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-WidgetCard,
+    .react-grid-item.react-draggable-dragging > .dash-PanelCard,
+    .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .dash-PanelCard,
     .react-grid-item.react-draggable-dragging > .SectionTile,
     .react-grid-item.react-draggable-dragging > .TileContextMenu__trigger > .SectionTile {
         box-shadow: var(--shadow-elevation-3000);
@@ -176,8 +176,8 @@
     /* Over a resize edge, or while resizing, the whole tile or section is outlined instead of the edge. */
     .react-grid-item:has(> .react-resizable-handle:hover),
     .react-grid-item.resizing {
-        > .dash-WidgetCard,
-        > .TileContextMenu__trigger > .dash-WidgetCard,
+        > .dash-PanelCard,
+        > .TileContextMenu__trigger > .dash-PanelCard,
         > .SectionTile,
         > .TileContextMenu__trigger > .SectionTile {
             outline: 2px solid var(--dv2-interaction-color);
@@ -187,14 +187,18 @@
 
     /* At its minimum size, a tile being resized gets a red dashed overlay. It gives way toward the pointer while the
        pointer keeps pushing (resizeFeedback.ts), and springs back when let go. The tile itself never changes size. */
+    .react-grid-item[data-dv2-at-minimum] {
+        --dv2-interaction-color: var(--destructive-foreground);
+    }
+
     .react-grid-item[data-dv2-at-minimum]::after {
         position: absolute;
         inset: var(--dv2-band-top, 0) var(--dv2-band-right, 0) var(--dv2-band-bottom, 0) var(--dv2-band-left, 0);
         z-index: 2;
         pointer-events: none;
         content: '';
-        background-color: color-mix(in oklab, var(--danger) 8%, transparent);
-        border: 2px dashed var(--danger);
+        background-color: color-mix(in oklab, var(--destructive-foreground) 8%, transparent);
+        border: 2px dashed var(--destructive-foreground);
         border-radius: var(--radius-lg);
         transition: inset 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 

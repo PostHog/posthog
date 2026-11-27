@@ -1,7 +1,8 @@
-import { useId } from 'react'
+import { useContext, useId } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
@@ -9,7 +10,7 @@ import { coerceNotebookVariableValue } from 'scenes/notebooks/Notebook/notebookV
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookVariableListInput } from '../NotebookVariableListInput'
-import { dropdownOptions, type AppChoices } from './notebookAppChoices'
+import { dropdownOptions, NotebookAppQueryChoicesContext, type QueryChoiceResult } from './notebookAppChoices'
 
 type InputProps = {
     variable: NotebookVariable
@@ -19,20 +20,22 @@ type InputProps = {
 
 export function NotebookAppInput({
     block,
-    choices,
+    cell,
     variable,
     disabled,
     onChange,
 }: Omit<InputProps, 'variable'> & {
-    choices?: AppChoices | null
+    cell?: NotebookBlockNode
     block: NotebookAppBlockApi
     variable?: NotebookVariable
 }): JSX.Element {
     const id = useId()
+    const getChoices = useContext(NotebookAppQueryChoicesContext)
     if (!variable) {
         return <LemonBanner type="warning">Choose an existing notebook variable in component settings.</LemonBanner>
     }
     const label = block.title || variable.name
+    const choices = block.input_kind === 'query_select' ? getChoices(cell, block.option_column ?? '') : undefined
     const options = dropdownOptions(block, choices)
     return (
         <div className="flex flex-col gap-2">
@@ -44,6 +47,7 @@ export function NotebookAppInput({
                     id={id}
                     value={variable.value}
                     options={options}
+                    maskValues={block.input_kind === 'query_select'}
                     disabled={disabled}
                     onChange={onChange}
                 />
@@ -53,6 +57,8 @@ export function NotebookAppInput({
                     fullWidth
                     value={String(variable.value ?? '')}
                     disabled={disabled}
+                    className={block.input_kind === 'query_select' ? 'ph-no-capture' : undefined}
+                    menu={block.input_kind === 'query_select' ? { className: 'ph-no-capture' } : undefined}
                     options={options.map((value) => ({ value, label: value }))}
                     onChange={(value) => onChange(coerceNotebookVariableValue(variable.type, value))}
                 />
@@ -131,7 +137,14 @@ function QueryChoiceStatus({
     variable,
     disabled,
     onChange,
-}: InputProps & { choices?: AppChoices | null }): JSX.Element {
+}: InputProps & { choices?: QueryChoiceResult }): JSX.Element {
+    if (choices === 'unavailable') {
+        return (
+            <small role="status">
+                Could not load the saved choices. Refresh results to run the options query again.
+            </small>
+        )
+    }
     if (!choices) {
         return <small role="status">Choices will be available when the options query has a result.</small>
     }

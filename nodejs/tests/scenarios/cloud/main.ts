@@ -1,3 +1,4 @@
+import { parseSeed } from '../cards/schema'
 import { durationMs } from '../duration'
 import { FIRST_START_TIMEOUT_S } from '../environment/stack'
 import { EXIT_CODE } from '../runner/status'
@@ -7,7 +8,7 @@ import { isCardId, runCardOf } from './card'
 import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, CloudRunProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -16,7 +17,7 @@ export type { Controller } from './admission'
 
 const USAGE = [
     'Usage:',
-    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile> <card id>',
+    '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile> <card id> [--seed <n>]',
     '  pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>',
 ].join('\n')
 
@@ -39,7 +40,12 @@ function defaultController(): Controller {
     return { ...controller, origin: githubOrigin(controller) }
 }
 
-async function run(controller: Controller, inputs: ProfileInputs, cardId: string): Promise<number> {
+async function run(
+    controller: Controller,
+    inputs: CloudRunProfileInputs,
+    cardId: string,
+    seed?: number
+): Promise<number> {
     const { profile } = inputs
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
@@ -50,7 +56,14 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
-    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes)
+    const card = runCardOf(
+        controller.origin,
+        admission.admitted.commit,
+        cardId,
+        inputs.runner.bytes,
+        inputs.readAlertFile,
+        seed
+    )
     if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
     }
@@ -134,7 +147,8 @@ async function cleanup(controller: Controller, profile: CloudProfile, target: st
 
 export async function main(argv: string[], controller: Controller = defaultController()): Promise<number> {
     const [command, file, target, ...rest] = argv
-    const usable = ['run', 'cleanup'].includes(command) && file && target && rest.length === 0
+    const seedFlag = command === 'run' && rest.length === 2 && rest[0] === '--seed'
+    const usable = ['run', 'cleanup'].includes(command) && file && target && (rest.length === 0 || seedFlag)
     if (!usable) {
         controller.warn(USAGE)
         return EXIT_CODE.invalid
@@ -145,10 +159,11 @@ export async function main(argv: string[], controller: Controller = defaultContr
                 `${target} is not a card id. The run host runs the cards of the run's commit, so name one under tests/scenarios/cards.`
             )
         }
+        const seed = seedFlag ? parseSeed(rest[1]) : undefined
         const loaded = command === 'run' ? loadRunInputs(file) : undefined
         const profile = loaded?.profile ?? loadCloudProfile(file)
         await refuseOutsideDev(controller, profile.account)
-        return loaded ? await run(controller, loaded, target) : await cleanup(controller, profile, target)
+        return loaded ? await run(controller, loaded, target, seed) : await cleanup(controller, profile, target)
     } catch (error) {
         controller.warn((error as Error).message)
         return EXIT_CODE.invalid

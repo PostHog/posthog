@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Optional, TypeVar
 
+from pydantic import JsonValue
+
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.dataclasses import frozen
@@ -1574,6 +1576,27 @@ class ExperimentNotFound(Exception):
 
 
 @frozen
+class ExperimentTagChange:
+    """The tags of one experiment after a bulk tag change, sorted by name."""
+
+    id: int
+    tags: tuple[str, ...]
+
+
+@frozen
+class ExperimentVelocityStats:
+    """How many experiments of the team launched, run and ended, which the experiments page shows. The 30-day windows
+    end today in the team's timezone. Archived and deleted experiments do not count."""
+
+    launched_last_30d: int
+    launched_previous_30d: int
+    # The change from `launched_previous_30d` to `launched_last_30d` in percent, rounded to one decimal.
+    percent_change: float
+    active_experiments: int
+    completed_last_30d: int
+
+
+@frozen
 class FlagCleanupTarget:
     """The repository that a flag-cleanup pull request for an experiment would be opened in, and how it was chosen."""
 
@@ -1735,6 +1758,74 @@ class ExperimentDetail(ExperimentBasic):
     can_freeze_exposure: bool
     # The event that exposures are counted on when the experiment configures no custom exposure event.
     resolved_exposure_event: str
+
+
+@frozen
+class ExperimentUpdateTarget:
+    """The fields of one experiment that an update of the experiment API reads before it writes: what its access
+    check needs, and the state that it checks the input against.
+
+    `parameters` holds what `ExperimentDetail.parameters` holds, so an update that sends back the flag config keys
+    that it read compares equal and does not write the flag.
+    """
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+    is_draft: bool
+    feature_flag_active: bool
+    parameters: dict[str, Any]
+
+
+@frozen
+class ExperimentUpdate:
+    """The fields that one update of an experiment sets, as the experiment API validated them.
+
+    Only the fields named in `fields_set` are written. The others keep their stored values. The fields are
+    declared in the order of the fields of the experiment API, which is the order in which the update hands
+    them on.
+    """
+
+    fields_set: frozenset[str]
+    name: str = ""
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    feature_flag_key: str = ""
+    feature_flag_rule_id: "UUID | None" = None
+    holdout_id: int | None = None
+    # Without the flag config keys, which the update sends as `feature_flag_config`.
+    parameters: JsonValue = None
+    running_time_calculation: JsonValue = None
+    excluded_variants: list[str] | None = None
+    secondary_metrics: JsonValue = None
+    saved_metrics_ids: list[JsonValue] | None = None
+    filters: JsonValue = None
+    archived: bool = False
+    deleted: bool | None = None
+    type: str | None = None
+    exposure_criteria: dict[str, JsonValue] | None = None
+    metrics: list[JsonValue] | None = None
+    metrics_secondary: list[JsonValue] | None = None
+    stats_config: JsonValue = None
+    scheduling_config: JsonValue = None
+    allow_unknown_events: bool = False
+    create_in_folder: str = ""
+    conclusion: str | None = None
+    conclusion_comment: str | None = None
+    repository: str | None = None
+    primary_metrics_ordered_uuids: list[str] | None = None
+    secondary_metrics_ordered_uuids: list[str] | None = None
+    only_count_matured_users: bool = False
+    update_feature_flag_params: bool = False
+    version: int | None = None
+    original_experiment: dict[str, JsonValue] | None = None
+    # Replace the experiment's tags. None keeps them.
+    tags: list[str] | None = None
+    # In the flag's own write shape (`{filters, ensure_experience_continuity}`). None leaves the flag config as it is.
+    feature_flag_config: dict[str, JsonValue] | None = None
+    # True when `feature_flag_config` came from the deprecated flag config keys of `parameters` and changes the flag.
+    deprecated_flag_config_changed: bool = False
 
 
 @frozen

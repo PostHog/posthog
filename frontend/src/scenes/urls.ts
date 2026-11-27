@@ -52,6 +52,7 @@ export const urls = {
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
     newTab: () => '/search',
     eventDefinitions: (): string => '/data-management/events',
+    tagDefinitions: (): string => '/data-management/tags',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
     propertyDefinitions: (type?: string): string => combineUrl('/data-management/properties', type ? { type } : {}).url,

@@ -15,6 +15,7 @@ from products.ai_observability.backend.logic.evaluations.hog_runtime import (
 )
 from products.ai_observability.backend.logic.evaluations.judge_limits import (
     JUDGE_SESSION_MAX_CHARS,
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
     JUDGE_TRACE_MAX_CHARS,
 )
 from products.ai_observability.backend.logic.evaluations.judge_prompts import (
@@ -48,6 +49,7 @@ __all__ = [
     "CategoricalWithNAEvalResult",
     "INGESTION_LAG_MARGIN_SECONDS",
     "JUDGE_SESSION_MAX_CHARS",
+    "JUDGE_TRACE_FALLBACK_MAX_CHARS",
     "JUDGE_TRACE_MAX_CHARS",
     "NumericEvalResult",
     "NumericWithNAEvalResult",

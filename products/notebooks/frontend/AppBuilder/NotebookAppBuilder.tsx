@@ -20,6 +20,8 @@ import { SidePanelTab } from '~/types'
 
 import { NotebookAppEditorAgentContext } from './NotebookAppAgentIntegration'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
+import { hiddenChoiceSources } from './notebookAppChoices'
+import { NotebookAppChoiceSource } from './NotebookAppChoiceSource'
 import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
@@ -104,6 +106,11 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
     return (
         <div className="NotebookAppBuilder mt-4" data-attr="notebook-app-builder">
             <NotebookAppEditorAgentContext shortId={shortId} />
+            {canEditNotebook &&
+                !isTemplate &&
+                hiddenChoiceSources(cells, layout.blocks, selectedTab).map((cell) => (
+                    <NotebookAppChoiceSource key={cell.id} shortId={shortId} cell={cell} />
+                ))}
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="m-0">App builder</h2>
@@ -389,6 +396,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             selectedId={selectedBlockId}
                             canInteract={canEditNotebook && !isTemplate}
                             onSelect={selectBlock}
+                            onResize={updateBlock}
                             onMove={moveBlock}
                             onMoveBy={moveBlockBy}
                             onDuplicate={duplicateBlock}

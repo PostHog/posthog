@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
@@ -52,6 +53,13 @@ class TestGeminiAdapterErrorMapping:
             # per-occurrence message files a new error tracking issue on every cancellation.
             ("499_cancelled", 499, "CANCELLED", "The operation was cancelled.", ProviderConnectionError),
             ("cancelled_message", 400, "UNKNOWN", "The operation was cancelled.", ProviderConnectionError),
+            (
+                "input_over_token_limit",
+                400,
+                "INVALID_ARGUMENT",
+                "The input token count (35868) exceeds the maximum number of tokens allowed (32768).",
+                ContextWindowExceededError,
+            ),
         ]
     )
     def test_api_error_is_mapped_to_llm_error(

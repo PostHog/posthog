@@ -77,6 +77,9 @@ class NotebookAppBlockSerializer(serializers.Serializer):
     tab_id = serializers.CharField(max_length=80, help_text="Tab containing this component.")
     title = serializers.CharField(max_length=256, allow_blank=True, default="", help_text="Optional component title.")
     width = serializers.IntegerField(min_value=1, max_value=12, default=12, help_text="Width in a twelve-column grid.")
+    height = serializers.IntegerField(
+        min_value=120, max_value=1600, required=False, help_text="Card height in pixels. Omit for automatic height."
+    )
     node_id = serializers.CharField(max_length=160, allow_blank=True, default="", help_text="Source notebook cell ID.")
     text = serializers.CharField(
         max_length=20000, allow_blank=True, default="", help_text="Markdown for a text component."
@@ -91,7 +94,11 @@ class NotebookAppBlockSerializer(serializers.Serializer):
         choices=NotebookAppInputKind.choices, default="auto", help_text="Control used for an input."
     )
     option_column = serializers.CharField(
-        max_length=256, allow_blank=True, default="", help_text="Column supplying choices for a query dropdown."
+        max_length=256,
+        allow_blank=True,
+        trim_whitespace=False,
+        default="",
+        help_text="Column supplying choices for a query dropdown.",
     )
     options = serializers.ListField(
         child=serializers.CharField(max_length=1000),

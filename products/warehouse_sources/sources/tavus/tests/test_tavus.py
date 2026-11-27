@@ -15,14 +15,11 @@ def _response(
     items: Optional[list[dict[str, Any]]],
     *,
     total_count: Optional[int] = None,
-    drop_data: bool = False,
     status: int = 200,
 ) -> ScriptedResponse:
-    body: dict[str, Any] = {}
-    if not drop_data:
-        body["data"] = items or []
-        if total_count is not None:
-            body["total_count"] = total_count
+    body: dict[str, Any] = {"data": items or []}
+    if total_count is not None:
+        body["total_count"] = total_count
     return ScriptedResponse(status=status, json=body)
 
 
@@ -82,12 +79,25 @@ class TestPagination:
         assert result.requests[0].param("page") is None and result.requests[0].param("limit") is None
         assert result.saved_states == []
 
-    def test_missing_data_key_raises_loudly(self) -> None:
-        result = _driver().run("videos", [_response(None, drop_data=True)])
+    @parameterized.expand([("videos", "deployments"), ("deployments", "data")])
+    def test_missing_row_key_raises_loudly(self, endpoint: str, other_key: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=200, json={other_key: [{"id": "x"}]})])
 
-        # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
+        # A 200 body without the endpoint's row key means the response shape changed — fail loud, not 0 rows.
         assert isinstance(result.raised, ValueError)
         assert "matched nothing" in str(result.raised)
+
+    def test_deployments_read_rows_from_deployments_key_in_ascending_order(self) -> None:
+        rows = [{"deployment_id": "dep_1", "pal_id": "p_1", "channel": "widget"}]
+        result = _driver().run(
+            "deployments",
+            [ScriptedResponse(status=200, json={"deployments": rows, "total": 1, "page": 0, "limit": 100})],
+        )
+
+        assert result.raised is None
+        assert result.rows == rows
+        assert result.requests[0].param("sort") == "asc"
+        assert result.requests[0].param("page") == "0"
 
 
 class TestCanvasInteractionsFanOut:
@@ -153,6 +163,47 @@ class TestCanvasInteractionsFanOut:
         ]
 
 
+class TestPalSkillsFanOut:
+    def test_turns_each_pals_skill_object_into_rows_keyed_by_pal(self) -> None:
+        result = _driver().run(
+            "pal_skills",
+            route(
+                {
+                    "/v2/pals": [_response([{"pal_id": "p1"}, {"pal_id": "p2"}, {"pal_id": "p3"}])],
+                    "/pals/p1/skills": [
+                        ScriptedResponse(
+                            status=200,
+                            json={
+                                "data": {
+                                    "internet_search": {"skill_id": "internet_search", "config": {}},
+                                    "presentation": {"skill_id": "presentation", "config": {"document_ids": ["d1"]}},
+                                }
+                            },
+                        )
+                    ],
+                    # A PAL with no skills returns an empty object, which must not fail the sync.
+                    "/pals/p2/skills": [ScriptedResponse(status=200, json={"data": {}})],
+                    "/pals/p3/skills": [
+                        ScriptedResponse(status=200, json={"data": {"magic_canvas": {"skill_id": "magic_canvas"}}})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted((r["pal_id"], r["skill_id"]) for r in result.rows) == [
+            ("p1", "internet_search"),
+            ("p1", "presentation"),
+            ("p3", "magic_canvas"),
+        ]
+        presentation = next(r for r in result.rows if r["skill_id"] == "presentation")
+        assert presentation["config"] == {"document_ids": ["d1"]}
+        child_requests = [r for r in result.requests if r.path.endswith("/skills")]
+        assert all(r.param("page") is None and r.param("limit") is None for r in child_requests)
+        assert result.response is not None
+        assert result.response.primary_keys == ["pal_id", "skill_id"]
+
+
 class TestRetryClassification:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     def test_auth_error_raises_matchable_httperror(self, _name, status, reason) -> None:
@@ -194,5 +245,10 @@ class TestTavusSourceResponse:
             "pals": ["pal_id"],
             "transcriptions": ["transcription_id"],
             "canvas_interactions": ["conversation_id", "interaction_id"],
+            "deployments": ["deployment_id"],
+            "objectives": ["objectives_id"],
+            "documents": ["document_id"],
+            "skills": ["skill_id"],
+            "pal_skills": ["pal_id", "skill_id"],
         }
         assert set(TAVUS_ENDPOINTS) == set(ENDPOINTS)

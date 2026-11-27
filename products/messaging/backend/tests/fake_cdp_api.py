@@ -63,6 +63,13 @@ def _literal(expected: Any) -> Check:
     return check
 
 
+def _enum(*values: str) -> Check:
+    def check(value: Any, path: list[Any]) -> Issues:
+        return [] if value in values else [_issue("invalid_value", path)]
+
+    return check
+
+
 def _record(value: Any, path: list[Any]) -> Issues:
     return [] if isinstance(value, dict) else [_issue("invalid_type", path)]
 
@@ -159,6 +166,17 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "bcc": copies,
             **sensitive,
             **attachments,
+            "category": _Key(
+                _object(
+                    {
+                        "id": _Key(_string(min_length=1)),
+                        "type": _Key(_enum("marketing", "transactional")),
+                        "archived": _Key(_literal(True), optional=True),
+                    },
+                    strict=True,
+                ),
+                optional=True,
+            ),
             "tracking": _Key(tracking),
         },
         strict=True,
@@ -257,6 +275,8 @@ class FakeCdpApi:
             if stored_fingerprint != fingerprint:
                 return _response(422, {"error": "idempotency_key_reused"})
             return _response(202, {"status": "queued", "replayed": True, **reply})
+        if is_code_send and request["send"].get("category", {}).get("archived"):
+            return _response(400, {"error": "category_not_found"})
         requested_at = _parse_scheduled_at(request["scheduled_at"]) if "scheduled_at" in request else None
         if requested_at is not None and requested_at > timezone.now() + timedelta(days=30):
             return _response(400, {"error": "invalid_scheduled_at", "reason": "too_far"})
@@ -333,7 +353,7 @@ def _send_fingerprint(url: str, request: dict[str, Any]) -> str:
             request["to"],
             request["distinct_id"],
             request.get("variables"),
-            {**request["send"], "from": chosen},
+            {**request["send"], "from": chosen, "category": request["send"].get("category", {}).get("id")},
             _iso_milliseconds(requested_at) if requested_at else None,
         ]
     )

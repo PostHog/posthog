@@ -11,9 +11,13 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.notebooks.backend.app_releases import review_sources
+from products.notebooks.backend.facade.contracts import AppBlockSource
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.presentation.app_serializers import NotebookAppBlockSerializer
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
+from products.notebooks.backend.sql_v2_state import NotebookCellState
 
 LAYOUT = {
     "tabs": [{"id": "overview", "title": "Overview"}],
@@ -30,6 +34,7 @@ LAYOUT = {
         {**LAYOUT, "blocks": [{"id": "missing", "kind": "cell", "tab_id": "overview"}]},
         {**LAYOUT, "blocks": [{"id": "orphan", "kind": "text", "tab_id": "absent"}]},
         {**LAYOUT, "blocks": [{"id": "wide", "kind": "text", "tab_id": "overview", "width": 13}]},
+        {**LAYOUT, "blocks": [{"id": "short", "kind": "text", "tab_id": "overview", "height": 119}]},
         {
             **LAYOUT,
             "blocks": [
@@ -43,6 +48,37 @@ def test_partial_notebook_update_requires_a_complete_valid_app_layout(layout: di
     serializer = NotebookSerializer(data={"app_draft": layout}, partial=True)
     assert not serializer.is_valid()
     assert "app_draft" in serializer.errors
+
+
+def test_option_column_preserves_sql_identifier_whitespace() -> None:
+    block = NotebookAppBlockSerializer(
+        data={
+            "id": "options",
+            "kind": "input",
+            "tab_id": "overview",
+            "variable": "region",
+            "input_kind": "query_select",
+            "node_id": "regions",
+            "option_column": " region ",
+        }
+    )
+    assert block.is_valid(), block.errors
+    assert block.validated_data["option_column"] == " region "
+
+
+def test_publish_review_rejects_option_sources_with_non_native_ancestors() -> None:
+    notebook = Notebook(variables=[{"name": "region", "type": "string", "value": ""}])
+    source = AppBlockSource(id="options", kind="input", input_kind="query_select", variable="region", node_id="regions")
+    with patch(
+        "products.notebooks.backend.app_releases.release_cell_states",
+        return_value={
+            "python": NotebookCellState(node_id="python", cell_type="python", dependents=["joined", "off-canvas"]),
+            "joined": NotebookCellState(node_id="joined", cell_type="sql", dependents=["regions"]),
+            "regions": NotebookCellState(node_id="regions", cell_type="sql"),
+        },
+    ):
+        review = review_sources(notebook, '<SQLV2 nodeId="regions" code="select * from joined" />', [source])
+    assert review.problems == ["options: choose a native SQL cell that only depends on native SQL."]
 
 
 class TestNotebookAppLayout(APIBaseTest):
@@ -180,7 +216,8 @@ class TestNotebookAppLayout(APIBaseTest):
         )
         url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
         release_url = url + "app_release/"
-        first = self.client.patch(url, {"app_revision": 0, "app_published": LAYOUT}, format="json")
+        sized = {**LAYOUT, "blocks": [{**LAYOUT["blocks"][0], "width": 5, "height": 240}]}
+        first = self.client.patch(url, {"app_revision": 0, "app_published": sized}, format="json")
         assert first.status_code == 200, first.json()
         changes = {
             "title": "Second title",
@@ -191,6 +228,8 @@ class TestNotebookAppLayout(APIBaseTest):
         assert self.client.patch(url, changes, format="json").status_code == 200
         release = self.client.get(release_url).json()
         assert release["title"] == "First title"
+        assert release["layout"]["blocks"][0]["height"] == 240
+        assert release["layout"]["blocks"][0]["width"] == 5
         assert release["variables"] == variables
         assert not release["has_previous"]
 

@@ -40,6 +40,7 @@ env:
     # Debug assertions off: debug_assert! checks intentionally panic on data invariant
     # violations, which would crash the service mid-test-run.
     FEATURE_FLAGS_RUSTFLAGS: '-C debug-assertions=no'
+    WRANGLER_SEND_METRICS: 'false'
 
 jobs:
     changes:

@@ -1451,7 +1451,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
         png = io.BytesIO()
         Image.new("RGB", (3, 2)).save(png, "PNG")
@@ -1546,7 +1546,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
@@ -1565,7 +1565,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without media access", ["*"], False),
         ]
     )
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_images_are_copied_without_media_access(
         self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
     ) -> None:
