@@ -53,6 +53,7 @@ from products.aeo.backend import (
     rankings,
     run_stop,
     suggestions,
+    topics,
 )
 from products.aeo.backend.brand import (
     brand_names,
@@ -120,6 +121,7 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
+    PromptTopicChange,
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
@@ -240,6 +242,30 @@ def list_prompt_topics(team_id: int) -> list[PromptTopic]:
     return [PromptTopic(topic=row["label"], prompts=row["prompts"]) for row in rows]
 
 
+def rename_prompt_topic(team_id: int, topic: str, new_topic: str) -> PromptTopicChange:
+    """Rename a topic on every prompt that has it, archived ones included, and on the checks that ran with it.
+    Adds no prompt version. Raises PromptTopicNotFoundError, PromptTopicError and PromptTopicConflictError."""
+    return topics.rename_topic(team_id, topic, new_topic)
+
+
+def merge_prompt_topics(team_id: int, topic: str, into_topic: str) -> PromptTopicChange:
+    """Move every prompt of `topic`, and the checks that ran with it, to `into_topic`. Adds no prompt version.
+    Raises PromptTopicNotFoundError and PromptTopicError."""
+    return topics.merge_topics(team_id, topic, into_topic)
+
+
+def remove_prompt_topic(team_id: int, topic: str) -> PromptTopicChange:
+    """Leave every prompt of `topic`, and the checks that ran with it, with no topic. Adds no prompt version.
+    Raises PromptTopicNotFoundError and PromptTopicError."""
+    return topics.remove_topic(team_id, topic)
+
+
+def set_prompts_topic(team_id: int, prompt_ids: list[uuid.UUID], topic: str) -> PromptTopicChange:
+    """Set one topic on the chosen prompts. Their past checks keep the topic they ran with, and no prompt version
+    is added. Raises PromptNotFoundError and PromptUpdateError."""
+    return topics.set_topic(team_id, prompt_ids, topic)
+
+
 def get_prompt(team_id: int, prompt_id: str) -> Prompt:
     return _to_prompts(team_id, [_get_prompt_row(team_id, prompt_id)])[0]
 
@@ -254,6 +280,9 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
     text = _validated_text(change.prompt) if change.prompt is not None else None
     with transaction.atomic():
         limit = prompt_limit.lock(team_id) if change.active else None
+        if change.topic is not None:
+            # A topic change runs one at a time with the topic edits, which read topic names under this lock.
+            prompt_limit.lock_project(team_id)
         # Locks the prompt row, so two concurrent text edits cannot take the same version number.
         prompt = _get_prompt_row(team_id, prompt_id, lock=True)
         _check_update_allowed(prompt, change)
