@@ -4,12 +4,12 @@ import { closeSync, openSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { KILLED_EXIT_WITHIN_MS } from '../duration'
 import { nameOf } from './identity'
 import { processState, signal, terminate } from './processes'
 import { RoleId, RoleSpec } from './roles'
 
 const EXIT_REPORTED_WITHIN_MS = 2000
-const KILLED_EXIT_WITHIN_MS = 10_000
 const STATE_POLL_MS = 20
 
 const isRunning = (child: ChildProcess): boolean => child.exitCode === null && child.signalCode === null

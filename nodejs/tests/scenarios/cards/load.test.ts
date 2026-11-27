@@ -324,6 +324,15 @@ describe('load', () => {
             'valves.0.dose.share: ',
         ],
         [
+            'a terminate whose grace is longer than a timer can wait',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '2147483648ms' } }],
+            },
+            undefined,
+            'valves.0.dose.grace: at most 2147473647ms',
+        ],
+        [
             'a kill aimed at something that is not a role',
             { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
             undefined,
