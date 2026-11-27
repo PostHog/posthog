@@ -202,6 +202,9 @@ export interface adventCalendarLogicActions {
     finishReveal: () => {
         value: true
     }
+    landTicket: () => {
+        value: true
+    }
     loadPollResults: () => any
     loadPollResultsFailure: (
         error: string,
@@ -216,9 +219,6 @@ export interface adventCalendarLogicActions {
     ) => {
         pollResults: AdventCalendarResultsApi | null
         payload?: any
-    }
-    landTicket: () => {
-        value: true
     }
     openDoor: (
         userUuid: string,
@@ -243,16 +243,6 @@ export interface adventCalendarLogicActions {
     refreshClock: () => {
         localDate: number
     }
-    settleTicket: (
-        userUuid: string,
-        day: number,
-        isOnTime: boolean
-    ) => {
-        day: number
-        isOnTime: boolean
-        stored: unknown
-        userUuid: string
-    }
     savePollAnswer: (answer: AdventCalendarAnswerApi) => AdventCalendarAnswerApi
     savePollAnswerFailure: (
         error: string,
@@ -267,6 +257,16 @@ export interface adventCalendarLogicActions {
     ) => {
         pollResults: AdventCalendarResultsApi | null
         payload?: AdventCalendarAnswerApi
+    }
+    settleTicket: (
+        userUuid: string,
+        day: number,
+        isOnTime: boolean
+    ) => {
+        day: number
+        isOnTime: boolean
+        stored: unknown
+        userUuid: string
     }
     share: () => {
         value: true
