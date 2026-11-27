@@ -32,13 +32,6 @@ export interface SlackAppReactionChoicesApi {
     polite?: SlackAppReactionChoiceApi
 }
 
-export interface SlackAppWorkspaceSettingsApi {
-    /** The workspace's reaction choices. Null fields use PostHog's defaults. */
-    reactions: SlackAppReactionChoicesApi
-    /** Whether PostHog works in Slack channels shared with other organizations. */
-    external_channels_enabled: boolean
-}
-
 export interface SlackAppResolvedReactionApi {
     /** Slack emoji name that PostHog uses. */
     emoji: string
@@ -55,6 +48,15 @@ export interface SlackAppResolvedReactionsApi {
     error: SlackAppResolvedReactionApi
     /** The reaction to a message that says please or thanks. */
     polite: SlackAppResolvedReactionApi
+}
+
+export interface SlackAppWorkspaceSettingsApi {
+    /** The workspace's reaction choices. Null fields use PostHog's defaults. */
+    reactions: SlackAppReactionChoicesApi
+    /** Whether PostHog works in Slack channels shared with other organizations. */
+    external_channels_enabled: boolean
+    /** The reactions PostHog adds for a person without choices of their own, after PostHog's defaults fill the gaps. */
+    effective_reactions: SlackAppResolvedReactionsApi
 }
 
 export interface SlackAppProjectOptionApi {
@@ -221,6 +223,46 @@ export interface SlackAppChannelSettingsUpdateApi {
      * * `ask` - Asks before answering
      * * `never` - Only answers @-mentions */
     untagged_question_mode: SlackChannelQuestionModeEnumApi | null
+}
+
+export interface SlackAppCustomEmojiApi {
+    /** Name of the custom emoji, without colons. */
+    name: string
+    /**
+     * Image of the emoji. Null for an alias of a standard emoji.
+     * @nullable
+     */
+    image_url: string | null
+    /**
+     * Name of the emoji this one is an alias of. Null when it has its own image.
+     * @nullable
+     */
+    alias_for: string | null
+}
+
+/**
+ * * `loaded` - Custom emoji loaded
+ * * `missing_scope` - The install cannot read custom emoji
+ * * `unavailable` - Slack did not answer
+ */
+export type SlackCustomEmojiStatusEnumApi =
+    (typeof SlackCustomEmojiStatusEnumApi)[keyof typeof SlackCustomEmojiStatusEnumApi]
+
+export const SlackCustomEmojiStatusEnumApi = {
+    Loaded: 'loaded',
+    MissingScope: 'missing_scope',
+    Unavailable: 'unavailable',
+} as const
+
+export interface SlackAppEmojiCatalogApi {
+    /** Custom emoji of the Slack workspace, by name. */
+    custom_emoji: SlackAppCustomEmojiApi[]
+    /** loaded: the list is complete. missing_scope: the install lacks emoji:read, so only standard emoji can be picked. unavailable: Slack did not answer, so try again later.
+     *
+     * * `loaded` - Custom emoji loaded
+     * * `missing_scope` - The install cannot read custom emoji
+     * * `unavailable` - Slack did not answer */
+    custom_emoji_status: SlackCustomEmojiStatusEnumApi
 }
 
 export interface PatchedSlackAppPersonalSettingsUpdateApi {

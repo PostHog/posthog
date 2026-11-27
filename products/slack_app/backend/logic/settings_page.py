@@ -219,6 +219,7 @@ def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSetti
         workspace=SlackWorkspaceSettings(
             reactions=with_every_kind(workspace_reactions),
             external_channels_enabled=resolve_external_channels_enabled(slack_workspace_id),
+            effective_reactions=resolve_reactions(workspace_reactions, {}),
         ),
         personal=_personal_settings(integration, user, slack_user_id, workspace_reactions, personal_row),
     )

@@ -10,8 +10,17 @@ from __future__ import annotations
 
 import re
 
+from django.db.models import Q
+
+import structlog
+
+from posthog.integrations import IntegrationRecord
+
 from products.slack_app.backend.facade.enums import SlackReactionKind
 from products.slack_app.backend.facade.types import SlackReactionChoice, SlackResolvedReaction
+from products.slack_app.backend.feature_flags import is_slack_app_emojis_settings_enabled
+
+logger = structlog.get_logger(__name__)
 
 # Slack emoji names: lowercase letters, digits, and the characters - _ + ', with an optional skin tone
 # such as ``thumbsup::skin-tone-3``.
@@ -20,7 +29,7 @@ EMOJI_NAME = re.compile(r"^[a-z0-9_+'\-]{1,100}(::skin-tone-[2-6])?$")
 DEFAULT_REACTIONS: dict[SlackReactionKind, SlackResolvedReaction] = {
     SlackReactionKind.WORKING: SlackResolvedReaction(emoji="eyes", enabled=True),
     SlackReactionKind.DONE: SlackResolvedReaction(emoji="white_check_mark", enabled=False),
-    SlackReactionKind.ERROR: SlackResolvedReaction(emoji="warning", enabled=False),
+    SlackReactionKind.ERROR: SlackResolvedReaction(emoji="x", enabled=True),
     SlackReactionKind.POLITE: SlackResolvedReaction(emoji="orange_heart", enabled=True),
 }
 
@@ -106,3 +115,31 @@ def save_reactions(slack_workspace_id: str, slack_user_id: str | None, reactions
         slack_user_id=slack_user_id,
         defaults={"reactions": serialize_reactions(reactions)},
     )
+
+
+def reaction_for(
+    integration: IntegrationRecord, slack_user_id: str | None, kind: SlackReactionKind
+) -> SlackResolvedReaction:
+    """The reaction PostHog adds to a message of this Slack user. While the emoji settings flag is off, every
+    workspace gets ``DEFAULT_REACTIONS``. A failed read also gives the default, because a reaction is never worth
+    failing the reply for."""
+    default = DEFAULT_REACTIONS[kind]
+    from products.slack_app.backend.models import SlackSettings
+
+    rows = Q(slack_user_id__isnull=True)
+    if slack_user_id:
+        rows |= Q(slack_user_id=slack_user_id)
+    try:
+        if not is_slack_app_emojis_settings_enabled(integration):
+            return default
+        stored = dict(
+            SlackSettings.objects.filter(rows, slack_workspace_id=integration.integration_id or "").values_list(
+                "slack_user_id", "reactions"
+            )
+        )
+    except Exception:
+        logger.warning("slack_app_reaction_settings_read_failed", integration_id=integration.id, exc_info=True)
+        return default
+    workspace = parse_reactions(stored.get(None))
+    personal = parse_reactions(stored.get(slack_user_id)) if slack_user_id else {}
+    return resolve_reactions(workspace, personal)[kind]

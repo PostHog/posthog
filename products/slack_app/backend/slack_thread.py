@@ -18,6 +18,8 @@ from posthog.models.integration import SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
+from products.slack_app.backend.facade.enums import SlackReactionKind
+from products.slack_app.backend.facade.types import SlackResolvedReaction
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.fork.menu import fork_menu_actions_block, fork_menu_element
@@ -35,6 +37,7 @@ from products.slack_app.backend.logic.reply_suggestions import (
     reply_suggestions_fallback_text,
     slack_reply_attribution,
 )
+from products.slack_app.backend.services.reaction_settings import DEFAULT_REACTIONS, reaction_for
 from products.slack_app.backend.services.slack_messages import (
     SLACK_PROGRESS_MESSAGE_TS_KEY,
     RunFooter,
@@ -562,27 +565,45 @@ class SlackThreadHandler:
             logger.warning("slack_find_progress_message_failed", error=str(e))
         return None
 
+    def _reaction(self, slack_user_id: str | None, kind: SlackReactionKind) -> SlackResolvedReaction:
+        try:
+            return reaction_for(self._get_integration(), slack_user_id, kind)
+        except Exception:
+            logger.warning("slack_reaction_settings_lookup_failed", kind=kind.value, exc_info=True)
+            return DEFAULT_REACTIONS[kind]
+
     def update_reaction(self, emoji: str) -> None:
-        """Swap the reaction on the user's mention message."""
+        """Swap the working reaction on the user's mention message for the error reaction.
+
+        ``emoji`` is what the caller reacts with when the person and the workspace chose nothing. Once the emoji
+        settings flag is on, their error choice replaces it, and a choice to turn it off leaves the message
+        without one.
+        """
         target_ts = self.context.user_message_ts
         if not target_ts or self._shared_channel_turned_off():
             return
+        author = self.context.mentioning_slack_user_id
+        error = self._reaction(author, SlackReactionKind.ERROR)
+        if error == DEFAULT_REACTIONS[SlackReactionKind.ERROR]:
+            error = SlackResolvedReaction(emoji=emoji, enabled=True)
         try:
             client = self._get_client()
             try:
-                client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
+                client.reactions_remove(
+                    channel=self.context.channel,
+                    timestamp=target_ts,
+                    name=self._reaction(author, SlackReactionKind.WORKING).emoji,
+                )
             except Exception:
                 pass
-            client.reactions_add(
-                channel=self.context.channel,
-                timestamp=target_ts,
-                name=emoji,
-            )
+            if error.enabled:
+                client.reactions_add(channel=self.context.channel, timestamp=target_ts, name=error.emoji)
         except Exception as e:
             logger.warning("slack_update_reaction_failed", error=str(e))
 
     def clear_working_reaction(self) -> None:
-        """Remove the :eyes: from the message this turn answers, once the answer is in the thread.
+        """Remove the working reaction from the message this turn answers, once the answer is in the thread,
+        and add the done reaction when the person or the workspace turned it on.
 
         The activity that posts the answer does not run again for the same answer, so a rate-limited
         removal retries here. It uses a client of its own, so that the posts of this handler keep
@@ -592,14 +613,30 @@ class SlackThreadHandler:
         target_ts = self.turn_person_message_ts
         if not target_ts:
             return
+        author = self.actor_slack_user_id
         try:
             client = SlackIntegration(self._get_integration()).client
             client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=1))
-            client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name="eyes")
         except Exception as e:
-            if isinstance(e, SlackApiError) and e.response.get("error") in _ABSENT_REACTION_ERRORS:
-                return
             logger.warning("slack_clear_working_reaction_failed", error=str(e))
+            return
+        try:
+            client.reactions_remove(
+                channel=self.context.channel,
+                timestamp=target_ts,
+                name=self._reaction(author, SlackReactionKind.WORKING).emoji,
+            )
+        except Exception as e:
+            if not (isinstance(e, SlackApiError) and e.response.get("error") in _ABSENT_REACTION_ERRORS):
+                logger.warning("slack_clear_working_reaction_failed", error=str(e))
+        done = self._reaction(author, SlackReactionKind.DONE)
+        if not done.enabled:
+            return
+        try:
+            client.reactions_add(channel=self.context.channel, timestamp=target_ts, name=done.emoji)
+        except Exception as e:
+            if not (isinstance(e, SlackApiError) and e.response.get("error") == "already_reacted"):
+                logger.warning("slack_done_reaction_failed", error=str(e))
 
     def start_status_stream(
         self,

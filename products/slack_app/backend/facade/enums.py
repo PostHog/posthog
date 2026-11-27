@@ -14,6 +14,14 @@ class SlackReactionKind(LabeledStrEnum):
     POLITE = "polite", "Thank-you reaction"
 
 
+class SlackCustomEmojiStatus(LabeledStrEnum):
+    """Whether the emoji picker could list the workspace's custom emoji."""
+
+    LOADED = "loaded", "Custom emoji loaded"
+    MISSING_SCOPE = "missing_scope", "The install cannot read custom emoji"
+    UNAVAILABLE = "unavailable", "Slack did not answer"
+
+
 class SlackUntaggedMode(LabeledStrEnum):
     """What PostHog does with a message that does not tag it. The values match ``UntaggedFollowupMode``.
 

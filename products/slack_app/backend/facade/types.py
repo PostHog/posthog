@@ -3,7 +3,7 @@ from enum import Enum
 
 from posthog.dataclasses import frozen
 
-from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupStepKey
+from products.slack_app.backend.facade.enums import SlackCustomEmojiStatus, SlackReactionKind, SlackSetupStepKey
 
 # Slack rate limits conversations.join, and a long list in one request would hold the request open.
 MAX_CHANNELS_TO_JOIN = 20
@@ -19,6 +19,10 @@ class WorkspaceSettingsError(Exception):
 
 class SlackSettingsInvalid(Exception):
     """A setting value that PostHog or Slack would refuse. The message says why."""
+
+
+class SlackFeatureDisabled(Exception):
+    """The feature flag for this part of the settings page is off for the workspace."""
 
 
 class ChannelCatalogBusy(Exception):
@@ -60,6 +64,8 @@ class SlackResolvedReaction:
 class SlackWorkspaceSettings:
     reactions: dict[SlackReactionKind, SlackReactionChoice]
     external_channels_enabled: bool
+    # The workspace choices after PostHog's defaults fill the gaps: what a person without choices of their own gets.
+    effective_reactions: dict[SlackReactionKind, SlackResolvedReaction]
 
 
 @frozen
@@ -141,3 +147,18 @@ class ChannelOption:
 class ChannelJoinResult:
     channel_id: str
     error: str | None
+
+
+@frozen
+class SlackCustomEmoji:
+    name: str
+    # None for an alias of a standard emoji, which has no image of its own.
+    image_url: str | None
+    # The emoji this name is an alias of, or None for an emoji with its own image.
+    alias_for: str | None
+
+
+@frozen
+class SlackEmojiCatalog:
+    custom_emoji: tuple[SlackCustomEmoji, ...]
+    custom_emoji_status: SlackCustomEmojiStatus

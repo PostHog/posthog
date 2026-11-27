@@ -16,6 +16,7 @@ import type {
     SlackAppChannelSettingsListApi,
     SlackAppChannelSettingsUpdateApi,
     SlackAppDefaultProjectApi,
+    SlackAppEmojiCatalogApi,
     SlackAppJoinChannelsApi,
     SlackAppJoinChannelsResultApi,
     SlackAppRepositoryOptionsApi,
@@ -79,6 +80,24 @@ export const slackAppSettingsChannelsUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(slackAppChannelSettingsUpdateApi),
+    })
+}
+
+export const getSlackAppSettingsEmojiRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/slack_app_settings/${id}/emoji/`
+}
+
+/**
+ * @summary List the custom emoji of the Slack workspace for the reaction picker
+ */
+export const slackAppSettingsEmojiRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SlackAppEmojiCatalogApi> => {
+    return apiMutator<SlackAppEmojiCatalogApi>(getSlackAppSettingsEmojiRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -135,6 +135,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
                     slack_team_id=message.slack_team_id,
                     channel=channel,
                     message_ts=message_ts,
+                    slack_user_id=message.event.get("user"),
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RetryPolicy(maximum_attempts=1),

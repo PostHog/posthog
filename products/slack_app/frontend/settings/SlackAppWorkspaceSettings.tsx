@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { SlackAppReactionSettings } from './SlackAppReactionSettings'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 export function SlackAppWorkspaceSettings(): JSX.Element {
@@ -32,6 +33,7 @@ export function SlackAppWorkspaceSettings(): JSX.Element {
                 When this is off, PostHog stays quiet in Slack Connect channels. When it is on, someone in each shared
                 channel still approves PostHog the first time.
             </p>
+            <SlackAppReactionSettings level="workspace" />
         </div>
     )
 }

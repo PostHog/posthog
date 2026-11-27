@@ -67,6 +67,7 @@ SLACK_APP_WEB_SETTINGS_FLAG = "slack-app-web-settings"
 SLACK_APP_CHATGPT_APPS_FLAG = "slack-app-chatgpt-apps"
 WEB_SETTINGS_FLAG_CACHE_SECONDS = 60
 SLACK_APP_CHANNEL_CONTEXT_FLAG = "slack-app-channel-context"
+SLACK_APP_EMOJIS_SETTINGS_FLAG = "slack-app-emojis-settings"
 
 # Reading a channel's topic and purpose is a `conversations.info` call, which needs the read scope.
 CHANNEL_CONTEXT_REQUIRED_SCOPES: frozenset[str] = frozenset({"channels:read"})
@@ -284,6 +285,24 @@ def is_slack_app_web_settings_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_WEB_SETTINGS_FLAG,
         integration,
         failure_log_key="slack_app_web_settings_feature_flag_check_failed",
+    )
+    cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
+    return enabled
+
+
+def is_slack_app_emojis_settings_enabled(integration: IntegrationRecord) -> bool:
+    """Gate for choosing the emoji PostHog reacts with, on the settings page and when the bot reacts. The choice
+    belongs to the workspace and its people, not to one PostHog user, so no distinct ID is passed.
+
+    Every message the bot reacts to checks it, so the decision is kept for a minute."""
+    cache_key = f"slack_app_emojis_settings_flag:{_organization_id(integration)}:{integration.integration_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    enabled = _workspace_flag_enabled(
+        SLACK_APP_EMOJIS_SETTINGS_FLAG,
+        integration,
+        failure_log_key="slack_app_emojis_settings_feature_flag_check_failed",
     )
     cache.set(cache_key, enabled, timeout=WEB_SETTINGS_FLAG_CACHE_SECONDS)
     return enabled
