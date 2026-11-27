@@ -252,26 +252,37 @@ describe('valves', () => {
         return { cloud, ...run, writerNow, commits, environment, stalledOnce }
     }
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
-        [
-            'fails the run cluster over and back, and journals each recovery stage',
-            {},
-            true,
-            {
-                intentAt: expect.any(String),
-                appliedAt: expect.any(String),
-                observedAt: expect.any(String),
-                releasedAt: expect.any(String),
-                observations: STAGES,
-                releaseIntentAt: expect.any(String),
-                releaseObservations: STAGES,
-            },
-        ],
+    const RECOVERED = {
+        intentAt: expect.any(String),
+        appliedAt: expect.any(String),
+        observedAt: expect.any(String),
+        releasedAt: expect.any(String),
+        observations: STAGES,
+        releaseIntentAt: expect.any(String),
+        releaseObservations: STAGES,
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>, ValveEntry['dose']?]>([
+        ['fails the run cluster over and back, and journals each recovery stage', {}, true, RECOVERED],
         [
             'records no intent for a failover its preconditions refused',
             { liveReaderAcu: { maxima: [1, 1, 3, 1, 1] } },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .* was above its 2.5 ACU idle limit/) },
+        ],
+        [
+            'fails a reader above its idle limit over and back when the dose takes a warm reader',
+            { liveReaderAcu: { maxima: [3, 3, 3, 3, 3] } },
+            true,
+            RECOVERED,
+            { warmReader: true },
+        ],
+        [
+            'records no intent for a warm-reader failover whose capacity read has fewer values than timestamps',
+            { shortValuesOf: 'Average' },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
+            { warmReader: true },
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
@@ -300,12 +311,12 @@ describe('valves', () => {
             },
         ],
         ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
-    ])('%s', async (_story, options, onRunHost, recorded) => {
+    ])('%s', async (_story, options, onRunHost, recorded, dose = {}) => {
         const valves = createValves({ pollMs: 5 })
         const { context } = stackOf()
         const run = runClusterOf(options)
 
-        await valves.start([FAILOVER], {
+        await valves.start([{ ...FAILOVER, dose }], {
             ...context,
             commits: run.commits,
             manifest: onRunHost ? run.manifest : undefined,

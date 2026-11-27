@@ -8,6 +8,7 @@ export const FAILOVER_VALVE = 'pg.failover'
 export type RunCard = {
     id: string
     failsOver: boolean
+    warmReader?: true
     seed?: number
     pair?: { drive: string; convergeWithin: string }
 }
@@ -39,9 +40,11 @@ export function runCardOf(
     if (problem !== undefined) {
         throw new Error(problem)
     }
+    const failovers = card.valves.filter(({ valve }) => valve === FAILOVER_VALVE)
     return {
         id,
-        failsOver: card.valves.some(({ valve }) => valve === FAILOVER_VALVE),
+        failsOver: failovers.length > 0,
+        ...(failovers.some(({ dose }) => dose.warmReader === true) && { warmReader: true }),
         ...(seed !== undefined && { seed }),
         ...(card.pair && { pair: { drive: card.drive.for, convergeWithin: card.convergeWithin } }),
     }

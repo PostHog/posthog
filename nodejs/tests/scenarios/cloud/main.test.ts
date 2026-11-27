@@ -1666,6 +1666,7 @@ describe('cloud controller', () => {
                 acu_seconds_to_peak: 60,
                 acu_after_t0_max: [4, 8, 8],
                 reader_acu_at_t0: 1.5,
+                reader_at_t0: 'cold',
             })
             const t0 = Date.parse(String(published().t0_at))
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
@@ -1697,6 +1698,37 @@ describe('cloud controller', () => {
             acu_pre_t0_max: 5,
             acu_pre_t0_above_idle: [-6, -3].map((minute) => new Date(t0Minute + minute * 60_000).toISOString()),
         })
+    })
+
+    it.each<[string, FakeCloudOptions['readerAcu'], number[], string, string]>([
+        [
+            'passes on a reader above its idle limit before T0, and marks the reader warm',
+            [...minutes(-5, -3, 1, 1), ...minutes(-2, -2, 3, 2.6), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [1, 1, 1, 2.6, 3],
+            'passed',
+            '',
+        ],
+        [
+            'still refuses a reader under its minimum before T0',
+            [...minutes(-5, -3, 3, 2.6), ...minutes(-2, -2, 3, 0.5), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [2.6, 2.6, 2.6, 0.5, 3],
+            'invalid',
+            'reader capacity under its 1 ACU minimum before T0',
+        ],
+    ])('judges a card that fails a warm reader over: %s', async (_, readerAcu, avgs, status, reason) => {
+        const card = parse(readFileSync(path.join(__dirname, '..', 'cards', `${FAILOVER_CARD}.yaml`), 'utf8'))
+        const warm = { ...card, valves: [{ ...card.valves[0], dose: { warmReader: true } }] }
+        const { controller } = prepare({
+            cloud: { readerAcu },
+            env: api.credentials,
+            cards: { [FAILOVER_CARD]: stringify(warm) },
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
+
+        expect(published()).toMatchObject({ status, reader_at_t0: 'warm', reader_acu_at_t0: 4, acu_pre_t0_avg: avgs })
+        expect(published().status_reason).toContain(reason)
+        expect(published().status_reason).not.toContain('idle limit')
     })
 
     const RUNNER_REASON_CARDS: [string, Partial<FakeCloudOptions>, string][] = [

@@ -102,6 +102,7 @@ export type Action =
           holdMs: number
           commits: () => readonly WriterSample[]
           signal: AbortSignal
+          warmReader: boolean
       }
 
 export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
@@ -307,6 +308,7 @@ export function createEnvironment({
                         holdMs: action.holdMs,
                         commits: action.commits,
                         signal: action.signal,
+                        warmReader: action.warmReader,
                     })
             }
         },

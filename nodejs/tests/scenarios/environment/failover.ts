@@ -39,6 +39,7 @@ export type FailoverOptions = {
     pollMs?: number
     observeWithinMs?: number
     signal?: AbortSignal
+    warmReader?: boolean
 }
 
 const POLL_MS = 1000
@@ -106,6 +107,7 @@ export async function failOver({
     pollMs = POLL_MS,
     observeWithinMs = OBSERVE_WITHIN_MS,
     signal,
+    warmReader = false,
 }: FailoverOptions): Promise<FailoverActuation> {
     const cluster = manifest.stackName
     const writer = `${cluster}-writer`
@@ -437,7 +439,7 @@ export async function failOver({
         }
         const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
         const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
-        if (busy.length > 0) {
+        if (busy.length > 0 && !warmReader) {
             refuse(
                 `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
             )

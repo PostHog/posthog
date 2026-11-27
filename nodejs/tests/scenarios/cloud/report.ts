@@ -145,12 +145,17 @@ const minuteMaximaFrom = (t0Minute: number, after: { at: number; max: number }[]
     )
 
 type Judged = {
-    scalars: Record<string, number | string[] | (number | null)[] | null>
+    scalars: Record<string, number | string | string[] | (number | null)[] | null>
     readerAtT0: number | null
     reason?: string
 }
 
-function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
+function judgeCapacity(
+    { minutes }: Capacity,
+    t0: number,
+    { min, idleMax }: CloudProfile['readerAcu'],
+    warmReader: boolean
+): Judged {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
@@ -194,17 +199,26 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
     const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
     const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
+    const warm = above.length > 0 || unshown.length > 0
+    const scored = {
+        ...scalars,
+        acu_pre_t0_avg: watched.map((at) => pre.find((minute) => minute.at === at)?.avg ?? null),
+        reader_at_t0: warm ? 'warm' : 'cold',
+    }
     const reasons = [
-        above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
+        !warmReader && above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
         under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
         inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
-        unshown.length > 0 &&
+        !warmReader &&
+            unshown.length > 0 &&
             `no reader average before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
         missing.length > 0 &&
             `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
         readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
     ].filter((reason): reason is string => typeof reason === 'string')
-    return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
+    return reasons.length === 0
+        ? { scalars: scored, readerAtT0 }
+        : { scalars: scored, readerAtT0, reason: reasons.join('; ') }
 }
 
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
@@ -294,7 +308,10 @@ export async function report(
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
         capacityOf(controller.aws, `scn-${runId}-reader`, from, to, saved?.window ?? [])
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
+    const judged =
+        capacity && t0
+            ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu, card.warmReader === true)
+            : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
