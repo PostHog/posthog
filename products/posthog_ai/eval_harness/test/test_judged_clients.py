@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -80,3 +81,57 @@ async def test_judges_use_direct_provider_without_braintrust_fallback(
         assert requests[0].headers["authorization"] == "Bearer test-openai-key"
     assert all(client.is_closed() for client in clients)
     assert scorer.client is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("choice, expected_score", [("yes", 1.0), ("no", 0.0)])
+async def test_gpt6_judges_answer_through_the_responses_api(
+    monkeypatch: pytest.MonkeyPatch, choice: str, expected_score: float
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "test-response",
+                "object": "response",
+                "created_at": 0,
+                "model": "gpt-6.2-sol",
+                "output": [
+                    {
+                        "type": "function_call",
+                        "id": "test-item",
+                        "call_id": "test-call",
+                        "name": "select_choice",
+                        "arguments": f'{{"choice":"{choice}"}}',
+                        "status": "completed",
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        judged,
+        "AsyncOpenAI",
+        lambda: AsyncOpenAI(http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))),
+    )
+
+    class PreparedJudge(judged.JudgedScorer):
+        def _prepare(self, output: Any, expected: Any) -> dict[str, Any]:
+            return {"output": output}
+
+    scorer = PreparedJudge(
+        name="judge", prompt_template="{{output}}", choice_scores={"yes": 1.0, "no": 0.0}, model="gpt-6.2-sol"
+    )
+
+    score = await scorer.eval_async("Synthetic answer")
+
+    assert score.score == expected_score, score.metadata
+    assert [request.url for request in requests] == ["https://api.openai.com/v1/responses"]
+    body = json.loads(requests[0].content)
+    assert [tool["name"] for tool in body["tools"]] == ["select_choice"]
+    assert body["tool_choice"] == "required"

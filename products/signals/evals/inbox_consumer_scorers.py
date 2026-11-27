@@ -18,7 +18,6 @@ from products.data_catalog.evals.scorers import final_answer
 from products.posthog_ai.eval_harness.log_parser import EXECUTE_SQL_TOOL_NAME, ToolCall
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
-    JUDGE_MODEL,
     JudgedScorer,
     expected_spec,
     parser_for,
@@ -34,6 +33,7 @@ INBOX_FOR_ME_TOOL = "inbox-reports-for-me"
 INBOX_READ_TOOLS = frozenset({INBOX_LIST_TOOL, INBOX_RETRIEVE_TOOL, INBOX_SEARCH_TOOL, INBOX_FOR_ME_TOOL})
 POSTHOG_MCP_SERVER = "posthog"
 INBOX_TABLES = ("inbox_reports", "system.inbox_reports")
+INBOX_JUDGE_MODEL = "gpt-6.2-sol"
 
 _PULL_REQUEST_COMMAND = re.compile(r"\bgh\s+pr\s+(?:create|edit)\b")
 _WRITTEN_FILE_KEYS = ("file_path", "path")
@@ -287,7 +287,7 @@ class _BinaryJudge(JudgedScorer):
             name=name,
             prompt_template=prompt_template.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
-            model=JUDGE_MODEL,
+            model=INBOX_JUDGE_MODEL,
             max_completion_tokens=256,
             **kwargs,
         )
