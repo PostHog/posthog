@@ -224,13 +224,19 @@ describe('recommendationsLogic', () => {
         expect(logic.values.selectedGroup).toMatchObject({
             rule: 'spend_without_conversions',
             recommendations: [],
-            activeCount: 0,
+        })
+
+        logic.actions.setShowResolved(true)
+        expect(logic.values).toMatchObject({
+            showingResolved: true,
+            resolvedRecommendations: [{ key: RECOMMENDATION.key }],
         })
 
         await expectLogic(marketingAnalyticsLogic, () => logic.actions.selectRule('keyword_gap', 1)).toDispatchActions([
             marketingAnalyticsLogic.actionCreators.reportRecommendationsRuleSelected('keyword_gap', 1),
         ])
         expect(logic.values.groups.map((group) => group.rule)).toEqual(['keyword_gap'])
+        expect(logic.values.showingResolved).toBe(false)
     })
 
     it.each([

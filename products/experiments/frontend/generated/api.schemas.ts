@@ -2402,8 +2402,10 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `flag_shared` - Flag Shared
  * * `stale_experiment` - Stale Experiment
+ * * `exposure_rows_left_out` - Exposure Rows Left Out
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2437,8 +2439,10 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     FlagShared: 'flag_shared',
     StaleExperiment: 'stale_experiment',
+    ExposureRowsLeftOut: 'exposure_rows_left_out',
 } as const
 
 /**
@@ -2505,6 +2509,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `stale_experiment` - Stale Experiment
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2514,6 +2519,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `multiple_variants_share` - Multiple Variants Share
  * * `events_billing_limit` - Events Billing Limit
  * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+ * * `exposure_rows_left_out` - Exposure Rows Left Out
  */
 export type ExperimentHealthCheckKeyEnumApi =
     (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
@@ -2538,6 +2544,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     StaleExperiment: 'stale_experiment',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -2547,6 +2554,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     MultipleVariantsShare: 'multiple_variants_share',
     EventsBillingLimit: 'events_billing_limit',
     FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+    ExposureRowsLeftOut: 'exposure_rows_left_out',
 } as const
 
 /**
@@ -2585,8 +2593,10 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
-     * * `stale_experiment` - Stale Experiment */
+     * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2638,6 +2648,7 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2646,7 +2657,8 @@ export interface ExperimentHealthFindingApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
-     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     check: ExperimentHealthCheckKeyEnumApi
 }
 
@@ -2708,6 +2720,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
  * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
  * * `significant` - Whether a variant's difference from the control is significant
+ * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
  * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
  * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
  * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2736,6 +2749,9 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
  * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
  * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+ * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+ * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+ * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2782,6 +2798,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     DifferencePercentage: 'difference_percentage',
     DetectableDifferencePercentage: 'detectable_difference_percentage',
     Significant: 'significant',
+    SignificantSinceAt: 'significant_since_at',
     ForcedConditionCount: 'forced_condition_count',
     MatchedCount: 'matched_count',
     VariantMatchedCount: 'variant_matched_count',
@@ -2810,6 +2827,9 @@ export const ExperimentHealthValueKeyEnumApi = {
     AssignedOutsideCount: 'assigned_outside_count',
     OtherDraftExperimentCount: 'other_draft_experiment_count',
     FiltersTestAccounts: 'filters_test_accounts',
+    LeftOutRowCount: 'left_out_row_count',
+    UnknownVariantRowCount: 'unknown_variant_row_count',
+    EmptyIdRowCount: 'empty_id_row_count',
 } as const
 
 /**
@@ -2878,6 +2898,7 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2905,7 +2926,10 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2955,6 +2979,7 @@ export interface ExperimentHealthCheckRuleApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2982,7 +3007,10 @@ export interface ExperimentHealthCheckRuleApi {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -3039,6 +3067,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -3047,7 +3076,8 @@ export interface ExperimentHealthCheckResultApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
-     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string

@@ -473,9 +473,8 @@ describe('exec tool', () => {
 
         it('counts a result it shortens, since the executor then sees one that fits', async () => {
             const shortened = async (): Promise<number> =>
-                (await toolResponsesShortenedTotal.get()).values.find(
-                    ({ labels }) => labels.tool === 'mock-tool' && labels.budget === 'client'
-                )?.value ?? 0
+                (await toolResponsesShortenedTotal.get()).values.find(({ labels }) => labels.tool === 'mock-tool')
+                    ?.value ?? 0
             const exec = createExec(
                 [
                     makeMockTool({
@@ -2343,7 +2342,6 @@ describe('exec tool', () => {
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
-            ['llma-tagger-list', 'llma-evaluation-list'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
             ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],

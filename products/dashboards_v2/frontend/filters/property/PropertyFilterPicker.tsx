@@ -1,8 +1,8 @@
-import { FieldSearch } from '../FieldSearch'
 import type { FilterPickerProps } from '../filterDefinition'
+import { FieldSearch } from '../pickers/FieldSearch'
 import { type FeaturedProperty, PROPERTY_FILTER_TYPE, type PropertyFilterConfig } from './propertyFilterSpec'
 
-export interface PropertySearch {
+export type PropertySearch = {
     label: string
     load: (search: string, signal: AbortSignal) => Promise<FeaturedProperty[]>
 }

@@ -4,6 +4,7 @@ import { parseArgs } from 'util'
 
 import { seedBacklog } from './backlog/backlog'
 import { Backlog, CardError, LoadedCard, Profile, Target, load, readProfile } from './cards'
+import { parseSeed } from './cards/schema'
 import { runManifestOf } from './cloud/lease'
 import { DevConfig, devConfigOf } from './dev-target/config'
 import { devEnvironment, devTarget } from './dev-target/target'
@@ -22,7 +23,7 @@ import { RunId } from './store/runs'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = [
-    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev] [--pair]',
+    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>] [--target local|dev] [--pair] [--seed <n>]',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
     '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>... | --all',
 ].join('\n')
@@ -36,7 +37,8 @@ function preflight(
     cards: string[],
     profilePath: string | undefined,
     target: Target,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
+    seed?: number
 ): { loaded: LoadedCard[]; dev?: DevConfig } | { problems: string[] } {
     const { problem } = credentialsOf(env)
     const problems = problem === undefined ? [] : [problem]
@@ -48,21 +50,13 @@ function preflight(
     }
     const loaded = cards.flatMap((card) => {
         try {
-            return [load(cardPathOf(card, target), { profilePath, target })]
+            return [load(cardPathOf(card, target), { profilePath, target, seed })]
         } catch (error) {
             problems.push(error instanceof CardError ? error.message : `${card}: ${(error as Error).message}`)
             return []
         }
     })
     return problems.length > 0 ? { problems } : { loaded, dev }
-}
-
-function manifestAsksForPair(env: NodeJS.ProcessEnv): boolean {
-    try {
-        return runManifestOf(env)?.pair === true
-    } catch {
-        return false
-    }
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
@@ -74,11 +68,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
             all: { type: 'boolean' },
             target: { type: 'string' },
             pair: { type: 'boolean' },
+            seed: { type: 'string' },
         },
     })
     const [command, ...cards] = positionals
     const pair = values.pair === true
-    if ((values.target !== undefined || pair) && command !== 'run') {
+    if ((values.target !== undefined || pair || values.seed !== undefined) && command !== 'run') {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
     }
@@ -96,7 +91,24 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         return EXIT_CODE.invalid
     }
     const onHost = Boolean(env.SCENARIO_RUN_MANIFEST)
-    if (pair && (target !== 'local' || (onHost && !manifestAsksForPair(env)))) {
+    let manifest: ReturnType<typeof runManifestOf>
+    let seed: number | undefined
+    let manifestProblem: string | undefined
+    try {
+        if (onHost && values.seed !== undefined) {
+            throw new Error('Set --seed on the cloud controller. The run host reads the seed from its manifest.')
+        }
+        manifest = runManifestOf(env)
+        seed = values.seed === undefined ? manifest?.seed : parseSeed(values.seed)
+    } catch (error) {
+        const problem = (error as Error).message
+        if (!onHost || pair || values.seed !== undefined) {
+            process.stderr.write(`${problem}\n`)
+            return EXIT_CODE.invalid
+        }
+        manifestProblem = problem
+    }
+    if (pair && (target !== 'local' || (onHost && manifest?.pair !== true))) {
         process.stderr.write(
             '--pair runs on the local target only, or on a run host whose manifest asks for the pair: dev cards apply no valves, and a run host otherwise runs one card per manifest.\n'
         )
@@ -106,13 +118,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         process.stderr.write('A run host runs one card per manifest, so it takes one card id.\n')
         return EXIT_CODE.invalid
     }
-    const checked = preflight(cards, values.profile, target, env)
+    const checked = preflight(cards, values.profile, target, env, seed)
     const problems =
         'problems' in checked
             ? checked.problems
             : pair
               ? checked.loaded.flatMap((loaded) => pairProblemsOf(loaded, onHost))
               : []
+    if (manifestProblem !== undefined) {
+        problems.push(manifestProblem)
+    }
     if (problems.length > 0 || 'problems' in checked) {
         process.stderr.write(`${problems.join('\n\n')}\n`)
         return EXIT_CODE.invalid

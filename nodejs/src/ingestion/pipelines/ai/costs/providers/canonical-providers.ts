@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-25 20:02:03 UTC
+// Generated at: 2026-11-26 20:01:53 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,7 +20,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-west-2'
     | 'ambient-fp4'
     | 'ambient-fp8'
-    | 'ambient-nvfp4'
     | 'antdigital-fp8'
     | 'anthropic'
     | 'anthropic-fast'
@@ -85,6 +84,7 @@ export type CanonicalProvider =
     | 'featherless-fp8'
     | 'fireworks'
     | 'fireworks-fast'
+    | 'fireworks-flex'
     | 'fireworks-spot'
     | 'fireworks-us'
     | 'friendli'
@@ -120,7 +120,6 @@ export type CanonicalProvider =
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-fp8'
-    | 'krea-fp8'
     | 'kt'
     | 'liquid'
     | 'makora'
@@ -159,7 +158,6 @@ export type CanonicalProvider =
     | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
-    | 'novita-bf16'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -222,6 +220,7 @@ export type CanonicalProvider =
     | 'streamlake-fp8'
     | 'tencent-fp4'
     | 'tencent-fp8'
+    | 'tenstorrent-fast'
     | 'tenstorrent-fp8'
     | 'together'
     | 'together-fast'

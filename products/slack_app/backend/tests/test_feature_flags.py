@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from posthog.models.integration import Integration
 
 from products.slack_app.backend import feature_flags
@@ -102,3 +104,18 @@ def test_chatgpt_apps_gate_counts_a_failed_evaluation_as_on(
     kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
     with patch("posthoganalytics.feature_enabled", **kwargs):
         assert feature_flags.is_slack_app_chatgpt_apps_setting_enabled(workspace_integration, "user-1") is expected
+
+
+@pytest.mark.parametrize(
+    ("flag_result", "expected"),
+    [(True, True), (False, False), (None, True), (RuntimeError("flags unavailable"), True)],
+    ids=["on", "off", "not evaluated", "error"],
+)
+def test_web_settings_enforcement_counts_a_failed_evaluation_as_on(
+    workspace_integration: Integration, flag_result: object, expected: bool
+) -> None:
+    # The gate keeps an admin's restriction, such as the shared channels switch, so a flag outage must not lift it.
+    cache.clear()
+    kwargs = {"side_effect": flag_result} if isinstance(flag_result, Exception) else {"return_value": flag_result}
+    with patch("posthoganalytics.feature_enabled", **kwargs):
+        assert feature_flags.is_slack_app_web_settings_enforced(workspace_integration) is expected

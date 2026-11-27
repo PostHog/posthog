@@ -20,10 +20,15 @@ export function isFileSystemSearchTabShown(tab: FileSystemSearchTab, featureFlag
 }
 
 export function isFileSystemImportShown(
-    item: Pick<FileSystemImport, 'flag' | 'alternativeFlags' | 'hiddenWhenFlags'>,
-    featureFlags: FeatureFlagsSet
+    item: Pick<FileSystemImport, 'flag' | 'alternativeFlags' | 'hiddenWhenFlags' | 'requiresOrganizationAdmin'>,
+    featureFlags: FeatureFlagsSet,
+    isOrganizationAdmin: boolean
 ): boolean {
     const flags = featureFlags as Record<string, boolean | string | undefined>
     const hiddenByFlags = !!item.hiddenWhenFlags?.length && item.hiddenWhenFlags.every((flag) => !!flags[flag])
-    return !hiddenByFlags && isFileSystemImportFlagEnabled(item, featureFlags)
+    return (
+        (!item.requiresOrganizationAdmin || isOrganizationAdmin) &&
+        !hiddenByFlags &&
+        isFileSystemImportFlagEnabled(item, featureFlags)
+    )
 }

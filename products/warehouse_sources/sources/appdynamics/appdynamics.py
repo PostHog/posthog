@@ -1,5 +1,6 @@
 import json
 import socket
+import hashlib
 import threading
 import contextvars
 import dataclasses
@@ -48,7 +49,8 @@ RESPONSE_CHUNK_SIZE = 1024 * 1024
 # Controller OAuth tokens default to a ~5 minute TTL (configurable per controller);
 # refresh well before expiry so a request never rides a token that dies mid-flight.
 TOKEN_REFRESH_MARGIN_SECONDS = 60
-MILLIS_PER_DAY = 24 * 60 * 60 * 1000
+MILLIS_PER_HOUR = 60 * 60 * 1000
+MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR
 
 OAUTH_FAILED_MESSAGE = (
     "AppDynamics OAuth token request failed. Check your API client name, client secret, and account name."
@@ -65,9 +67,10 @@ class AppdynamicsError(Exception):
 
 @dataclasses.dataclass(frozen=False)
 class AppdynamicsResumeConfig:
-    # Fan-out bookmark: the application currently being processed. A stable application-ID
-    # bookmark (not a positional index) so applications added/removed between a crash and
-    # the retry can't resume us into the wrong application. None for `applications` itself.
+    # Fan-out bookmark: the application (or database server, for database fan-out) currently
+    # being processed. A stable ID bookmark (not a positional index) so parents added/removed
+    # between a crash and the retry can't resume us into the wrong one. None for account-level
+    # endpoints.
     application_id: int | None = None
     # For time-windowed endpoints: epoch-ms start of the next unprocessed window within
     # the bookmarked application.
@@ -571,9 +574,17 @@ def _metric_rows(application_id: int, metric: dict[str, Any]) -> list[dict[str, 
     ]
 
 
+def _iso_millis(epoch_ms: int) -> str:
+    # The Controller parses an RFC 822 offset, so UTC is written as +0000 rather than Z.
+    moment = datetime.fromtimestamp(epoch_ms // 1000, tz=UTC)
+    return f"{moment:%Y-%m-%dT%H:%M:%S}.{epoch_ms % 1000:03d}+0000"
+
+
 def _window_params(config: AppdynamicsEndpointConfig, start_ms: int, end_ms: int) -> dict[str, Any]:
     if config.uses_epoch_time_params:
         return {"startTime": start_ms, "endTime": end_ms}
+    if config.uses_iso_time_params:
+        return {"startTime": _iso_millis(start_ms), "endTime": _iso_millis(end_ms)}
     return {"time-range-type": "BETWEEN_TIMES", "start-time": start_ms, "end-time": end_ms}
 
 
@@ -582,6 +593,22 @@ def _rows_from_payload(config: AppdynamicsEndpointConfig, payload: Any) -> list[
     if config.data_selector:
         payload = (payload or {}).get(config.data_selector)
     return payload or []
+
+
+def _with_hashed_id(config: AppdynamicsEndpointConfig, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not config.hashed_id_column:
+        return rows
+    return [
+        {
+            **row,
+            config.hashed_id_column: hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).hexdigest(),
+        }
+        for row in rows
+    ]
+
+
+def _parent_path(config: AppdynamicsEndpointConfig, parent_id: int) -> str:
+    return config.path.format(**{config.parent_id_column: parent_id})
 
 
 class SplitAllowance:
@@ -607,7 +634,7 @@ def _get_paged_window_rows(
     config: AppdynamicsEndpointConfig,
     path: str,
     params: dict[str, Any],
-    application_id: int,
+    parent_id: int,
     split_allowance: SplitAllowance,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -619,7 +646,7 @@ def _get_paged_window_rows(
         # draw from the same per-sync allowance window bisection spends from.
         if page_number > 0 and not split_allowance.take():
             logger.warning(
-                f"AppDynamics: '{config.name}' stopped paging for application_id={application_id} at the "
+                f"AppDynamics: '{config.name}' stopped paging for {config.parent_id_column}={parent_id} at the "
                 "per-sync request limit; later pages of that window were not synced."
             )
             return
@@ -633,13 +660,13 @@ def _get_paged_window_rows(
             ),
         )
         if rows:
-            yield [{**row, "application_id": application_id} for row in rows]
+            yield [{**row, config.parent_id_column: parent_id} for row in rows]
         if len(rows) < page_size:
             return
 
     logger.warning(
         f"AppDynamics: '{config.name}' hit the {MAX_PAGES_PER_TIME_WINDOW}-page cap for "
-        f"application_id={application_id}; later pages of that window were not synced."
+        f"{config.parent_id_column}={parent_id}; later pages of that window were not synced."
     )
 
 
@@ -648,7 +675,7 @@ def _get_window_rows(
     config: AppdynamicsEndpointConfig,
     path: str,
     base_params: dict[str, Any],
-    application_id: int,
+    parent_id: int,
     window_start: int,
     window_end: int,
     split_allowance: SplitAllowance,
@@ -668,9 +695,7 @@ def _get_window_rows(
         window_params = {**base_params, **_window_params(config, start, end)}
 
         if config.page_size is not None:
-            yield from _get_paged_window_rows(
-                client, config, path, window_params, application_id, split_allowance, logger
-            )
+            yield from _get_paged_window_rows(client, config, path, window_params, parent_id, split_allowance, logger)
             continue
 
         rows = _rows_from_payload(
@@ -687,12 +712,12 @@ def _get_window_rows(
                 continue
             logger.warning(
                 f"AppDynamics: '{config.name}' hit the {config.result_cap}-row response cap for "
-                f"application_id={application_id} between {start} and {end} and cannot be split further; "
+                f"{config.parent_id_column}={parent_id} between {start} and {end} and cannot be split further; "
                 "some rows in that window were not synced."
             )
 
         if rows:
-            yield [{**row, "application_id": application_id} for row in rows]
+            yield [{**row, config.parent_id_column: parent_id} for row in rows]
 
 
 def _escape_metric_path_segment(name: str) -> str:
@@ -773,7 +798,7 @@ def _window_start_ms(
 def _get_windowed_application_rows(
     client: AppdynamicsClient,
     config: AppdynamicsEndpointConfig,
-    application_id: int,
+    parent_id: int,
     start_ms: int,
     end_ms: int,
     metric_paths: list[str],
@@ -782,7 +807,7 @@ def _get_windowed_application_rows(
     split_allowance: SplitAllowance,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    path = config.path.format(application_id=application_id)
+    path = _parent_path(config, parent_id)
 
     base_params: dict[str, Any] = dict(config.extra_params)
     if config.is_events:
@@ -794,7 +819,7 @@ def _get_windowed_application_rows(
             for metric_path in metric_paths:
                 metrics = client.get_json(path, {**window_params, "metric-path": metric_path, "rollup": "false"})
                 for metric in metrics or []:
-                    rows = _metric_rows(application_id, metric)
+                    rows = _metric_rows(parent_id, metric)
                     if rows:
                         yield rows
         else:
@@ -803,7 +828,7 @@ def _get_windowed_application_rows(
                 config,
                 path,
                 base_params,
-                application_id,
+                parent_id,
                 window_start,
                 window_end,
                 split_allowance,
@@ -812,9 +837,33 @@ def _get_windowed_application_rows(
 
         # Save AFTER yielding the window so a crash re-yields it (merge dedupes on the
         # primary key) rather than skipping it.
-        resumable_source_manager.save_state(
-            AppdynamicsResumeConfig(application_id=application_id, window_start=window_end)
+        resumable_source_manager.save_state(AppdynamicsResumeConfig(application_id=parent_id, window_start=window_end))
+
+
+def _get_account_window_rows(
+    client: AppdynamicsClient,
+    config: AppdynamicsEndpointConfig,
+    start_ms: int,
+    end_ms: int,
+    resumable_source_manager: ResumableSourceManager[AppdynamicsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read an account-level time-windowed endpoint one window per request, oldest first."""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.application_id is None and resume.window_start is not None:
+        start_ms = resume.window_start
+
+    for window_start, window_end in _iter_windows(start_ms, end_ms, config.window_chunk_days):
+        payload = client.get_json(
+            config.path,
+            {**config.extra_params, **_window_params(config, window_start, window_end)},
+            output_json=config.sends_output_json_param,
         )
+        rows = _with_hashed_id(config, _rows_from_payload(config, payload))
+        resumable_source_manager.save_state(AppdynamicsResumeConfig(window_start=window_end))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -831,20 +880,30 @@ def get_rows(
     config = APPDYNAMICS_ENDPOINTS[endpoint]
     client = AppdynamicsClient(base_url, auth, logger)
 
-    if not config.fan_out_over_applications:
+    end_ms = int(datetime.now(UTC).timestamp() * 1000)
+    start_ms = _window_start_ms(config, end_ms, should_use_incremental_field, db_incremental_field_last_value)
+    if config.hour_aligned_windows:
+        end_ms -= end_ms % MILLIS_PER_HOUR
+        start_ms -= start_ms % MILLIS_PER_HOUR
+
+    if not config.fans_out:
+        if config.time_windowed:
+            yield from _get_account_window_rows(client, config, start_ms, end_ms, resumable_source_manager)
+            return
         rows = _rows_from_payload(config, client.get_json(config.path, {}, output_json=config.sends_output_json_param))
         if rows:
             yield rows
         return
 
-    applications = client.get_json(APPLICATIONS_PATH, {}) or []
+    parents = client.get_json(config.parent_path, {}) or []
     # The controller controls this list, so dedupe IDs and cap the catalog before fanning
     # out — otherwise a hostile or misconfigured host could return a huge (or duplicate-laden)
     # list and monopolize a shared import worker. `dict.fromkeys` preserves order.
-    application_ids = list(dict.fromkeys(application["id"] for application in applications))
+    application_ids = list(dict.fromkeys(parent["id"] for parent in parents))
     if len(application_ids) > MAX_APPLICATIONS:
         raise AppdynamicsError(
-            f"Too many AppDynamics applications ({len(application_ids)}); the maximum per sync is {MAX_APPLICATIONS}."
+            f"Too many AppDynamics {config.parent_label} ({len(application_ids)}); "
+            f"the maximum per sync is {MAX_APPLICATIONS}."
         )
 
     # Resolve the saved application-ID bookmark to the slice of applications still to
@@ -857,12 +916,9 @@ def get_rows(
         remaining = application_ids[application_ids.index(resume.application_id) :]
         resume_window_start = resume.window_start
         logger.debug(
-            f"AppDynamics: resuming '{endpoint}' from application_id={resume.application_id}, "
+            f"AppDynamics: resuming '{endpoint}' from {config.parent_id_column}={resume.application_id}, "
             f"window_start={resume_window_start}"
         )
-
-    end_ms = int(datetime.now(UTC).timestamp() * 1000)
-    start_ms = _window_start_ms(config, end_ms, should_use_incremental_field, db_incremental_field_last_value)
 
     # The per-dimension caps still multiply: applications × metric paths × time windows. Bound
     # the Cartesian product up front so a large-but-legal catalog can't hold a worker for the
@@ -871,7 +927,7 @@ def get_rows(
         sum(1 for _ in _iter_windows(start_ms, end_ms, config.window_chunk_days)) if config.time_windowed else 1
     )
     requests_per_application = num_windows
-    dimensions = [f"{len(application_ids)} applications"]
+    dimensions = [f"{len(application_ids)} {config.parent_label}"]
     if config.is_metric_data:
         requests_per_application *= len(metric_paths)
         dimensions.append(f"{len(metric_paths)} metric paths")
@@ -916,13 +972,13 @@ def get_rows(
             rows = _rows_from_payload(
                 config,
                 client.get_json(
-                    config.path.format(application_id=application_id),
+                    _parent_path(config, application_id),
                     {},
                     output_json=config.sends_output_json_param,
                 ),
             )
             if rows:
-                yield [{**row, "application_id": application_id} for row in rows]
+                yield [{**row, config.parent_id_column: application_id} for row in rows]
 
         # Advance the bookmark to the next application so a crash between applications
         # resumes correctly.

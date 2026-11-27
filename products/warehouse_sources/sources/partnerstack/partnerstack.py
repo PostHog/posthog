@@ -25,6 +25,12 @@ STARTING_AFTER_PARAM = "starting_after"
 # probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/partnerships"
 
+INVALID_KEYS_MESSAGE = "Your PartnerStack API keys are invalid or have been revoked. Generate a new key pair under Settings → Integrations → PartnerStack API Keys, then reconnect."
+FORBIDDEN_KEYS_MESSAGE = (
+    "Your PartnerStack API keys do not have access to this data. Check the keys' permissions, then reconnect."
+)
+UNREACHABLE_MESSAGE = "Couldn't reach PartnerStack to check your API keys. Try again in a few minutes."
+
 
 @dataclasses.dataclass(frozen=False)
 class PartnerStackResumeConfig:
@@ -168,8 +174,8 @@ def validate_credentials(public_key: str, private_key: str) -> tuple[bool, str |
     )
     if ok:
         return True, None
-    if status in (401, 403):
-        return False, "Invalid PartnerStack API keys"
-    if status is None:
-        return False, "Could not validate PartnerStack API keys"
-    return False, f"PartnerStack returned HTTP {status}"
+    if status == 401:
+        return False, INVALID_KEYS_MESSAGE
+    if status == 403:
+        return False, FORBIDDEN_KEYS_MESSAGE
+    return False, UNREACHABLE_MESSAGE

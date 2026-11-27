@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
 
@@ -18,7 +18,17 @@ export function SendStep(): JSX.Element {
                 <dt className="text-secondary">Name</dt>
                 <dd className="m-0 flex gap-2 items-center flex-wrap">
                     {draft.name}
-                    {draft.sensitive ? <LemonTag type="highlight">Sensitive</LemonTag> : null}
+                    {draft.sensitive ? (
+                        <Tooltip
+                            title={
+                                draft.clickTrackingEnabled
+                                    ? 'PostHog keeps no copy of what each email contained. Link click tracking is on and records only the site address of a clicked link.'
+                                    : 'PostHog keeps no copy of what each email contained, and link click tracking is off.'
+                            }
+                        >
+                            <LemonTag type="highlight">Sensitive</LemonTag>
+                        </Tooltip>
+                    ) : null}
                 </dd>
                 <dt className="text-secondary">From</dt>
                 <dd className="m-0 truncate">{from.email || sender?.config?.email}</dd>

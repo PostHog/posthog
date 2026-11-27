@@ -50,6 +50,10 @@ from products.experiments.backend.health.checks.exposure_criteria import (
     exposure_criteria_values,
 )
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters, exposure_filters_values
+from products.experiments.backend.health.checks.exposure_rows_left_out import (
+    exposure_rows_left_out,
+    exposure_rows_left_out_values,
+)
 from products.experiments.backend.health.checks.filtered_exposures import (
     KEPT_SHARE_THRESHOLD,
     MINIMUM_EXPOSED_WITHOUT_FILTER,
@@ -100,6 +104,7 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic_values,
 )
 from products.experiments.backend.health.checks.no_metric import no_metric, no_metric_values
+from products.experiments.backend.health.checks.result_ready import SIGNIFICANT_DAYS, result_ready, result_ready_values
 from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
 from products.experiments.backend.health.checks.split_changed import (
     split_changed_mid_run,
@@ -346,6 +351,17 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         read=metrics_not_matured_values,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.RESULT_READY,
+        name="When to end the experiment",
+        description=(
+            f"Checks whether the primary metric has its answer: a variant that every result has shown as significant "
+            f"for {SIGNIFICANT_DAYS} days or more, or as many users as the running time estimate needs without a "
+            "significant variant. You can then end the experiment, or keep it running to measure more."
+        ),
+        run=result_ready,
+        read=result_ready_values,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
         name=f"Experiment running past {DAILY_CALCULATION_DAYS} days",
         description=(
@@ -509,6 +525,27 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             ),
         ),
     ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT,
+        name="Exposure rows that don't count",
+        description=(
+            "Counts the rows of a warehouse-native exposure query that the exposures leave out: rows with a variant "
+            "that is none of the experiment's variants, and rows with an empty entity_id. Such rows usually mean that "
+            "the query returns the variant or the id in another form than the experiment expects, so users go "
+            "uncounted."
+        ),
+        run=exposure_rows_left_out,
+        read=exposure_rows_left_out_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.LEFT_OUT_ROW_COUNT, threshold=0, warns=ExperimentHealthRuleSide.ABOVE
+        ),
+    ),
+)
+
+# The checks that run on the exposures of a warehouse-native experiment. The other exposure checks read the flag's
+# calls and the exposure events, which a warehouse has neither of.
+WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = tuple(
+    check for check in EXPOSURE_HEALTH_CHECKS if check.key == ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
 )
 
 

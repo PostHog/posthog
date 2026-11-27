@@ -15,6 +15,12 @@
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
                                     },
+                                    "height": {
+                                        "description": "Card height in pixels. Omit for automatic height.",
+                                        "maximum": 1600,
+                                        "minimum": 120,
+                                        "type": "number"
+                                    },
                                     "id": {
                                         "description": "Stable component identifier within the app.",
                                         "maxLength": 80,
@@ -158,6 +164,12 @@
                                         "description": "Whether to display cell source, output, or both.\n\n* `output` - Output\n* `source` - Source\n* `both` - Source and output",
                                         "enum": ["output", "source", "both"],
                                         "type": "string"
+                                    },
+                                    "height": {
+                                        "description": "Card height in pixels. Omit for automatic height.",
+                                        "maximum": 1600,
+                                        "minimum": 120,
+                                        "type": "number"
                                     },
                                     "id": {
                                         "description": "Stable component identifier within the app.",

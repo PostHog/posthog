@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.rate_limit import (
     AEOKeywordReportBurstRateThrottle,
     AEOKeywordReportSustainedRateThrottle,
@@ -49,6 +50,7 @@ from products.aeo.backend.facade.contracts import (
     KeywordSuggestionJobNotFoundError,
     KeywordSuggestionRequest,
     ModifierEngineCount,
+    OutOfAICreditsError,
 )
 from products.aeo.backend.presentation.views import (
     BRANDED_PROMPT_HELP,
@@ -455,6 +457,7 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={
             202: OpenApiResponse(response=AEOKeywordSuggestionJobSerializer),
             400: OpenApiResponse(description="The request is invalid, or the keyword list is full."),
+            402: OpenApiResponse(description="The organization has used its AI credits."),
         },
         tags=["web_analytics"],
     )
@@ -482,6 +485,8 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             )
         except KeywordLimitError as error:
             raise ValidationError(str(error))
+        except OutOfAICreditsError as error:
+            raise QuotaLimitExceeded(str(error))
         return Response(AEOKeywordSuggestionJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
     @validated_request(

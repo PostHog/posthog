@@ -11,19 +11,19 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final, Generic, Literal, Optional, TypeVar
 
+from pydantic import JsonValue
+
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome, SharedMetricType
+from products.experiments.backend.facade.enums import MetricSourceRole, RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from posthog.schema import MaxExperimentSummaryContext
-
-    from products.experiments.backend.metric_events import MetricSourceRole
 
 # Metrics per section (primary/secondary) included in the AI results summary
 MAX_METRICS_TO_SUMMARIZE = 50
@@ -261,8 +261,10 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     FLAG_SHARED = "flag_shared"
     STALE_EXPERIMENT = "stale_experiment"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -329,6 +331,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    RESULT_READY = "result_ready"
     STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
@@ -338,6 +341,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     EVENTS_BILLING_LIMIT = "events_billing_limit"
     FEATURE_FLAGS_BILLING_LIMIT = "feature_flags_billing_limit"
+    EXPOSURE_ROWS_LEFT_OUT = "exposure_rows_left_out"
 
 
 @frozen
@@ -482,6 +486,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "control",
     )
     SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    SIGNIFICANT_SINCE_AT = (
+        "significant_since_at",
+        "Since when every result of the primary metric, up to the current one, shows a variant as significant. With "
+        "more than one significant variant, the earliest date",
+    )
     FORCED_CONDITION_COUNT = (
         "forced_condition_count",
         "Release conditions of the feature flag that serve a fixed variant through a variant override",
@@ -577,6 +586,18 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     FILTERS_TEST_ACCOUNTS = (
         "filters_test_accounts",
         "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
+    )
+    LEFT_OUT_ROW_COUNT = (
+        "left_out_row_count",
+        "Rows of the warehouse-native exposure query that the exposures leave out, for any reason",
+    )
+    UNKNOWN_VARIANT_ROW_COUNT = (
+        "unknown_variant_row_count",
+        "Rows of the warehouse-native exposure query whose variant is none of the experiment's variants",
+    )
+    EMPTY_ID_ROW_COUNT = (
+        "empty_id_row_count",
+        "Rows of the warehouse-native exposure query whose entity_id is empty",
     )
 
 
@@ -821,7 +842,7 @@ MAX_SESSION_CONTEXT_BATCH = 20
 class SessionMetricSourceHit:
     """One source of a metric with at least one matching event in a session."""
 
-    role: "MetricSourceRole"
+    role: MetricSourceRole
     name: str
     # Position among *all* the metric's sources, data-warehouse ones included, so a funnel step
     # keeps its real step number even when an earlier step has no session events.
@@ -1549,6 +1570,96 @@ class ExperimentRef:
 
 
 @frozen
+class ExperimentHandle:
+    """The fields of one experiment that the detail actions of the experiment API read before they call the
+    facade: what their access checks need, and the ids that their reads take."""
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+    feature_flag_id: int
+    feature_flag_created_by_id: int | None
+    holdout_id: int | None
+    flag_cleanup_task_id: "UUID | None"
+    # The connection that a warehouse-native experiment reads, or None for an experiment that reads events.
+    warehouse_native_connection_id: str | None
+
+
+class ExperimentNotFound(Exception):
+    """Raised when the project has no live experiment with the id, so a caller at an HTTP boundary can return a 404."""
+
+
+@frozen
+class ExperimentTagChange:
+    """The tags of one experiment after a bulk tag change, sorted by name."""
+
+    id: int
+    tags: tuple[str, ...]
+
+
+@frozen
+class ExperimentVelocityStats:
+    """How many experiments of the team launched, run and ended, which the experiments page shows. The 30-day windows
+    end today in the team's timezone. Archived and deleted experiments do not count."""
+
+    launched_last_30d: int
+    launched_previous_30d: int
+    # The change from `launched_previous_30d` to `launched_last_30d` in percent, rounded to one decimal.
+    percent_change: float
+    active_experiments: int
+    completed_last_30d: int
+
+
+@frozen
+class FlagCleanupTarget:
+    """The repository that a flag-cleanup pull request for an experiment would be opened in, and how it was chosen."""
+
+    repository: str | None
+    source: Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
+    candidates: tuple[str, ...]
+
+
+@frozen
+class ExposureCohortCreated:
+    """The exposure cohort created for an experiment, as the cohort API shows it."""
+
+    cohort: dict[str, Any]
+
+
+@frozen
+class ExperimentTimeseriesResults:
+    """The day-by-day results of one metric of an experiment under its current settings. The days are YYYY-MM-DD in
+    the project's timezone, and the times are ISO 8601 strings."""
+
+    experiment_id: int
+    metric_uuid: str
+    status: str
+    timeseries: dict[str, Any]
+    configuration_by_day: dict[str, str]
+    errors: dict[str, str] | None
+    computed_at: str | None
+    created_at: str
+    updated_at: str
+    recalculation_status: str | None
+    recalculation_created_at: str | None
+    formatted_results: str
+
+
+@frozen
+class TimeseriesRecalculationRequest:
+    """A backfill of the daily results of one metric. `is_existing` is True when the active backfill of the metric
+    already has the current calculation key, so no new backfill was created."""
+
+    id: "UUID"
+    experiment_id: int
+    metric_uuid: str | None
+    fingerprint: str
+    status: str
+    created_at: str
+    is_existing: bool
+
+
+@frozen
 class ExperimentFlag:
     """The feature flag of an experiment, with the fields of the minimal flag shape of the feature flags API."""
 
@@ -1664,6 +1775,74 @@ class ExperimentDetail(ExperimentBasic):
 
 
 @frozen
+class ExperimentUpdateTarget:
+    """The fields of one experiment that an update of the experiment API reads before it writes: what its access
+    check needs, and the state that it checks the input against.
+
+    `parameters` holds what `ExperimentDetail.parameters` holds, so an update that sends back the flag config keys
+    that it read compares equal and does not write the flag.
+    """
+
+    id: int
+    team_id: int
+    created_by_id: int | None
+    is_draft: bool
+    feature_flag_active: bool
+    parameters: dict[str, Any]
+
+
+@frozen
+class ExperimentUpdate:
+    """The fields that one update of an experiment sets, as the experiment API validated them.
+
+    Only the fields named in `fields_set` are written. The others keep their stored values. The fields are
+    declared in the order of the fields of the experiment API, which is the order in which the update hands
+    them on.
+    """
+
+    fields_set: frozenset[str]
+    name: str = ""
+    description: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    feature_flag_key: str = ""
+    feature_flag_rule_id: "UUID | None" = None
+    holdout_id: int | None = None
+    # Without the flag config keys, which the update sends as `feature_flag_config`.
+    parameters: JsonValue = None
+    running_time_calculation: JsonValue = None
+    excluded_variants: list[str] | None = None
+    secondary_metrics: JsonValue = None
+    saved_metrics_ids: list[JsonValue] | None = None
+    filters: JsonValue = None
+    archived: bool = False
+    deleted: bool | None = None
+    type: str | None = None
+    exposure_criteria: dict[str, JsonValue] | None = None
+    metrics: list[JsonValue] | None = None
+    metrics_secondary: list[JsonValue] | None = None
+    stats_config: JsonValue = None
+    scheduling_config: JsonValue = None
+    allow_unknown_events: bool = False
+    create_in_folder: str = ""
+    conclusion: str | None = None
+    conclusion_comment: str | None = None
+    repository: str | None = None
+    primary_metrics_ordered_uuids: list[str] | None = None
+    secondary_metrics_ordered_uuids: list[str] | None = None
+    only_count_matured_users: bool = False
+    update_feature_flag_params: bool = False
+    version: int | None = None
+    original_experiment: dict[str, JsonValue] | None = None
+    # Replace the experiment's tags. None keeps them.
+    tags: list[str] | None = None
+    # In the flag's own write shape (`{filters, ensure_experience_continuity}`). None leaves the flag config as it is.
+    feature_flag_config: dict[str, JsonValue] | None = None
+    # True when `feature_flag_config` came from the deprecated flag config keys of `parameters` and changes the flag.
+    deprecated_flag_config_changed: bool = False
+
+
+@frozen
 class ExperimentListFilters:
     """The query parameters of the experiments list.
 
@@ -1743,6 +1922,19 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class BaselineStats:
+    """Sufficient statistics for the control group, mirroring the frontend ``baseline`` object."""
+
+    number_of_samples: int
+    sum: float
+    sum_squares: float = 0.0
+    denominator_sum: float | None = None
+    denominator_sum_squares: float | None = None
+    numerator_denominator_sum_product: float | None = None
+    step_counts: tuple[float, ...] = ()
 
 
 class RunningTimeMode(LabeledStrEnum):

@@ -210,8 +210,7 @@ export function CatalogSuggestedMetricsTable(): JSX.Element {
                 columns={columns}
                 data={visibleSuggestions}
                 getRowId={(row) => row.key}
-                // The table shows its pager for one page too, so a list that fits one page gets no page size.
-                pageSize={visibleSuggestions.length > CATALOG_LAYER_PAGE_SIZE ? CATALOG_LAYER_PAGE_SIZE : undefined}
+                pageSize={CATALOG_LAYER_PAGE_SIZE}
                 size="sm"
                 fullWidth
                 onRowClick={toggle}

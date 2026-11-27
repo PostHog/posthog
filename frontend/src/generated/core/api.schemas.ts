@@ -5222,11 +5222,6 @@ export interface DataDeletionRequestApi {
      */
     readonly submission_id: string | null
     /**
-     * Number of selected events, when calculated.
-     * @nullable
-     */
-    readonly count: number | null
-    /**
      * Identifier of the user who submitted the request.
      * @nullable
      */
@@ -5980,6 +5975,75 @@ export interface PropertyUsageMetricsItemApi {
 export interface PropertyUsageMetricsResponseApi {
     /** One entry per requested property, in request order. */
     results: PropertyUsageMetricsItemApi[]
+}
+
+export interface TagDefinitionApi {
+    /** Unique identifier of this project's tag. */
+    readonly id: string
+    /** Normalized tag name. */
+    readonly name: string
+    /** Persisted assignments, including soft-deleted items. */
+    readonly usage_count: number
+}
+
+export interface PaginatedTagDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TagDefinitionApi[]
+}
+
+export interface TagManagementErrorApi {
+    /** Error category. */
+    type: string
+    /** Stable error code. */
+    code: string
+    /** Error message. */
+    detail: string
+    /**
+     * Invalid field, if applicable.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface RenameTagRequestApi {
+    /**
+     * New tag name. Existing names must be merged instead.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface TagMergeRequestApi {
+    /** Existing destination tag in the same project. */
+    target_id: string
+}
+
+export interface TagMergeResultApi {
+    /** Assignments moved to the destination by this merge. */
+    moved_count: number
+    /** Overlapping assignments deduplicated by this merge. */
+    overlap_count: number
+    /** Destination assignments after the completed merge. */
+    usage_count: number
+    /** The surviving destination tag. */
+    tag: TagDefinitionApi
+}
+
+export interface TagMergePreviewApi {
+    /** Assignments currently using the source tag. */
+    source_count: number
+    /** Assignments currently using the destination tag. */
+    target_count: number
+    /** Items currently using both tags. */
+    overlap_count: number
+    /** Destination assignments after deduplicating the current snapshot. */
+    result_count: number
+    /** The destination tag. */
+    tag: TagDefinitionApi
 }
 
 export interface SearchIntentRequestApi {
@@ -8076,6 +8140,33 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type TagDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Which field to use when ordering the results.
+     */
+    ordering?: string
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type TagDefinitionsMergePreviewRetrieveParams = {
+    /**
+     * Existing destination tag in the same project.
+     */
+    target_id: string
+}
 
 export type TerminalNetplayMailboxRetrieveParams = {
     /**

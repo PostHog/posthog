@@ -4,6 +4,7 @@ import { IconExternal, IconTrends } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -39,7 +40,11 @@ export function ReportObservationCard({
         >
             <div className="flex flex-col gap-1">
                 <h2 className="m-0 text-sm font-semibold leading-snug text-primary">{metric.title}</h2>
-                {metric.caption ? <p className="m-0 text-xs leading-snug text-secondary">{metric.caption}</p> : null}
+                {metric.caption ? (
+                    <LemonMarkdown className="text-xs leading-snug text-secondary" disableImages>
+                        {metric.caption}
+                    </LemonMarkdown>
+                ) : null}
             </div>
             {children}
             {query ? (

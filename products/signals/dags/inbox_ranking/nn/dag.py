@@ -115,8 +115,10 @@ from products.signals.dags.inbox_ranking.training.families import (
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_WITH_PRIO_FAMILY,
+    NN_WITH_PRIO_ML_FEATURES_PROJ8_FAMILY,
     NN_WITH_PRIO_ML_FEATURES_V2_FAMILY,
     ModelFamily,
+    shares_baseline_report_input,
 )
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
 from products.signals.dags.inbox_ranking.training.telemetry import (
@@ -138,6 +140,8 @@ NN_WITH_PRIO_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_model_candidate"
 NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
 NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_candidate"
 NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_features_model_champion"
+NN_WITH_PRIO_ML_FEATURES_PROJ8_CANDIDATE_ASSET = "inbox_ranking_nn_with_prio_ml_features_proj8_model_candidate"
+NN_WITH_PRIO_ML_FEATURES_PROJ8_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_ml_features_proj8_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
@@ -145,6 +149,14 @@ NETWORK_CONFIG = NetworkConfig()
 EXPERIMENT_SEEDS = (0, 1, 2)
 
 NN_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "group_name": "inbox_ranking_nn"}
+
+
+def family_network_config(family: ModelFamily) -> NetworkConfig:
+    return family.network_config or NETWORK_CONFIG
+
+
+def _baseline_family(family: ModelFamily) -> ModelFamily:
+    return next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
 
 
 @frozen
@@ -308,20 +320,23 @@ def _late_group_inputs(
 ) -> _LateGroupInputs | None:
     """None when an experiment reads a backfill batch that holds none of the examples' birth days. Its
     fit would then be the plain late-feature fit under another name, so it keeps the partition as it
-    stands. A serving family trains without the batch, and its readiness block shows the gap."""
+    stands. A serving family trains without the batch, and its readiness block shows the gap. So does
+    an experiment whose baseline reads its report input, because its baseline arm trains without the
+    batch too."""
     groups = tuple(family.feature_set.late_feature_groups)
     if family.feature_backfill is None:
         return _LateGroupInputs(examples=examples, sources=late_group_sources(examples.table.rows, groups))
     days = {birth_day(value) for value in examples.table.rows["snapshot_date"]}
     batch = read_backfill_batch(client, bucket, prefix, family.feature_backfill, days)
     if not batch.days_read:
-        consequence = "keeps this partition as it stands" if family.experiment else "trains without it"
+        skips = family.experiment and not shares_baseline_report_input(family, _baseline_family(family))
+        consequence = "keeps this partition as it stands" if skips else "trains without it"
         context.log.warning(
             f"feature backfill batch {family.feature_backfill.batch_id} holds none of the {len(days)} birth days "
             f"of dt={partition_key}; {family.name} {consequence}. Write the batch with "
             "inbox_ranking_feature_backfill_job"
         )
-        if family.experiment:
+        if skips:
             return None
     backfilled = fill_from_backfill(examples.table, batch, groups, training_consent_team_ids())
     return _LateGroupInputs(
@@ -335,8 +350,10 @@ def _late_group_inputs(
 @frozen
 class _ExperimentInputs:
     extras: Extras
+    baseline_config: NetworkConfig
     # The baseline family's report input for every examples row, graded against the experiment's.
-    baseline_reports: np.ndarray
+    # None when it is the experiment's own, as `shares_baseline_report_input` says.
+    baseline_reports: np.ndarray | None
     # None when the baseline reads the experiment's kinds.
     baseline_context: ProjectContext | None = None
 
@@ -353,7 +370,7 @@ def _experiment_inputs(
 ) -> _ExperimentInputs | FamilySkipReason:
     """The side inputs an experiment reads beside the report vectors, and its baseline's report
     input, or the reason the experiment keeps the partition as it stands when either cannot be built."""
-    baseline = next(candidate for candidate in MODEL_FAMILIES if candidate.name == family.baseline)
+    baseline = _baseline_family(family)
     missing_columns = _missing_state_columns(baseline, table)
     if missing_columns:
         context.log.warning(
@@ -369,7 +386,14 @@ def _experiment_inputs(
         baseline_context = project_context(table.rows, day.labels, day.embeddings, baseline.project_vector_kinds)
     return _ExperimentInputs(
         extras=extras,
-        baseline_reports=report_matrix(table.rows, day.extras, baseline.feature_set),
+        baseline_config=family_network_config(baseline),
+        # A set with late groups reads side inputs and zeroed groups that only the experiment's own
+        # input is built with, so a shared input is reused rather than rebuilt from the day's vectors.
+        baseline_reports=(
+            None
+            if shares_baseline_report_input(family, baseline)
+            else report_matrix(table.rows, day.extras, baseline.feature_set)
+        ),
         baseline_context=baseline_context,
     )
 
@@ -405,13 +429,13 @@ def train_candidate(
     day = _day_inputs(context, client, bucket, prefix, partition_key)
     if day is None:
         return skip_family(context, partition_key, family, FamilySkipReason.MISSING_SNAPSHOT)
-    baseline_reports = baseline_context = None
+    experiment: _ExperimentInputs | None = None
     if family.experiment:
-        experiment = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
-        if isinstance(experiment, FamilySkipReason):
-            return skip_family(context, partition_key, family, experiment)
-        extras, baseline_reports = experiment.extras, experiment.baseline_reports
-        baseline_context = experiment.baseline_context
+        built = _experiment_inputs(context, client, bucket, prefix, partition_key, family, examples.table, day)
+        if isinstance(built, FamilySkipReason):
+            return skip_family(context, partition_key, family, built)
+        experiment = built
+        extras = experiment.extras
     else:
         family_extras = _family_extras(context, client, bucket, prefix, partition_key, family, day)
         if family_extras is None:
@@ -445,13 +469,14 @@ def train_candidate(
             f"{family.name} reads zeros for {', '.join(zeroed_groups)} on dt={partition_key}: too few training "
             "rows carry them"
         )
+    config = family_network_config(family)
     check_recipe(
         client,
         bucket,
         prefix,
         family.name,
         partition_key,
-        network_recipe(family, NETWORK_CONFIG, network_vector_kinds(inputs)),
+        network_recipe(family, config, network_vector_kinds(inputs)),
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
@@ -461,12 +486,15 @@ def train_candidate(
         train_network,
     )
 
-    trained = train_network(examples.table, inputs, NN_HEADS, NETWORK_CONFIG)
+    trained = train_network(examples.table, inputs, NN_HEADS, config)
     vs_baseline = None
-    if baseline_reports is not None and family.baseline is not None:
-        baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
+    if experiment is not None and family.baseline is not None:
+        baseline_inputs = NetworkInputs(
+            reports=inputs.reports if experiment.baseline_reports is None else experiment.baseline_reports,
+            context=experiment.baseline_context or inputs.context,
+        )
         experiment_seeds = family.experiment_seeds(EXPERIMENT_SEEDS)
-        networks = seed_networks(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, experiment_seeds)
+        networks = seed_networks(examples.table, inputs, NN_HEADS, config, experiment_seeds)
         all_rows = np.arange(len(inputs))
         experiment_scores = [network.predict(inputs, all_rows) for network in networks]
         vs_baseline = vs_baseline_block(
@@ -475,7 +503,9 @@ def train_candidate(
             seeds=EXPERIMENT_SEEDS,
             experiment_seeds=experiment_seeds,
             experiment_scores=experiment_scores,
-            baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
+            baseline_scores=seed_scores(
+                examples.table, baseline_inputs, NN_HEADS, experiment.baseline_config, EXPERIMENT_SEEDS
+            ),
         )
         if family.feature_set.late_feature_groups:
             vs_baseline["zeroed_feature_groups"] = zeroed_groups
@@ -571,7 +601,7 @@ def write_candidate(
         partition_key,
         trained,
         family=family,
-        config=NETWORK_CONFIG,
+        config=family_network_config(family),
         windows=windows,
         trained_at=datetime.datetime.now(datetime.UTC),
         run_id=context.run_id,
@@ -734,6 +764,14 @@ _NN_WITH_PRIO_ML_FEATURES_ASSETS = family_assets(
 )
 inbox_ranking_nn_with_prio_ml_features_model_candidate = _NN_WITH_PRIO_ML_FEATURES_ASSETS.candidate
 inbox_ranking_nn_with_prio_ml_features_model_champion = _NN_WITH_PRIO_ML_FEATURES_ASSETS.champion
+_NN_WITH_PRIO_ML_FEATURES_PROJ8_ASSETS = family_assets(
+    NN_WITH_PRIO_ML_FEATURES_PROJ8_FAMILY,
+    candidate_name=NN_WITH_PRIO_ML_FEATURES_PROJ8_CANDIDATE_ASSET,
+    champion_name=NN_WITH_PRIO_ML_FEATURES_PROJ8_CHAMPION_ASSET,
+    after=[NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET],
+)
+inbox_ranking_nn_with_prio_ml_features_proj8_model_candidate = _NN_WITH_PRIO_ML_FEATURES_PROJ8_ASSETS.candidate
+inbox_ranking_nn_with_prio_ml_features_proj8_model_champion = _NN_WITH_PRIO_ML_FEATURES_PROJ8_ASSETS.champion
 
 
 inbox_ranking_nn_training_job = dagster.define_asset_job(
@@ -746,6 +784,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
         NN_WITH_PRIO_CHAMPION_ASSET,
         NN_WITH_PRIO_ML_FEATURES_CANDIDATE_ASSET,
         NN_WITH_PRIO_ML_FEATURES_CHAMPION_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_PROJ8_CANDIDATE_ASSET,
+        NN_WITH_PRIO_ML_FEATURES_PROJ8_CHAMPION_ASSET,
     ],
     tags={
         **owner_tags,

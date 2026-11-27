@@ -99,7 +99,6 @@ from .views import (
     render_query,
     replay_player_frame,
     robots_txt,
-    security_txt,
     stats,
 )
 
@@ -292,10 +291,6 @@ urlpatterns = [
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
-        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
-    ),
-    path(
         "api/projects/<str:team_id>/internal/hog_flows/account_audience",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_account_audience"})),
     ),
@@ -379,7 +374,11 @@ urlpatterns = [
     # Without these, the catch-all route answers with the app's HTML page, which agents read as a broken catalog
     opt_slash_path("ai-catalog.json", not_found),
     opt_slash_path(".well-known/ai-catalog.json", not_found),
-    opt_slash_path(".well-known/security.txt", security_txt),
+    # posthog.com keeps the one maintained copy, so the contact and expiry date cannot go stale here.
+    opt_slash_path(
+        ".well-known/security.txt",
+        RedirectView.as_view(url="https://posthog.com/.well-known/security.txt", permanent=True),
+    ),
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     opt_slash_path(".well-known/apple-app-site-association", apple_app_site_association),
     opt_slash_path(".well-known/assetlinks.json", android_asset_links),

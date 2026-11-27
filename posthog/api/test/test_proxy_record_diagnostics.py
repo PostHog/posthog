@@ -729,6 +729,7 @@ class TestOutOfBandDomainsAreNotDiagnosed(SimpleTestCase):
             patch.object(diagnostics, "is_cloud", return_value=cloud),
             patch.object(diagnostics, "_check_cname") as cname,
             patch.object(diagnostics, "_check_live_event") as live_event,
+            patch.object(diagnostics, "_check_caa"),
         ):
             report = diagnostics.diagnose(_record(domain="abc.oast.live"))
 

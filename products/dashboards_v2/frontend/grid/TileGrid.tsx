@@ -26,15 +26,15 @@ import {
     columnWidthPx,
     isSection,
     spanPx,
-    widgetSize,
-} from '../dashboard/dashboardTypes'
-import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './dropTargets'
-import { createGridCompactor } from './gridCompactor'
-import { useGridDrag } from './gridDrag'
-import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './gridTiles'
-import { type Gesture, type PlacedItem, bottomOf } from './placeTiles'
-import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './resizeFeedback'
-import { scrollParentOf } from './scrollParent'
+    panelSize,
+} from '../dashboard/document/dashboardTypes'
+import { type DropTarget, type DropZones, gridUnderPointer, readDropZones } from './drag/dropTargets'
+import { useGridDrag } from './drag/gridDrag'
+import { endResizeFeedback, resizeHandleOf, showResizeFeedback } from './drag/resizeFeedback'
+import { scrollParentOf } from './drag/scrollParent'
+import { createGridCompactor } from './layout/gridCompactor'
+import { contentRows, dropIntoGrid, resizeSection, toPlacedItems, withSectionRows } from './layout/gridTiles'
+import { type Gesture, type PlacedItem, bottomOf } from './layout/placeTiles'
 
 const GHOST_ID = '__drop-preview'
 const ALL_HANDLES: LayoutItem['resizeHandles'] = ['n', 'nw', 'ne', 'w', 'e', 's', 'sw', 'se']
@@ -43,7 +43,7 @@ const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too. Text marked
 // `TileGrid__text` selects instead, and the space around it still drags.
 const DRAG_CANCEL =
-    '.SectionTile__body, .dash-WidgetCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
+    '.SectionTile__body, .dash-PanelCard__footer, .TileGrid__text, button, a, input, textarea, [role="menuitem"]'
 
 /**
  * A resize handle sits over the tile's edge, so a right-click there would miss the tile's menu. Sends the event on to
@@ -78,7 +78,7 @@ function passContextMenuThroughHandle(event: ReactMouseEvent): void {
 /** Reports the rows a section inside the grid takes while its own grid grows, or null when it stops. */
 export type OnSectionRows = (id: string, rows: number | null) => void
 
-export interface TileGridProps {
+export type TileGridProps = {
     gridId: string
     tiles: Tile[]
     cols: number
@@ -101,12 +101,12 @@ function toLayout(tiles: Tile[], sizeOf: SizeOf): Layout {
         // A closed section is one row, so it is resized in width only. An open one can be made taller than its tiles
         // need, but never shorter.
         if (isSection(tile)) {
-            if (tile.widget.collapsed) {
+            if (tile.panel.collapsed) {
                 return { ...item, minH: item.h, maxH: item.h, resizeHandles: ['w', 'e'] }
             }
-            return { ...item, minH: contentRows(tile.widget), maxH: undefined, resizeHandles: ALL_HANDLES }
+            return { ...item, minH: contentRows(tile.panel), maxH: undefined, resizeHandles: ALL_HANDLES }
         }
-        return { ...item, minH: widgetSize(tile.widget, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
+        return { ...item, minH: panelSize(tile.panel, sizeOf).minH, maxH: undefined, resizeHandles: ALL_HANDLES }
     })
 }
 
@@ -148,7 +148,6 @@ export function TileGrid({
         })
     }, [])
 
-    // A tile carried in from another grid. Only the grid under the pointer gets a value.
     const incoming: DropTarget | null = dropTarget?.grid === gridId ? dropTarget : null
     const shownTiles = useMemo(() => {
         const carried = incoming && findCarried(incoming.tileId)
