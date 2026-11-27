@@ -216,6 +216,40 @@ describe('autoresearchNewLogic', () => {
         expect(logic.values.startTrainingDisabledReason).toEqual(reason)
     })
 
+    it.each([
+        [
+            'a refused action target',
+            new ApiError('Bad request', 400, undefined, {
+                attr: 'target_definition',
+                detail: "Action 7 has a step that can match 'autoresearch_prediction'.",
+            }),
+            { field: 'target_definition', message: "Action 7 has a step that can match 'autoresearch_prediction'." },
+            "This model can't predict this target. Pick a different one first.",
+        ],
+        [
+            'a server error',
+            new ApiError('Server error', 500),
+            null,
+            "Couldn't check this model. Retry the check first.",
+        ],
+    ])('keeps the reason for %s from the validate endpoint', async (_, error, refusal, reason) => {
+        mockValidate.mockRejectedValue(error)
+        const logic = autoresearchNewLogic()
+        logic.mount()
+
+        logic.actions.setNewPipelineValues({
+            target_type: 'action',
+            target_action_id: 7,
+            target_event: 'Any event',
+            ...ALL_USERS,
+        })
+        await settle(logic)
+
+        expect(logic.values.validationFailed).toBe(true)
+        expect(logic.values.validationRefusal).toEqual(refusal)
+        expect(logic.values.startTrainingDisabledReason).toEqual(reason)
+    })
+
     it('scores all identified users when only the separate training population has filters', async () => {
         const trainingFilter: PersonPropertyFilter = {
             key: 'plan',
