@@ -259,3 +259,30 @@ BODY_RETRY_CODES = frozenset(
         "FederationSourceRetryableException",
     }
 )
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "glue:GetColumnStatisticsForTable",
+    "glue:GetConnections",
+    "glue:GetCrawlers",
+    "glue:GetDatabases",
+    "glue:GetJobRuns",
+    "glue:GetJobs",
+    "glue:GetPartitions",
+    "glue:GetTable",
+    "glue:GetTableVersions",
+    "glue:GetTables",
+    "glue:GetTriggers",
+    "glue:GetWorkflowRuns",
+    "glue:ListCrawls",
+    "glue:ListDataQualityResults",
+    "glue:ListDataQualityResultsV2",
+    "glue:ListDataQualityRulesets",
+    "glue:ListRegistries",
+    "glue:ListSchemaVersions",
+    "glue:ListSchemas",
+    "glue:ListSessions",
+    "glue:ListTableOptimizerRuns",
+    "glue:ListWorkflows",
+)
