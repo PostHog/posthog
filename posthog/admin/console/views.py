@@ -25,6 +25,7 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
+from posthog.admin.console.related import RelatedRecords
 from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
@@ -354,6 +355,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         {
             **_record_context(record_type, obj),
             "record_links": [_with_kept_ticket(link, request) for link in record_type.links(obj)],
+            "related": RelatedRecords(record_type, obj).previews(),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -362,6 +364,24 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             ],
             "regular_panels": [rendered for rendered in panels if not rendered.panel.danger],
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
+        },
+    )
+
+
+@require_safe
+def related_list(request: HttpRequest, record: str, pk: object, relation_key: str) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    relation = record_type.relation(relation_key)
+    if relation is None:
+        raise Http404("This record has no such related list")
+    return render(
+        request,
+        "admin_console/related.html",
+        {
+            **_record_context(record_type, obj),
+            "relation": relation,
+            "page": RelatedRecords(record_type, obj).page(request, relation),
         },
     )
 

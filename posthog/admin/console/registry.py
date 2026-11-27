@@ -11,7 +11,7 @@ import structlog
 
 from posthog.admin.console.moved import MovedAction, MovedPage, MovedRecordResolver
 from posthog.admin.console.panels import Owner, Panel
-from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.records import RECORD_TYPES, RELATED_SEGMENT
 from posthog.admin.console.tools import ConsoleTool
 
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
@@ -83,6 +83,10 @@ class ConsoleRegistry:
         _check_metadata("panel", panel_class, panel_class.key, panel_class.title)
         if panel_class.record not in RECORD_TYPES:
             raise ValueError(f"Unknown console record type {panel_class.record!r} on {panel_class.__name__}")
+        if panel_class.key == RELATED_SEGMENT:
+            raise ValueError(
+                f"Console panel key {RELATED_SEGMENT!r} is the URL segment of related lists. Pick another."
+            )
         panels = self._panels[panel_class.record]
         existing = panels.get(panel_class.key)
         if existing is not None and not _same_declaration(existing, panel_class):
