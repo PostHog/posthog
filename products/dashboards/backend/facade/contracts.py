@@ -479,6 +479,18 @@ class QueryBatchInput:
 
 
 @dataclass(frozen=True)
+class InsightTilePlacement:
+    """The dashboards `plan_insight_tile_placement` cleared to receive a tile for one insight of this team.
+
+    Planned before the insight row exists, so a refusal cannot leave an orphaned insight behind, and
+    applied with `create_planned_insight_tiles` once it does.
+    """
+
+    team_id: int
+    dashboards: tuple[DashboardRef, ...]
+
+
+@dataclass(frozen=True)
 class InsightTileOnDashboard:
     """The tile that places one insight on one dashboard, with the dashboard it sits on."""
 

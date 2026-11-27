@@ -183,10 +183,11 @@ from products.dashboards.backend.facade.api import (
     InsightTilePlacement,
     can_access_dashboard,
     check_insight_tile_limit,
+    create_planned_insight_tiles,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
-    insight_ids_on_dashboard,
+    insight_ids_on_dashboards,
     insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
@@ -948,7 +949,8 @@ class InsightSerializer(InsightBasicSerializer):
         record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
         if placement is not None:
-            for dashboard in placement.create_tiles(insight):
+            create_planned_insight_tiles(placement, insight_id=insight.id)
+            for dashboard in placement.dashboards:
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -1130,7 +1132,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         try:
             change = update_insight_dashboard_membership(
-                insight=instance,
+                insight_id=instance.id,
+                insight_team_id=instance.team_id,
                 dashboard_ids=dashboard_ids,
                 query=query,
                 user=self.context["request"].user,
@@ -2702,9 +2705,19 @@ class InsightViewSet(
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
-                    for dashboard_id in dashboards_ids:
-                        # filter by dashboards one at a time so the filter is AND not OR
-                        queryset = queryset.filter(id__in=insight_ids_on_dashboard(dashboard_id))
+                    if not isinstance(dashboards_ids, list) or not all(
+                        (isinstance(dashboard_id, int) and not isinstance(dashboard_id, bool))
+                        or (isinstance(dashboard_id, str) and dashboard_id.isascii() and dashboard_id.isdigit())
+                        for dashboard_id in dashboards_ids
+                    ):
+                        raise ValidationError(
+                            {"dashboards": "Dashboards must be a list of dashboard IDs, such as [1, 2]."}
+                        )
+                    dashboards_ids = [int(dashboard_id) for dashboard_id in dashboards_ids]
+                    if dashboards_ids:
+                        # An insight must be on every listed dashboard, so the filter is AND, not OR.
+                        insight_ids_by_dashboard = insight_ids_on_dashboards(dashboards_ids, team_id=self.team.id)
+                        queryset = queryset.filter(id__in=frozenset.intersection(*insight_ids_by_dashboard.values()))
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
