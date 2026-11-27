@@ -362,6 +362,16 @@ class TestAgentDiscoveryFiles(SimpleTestCase):
             assert "](https://mcp.posthog.com/mcp)" in body
             assert "](https://us.example.com/settings/user-api-keys)" in body
 
+    @parameterized.expand([("no_slash", "/.well-known/security.txt"), ("trailing_slash", "/.well-known/security.txt/")])
+    def test_security_txt_redirects_to_the_posthog_com_copy(self, _name: str, request_path: str) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == 301
+        assert response["Location"] == "https://posthog.com/.well-known/security.txt"
+
 
 class TestConditionalRoutes(SimpleTestCase):
     @parameterized.expand(list(product([False, True], [False, True], ["US", "EU"])))
