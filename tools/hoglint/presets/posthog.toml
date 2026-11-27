@@ -166,7 +166,7 @@ set   = { package = "core", tier = "core" }
 
 [[assign]]
 match    = "posthog/{infra}/**"
-only     = { infra = ["egress", "ingress", "kafka_client", "personhog_client"] }
+only     = { infra = ["egress", "hogql_client", "ingress", "kafka_client", "personhog_client"] }
 set      = { package = "{infra}", zone = "infrastructure" }
 override = true
 
@@ -1133,6 +1133,24 @@ deny       = "dst.tier == 'product' or dst.stage == 'proto-product'"
 contexts   = { exclude = ["test", "type_only"] }
 identity   = "package-pair"
 growth_key = ["src.package", "dst.package"]
+
+[rules.hogql-execution-through-client]
+primitive  = "edge"
+doc        = "Outside posthog/hogql/ and posthog/hogql_service/, production code does not use HogQLQueryExecutor or hogql_execution_override from posthog.hogql.query. Migrations are frozen history and are not judged. Not caught: execute_hogql_query through the posthog.hogql.query forwarder, which still reaches the client; a use through the module object (`query.HogQLQueryExecutor`)."
+why        = "HogQL execution goes through posthog.hogql_client, so it can move to a separate HogQL service later. Code that builds a HogQLQueryExecutor or sets hogql_execution_override runs the query in this process and never reaches the service."
+ways       = [
+  { safety = "safe", text = "If the code only runs a query, call execute_hogql_query from posthog.hogql_client.execute." },
+  { safety = "care", text = "If the code needs the generated SQL, the executor's other methods or an execution override, add that operation to posthog.hogql_client and call it there." },
+  { safety = "person", text = "If the code must stay on the executor, stop and tell the person. The owners of the HogQL service decide what the client offers." },
+]
+example    = { finding = "from posthog.hogql.query import HogQLQueryExecutor  # in products/<name>/backend/logic/", fixed = "from posthog.hogql_client.execute import execute_hogql_query" }
+kinds      = ["import"]
+contexts   = { exclude = ["test", "type_only", "migration"] }
+from       = "not (src.path startswith 'posthog/hogql/' or src.path startswith 'posthog/hogql_service/')"
+deny       = "dst.symbol in ['posthog.hogql.query.HogQLQueryExecutor', 'posthog.hogql.query.hogql_execution_override']"
+on_unresolved = "incomplete"
+identity   = "module-symbol"
+growth_key = ["dst.symbol", "src.package"]
 
 [rules.no-product-lists-in-core]
 primitive  = "edge"
