@@ -888,6 +888,8 @@ class TestAbuseRules(SimpleTestCase):
                 False,
             ),
             ("hex_id_in_the_path", post_to("https://api.example.com/orders/1a2b3c4d"), True),
+            ("hex_file_name_in_the_path", post_to("https://storage.example.com/exports/20241231.csv"), True),
+            ("non_ascii_path", post_to("https://api.example.com/caf%C3%A9/x"), True),
             (
                 "unicode_dot_name_in_the_query",
                 post_to("https://api.example.com/go?to=http://localtest\u3002me/x"),

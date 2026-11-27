@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterable
 from dataclasses import replace
 from enum import StrEnum
+from itertools import zip_longest
 from typing import Any
 
 from django.core.cache import cache
@@ -42,6 +43,7 @@ from products.cdp.backend.abuse.classifier import (
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType, _is_draft_only_save
 from products.cdp.backend.services.hog_function_content import comparable_content
+from products.ml_inference.backend.facade.contracts import JsonValue
 
 logger = structlog.get_logger(__name__)
 
@@ -464,7 +466,25 @@ def _set_aside_rules(
 
 
 def _has_secret_internal_host(content: HogFunctionContent, runtime_content: HogFunctionContent) -> bool:
-    return bool(rules.internal_hosts(runtime_content) - rules.internal_hosts(content))
+    """Whether a secret input value names an internal host. The same host in public text does not count, because
+    the model then sees it only as that text, never as the value the code may request."""
+    return rules.names_internal_host(_secret_input_values(content, runtime_content))
+
+
+def _secret_input_values(content: HogFunctionContent, runtime_content: HogFunctionContent) -> list[JsonValue]:
+    no_inputs: dict[str, JsonValue] = {}
+    pairs: list[tuple[dict[str, JsonValue], dict[str, JsonValue]]] = [
+        (content.inputs, runtime_content.inputs),
+        *zip_longest(
+            map(_mapping_inputs, content.mappings), map(_mapping_inputs, runtime_content.mappings), fillvalue=no_inputs
+        ),
+    ]
+    return [value for public, runtime in pairs for key, value in runtime.items() if public.get(key) != value]
+
+
+def _mapping_inputs(mapping: JsonValue) -> dict[str, JsonValue]:
+    inputs = mapping.get("inputs") if isinstance(mapping, dict) else None
+    return inputs if isinstance(inputs, dict) else {}
 
 
 def _with_secret_inputs(hog_function: HogFunction, content: HogFunctionContent) -> HogFunctionContent:

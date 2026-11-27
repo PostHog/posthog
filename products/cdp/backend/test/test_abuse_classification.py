@@ -642,6 +642,24 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {},
             ),
             (
+                "established_secret_input_url_sharing_a_public_host_with_a_low_ssrf_score",
+                ESTABLISHED,
+                QUIET_SCORES,
+                "fetch(inputs.url, {'body': {'text': inputs.text}})",
+                {
+                    "inputs_schema": [
+                        {"key": "url", "type": "string", "label": "URL", "secret": True},
+                        {"key": "text", "type": "string", "label": "Text"},
+                    ],
+                    "inputs": {
+                        "url": {"value": "http://127.0.0.1:9200/hook"},
+                        "text": {"value": "Open http://127.0.0.1:8080/tool"},
+                    },
+                },
+                {"rule_hits": ["internal_host"], "would_alert": True, "would_block": True},
+                {},
+            ),
+            (
                 "established_truncated_state_with_a_low_ssrf_score",
                 ESTABLISHED,
                 QUIET_SCORES,

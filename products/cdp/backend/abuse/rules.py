@@ -6,6 +6,7 @@ Pure: no database, no DNS lookup, no network.
 import re
 import math
 import ipaddress
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -214,9 +215,8 @@ def matched_rules(content: HogFunctionContent) -> tuple[Rule, ...]:
     return tuple(rule for rule in Rule if rule in matched)
 
 
-def internal_hosts(content: HogFunctionContent) -> frozenset[str]:
-    """The internal hosts named anywhere in the code, the inputs or the masking hash."""
-    return frozenset(canonicalize_host(host) for host in _hosts_in(_texts(content)) if _is_internal(host))
+def names_internal_host(values: Iterable[JsonValue]) -> bool:
+    return any(_is_internal(host) for host in _hosts_in(_strings(list(values))))
 
 
 def code_may_request_internal_host(content: HogFunctionContent) -> bool:
@@ -325,15 +325,23 @@ def _is_literal_public_url(url: str) -> bool:
         return False
     if _is_internal(host) or _resolves_to_its_address(host):
         return False
-    layers = list(_decoded_layers(url))
-    # The URL parser maps full-width digits and dots such as `。` to ASCII, so a non-ASCII name that the checks below
-    # split apart can still name an address.
-    return all(layer.isascii() for layer in layers) and not any(map(_names_an_address, layers))
+    return not any(
+        _names_an_address(text) for layer in _decoded_layers(url) for text in (layer, _parsed_host_form(layer))
+    )
+
+
+def _parsed_host_form(text: str) -> str:
+    """The text with full-width digits and dots such as `。` mapped to ASCII, as the URL parser maps them in a host,
+    so a name the address checks would split apart reads as one name."""
+    return unicodedata.normalize("NFKC", text).replace("\u3002", ".")
 
 
 def _resolves_to_its_address(host: str) -> bool:
-    in_address_domain = any(host == domain or host.endswith(f".{domain}") for domain in _ADDRESS_DNS_DOMAINS)
-    return in_address_domain or _EMBEDDED_IPV4.search(host) is not None
+    return _in_address_dns_domain(host) or _EMBEDDED_IPV4.search(host) is not None
+
+
+def _in_address_dns_domain(host: str) -> bool:
+    return any(host == domain or host.endswith(f".{domain}") for domain in _ADDRESS_DNS_DOMAINS)
 
 
 def _plain_url_parts(url: str) -> SplitResult | None:
@@ -361,8 +369,9 @@ def _names_an_address(text: str) -> bool:
         for name in filter(None, part.split(":")):
             if internal_host_name(name) is not None or _is_address_shorthand(name):
                 return True
-            # Only a dotted name is read as a host here, so an ID such as `1a2b3c4d` in a path is not an address.
-            if "." in name and _resolves_to_its_address(canonicalize_host(name)):
+            # Only the address DNS domains count here. The embedded address pattern also matches file names such as
+            # `20241231.csv`, which a path holds far more often than a host.
+            if _in_address_dns_domain(canonicalize_host(name)):
                 return True
     return False
 
