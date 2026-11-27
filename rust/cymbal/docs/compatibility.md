@@ -29,7 +29,9 @@ A request with more events than `PROCESS_MAX_EVENTS_PER_REQUEST` (10000 by defau
 An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
 When no event of the request resolved and at least one would answer `retry`, the request fails with a 500 and no event answers `retry`.
-Any other failure that can come from a dependency, such as a database or Kafka error, also fails the whole request with a 500, as the contract requires.
+Any other failure that can come from a dependency, such as a database or Kafka error, also fails the whole request, as the contract requires.
+It fails with a 503 when the dependency could not be reached or could not take the work, such as a Postgres connection or pool error, a Redis timeout or a Kafka produce timeout, because the events are not at fault.
+It fails with a 500 otherwise, because an event can cause it, such as a value Postgres rejects.
 
 ## `/process` request and response
 

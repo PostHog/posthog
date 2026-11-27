@@ -7,7 +7,7 @@ use common_kafka::kafka_producer::KafkaProduceError;
 use common_redis::CustomRedisError;
 use common_types::ClickHouseEvent;
 use posthog_symbol_data::SymbolDataError;
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -71,6 +71,59 @@ impl UnhandledError {
             Self::Poison(_) | Self::SerdeError(_) | Self::ResolutionIncomplete { .. }
         )
     }
+
+    /// True when a dependency could not be reached or could not take the work. The events are
+    /// not at fault then, so the caller retries the whole request later instead of the events.
+    pub fn is_dependency_unavailable(&self) -> bool {
+        match self {
+            Self::SqlxError(err) => is_postgres_unavailable(err),
+            Self::RedisError(err) => is_redis_unavailable(err),
+            Self::KafkaProduceError(KafkaProduceError::KafkaProduceCanceled) => true,
+            Self::KafkaProduceError(KafkaProduceError::KafkaProduceError { error })
+            | Self::KafkaError(error) => is_kafka_unavailable(error),
+            _ => false,
+        }
+    }
+}
+
+fn is_postgres_unavailable(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::Io(_)
+        | sqlx::Error::Tls(_)
+        | sqlx::Error::WorkerCrashed => true,
+        // SQLSTATE classes 08 (connection exception) and 53 (insufficient resources), and 57P
+        // (the server is shutting down or starting up). An event cannot cause any of them.
+        sqlx::Error::Database(err) => err.code().is_some_and(|code| {
+            code.starts_with("08") || code.starts_with("53") || code.starts_with("57P")
+        }),
+        _ => false,
+    }
+}
+
+fn is_redis_unavailable(err: &CustomRedisError) -> bool {
+    match err {
+        CustomRedisError::Timeout => true,
+        CustomRedisError::Redis(err) => {
+            err.is_io_error() || err.is_connection_refusal() || err.is_connection_dropped()
+        }
+        _ => false,
+    }
+}
+
+fn is_kafka_unavailable(err: &KafkaError) -> bool {
+    matches!(
+        err.rdkafka_error_code(),
+        Some(
+            RDKafkaErrorCode::QueueFull
+                | RDKafkaErrorCode::MessageTimedOut
+                | RDKafkaErrorCode::AllBrokersDown
+                | RDKafkaErrorCode::BrokerTransportFailure
+                | RDKafkaErrorCode::RequestTimedOut
+                | RDKafkaErrorCode::NetworkException
+        )
+    )
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -465,6 +518,126 @@ impl From<UnhandledError> for PipelineFailure {
         PipelineFailure {
             index: 0,
             error: Arc::new(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::fmt;
+    use std::io;
+
+    use sqlx::error::{DatabaseError, ErrorKind};
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct PostgresError(&'static str);
+
+    impl fmt::Display for PostgresError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "postgres error {}", self.0)
+        }
+    }
+
+    impl std::error::Error for PostgresError {}
+
+    impl DatabaseError for PostgresError {
+        fn message(&self) -> &str {
+            "postgres error"
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Borrowed(self.0))
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
+        }
+    }
+
+    fn postgres(code: &'static str) -> UnhandledError {
+        UnhandledError::SqlxError(sqlx::Error::Database(Box::new(PostgresError(code))))
+    }
+
+    fn kafka(code: RDKafkaErrorCode) -> UnhandledError {
+        UnhandledError::KafkaProduceError(KafkaProduceError::KafkaProduceError {
+            error: KafkaError::MessageProduction(code),
+        })
+    }
+
+    fn redis_io(kind: io::ErrorKind) -> UnhandledError {
+        UnhandledError::RedisError(CustomRedisError::from(redis::RedisError::from(
+            io::Error::from(kind),
+        )))
+    }
+
+    #[test]
+    fn only_a_dependency_that_cannot_be_reached_is_unavailable() {
+        let cases = [
+            (
+                "pool timed out",
+                UnhandledError::SqlxError(sqlx::Error::PoolTimedOut),
+                true,
+            ),
+            (
+                "pool closed",
+                UnhandledError::SqlxError(sqlx::Error::PoolClosed),
+                true,
+            ),
+            ("connection failure", postgres("08006"), true),
+            ("too many connections", postgres("53300"), true),
+            ("admin shutdown", postgres("57P01"), true),
+            ("a value postgres rejects", postgres("22021"), false),
+            ("unique violation", postgres("23505"), false),
+            (
+                "row not found",
+                UnhandledError::SqlxError(sqlx::Error::RowNotFound),
+                false,
+            ),
+            (
+                "redis timeout",
+                UnhandledError::RedisError(CustomRedisError::Timeout),
+                true,
+            ),
+            (
+                "redis connection refused",
+                redis_io(io::ErrorKind::ConnectionRefused),
+                true,
+            ),
+            (
+                "redis parse error",
+                UnhandledError::RedisError(CustomRedisError::ParseError("bad".to_string())),
+                false,
+            ),
+            (
+                "kafka produce timeout",
+                UnhandledError::KafkaProduceError(KafkaProduceError::KafkaProduceCanceled),
+                true,
+            ),
+            ("kafka queue full", kafka(RDKafkaErrorCode::QueueFull), true),
+            (
+                "kafka message too large",
+                kafka(RDKafkaErrorCode::MessageSizeTooLarge),
+                false,
+            ),
+            ("other", UnhandledError::Other("boom".to_string()), false),
+        ];
+        for (name, err, unavailable) in cases {
+            assert_eq!(err.is_dependency_unavailable(), unavailable, "{name}");
         }
     }
 }
