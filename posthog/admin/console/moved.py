@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import field
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, unquote_plus, urlsplit
 
 from django.contrib import admin, messages
 from django.db.models import Model
@@ -68,7 +68,14 @@ class MovedToConsole:
             messages.info(request, f"{title} moved to PostHog Admin. {note or 'Update your bookmark to this page.'}")
             # Old URLs with a path parameter, such as a health check kind, name it in `url` as {kind}.
             target = url.format(**{name: quote(str(value), safe="") for name, value in url_kwargs.items()})
-            query = request.META.get("QUERY_STRING", "")
+            # The old URL's query rides along, except a name the target sets from the path, such as the team, which a
+            # second value in the query would override.
+            set_by_target = {name for name, _value in parse_qsl(urlsplit(target).query)}
+            query = "&".join(
+                part
+                for part in request.META.get("QUERY_STRING", "").split("&")
+                if part and unquote_plus(part.partition("=")[0]) not in set_by_target
+            )
             separator = "&" if "?" in target else "?"
             return HttpResponseRedirect(target + (f"{separator}{query}" if query else ""))
 
