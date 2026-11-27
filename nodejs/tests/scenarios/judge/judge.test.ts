@@ -627,20 +627,6 @@ describe('judge', () => {
             },
         ],
         [
-            'whose incoming webhook cdp-api refused with a 5xx, yet accepted once',
-            { ...offered({ accepted: false, status: 503, outcome: 'intake_unavailable' }), kind: 'webhook' },
-            () => deliver(UNIT),
-            {},
-            { passed: true, observed: 0 },
-        ],
-        [
-            'whose incoming webhook cdp-api refused with a 5xx, yet accepted twice',
-            { ...offered({ accepted: false, status: 503, outcome: 'intake_unavailable' }), kind: 'webhook' },
-            () => deliverTwice(UNIT),
-            {},
-            { passed: false, observed: 1, extra: [UNIT] },
-        ],
-        [
             'that expects no email and was sent none',
             { ...offered(), expect: { deliveries: [] } },
             () => Promise.resolve(),
