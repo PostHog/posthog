@@ -2,14 +2,11 @@ import { Chip, ChipGroup } from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { IngestionWarningV2Sample } from './ingestionWarningsV2Logic'
+import { SampleEntity, sampleEntities } from './sampleEntities'
 
-function EntityChip({ label, value, to }: { label: string; value: string | null; to?: string }): JSX.Element | null {
-    if (!value) {
-        return null
-    }
+function EntityChip({ label, value, to }: SampleEntity): JSX.Element {
     return (
         <Chip className="max-w-full min-w-0 font-mono">
             <span className="shrink-0 text-muted-foreground">{label}</span>
@@ -28,27 +25,15 @@ function EntityChip({ label, value, to }: { label: string; value: string | null;
 
 /** The person, event and group a sample points at, each linked or copyable. */
 export function QuillSampleEntityChips({ sample }: { sample: IngestionWarningV2Sample }): JSX.Element | null {
-    if (!sample.distinct_id && !sample.person_id && !sample.event_uuid && !sample.group_key) {
+    const entities = sampleEntities(sample)
+    if (entities.length === 0) {
         return null
     }
     return (
         <ChipGroup>
-            <EntityChip
-                label="distinct_id"
-                value={sample.distinct_id}
-                to={sample.distinct_id ? urls.personByDistinctId(sample.distinct_id) : undefined}
-            />
-            <EntityChip
-                label="person_id"
-                value={sample.person_id}
-                to={sample.person_id ? urls.personByUUID(sample.person_id) : undefined}
-            />
-            <EntityChip
-                label="event_uuid"
-                value={sample.event_uuid}
-                to={sample.event_uuid ? urls.event(sample.event_uuid, sample.timestamp) : undefined}
-            />
-            <EntityChip label="group_key" value={sample.group_key} />
+            {entities.map((entity) => (
+                <EntityChip key={entity.label} {...entity} />
+            ))}
         </ChipGroup>
     )
 }

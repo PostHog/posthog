@@ -37,6 +37,7 @@ import {
     ingestionWarningsV2Logic,
 } from './ingestionWarningsV2Logic'
 import { QuillIngestionWarningsV2 } from './QuillIngestionWarningsV2'
+import { SampleEntity, sampleEntities } from './sampleEntities'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
@@ -46,10 +47,7 @@ const SEVERITY_TO_TAG_TYPE: Record<string, LemonTagType> = {
     info: 'default',
 }
 
-function EntityChip({ label, value, to }: { label: string; value: string | null; to?: string }): JSX.Element | null {
-    if (!value) {
-        return null
-    }
+function EntityChip({ label, value, to }: SampleEntity): JSX.Element {
     return (
         <span className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-xs whitespace-nowrap">
             <span className="text-muted">{label}</span>
@@ -67,27 +65,15 @@ function EntityChip({ label, value, to }: { label: string; value: string | null;
 }
 
 function SampleEntityChips({ sample }: { sample: IngestionWarningV2Sample }): JSX.Element | null {
-    if (!sample.distinct_id && !sample.person_id && !sample.event_uuid && !sample.group_key) {
+    const entities = sampleEntities(sample)
+    if (entities.length === 0) {
         return null
     }
     return (
         <div className="flex flex-wrap gap-1">
-            <EntityChip
-                label="distinct_id"
-                value={sample.distinct_id}
-                to={sample.distinct_id ? urls.personByDistinctId(sample.distinct_id) : undefined}
-            />
-            <EntityChip
-                label="person_id"
-                value={sample.person_id}
-                to={sample.person_id ? urls.personByUUID(sample.person_id) : undefined}
-            />
-            <EntityChip
-                label="event_uuid"
-                value={sample.event_uuid}
-                to={sample.event_uuid ? urls.event(sample.event_uuid, sample.timestamp) : undefined}
-            />
-            <EntityChip label="group_key" value={sample.group_key} />
+            {entities.map((entity) => (
+                <EntityChip key={entity.label} {...entity} />
+            ))}
         </div>
     )
 }
