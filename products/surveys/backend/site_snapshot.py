@@ -17,16 +17,17 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Team, User
+from posthog.permissions import resource_for_ref
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
-from products.authorization.backend.presentation.resources import resource_for_object
 from products.exports.backend.facade.api import (
     EXPORT_WORKFLOW_TIMEOUT,
     ExportedAsset,
@@ -296,7 +297,11 @@ def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
 def _may_view_recording(user: User, team: Team, session_id: str) -> bool:
     recording = SessionRecording.objects.filter(team_id=team.id, session_id=session_id).first()
     resource = (
-        resource_for_object(recording)
+        resource_for_ref(
+            ObjectAccessRef(
+                resource="session_recording", id=str(recording.pk), team_id=recording.team_id, created_by_id=None
+            )
+        )
         if recording is not None
         else Resource(type=ResourceType.SESSION_RECORDING, project_id=team.pk)
     )

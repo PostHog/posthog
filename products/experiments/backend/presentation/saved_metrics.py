@@ -1,4 +1,4 @@
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
@@ -18,9 +18,6 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import Action, ResourceType
 from products.experiments.backend.facade import saved_metrics as saved_metrics_facade
 from products.experiments.backend.facade.contracts import (
     ListAccess,
@@ -42,40 +39,6 @@ def _saved_metric_access_ref(saved_metric: SavedMetric, team_id: int) -> ObjectA
         team_id=team_id,
         created_by_id=saved_metric.created_by_id,
     )
-
-
-def list_access(
-    resource: Literal["experiment", "experiment_saved_metric"],
-    *,
-    team_id: int,
-    subject: Subject | None,
-    include_all_if_admin: bool = False,
-) -> ListAccess | None:
-    """The narrowing that the SDK's QuerySet filter applies to a list of `resource`, for a facade that pages the list.
-
-    `team_id` is the team whose rules apply. None means no narrowing.
-    """
-    result = authorization.list_objects(
-        resource=Resource(type=ResourceType(resource), project_id=team_id),
-        action=Action.QUERY if include_all_if_admin else Action.VIEW,
-        subject=subject,
-        creator_exempt=True,
-    )
-    if not result.complete:
-        # The SDK caps a list only when the caller passes a limit. The current rules never cap one and always keep
-        # the creator's records, so a capped answer keeps only the viewer's own records.
-        return ListAccess(
-            viewer_id=authorization.principal_user_id(subject=subject),
-            only_allowed=True,
-            allowed_ids=frozenset(),
-            blocked_ids=frozenset(),
-        )
-    if result.excluded and not result.ids:
-        return None
-    viewer_id = result.creator_user_id if result.creator_exempt else None
-    if result.excluded:
-        return ListAccess(viewer_id=viewer_id, only_allowed=False, allowed_ids=frozenset(), blocked_ids=result.ids)
-    return ListAccess(viewer_id=viewer_id, only_allowed=True, allowed_ids=result.ids, blocked_ids=frozenset())
 
 
 class ExperimentSavedMetricLinkedExperimentSerializer(serializers.Serializer):
@@ -159,7 +122,7 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
             return []
         # Experiments carry object-level access controls; drop the ones this user cannot view
         access = (
-            list_access(
+            saved_metrics_facade.list_access(
                 "experiment",
                 team_id=self.context["get_team"]().id,
                 subject=request_subject(self.context["request"]),
@@ -221,7 +184,7 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
         """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
         if is_service_auth(self.request):
             return None
-        return list_access(
+        return saved_metrics_facade.list_access(
             "experiment_saved_metric",
             team_id=self.team.pk,
             subject=request_subject(self.request),

@@ -23,9 +23,8 @@ from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from products.authorization.backend.facade.contracts import Resource, Subject
-from products.authorization.backend.facade.enums import ResourceType
-from products.authorization.backend.presentation.querysets import filter_queryset
+from products.authorization.backend.facade.contracts import Subject
+from products.surveys.backend.access import filter_surveys
 from products.surveys.backend.models import Survey
 from products.surveys.backend.responses.fetch_rows import (
     RESPONSE_EVENT_FILTER,
@@ -199,9 +198,7 @@ def _survey_access(team: Team, user: User | None, survey_ids: Sequence[str]) -> 
     surveys: QuerySet[Survey] = Survey.objects.filter(team_id=team.pk, id__in=uuids)
     existing = {str(survey_id) for survey_id in surveys.values_list("id", flat=True)}
     if user is not None:
-        surveys = filter_queryset(
-            surveys, resource=Resource(type=ResourceType.SURVEY, project_id=team.pk), subject=Subject(user_id=user.pk)
-        )
+        surveys = filter_surveys(surveys, team_id=team.pk, subject=Subject(user_id=user.pk))
     readable = {str(survey.id): survey for survey in surveys}
     return _SurveyAccess(readable=readable, hidden=existing - readable.keys())
 

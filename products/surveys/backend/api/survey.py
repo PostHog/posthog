@@ -89,7 +89,6 @@ from products.approvals.backend.transactions import gated_atomic
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import CheckRequest, Resource
 from products.authorization.backend.facade.enums import Action, ResourceType
-from products.authorization.backend.presentation.querysets import filter_queryset
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     REALTIME_COHORT_NOT_READY_ERROR_CODE,
@@ -101,6 +100,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.access import filter_surveys
 from products.surveys.backend.api.site_snapshot_serializers import (
     SiteSnapshotQuerySerializer,
     SiteSnapshotSerializer,
@@ -3165,11 +3165,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
         # so apply it explicitly here — otherwise a user with access to only one survey would
         # receive labels for every survey in the team.
-        queryset = filter_queryset(
-            self.get_queryset(),
-            resource=Resource(type=ResourceType.SURVEY, project_id=self.team.pk),
-            subject=request_subject(request),
-        )
+        queryset = filter_surveys(self.get_queryset(), team_id=self.team.pk, subject=request_subject(request))
         # The viewset's class-level queryset pre-joins `linked_flag`, `linked_insight`,
         # `targeting_flag`, `internal_targeting_flag` via `select_related`. `.only(...)` on
         # those deferred FK columns raises `FieldError: cannot be both deferred and traversed

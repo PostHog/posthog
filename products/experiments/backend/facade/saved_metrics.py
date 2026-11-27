@@ -4,13 +4,19 @@ A write that the API must refuse raises the `ValidationError` of Django REST fra
 API returns.
 """
 
+from typing import Literal
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 
+from products.authorization.backend.facade.contracts import Subject
 from products.experiments.backend.experiment_creator import to_experiment_creator
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.logic import saved_metrics
+from products.experiments.backend.logic import (
+    list_access as list_access_logic,
+    saved_metrics,
+)
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric
 
@@ -36,6 +42,19 @@ def _to_saved_metric(metric: ExperimentSavedMetric, team: Team) -> SavedMetric:
         created_at=metric.created_at,
         updated_at=metric.updated_at,
         tags=tuple(tagged_item.tag.name for tagged_item in getattr(metric, "prefetched_tags", ())),
+    )
+
+
+def list_access(
+    resource: Literal["experiment", "experiment_saved_metric"],
+    *,
+    team_id: int,
+    subject: Subject | None,
+    include_all_if_admin: bool = False,
+) -> ListAccess | None:
+    """The narrowing a list of `resource` gets for the subject. See `logic.list_access.list_access`."""
+    return list_access_logic.list_access(
+        resource, team_id=team_id, subject=subject, include_all_if_admin=include_all_if_admin
     )
 
 

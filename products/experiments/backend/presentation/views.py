@@ -78,6 +78,7 @@ from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade import (
     experiments as experiments_facade,
     lifecycle,
+    saved_metrics as saved_metrics_facade,
 )
 from products.experiments.backend.facade.api import (
     get_experiment_health,
@@ -142,7 +143,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
     ExperimentToSavedMetric,
 )
-from products.experiments.backend.presentation.saved_metrics import list_access
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
     refuse_scout_cleanup_pr,
@@ -646,7 +646,7 @@ class EnterpriseExperimentsViewSet(
     def _list_access(
         self, resource: Literal["experiment", "experiment_saved_metric"], *, include_all_if_admin: bool = False
     ) -> ListAccess | None:
-        return list_access(
+        return saved_metrics_facade.list_access(
             resource,
             team_id=self.team.pk,
             subject=request_subject(self.request),
