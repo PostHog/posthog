@@ -193,7 +193,7 @@ export const leaseReclaimMs: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'ms',
     measure: ({ timeline, truth }) =>
-        terminationsOf(timeline).flatMap(({ exit }) => {
+        terminationsOf(timeline).flatMap(({ exit }): Measured[] => {
             if (exit.exitedAt === undefined) {
                 return []
             }

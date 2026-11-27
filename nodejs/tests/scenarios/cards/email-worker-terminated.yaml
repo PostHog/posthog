@@ -1,7 +1,7 @@
 id: email-worker-terminated
 version: 1
 clock: real
-profile: synthetic
+profile: synthetic-rollout
 seed: 8
 seedable: true
 setup:
