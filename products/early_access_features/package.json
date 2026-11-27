@@ -12,6 +12,9 @@
         "kea-subscriptions": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/dom": "*",
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
@@ -20,6 +23,7 @@
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",
-        "react": "*"
+        "react": "*",
+        "react-toastify": "*"
     }
 }
