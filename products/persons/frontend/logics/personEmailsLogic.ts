@@ -105,7 +105,7 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        openEmail: async ({ asset }) => {
+        openEmail: async ({ asset }, breakpoint) => {
             const sendPages =
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] &&
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]
@@ -114,13 +114,18 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                 actions.previewEmail(asset)
                 return
             }
+            let logged = true
             try {
                 await transactionalEmailLogRetrieve(String(values.currentProjectId), asset.invocation_id)
-            } catch {
-                actions.previewEmail(asset)
-                return
+            } catch (error: any) {
+                logged = error?.status !== 404
             }
-            actions.openSendPage(url)
+            breakpoint()
+            if (logged) {
+                actions.openSendPage(url)
+            } else {
+                actions.previewEmail(asset)
+            }
         },
         openSendPage: ({ url }) => {
             router.actions.push(url)
