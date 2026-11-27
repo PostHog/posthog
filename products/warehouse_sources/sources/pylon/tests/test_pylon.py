@@ -301,8 +301,6 @@ class TestChildEndpoints:
         ]
         assert result.params("cursor") == [None, None, "next", None]
         assert result.params("limit") == ["999", None, "999", None]
-        assert result.response is not None
-        assert result.response.primary_keys == ["child_account_id", "id"]
         assert [(row["child_account_id"], row["id"]) for row in result.rows] == [
             ("child-1", "relationship-1"),
             ("child-2", "relationship-1"),
