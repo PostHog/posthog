@@ -88,16 +88,19 @@ export function QuillIngestionWarnings(): JSX.Element {
                                     />
                                 </Button>
                                 <span className="min-w-0 whitespace-normal">
-                                    {warningTypeLabel(summary.type)} (
-                                    <Button
-                                        variant="link"
-                                        size="inline"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={warningDocsUrl(summary.type)} target="_blank" />}
-                                    >
-                                        docs
-                                    </Button>
-                                    )
+                                    {warningTypeLabel(summary.type)}{' '}
+                                    <span className="whitespace-nowrap">
+                                        (
+                                        <Button
+                                            variant="link"
+                                            size="inline"
+                                            nativeButton={false}
+                                            render={<LinkPrimitive to={warningDocsUrl(summary.type)} target="_blank" />}
+                                        >
+                                            docs
+                                        </Button>
+                                        )
+                                    </span>
                                 </span>
                             </div>
                             {expanded && <QuillNestedWarnings warnings={summary.warnings} />}
@@ -110,7 +113,9 @@ export function QuillIngestionWarnings(): JSX.Element {
                 header: 'Graph',
                 enableSorting: false,
                 cell: ({ row }) => (
-                    <Sparkline className="h-8" labels={dates} data={summaryDatasets[row.original.type]} />
+                    <div className="w-40">
+                        <Sparkline className="h-8 w-full" labels={dates} data={summaryDatasets[row.original.type]} />
+                    </div>
                 ),
             },
             {
