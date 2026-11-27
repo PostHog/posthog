@@ -6,7 +6,11 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
-import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+} from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     INTAKE_ACK_DEADLINE_MS,
@@ -32,6 +36,7 @@ describe('IntakeProducer', () => {
         return new IngestionOutputs({
             [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
+            [CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT),
         })
     }
 
@@ -84,6 +89,7 @@ describe('IntakeProducer', () => {
     it.each([
         ['transactional-email', 'msk-broker:9094', 'msk'],
         ['workflow-webhook', '', 'warpstream'],
+        ['transactional-push', 'msk-broker:9094', 'msk'],
     ] as const)('counts an acked %s run with brokers %p under the %s cluster label', async (kind, brokers, cluster) => {
         const acked = async (): Promise<number> => {
             const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()

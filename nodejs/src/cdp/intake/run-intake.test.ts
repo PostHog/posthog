@@ -5,7 +5,11 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createExampleHogFlowInvocation } from '../_tests/fixtures-hogflows'
-import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
+    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+} from '../outputs/outputs'
 import {
     INTAKE_ACK_DEADLINE_MS,
     IntakeOutput,
@@ -34,6 +38,7 @@ describe('RunIntake', () => {
             new IngestionOutputs<IntakeOutput>({
                 [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: held,
                 [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: held,
+                [CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT]: held,
             })
         )
         const intake = new RunIntake({ hogflowQueue: createMockJobQueue(), producer })
