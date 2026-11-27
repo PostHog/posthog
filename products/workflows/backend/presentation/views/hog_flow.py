@@ -8576,8 +8576,13 @@ class HogFlowViewSet(
             ).data
         )
 
-    @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True))
-    @extend_schema(methods=["POST"], request=HogFlowBatchJobSerializer, responses=HogFlowBatchJobSerializer)
+    @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True), extensions=_BROADCAST_DOCS)
+    @extend_schema(
+        methods=["POST"],
+        request=HogFlowBatchJobSerializer,
+        responses=HogFlowBatchJobSerializer,
+        extensions=_BROADCAST_DOCS,
+    )
     # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
     # generated schema matches the actual response shape.
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
@@ -8663,6 +8668,7 @@ class HogFlowViewSet(
             ),
         ],
         responses={200: HogFlowBatchJobCancelResponseSerializer},
+        extensions=_BROADCAST_DOCS,
     )
     @action(detail=True, methods=["POST"], url_path="batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
     def cancel_batch_job(self, request: Request, *args, **kwargs) -> Response:
@@ -8736,8 +8742,13 @@ class HogFlowViewSet(
         )
         return Response({"status": batch_job.status, **data})
 
-    @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
-    @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)
+    @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True), extensions=_BROADCAST_DOCS)
+    @extend_schema(
+        methods=["POST"],
+        request=HogFlowScheduleSerializer,
+        responses=HogFlowScheduleSerializer,
+        extensions=_BROADCAST_DOCS,
+    )
     # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
     # generated schema matches the actual response shape.
     @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
@@ -8780,11 +8791,13 @@ class HogFlowViewSet(
         request=HogFlowScheduleSerializer,
         responses=HogFlowScheduleSerializer,
         parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+        extensions=_BROADCAST_DOCS,
     )
     @extend_schema(
         methods=["DELETE"],
         responses={204: None},
         parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+        extensions=_BROADCAST_DOCS,
     )
     @action(detail=True, methods=["PATCH", "DELETE"], url_path="schedules/(?P<schedule_id>[^/.]+)")
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
