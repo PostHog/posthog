@@ -577,7 +577,7 @@ class CDCExtractActivity:
             # the next run even if recovery never runs again, and a marker that reports the slot lost is stale.
             for schema in self.cdc_schemas:
                 self._release_reset_awaiting_slot(schema)
-            if any(marks_slot_loss(schema) for schema in self.cdc_schemas):
+            if self.source is not None and any(marks_slot_loss(schema) for schema in self.cdc_schemas):
                 clear_slot_loss_markers(self.source)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
