@@ -16,6 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
@@ -582,6 +583,12 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        ("isValidUTF8(user_id) = 1", '(CAST(IF("users"."user_id" IS NULL, NULL, true) AS INTEGER) = 1)'),
+        ("bitTest(id, 1) = 1", "BIGINT '1', CAST(1 AS INTEGER))) <> 0) AS INTEGER) = 1)"),
+        (
+            "notEmpty(user_id) = 1",
+            '(CAST(("users"."user_id" IS NOT NULL AND "users"."user_id" <> \'\') AS INTEGER) = 1)',
+        ),
         ("id = 1", '("users"."id" = 1)'),
         # ClickHouse reads date + n as n days and datetime + n as n seconds, with the number on either side.
         ("toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
@@ -707,6 +714,8 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
         ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
         ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
+        ("SELECT flag = 1 FROM json_flags", '(CAST("json_flags"."flag" AS INTEGER) = 1)'),
+        ("SELECT id FROM copy_history WHERE NOT is_copy", 'WHERE (NOT CAST("copy_history"."is_copy" AS BOOLEAN))'),
         (
             "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
             'WHERE CAST("x" AS BOOLEAN)',
@@ -764,6 +773,39 @@ def test_derived_column_types_reach_type_dependent_lowerings(query: str, expecte
         )
     )
 
+    context.database.tables.add_child(
+        TableNode(
+            name="json_flags",
+            table=SavedQuery(
+                id="json_flags",
+                name="json_flags",
+                query="SELECT isValidJSON(user_id) AS flag FROM users",
+                fields={"flag": BooleanDatabaseField(name="flag")},
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="copies",
+            table=SavedQuery(
+                id="copies",
+                name="copies",
+                query="SELECT id, toBool(id) AS is_copy FROM users UNION ALL SELECT id, ifNull(id > 0, 0) AS is_copy FROM users",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
+    context.database.tables.add_child(
+        TableNode(
+            name="copy_history",
+            table=SavedQuery(
+                id="copy_history",
+                name="copy_history",
+                query="SELECT c.id AS id, c.is_copy AS is_copy FROM copies AS c",
+                fields={"id": IntegerDatabaseField(name="id"), "is_copy": BooleanDatabaseField(name="is_copy")},
+            ),
+        )
+    )
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
