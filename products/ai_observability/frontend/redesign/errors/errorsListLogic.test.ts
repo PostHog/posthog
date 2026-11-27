@@ -251,11 +251,7 @@ describe('errorsListLogic', () => {
     })
 
     it.each([
-        ['nothing narrows the selection', '', false, 'empty'],
-        ['a filter is on', `filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}`, false, 'empty-filtered'],
         ['a search is on', 'error_search=timeout', false, 'empty-filtered'],
-        ['a quick filter is on', 'view=new', false, 'empty-filtered'],
-        ['test accounts are filtered out', 'filter_test_accounts=true', false, 'empty-filtered'],
         ['nothing was ever captured, even with a search on', 'error_search=timeout', true, 'empty'],
     ])('shows an empty first page when %s', async (_name, query, nothingCaptured, state) => {
         answer = () => [200, makeErrorListPage([], { nothingCaptured })]

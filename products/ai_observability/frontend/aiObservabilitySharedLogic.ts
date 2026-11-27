@@ -157,8 +157,12 @@ export function shellListOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     )
 }
 
-// Home and the errors list keep their own dates in the URL under the navigation flag too.
-const SHELL_BODY_PATHS: ReadonlySet<string> = new Set([urls.aiObservabilityDashboard(), urls.aiObservabilityErrors()])
+// Home and the diagnostics lists keep their own dates in the URL under the navigation flag too.
+const SHELL_BODY_PATHS: ReadonlySet<string> = new Set([
+    urls.aiObservabilityDashboard(),
+    urls.aiObservabilityErrors(),
+    urls.aiObservabilityTools(),
+])
 
 function shellBodyOwnsUrl(featureFlags: FeatureFlagsSet): boolean {
     return (
@@ -810,7 +814,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             },
             [urls.aiObservabilityUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyShellBody(searchParams),
-            [urls.aiObservabilityTools()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilityTools()]: (_, searchParams) => applyShellBody(searchParams),
             [urls.aiObservabilitySentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilitySessions()]: (_, searchParams) => applyShellBody(searchParams),
             '/ai-observability/sessions/:id': (_, searchParams) => applyShellBody(searchParams),

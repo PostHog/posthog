@@ -61,6 +61,7 @@ import { HomeHost } from './redesign/home/HomeHost'
 import { SessionPageHost } from './redesign/sessions/SessionPageHost'
 import { SessionsListHost } from './redesign/sessions/SessionsListHost'
 import { ShellHost } from './redesign/shell/ShellHost'
+import { ToolsListHost } from './redesign/tools/ToolsListHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
@@ -566,6 +567,7 @@ const SHELL_TAB_BODIES: Partial<Record<AIObservabilityTabId, () => JSX.Element>>
     dashboard: () => <HomeHost />,
     sessions: () => <SessionsListHost />,
     errors: () => <ErrorsListHost />,
+    tools: () => <ToolsListHost />,
 }
 
 function TabBody({
