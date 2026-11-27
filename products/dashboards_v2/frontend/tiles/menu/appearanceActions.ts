@@ -2,6 +2,7 @@ import { type Tile, isSectionPanel } from '../../dashboard/document/dashboardTyp
 import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
+import type { TileDescriptionMode } from '../../panels/core/panelSchema'
 import { findPanel } from '../../panels/core/panelSpec'
 import { TILE_BACKGROUND_COLORS } from '../../panels/core/tileBackground'
 import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
@@ -119,6 +120,44 @@ export function backgroundColorAction(
             checked: current === color,
             keepOpen: true,
             onSelect: () => onEdit({ edit: 'setTilesAppearance', ids, appearance: { backgroundColor: color } }),
+        })),
+    }
+}
+
+const DESCRIPTION_MODES: { mode: TileDescriptionMode; label: string }[] = [
+    { mode: 'icon', label: 'In an icon' },
+    { mode: 'below', label: 'Below the title' },
+    { mode: 'hidden', label: 'Hidden' },
+]
+
+/** Offered for the content tiles that have a description. */
+export function descriptionAction(
+    menu: MenuHead,
+    tiles: Pick<Tile, 'id' | 'panel'>[],
+    disabledReason: string | null,
+    onEdit: (edit: PresentationEdit) => void
+): MenuAction | null {
+    const applies = tiles.flatMap(({ id, panel }) =>
+        !isSectionPanel(panel) && panel.description ? [{ id, mode: panel.appearance?.description ?? 'icon' }] : []
+    )
+    if (applies.length === 0) {
+        return null
+    }
+    const ids = applies.map(({ id }) => id)
+    return {
+        ...menu,
+        group: 'display',
+        disabledReason,
+        choice: true,
+        submenu: DESCRIPTION_MODES.map(({ mode, label }) => ({
+            key: mode,
+            label,
+            dataAttr: `${menu.dataAttr}-item`,
+            disabledReason,
+            checked: applies.every((tile) => tile.mode === mode),
+            keepOpen: true,
+            onSelect: () =>
+                onEdit({ edit: 'setTilesAppearance', ids, appearance: { description: mode === 'icon' ? null : mode } }),
         })),
     }
 }
