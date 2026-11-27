@@ -1,9 +1,12 @@
-import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import type { LemonTableColumn } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { AEOPromptSetTopicCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { sameTopic } from './utils'
 
 type TopicRow = AEOPromptSetTopicCountsApi
@@ -11,14 +14,8 @@ type TopicColumn = LemonTableColumn<TopicRow, keyof TopicRow | undefined>
 
 const byRate = (key: 'mention_rate' | 'citation_rate') => (a: TopicRow, b: TopicRow) => (a[key] ?? -1) - (b[key] ?? -1)
 
-const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): JSX.Element =>
-    rate === null ? (
-        <span className="text-muted">No answers</span>
-    ) : (
-        <span className="tabular-nums">
-            {percentage(rate, 0)} <span className="text-muted">of {humanFriendlyNumber(answers)}</span>
-        </span>
-    )
+const answersNote = (row: TopicRow): string =>
+    `Out of ${humanFriendlyNumber(row.checks - row.failed)} ${row.checks - row.failed === 1 ? 'answer' : 'answers'}`
 
 /** One row per topic. Picking a row filters the page to that topic, and picking it again clears the filter. */
 export const ContentAutopilotPromptsTopicTable = ({
@@ -36,18 +33,20 @@ export const ContentAutopilotPromptsTopicTable = ({
             key: 'topic',
             sorter: (a, b) => a.topic.localeCompare(b.topic),
             render: (_, row) => (
-                <Link
-                    subtle
+                <Button
+                    variant={row.topic ? 'link-foreground' : 'link-muted'}
+                    size="sm"
+                    left
                     onClick={(event) => {
                         // The row handler below would otherwise select the topic a second time.
                         event.stopPropagation()
                         onSelect(row.topic)
                     }}
-                    className={row.topic ? 'font-semibold' : 'font-semibold text-muted'}
+                    className="max-w-full shrink font-semibold"
                     data-attr="content-autopilot-prompts-overview-topic"
                 >
-                    {row.topic || 'No topic'}
-                </Link>
+                    <span className="truncate">{row.topic || 'No topic'}</span>
+                </Button>
             ),
         },
         {
@@ -62,18 +61,18 @@ export const ContentAutopilotPromptsTopicTable = ({
             key: 'mention_rate',
             align: 'right',
             sorter: byRate('mention_rate'),
-            render: (_, row) => <RateCell rate={row.mention_rate} answers={row.checks - row.failed} />,
+            render: (_, row) => <ContentAutopilotRateBar rate={row.mention_rate} tooltip={answersNote(row)} />,
         },
         {
             title: 'Cited',
             key: 'citation_rate',
             align: 'right',
             sorter: byRate('citation_rate'),
-            render: (_, row) => <RateCell rate={row.citation_rate} answers={row.checks - row.failed} />,
+            render: (_, row) => <ContentAutopilotRateBar rate={row.citation_rate} tooltip={answersNote(row)} />,
         },
     ]
     return (
-        <LemonTable
+        <AiVisibilityTable
             size="small"
             embedded
             dataSource={rows}

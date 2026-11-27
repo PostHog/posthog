@@ -258,6 +258,7 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-analytics
+    AGENT_TRANSCRIPT_REQUEST: 'agent-transcript-request', // owner: #team-growth multivariate=control,test, evaluated on the organization group; both arms ask for the signup agent transcript, test also offers a merch code. Any other value means the organization is not asked
     AI_OBSERVABILITY_NAV_REDESIGN: 'ai-observability-nav-redesign', // owner: #team-ai-observability, gates the regrouped AI observability tabs
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
@@ -449,6 +450,7 @@ export const FEATURE_FLAGS = {
     MAX_WEB_ANALYTICS_NUDGE: 'posthog-ai-web-analytics-nudge', // owner: @jordanm-posthog #team-analytics
     MCP_ANALYTICS_DASHBOARD_BATCH: 'mcp-analytics-dashboard-batch', // owner: #team-mcp-analytics, one request per MCP analytics dashboard load vs one per section, compared on `time to see data`
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
+    MCP_ANALYTICS_REDESIGN: 'mcp-analytics-redesign', // owner: #team-mcp-analytics, the redesigned MCP analytics tabs and drawers; off keeps the current UI from products/mcp_analytics/frontend/legacy
     MCP_ANALYTICS_SETUP_MODE: 'mcp-analytics-setup-mode', // owner: #team-mcp-analytics, the fullscreen setup walkthrough after a user picks an install route
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-context-mcp — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
@@ -568,6 +570,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_FORM_BUILDER: 'surveys-form-builder', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys
+    TAG_MANAGEMENT: 'tag-management', // owner: #team-platform-features
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability

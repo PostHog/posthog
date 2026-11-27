@@ -2402,6 +2402,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `flag_shared` - Flag Shared
  * * `stale_experiment` - Stale Experiment
  */
@@ -2437,6 +2438,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     FlagShared: 'flag_shared',
     StaleExperiment: 'stale_experiment',
 } as const
@@ -2505,6 +2507,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `result_ready` - Result Ready
  * * `stale_experiment` - Stale Experiment
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2538,6 +2541,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    ResultReady: 'result_ready',
     StaleExperiment: 'stale_experiment',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -2585,6 +2589,7 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment */
     code: ExperimentHealthFindingCodeEnumApi
@@ -2638,6 +2643,7 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2708,6 +2714,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
  * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
  * * `significant` - Whether a variant's difference from the control is significant
+ * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
  * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
  * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
  * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2782,6 +2789,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     DifferencePercentage: 'difference_percentage',
     DetectableDifferencePercentage: 'detectable_difference_percentage',
     Significant: 'significant',
+    SignificantSinceAt: 'significant_since_at',
     ForcedConditionCount: 'forced_condition_count',
     MatchedCount: 'matched_count',
     VariantMatchedCount: 'variant_matched_count',
@@ -2878,6 +2886,7 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -2955,6 +2964,7 @@ export interface ExperimentHealthCheckRuleApi {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
@@ -3039,6 +3049,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures

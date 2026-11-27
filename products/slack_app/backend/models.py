@@ -363,6 +363,10 @@ class SlackChannel(UUIDModel):
     so workspace-scope here only governs the channel-level question
     ("can the bot speak here at all?"), not which project's data is read.
 
+    The topic, purpose and owner groups are the channel's own description,
+    read from Slack for the channel's context page. They are workspace-scoped
+    for the same reason: they describe the channel, not a project.
+
     Reserved for future per-channel configuration (denials, routing
     overrides, etc.) without needing another model.
     """
@@ -377,6 +381,15 @@ class SlackChannel(UUIDModel):
         blank=True,
         related_name="approved_slack_channels",
         help_text="The PostHog user who clicked Approve. Carries the email and audit trail.",
+    )
+    # The database defaults let a pod on the previous release keep inserting approval rows during the deploy.
+    topic = models.TextField(blank=True, default="", db_default="")
+    purpose = models.TextField(blank=True, default="", db_default="")
+    owner_groups = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text='Slack user groups tagged in the topic or purpose, as [{"id": "S…", "handle": "…"}].',
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -35,6 +35,7 @@ jest.mock('scenes/sceneLogic', () => {
 const recent = (href: string, name: string = href): TodayPeopleRecent => ({ type: 'cohort', name, href })
 const issue: TodayMonitorRecent = { type: 'error_tracking_issue', name: 'Checkout timeout', href: '/error-tracking/1' }
 const workflow: TodayAutomateRecent = { type: 'workflow', name: 'Onboarding', href: '/workflows/1/workflow' }
+const broadcast: TodayAutomateRecent = { type: 'broadcast', name: 'Launch email', href: '/broadcasts/1' }
 const eventDefinition: TodayDataRecent = {
     type: 'event_definition',
     name: 'Signed up',
@@ -82,6 +83,7 @@ describe('todayRecentsLogic', () => {
         ['an issue with monitor-area off', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, issue, [], [], [], []],
         ['a workflow with data-area and monitor-area on', DATA_ON, workflow, [], [], ['Onboarding'], []],
         ['a workflow with data-area off', MONITOR_ON, workflow, [], [], [], []],
+        ['a broadcast with data-area and monitor-area on', DATA_ON, broadcast, [], [], ['Launch email'], []],
         ['an event definition with data-area and monitor-area on', DATA_ON, eventDefinition, [], [], [], ['Signed up']],
         ['an event definition with data-area off', MONITOR_ON, eventDefinition, [], [], [], []],
     ])('a scene showing %s adds it to its pane once it loads', (_, flags, record, people, monitor, automate, data) => {
@@ -155,6 +157,29 @@ describe('todayRecentsLogic', () => {
             setActive(sceneShowing(null))
             setActive(sceneShowing(release))
             expect(logic.values.releaseRecents[0].viewedAt).toBe(firstViewedAt + 1000)
+        } finally {
+            now.mockRestore()
+        }
+    })
+
+    it('keeps when an Automate recent was last opened, for Home', () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(DATA_ON), DATA_ON)
+        sceneLogic.mount()
+        const logic = todayRecentsLogic()
+        logic.mount()
+        const setActive = (sceneLogic.actions as any).setActiveSceneLogic
+
+        const now = jest.spyOn(Date, 'now').mockReturnValue(1000)
+        try {
+            setActive(sceneShowing(workflow))
+            expect(logic.values.automateRecents).toEqual([{ ...workflow, viewedAt: 1000 }])
+
+            now.mockReturnValue(2000)
+            setActive(sceneShowing(null))
+            setActive(sceneShowing(workflow))
+            expect(logic.values.automateRecents).toEqual([{ ...workflow, viewedAt: 2000 }])
         } finally {
             now.mockRestore()
         }

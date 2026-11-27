@@ -36,11 +36,19 @@ export function SourceFilterPreviewRecordRow({ record, noun }: SourceFilterPrevi
             </span>
             {record.malformed && (
                 <Tooltip
-                    title={`A field this filter uses holds a value that can't be read, so this ${noun} never passes.`}
+                    title="This item is excluded because it contains values that can't be parsed by the filter."
+                    openOnClick
                 >
-                    <LemonTag type="warning" size="small" className="shrink-0">
-                        Unreadable
-                    </LemonTag>
+                    <button
+                        type="button"
+                        className="shrink-0 cursor-pointer"
+                        aria-label={`Why this ${noun} is unreadable`}
+                        data-attr="signal-source-filter-preview-unreadable"
+                    >
+                        <LemonTag type="warning" size="small">
+                            Unreadable
+                        </LemonTag>
+                    </button>
                 </Tooltip>
             )}
             {record.created_at && (

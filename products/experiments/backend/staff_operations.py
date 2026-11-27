@@ -35,15 +35,17 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
     ExperimentSavedMetric,
 )
-from products.experiments.backend.recalculation import (
-    derive_counters,
-    get_latest_recalculation,
-    request_recalculation_without_age_limit,
+from products.experiments.backend.recalculation.admission import (
+    RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+    MetricsRecalculationStartOutcome,
+    RecalculationWorkflowNotStarted,
+    start_metrics_recalculation_without_age_limit,
 )
+from products.experiments.backend.recalculation.payloads import derive_counters
+from products.experiments.backend.recalculation.runs import get_latest_recalculation
 from products.experiments.backend.temporal.recalculation.dispatch import (
     cancel_recalculation_workflow,
     metrics_recalculation_workflow_id,
-    start_metrics_recalculation_workflow,
 )
 
 LEGACY_METRIC_KINDS = ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
@@ -405,25 +407,30 @@ def start_recalculation(experiment_id: int, user: User, *, retry_failures: bool)
     if experiment is None:
         return RecalculationStart(outcome=RecalculationStartOutcome.NOT_CREATED, detail="Experiment not found")
     try:
-        result = request_recalculation_without_age_limit(experiment, user, trigger=trigger)
+        started = start_metrics_recalculation_without_age_limit(experiment, user, trigger=trigger)
+    except RecalculationWorkflowNotStarted as e:
+        return RecalculationStart(
+            outcome=RecalculationStartOutcome.WORKFLOW_NOT_STARTED, recalculation_id=e.recalculation_id, detail=str(e)
+        )
     except Exception as e:
         return RecalculationStart(outcome=RecalculationStartOutcome.NOT_CREATED, detail=str(e))
 
-    recalculation_id = str(result["id"])
-    if result.get("is_existing"):
-        return RecalculationStart(outcome=RecalculationStartOutcome.REUSED, recalculation_id=recalculation_id)
-
-    try:
-        start_metrics_recalculation_workflow(
-            recalculation_id,
-            team_id=experiment.team_id,
-            organization_id=str(experiment.team.organization_id),
-        )
-    except Exception as e:
-        return RecalculationStart(
-            outcome=RecalculationStartOutcome.WORKFLOW_NOT_STARTED, recalculation_id=recalculation_id, detail=str(e)
-        )
-    return RecalculationStart(outcome=RecalculationStartOutcome.STARTED, recalculation_id=recalculation_id)
+    match started.outcome:
+        case MetricsRecalculationStartOutcome.REUSED:
+            return RecalculationStart(
+                outcome=RecalculationStartOutcome.REUSED, recalculation_id=started.recalculation_id
+            )
+        case MetricsRecalculationStartOutcome.REJECTED:
+            # Unreachable: the staff start skips the age limit, the only reason to reject a run.
+            return RecalculationStart(
+                outcome=RecalculationStartOutcome.WORKFLOW_NOT_STARTED,
+                recalculation_id=started.recalculation_id,
+                detail=RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+            )
+        case MetricsRecalculationStartOutcome.STARTED:
+            return RecalculationStart(
+                outcome=RecalculationStartOutcome.STARTED, recalculation_id=started.recalculation_id
+            )
 
 
 def mark_recalculation_terminal(recalculation_id: str, *, failed: bool, user: User) -> TerminalMarkOutcome:

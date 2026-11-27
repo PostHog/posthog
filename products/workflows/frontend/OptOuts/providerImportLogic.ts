@@ -691,7 +691,9 @@ export const providerImportLogic = kea<providerImportLogicType>([
         },
         importedDataChanged: () => {
             optOutCategoriesLogic.findMounted()?.actions.loadCategories()
-            messageTemplatesLogic.findMounted()?.actions.loadTemplates()
+            const templates = messageTemplatesLogic.findMounted()
+            templates?.actions.loadTemplates()
+            templates?.actions.loadTemplateCount()
             transactionalTemplatesLogic.findMounted()?.actions.loadTransactionalTemplates()
         },
     })),

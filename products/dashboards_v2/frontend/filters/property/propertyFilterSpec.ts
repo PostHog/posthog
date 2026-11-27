@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
 import type { FilterSpec } from '../filterSpec'
-import type { LoadedOptions } from '../useSearchedOptions'
-import type { ValueOption } from '../ValueList'
+import type { LoadedOptions } from '../pickers/useSearchedOptions'
+import type { ValueOption } from '../pickers/ValueList'
 import type { PropertyCondition } from './propertyOperators'
 
 export type PropertyFilterSource = 'event' | 'person'
 
-export interface PropertyFilterConfig {
+export type PropertyFilterConfig = {
     key: string
     source: PropertyFilterSource
 }
@@ -15,7 +15,7 @@ export interface PropertyFilterConfig {
 /** The conditions a person picked, such as "is not Chrome" and "contains Safari". All of them must hold. */
 export type PropertyFilterValue = PropertyCondition[]
 
-export interface FeaturedProperty {
+export type FeaturedProperty = {
     key: string
     label: string
     source?: PropertyFilterSource
@@ -35,7 +35,7 @@ export function propertyFilterSpec(
 ): FilterSpec<PropertyFilterConfig> {
     return {
         type: PROPERTY_FILTER_TYPE,
-        addMenuItems: featured.map(({ key, label, source = 'event' }) => ({
+        addFilterOptions: featured.map(({ key, label, source = 'event' }) => ({
             label,
             create: () => ({ type: PROPERTY_FILTER_TYPE, label, config: { key, source } }),
         })),

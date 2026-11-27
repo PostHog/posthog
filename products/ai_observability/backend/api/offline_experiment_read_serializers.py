@@ -19,7 +19,12 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
 )
 from products.ai_observability.backend.api.query import validate_query_parameters
 from products.ai_observability.backend.api.resource_tags import ResourceTagFilterField
-from products.ai_observability.backend.composite_scorers import CompositeConfigSerializer
+from products.ai_observability.backend.composite_scorers import (
+    CompositeConfigSerializer,
+    ExperimentScoreStatistic,
+    ExperimentScoreStatus,
+    ExperimentScoreVersionPolicy,
+)
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineExperiment,
@@ -222,14 +227,58 @@ class OfflineScorerHistoryQuerySerializer(OfflineHistoryQuerySerializer):
         enum_class=OfflineHistoryBreakdown,
         choices=OfflineHistoryBreakdown.choices,
         required=False,
-        help_text="Split history by this property. Model uses each item's model, falling back to the experiment's model.",
+        help_text="Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.",
     )
 
     class Meta(OfflineHistoryQuerySerializer.Meta):
         fields = [*OfflineHistoryQuerySerializer.Meta.fields, "breakdown"]
 
 
+class ExperimentScoreSourceSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField()
+    version = serializers.IntegerField()
+    successful_items = serializers.IntegerField()
+    value = serializers.FloatField(allow_null=True)
+
+
+class ExperimentScoreInputSerializer(serializers.Serializer):
+    alias = serializers.CharField()
+    statistic = serializers.ChoiceField(choices=ExperimentScoreStatistic.choices)
+    version_policy = serializers.ChoiceField(choices=ExperimentScoreVersionPolicy.choices)
+    status = serializers.ChoiceField(choices=ExperimentScoreStatus.choices)
+    value = serializers.FloatField(allow_null=True)
+    sources = ExperimentScoreSourceSerializer(many=True)
+
+
+class ExperimentScorePreviewSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=ExperimentScoreStatus.choices)
+    kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices)
+    config = ScoreDefinitionConfigField(help_text="Output configuration used to interpret the result.")
+    passed = serializers.BooleanField(
+        allow_null=True, help_text="Passing verdict, or null without a value or passing rule."
+    )
+    value = ResultValueField(allow_null=True)
+    inputs = ExperimentScoreInputSerializer(many=True)
+
+
+class ExperimentScoreSerializer(ExperimentScorePreviewSerializer):
+    definition_id = serializers.UUIDField(help_text="Definition of the experiment scorer pinned to this run.")
+    scorer_version_id = serializers.UUIDField()
+    version = serializers.IntegerField()
+    name = serializers.CharField()
+
+
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    suite_has_score = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this suite has a visible default for future runs. Checked on experiment detail.",
+    )
+    experiment_score = ExperimentScoreSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Overall score from the run's pinned experiment formula, when visible.",
+    )
     updated_at = serializers.DateTimeField(
         required=False, allow_null=True, help_text="Most recent item, result, or payload change."
     )
@@ -498,7 +547,10 @@ class OfflineHistoryPointSerializer(serializers.Serializer):
         help_text="Breakdown value for this summary; null when unspecified or no breakdown is selected.",
     )
     experiment = OfflineExperimentReadSerializer(help_text="Experiment execution and cohort context.")
-    summary = OfflineScorerSummarySerializer(help_text="Complete summary for one experiment and scorer version.")
+    summary = OfflineScorerSummarySerializer(
+        allow_null=True,
+        help_text="Item score summary. For an experiment scorer, this is null and experiment.experiment_score holds the run's result.",
+    )
 
 
 @extend_schema_serializer(many=False)

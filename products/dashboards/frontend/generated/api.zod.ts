@@ -376,6 +376,36 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
 })
 
 /**
+ * Save a document as a new board at version 1.
+ */
+export const DashboardV2BoardsCreateBody = /* @__PURE__ */ zod.object({
+    spec: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.'
+        ),
+})
+
+/**
+ * Replace a board's document and add 1 to its version.
+ */
+
+export const DashboardV2BoardsUpdateBody = /* @__PURE__ */ zod.object({
+    spec: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept.'
+        ),
+    base_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.'
+        ),
+})
+
+/**
  * Run many panels' queries in one request and stream each result back as it is ready. Every query is read as the requesting user, keyed by its content, and cached hits come first.
  */
 export const dashboardV2QueryBatchCreateBodyQueriesItemTargetOneRefIdMax = 200

@@ -13,7 +13,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import type { SlackThreadJoinModeEnumApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
-import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 const UNTAGGED_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi; label: string }[] = [
@@ -74,22 +73,11 @@ function SettingRow({
 }
 
 export function SlackAppPersonalSettings(): JSX.Element {
-    const { settings, settingsLoading, slackIntegrations, integrationsLoading, personalSettingsDisabledReason } =
-        useValues(slackAppSettingsLogic)
+    const { settings, settingsLoading, personalSettingsDisabledReason } = useValues(slackAppSettingsLogic)
     const { updatePersonalSettings } = useActions(slackAppSettingsLogic)
 
-    if ((integrationsLoading || settingsLoading) && !settings) {
+    if (settingsLoading && !settings) {
         return <LemonSkeleton className="h-60" />
-    }
-    if (!slackIntegrations?.length) {
-        return (
-            <LemonBanner
-                type="info"
-                action={{ children: 'Go to integrations', to: urls.settings('environment-integrations') }}
-            >
-                Connect Slack to this project to change how PostHog works for you in Slack.
-            </LemonBanner>
-        )
     }
     if (!settings) {
         return <LemonBanner type="error">Couldn't load your Slack settings. Refresh the page to try again.</LemonBanner>
@@ -100,18 +88,15 @@ export function SlackAppPersonalSettings(): JSX.Element {
 
     if (!personal.slack_user_id) {
         return (
-            <div className="flex flex-col gap-2">
-                <SlackAppInstallPicker />
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Link Slack account',
-                        to: urls.settings('user-personal-integrations', 'personal-integrations-slack'),
-                    }}
-                >
-                    Link your Slack account in {workspaceName} to change how PostHog works for you there.
-                </LemonBanner>
-            </div>
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Link Slack account',
+                    to: urls.settings('user-personal-integrations', 'personal-integrations-slack'),
+                }}
+            >
+                Link your Slack account in {workspaceName} to change how PostHog works for you there.
+            </LemonBanner>
         )
     }
 
@@ -122,12 +107,9 @@ export function SlackAppPersonalSettings(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 max-w-200">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-secondary m-0">
-                    Linked to your Slack account in <strong className="text-primary">{workspaceName}</strong>.
-                </p>
-                <SlackAppInstallPicker />
-            </div>
+            <p className="text-secondary m-0">
+                Linked to your Slack account in <strong className="text-primary">{workspaceName}</strong>.
+            </p>
 
             <SettingsGroup title="Defaults">
                 <SettingRow label="Default project" description="The project PostHog uses when you tag it.">
