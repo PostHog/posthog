@@ -151,7 +151,8 @@ const toastRootStyles: React.CSSProperties = {
     bottom: 0,
     left: 'auto',
     width: '100%',
-    height: 'auto',
+    // Collapsed cards take the front card's height so a shorter one still peeks out from behind it.
+    height: 'var(--height)',
     zIndex: 'calc(1000 - var(--toast-index))',
     transformOrigin: 'bottom center',
     transform:
@@ -231,6 +232,7 @@ function ToastViewport(): React.ReactElement {
                                         'm-0 p-3',
                                         'data-[expanded]:![transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]',
                                         'data-[expanded]:![height:var(--toast-height)]',
+                                        'not-data-[expanded]:overflow-hidden',
                                         'data-[starting-style]:![transform:translateY(150%)]',
                                         'data-[ending-style]:![transform:translateY(150%)]',
                                         'data-[ending-style]:opacity-0',

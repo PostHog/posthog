@@ -22,7 +22,7 @@ export function AppToaster(): JSX.Element {
     }, [quill])
 
     if (quill) {
-        return <ToastProvider>{null}</ToastProvider>
+        return <ToastProvider limit={5}>{null}</ToastProvider>
     }
 
     return (
