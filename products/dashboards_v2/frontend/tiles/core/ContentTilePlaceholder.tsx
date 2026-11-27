@@ -2,8 +2,8 @@ import clsx from 'clsx'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@posthog/quill'
 
+import { ErrorBoundary, PANEL_ERROR_TAG } from '../../panels/core/ErrorBoundary'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
-import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { PanelLoading } from '../../panels/core/PanelView'
 import { INTERACTIVE_ONLY_CLASS } from './ContentTile'
@@ -42,9 +42,9 @@ export function ContentTilePlaceholder({
                 </CardHeader>
             )}
             <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                <PanelErrorBoundary panel={panel} fallback={<PanelLoading />}>
+                <ErrorBoundary resetKey={panel} tag={PANEL_ERROR_TAG} fallback={<PanelLoading />}>
                     <Loading panel={panel} />
-                </PanelErrorBoundary>
+                </ErrorBoundary>
             </CardContent>
         </Card>
     )

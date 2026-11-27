@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
-import { Spinner } from '@posthog/quill'
+import { Button, Spinner } from '@posthog/quill'
 import { ChartThemeProvider } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
@@ -63,7 +63,7 @@ export function DashboardScene({ uid }: DashboardSceneLogicProps): JSX.Element {
 
 function DashboardV2(): JSX.Element {
     const { dashboard, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(savedDashboardLogic)
-    const { undo, redo } = useActions(savedDashboardLogic)
+    const { undo, redo, loadBoard } = useActions(savedDashboardLogic)
     const { activeTabId } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -114,7 +114,16 @@ function DashboardV2(): JSX.Element {
     })
     if (!dashboard) {
         return unavailable ? (
-            <DashboardUnavailable problem={unavailable} />
+            <DashboardUnavailable
+                problem={unavailable}
+                actions={
+                    unavailable === 'error' && (
+                        <Button variant="outline" onClick={() => loadBoard()} data-attr="dashboard-v2-load-retry">
+                            Try again
+                        </Button>
+                    )
+                }
+            />
         ) : (
             <div className="flex justify-center p-8">
                 <Spinner />

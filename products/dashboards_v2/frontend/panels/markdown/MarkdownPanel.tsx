@@ -49,11 +49,32 @@ export function MarkdownPanel({ panel, setConfig }: PanelComponentProps<Markdown
     const text = panel.config.text
     const editable = !!setConfig
     const dirty = useRef(false)
+    const focusedOnPress = useRef(false)
 
     const editor = useEditor({
         extensions: EXTENSIONS,
         ...markdownContent(text),
         editable,
+        editorProps: {
+            // A tile's text is read far more than it is edited, so a click on a link follows it. Once a person is
+            // editing, a click places the cursor instead, and Cmd or Ctrl and click follows the link.
+            handleDOMEvents: {
+                mousedown: (view) => {
+                    focusedOnPress.current = view.hasFocus()
+                    return false
+                },
+            },
+            handleClick: (_view, _pos, event) => {
+                const href =
+                    event.target instanceof Element ? event.target.closest('a[href]')?.getAttribute('href') : null
+                if (!href || (focusedOnPress.current && !event.metaKey && !event.ctrlKey)) {
+                    return false
+                }
+                event.preventDefault()
+                window.open(href, '_blank', 'noopener,noreferrer')
+                return true
+            },
+        },
         shouldRerenderOnTransaction: false,
         immediatelyRender: true,
         onUpdate: () => {

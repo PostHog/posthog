@@ -138,27 +138,25 @@ function descriptionChoices(
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction[] {
+    // The description sits in the header, so a tile whose header is off has nothing to choose. A section always shows
+    // its header.
     const applies = tiles.flatMap(({ id, panel }) => {
-        if (!panel.description) {
+        if (!panel.description || !(isSectionPanel(panel) || showsPart(panel, 'header'))) {
             return []
         }
-        // A section always shows its header.
-        const header = isSectionPanel(panel) || showsPart(panel, 'header')
-        return [{ id, mode: shownDescription(panel).mode, header }]
+        return [{ id, mode: shownDescription(panel).mode }]
     })
     if (applies.length === 0) {
         return []
     }
     const ids = applies.map(({ id }) => id)
-    // The description sits in the header, so no choice changes anything while the header is off.
-    const headerOff = applies.every(({ header }) => !header) ? 'The header is off' : null
     return DESCRIPTION_MODES.map(({ mode, label }) => ({
         key: `description-${mode}`,
         label,
         section: 'Description',
         exclusive: true,
         dataAttr: `${menu.dataAttr}-description`,
-        disabledReason: disabledReason ?? headerOff,
+        disabledReason,
         checked: applies.every((tile) => tile.mode === mode),
         onSelect: () =>
             onEdit({ edit: 'setTilesAppearance', ids, appearance: { description: mode === 'icon' ? null : mode } }),

@@ -114,4 +114,11 @@
         align-self: stretch;
         margin: 4px 2px;
     }
+
+    /* Quill's raised key look suits a toggle on its own. In a packed toolbar each key's ledge reads as a stray line,
+       so the toggles sit flat like the block menu's button and show their state with the selected fill. */
+    > .quill-toggle {
+        box-shadow: none;
+        translate: none;
+    }
 }
