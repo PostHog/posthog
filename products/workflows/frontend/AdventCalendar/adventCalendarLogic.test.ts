@@ -1,9 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
+import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
@@ -11,6 +14,26 @@ import { adventCalendarLogic } from './adventCalendarLogic'
 
 const KEY = 'workflows-advent-calendar-progress'
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
+const CALENDAR_API = '/api/projects/:team_id/workflow_advent_calendar'
+
+type Reply = number | 'network error'
+
+function replyWith(reply: Reply, body: unknown): Response | [number, unknown] {
+    return reply === 'network error' ? HttpResponse.error() : [reply, body]
+}
+
+function calendarApi(answerReply: Reply = 200): { mocks: Mocks; answers: unknown[] } {
+    const answers: unknown[] = []
+    const mocks: Mocks = {
+        post: {
+            [`${CALENDAR_API}/answer/`]: async ({ request }) => {
+                answers.push(await request.json())
+                return replyWith(answerReply, { questions: [] })
+            },
+        },
+    }
+    return { mocks, answers }
+}
 
 function signIn(user: Partial<UserType>): void {
     userLogic.actions.loadUserSuccess({ ...userLogic.values.user, ...user } as UserType)
@@ -29,7 +52,7 @@ describe('adventCalendarLogic', () => {
     let capture: jest.SpyInstance
 
     beforeEach(() => {
-        jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0) })
+        jest.useFakeTimers({ now: new Date(2026, 11, 3, 9, 0), advanceTimers: true })
         window.localStorage.clear()
         capture = jest.spyOn(posthog, 'capture').mockImplementation()
         initKeaTests()
@@ -144,6 +167,21 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-3-lower')?.status).toBe('ready')
         expect(capture).toHaveBeenCalledWith('workflows advent answer picked', { day: 2, option: 'tim' })
     })
+
+    it.each<Reply>([200, 500, 'network error'])(
+        'sends a picked answer to the server and keeps the pick when it replies %s',
+        async (reply) => {
+            const sent = calendarApi(reply)
+            useMocks(sent.mocks)
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
+
+            await expectLogic(logic, () => logic.actions.answerDoor('door-2', 'tim')).toFinishAllListeners()
+
+            expect(sent.answers).toEqual([{ day: 2, option: 'tim' }])
+            expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        }
+    )
 
     it.each([
         ['a staff user', 'locked', true],
