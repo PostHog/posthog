@@ -6111,10 +6111,10 @@ Note: Read the official operation index and the individual reference pages for a
 
 Re-audited 2026-11-19 against: <https://fred.stlouisfed.org/docs/api/fred/>
 
-- [ ] `Series in a category (GET /fred/category/series)` — Lists which series sit in each synced category, so users can discover series without knowing IDs (medium)
-- [ ] `Series in a release (GET /fred/release/series)` — Lists series published by each synced release (medium)
-- [ ] `Releases of a source (GET /fred/source/releases)` — Joins each synced source to its releases (low)
-- [ ] `Series updates (GET /fred/series/updates)` — Recently updated series with timestamps, to see what changed (low)
+- [x] `Series in a category (GET /fred/category/series)` — Lists which series sit in each synced category, so users can discover series without knowing IDs (medium)
+- [x] `Series in a release (GET /fred/release/series)` — Lists series published by each synced release (medium)
+- [x] `Releases of a source (GET /fred/source/releases)` — Joins each synced source to its releases (low)
+- [x] `Series updates (GET /fred/series/updates)` — Recently updated series with timestamps, to see what changed (low)
 - [ ] `Category tags (GET /fred/category/tags)` — Tags attached to each category (low)
 - [ ] `Related categories (GET /fred/category/related)` — Related-category links for the category tree (series count is small) (low)
 
