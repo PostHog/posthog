@@ -155,16 +155,7 @@ const atEndpoints = (evidence: MeasureEvidence, measure: (reads: Read[]) => Meas
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
 
 const growthOf = (start: number | undefined, end: number | undefined): Measured[] =>
-    start === undefined || end === undefined
-        ? [unmeasured('no live rows at an end of the drive')]
-        : start === 0
-          ? [unmeasured('no bytes at the start of the drive')]
-          : [{ value: end / start }]
-
-const perRowAt = (edge: 'start' | 'end', value: number | undefined): Measured =>
-    value === undefined
-        ? { key: edge, ...unmeasured(`no live rows at the ${edge} of the drive`) }
-        : { key: edge, value }
+    start === undefined || end === undefined || start === 0 ? [] : [{ value: end / start }]
 
 const soakMeasure = (
     name: string,
@@ -203,10 +194,15 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
         })
     }),
     soakMeasure('index_bytes_per_row', 'bytes', (evidence) =>
-        atEndpoints(evidence, (reads) => [
-            perRowAt('start', indexesPerRow(reads[0])),
-            perRowAt('end', indexesPerRow(reads.at(-1)!)),
-        ])
+        atEndpoints(evidence, (reads) => {
+            const [start, end] = [indexesPerRow(reads[0]), indexesPerRow(reads.at(-1)!)]
+            return start === undefined || end === undefined
+                ? []
+                : [
+                      { key: 'start', value: start },
+                      { key: 'end', value: end },
+                  ]
+        })
     ),
     soakMeasure('bloat_growth', 'ratio', (evidence) =>
         atEndpoints(evidence, (reads) => {
@@ -271,9 +267,7 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       evidence,
                       params,
                       (window) => {
-                          const pickups = pickupsBetween(evidence.samples, [role], window, {
-                              straddle: window.to >= evidence.drive.endedAt,
-                          })
+                          const pickups = pickupsBetween(evidence.samples, [role], window, { straddle: false })
                           if ('unread' in pickups) {
                               return unmeasured(pickups.unread)
                           }
