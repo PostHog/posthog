@@ -200,6 +200,7 @@ describe('soak measurements', () => {
         ],
     ])('%s', (_story, vacuum, expected) => {
         expect(measured('autovacuum_runs', { vacuum })).toEqual(expected)
+        expect(measured('autovacuum_seconds', { vacuum })).toEqual([])
     })
 
     it('keeps the longest wait since the last autovacuum in each window, censored while the table had none', () => {
