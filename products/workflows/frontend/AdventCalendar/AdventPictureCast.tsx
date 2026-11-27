@@ -65,26 +65,37 @@ export function AdventPictureCast({
             {hogs.map(({ door, reward }) => {
                 const ground = adventDoorGround(door)
                 const size = { '--advent-hog-size': `${adventHogSize(door) / 12}cqw` } as CSSProperties
+                const art = (
+                    <>
+                        <span className="AdventPicture__shadow" />
+                        <AdventRewardArt reward={reward} className="relative size-full" isTitled />
+                    </>
+                )
                 return (
                     <span
                         key={door.id}
                         className="AdventPicture__spot"
                         style={{ ...adventPictureAt(ground), zIndex: Math.round(ground.y) }}
                     >
-                        <button
-                            type="button"
-                            data-attr={`advent-hog-${door.day}`}
-                            aria-label={`Door ${door.day}, open: ${reward.name}`}
-                            className={cn('AdventPicture__hog', onSelectHog && 'AdventPicture__hog--button')}
-                            style={size}
-                            disabled={!onSelectHog}
-                            onClick={onSelectHog && (() => onSelectHog(door.id))}
-                            onMouseEnter={onSelectHog && (() => onEnterDoor?.(door.id))}
-                            onMouseLeave={onSelectHog && onLeaveDoor}
-                        >
-                            <span className="AdventPicture__shadow" />
-                            <AdventRewardArt reward={reward} className="relative size-full" isTitled />
-                        </button>
+                        {onActivateDoor ? (
+                            <button
+                                type="button"
+                                data-attr={`advent-hog-${door.day}`}
+                                aria-label={`Door ${door.day}, open: ${reward.name}`}
+                                className={cn('AdventPicture__hog', onSelectHog && 'AdventPicture__hog--button')}
+                                style={size}
+                                disabled={!onSelectHog}
+                                onClick={onSelectHog && (() => onSelectHog(door.id))}
+                                onMouseEnter={onSelectHog && (() => onEnterDoor?.(door.id))}
+                                onMouseLeave={onSelectHog && onLeaveDoor}
+                            >
+                                {art}
+                            </button>
+                        ) : (
+                            <span data-attr={`advent-hog-${door.day}`} className="AdventPicture__hog" style={size}>
+                                {art}
+                            </span>
+                        )}
                         {door.question && door.answer && (
                             <span className="AdventPicture__pick" data-attr="advent-door-pick">
                                 <span className="AdventPicture__pick-topic">{door.question.topic}</span>
