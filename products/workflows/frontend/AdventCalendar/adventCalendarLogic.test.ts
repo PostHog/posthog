@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
@@ -63,8 +64,11 @@ describe('adventCalendarLogic', () => {
 
     it('keeps a door shut until its day comes, then unlocks it on an open page', () => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
+        logic.actions.finishReveal()
         logic.actions.activateDoor('door-3-upper')
+        logic.actions.finishReveal()
         logic.actions.activateDoor('door-4-upper')
 
         expect(doorOf(logic, 'door-3-upper')?.status).toBe('open')
@@ -87,6 +91,7 @@ describe('adventCalendarLogic', () => {
 
     it('keeps an answer saved in another tab when this tab opens the next door', () => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         window.dispatchEvent(
             new StorageEvent('storage', {
                 key: KEY,
@@ -107,6 +112,7 @@ describe('adventCalendarLogic', () => {
         ['tim', 'james'],
     ])('settles on one answer when this tab picks %s and another picks %s', (here, there) => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', here)
         const otherTab = JSON.stringify({
             [UUID]: { opened: [1, 2], answers: { 2: there } },
@@ -125,6 +131,7 @@ describe('adventCalendarLogic', () => {
 
     it('takes the answer another tab stored before its event arrives, so the reward does not swap later', () => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
 
         logic.actions.answerDoor('door-2', 'james')
@@ -133,8 +140,23 @@ describe('adventCalendarLogic', () => {
         expect(capture).not.toHaveBeenCalledWith('workflows advent answer picked', expect.anything())
     })
 
+    it('ignores another door while a reveal runs, then opens it once the reveal ends', () => {
+        logic.actions.activateDoor('door-1')
+        logic.actions.answerDoor('door-2', 'tim')
+
+        expect(logic.values.revealingDoor?.id).toBe('door-1')
+        expect(doorOf(logic, 'door-2')?.status).toBe('ready')
+
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', 'tim')
+
+        expect(logic.values.revealingDoor?.id).toBe('door-2')
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+    })
+
     it('leaves a newer save from another tab untouched when a door that stays locked is clicked', () => {
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
         const newer = JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }, null, 2)
         window.localStorage.setItem(KEY, newer)
 
@@ -157,6 +179,7 @@ describe('adventCalendarLogic', () => {
         logic = adventCalendarLogic()
         logic.mount()
         logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
 
         window.localStorage.setItem(KEY, value)
         window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: value }))
@@ -170,9 +193,18 @@ describe('adventCalendarLogic', () => {
         })
     })
 
-    it('opens a question door with the answer and drops the path not taken', () => {
+    it('opens a question door with the answer and puffs away the path not taken', async () => {
         logic.actions.activateDoor('door-1')
-        logic.actions.answerDoor('door-2', 'tim')
+        logic.actions.finishReveal()
+
+        await expectLogic(logic, () => {
+            logic.actions.answerDoor('door-2', 'tim')
+        }).toMatchValues({
+            snowPuffs: [
+                expect.objectContaining({ id: 'door-3-upper' }),
+                expect.objectContaining({ id: 'door-4-upper' }),
+            ],
+        })
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
         expect(doorOf(logic, 'door-3-upper')).toBeNull()

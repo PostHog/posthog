@@ -1,9 +1,12 @@
-import { Suspense } from 'react'
+import { useValues } from 'kea'
+import { lazy, Suspense } from 'react'
 
 import { IconTableOfContents } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { lazyWithRetry } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 
 /**
  * Registry for custom nav icons that need dynamic behavior (e.g., badges, counters).
@@ -27,6 +30,29 @@ function DataCatalogNavBadge({ className }: { className?: string }): JSX.Element
     )
 }
 
+function NoNavSuffix(): null {
+    return null
+}
+
+const LazyAdventNavTree = lazy<() => JSX.Element | null>(() =>
+    retryImport(() => import('products/workflows/frontend/AdventCalendar/AdventNavTree')).then(
+        (module) => ({ default: module.AdventNavTree }),
+        () => ({ default: NoNavSuffix })
+    )
+)
+
+function WorkflowsNavSuffix(): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]) {
+        return null
+    }
+    return (
+        <Suspense fallback={null}>
+            <LazyAdventNavTree />
+        </Suspense>
+    )
+}
+
 /**
  * Map of item types to custom icon components.
  * When an item's `type` matches a key here, the custom component is used instead of iconForType.
@@ -43,6 +69,15 @@ export const customIconRegistry: Record<string, React.ComponentType<{ className?
 export const customNavCountRegistry = {
     conversations: useSupportUnreadCount,
 } satisfies Record<string, () => number>
+
+const customNavSuffixRegistry: Record<string, React.ComponentType> = {
+    workflows: WorkflowsNavSuffix,
+}
+
+export function CustomNavSuffix({ type }: { type?: string }): JSX.Element | null {
+    const Suffix = type ? customNavSuffixRegistry[type] : undefined
+    return Suffix ? <Suffix /> : null
+}
 
 /**
  * Get a custom icon component for the given type, or undefined if none registered.
