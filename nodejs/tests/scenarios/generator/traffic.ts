@@ -12,7 +12,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
-import { mayHaveQueued } from '../judge/invariants'
 import type { FollowUpAnswer, IntakeAnswer, JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 import type { SesFeedback } from './ses-feedback'
@@ -258,8 +257,6 @@ export const bounceFollowup: TrafficKind = {
 
 const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
-export const INTAKE_ANSWER_TIMEOUT_MS = 10_000
-
 export const REAL_CLOCK: SendClock = {
     now: () => performance.now(),
     wait: async (ms, signal) => {
@@ -267,11 +264,8 @@ export const REAL_CLOCK: SendClock = {
     },
 }
 
-const withRetries = (answer: IntakeAnswer, retries: number, unconfirmedAttempt: boolean): JournalEntry['answer'] => ({
-    ...answer,
-    ...(retries === 0 ? {} : { retries }),
-    ...(unconfirmedAttempt && !answer.accepted ? { unconfirmedAttempt: true as const } : {}),
-})
+const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
+    retries === 0 ? answer : { ...answer, retries }
 
 function sendTransactional(
     unit: Unit,
@@ -289,19 +283,17 @@ async function sendWithRetries(
 ): Promise<JournalEntry['answer']> {
     const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const deadline = clock.now() + deadlineMs
-    let unconfirmedAttempt = false
     for (let retry = 0; ; retry += 1) {
         const answer = await post()
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
-            return withRetries(answer, retry, unconfirmedAttempt)
+            return withRetries(answer, retry)
         }
         await clock.wait(waitMs, signal)
         signal.throwIfAborted()
         if (clock.now() > deadline) {
-            return withRetries(answer, retry, unconfirmedAttempt)
+            return withRetries(answer, retry)
         }
-        unconfirmedAttempt ||= mayHaveQueued(answer)
     }
 }
 
@@ -323,7 +315,6 @@ async function postToIntake(requestOf: () => IntakeRequest): Promise<IntakeAnswe
     try {
         const { url, headers, body } = requestOf()
         const response = await internalFetch(url, {
-            timeoutMs: INTAKE_ANSWER_TIMEOUT_MS,
             method: 'POST',
             headers: { 'content-type': 'application/json', ...headers },
             body: JSON.stringify(body),
