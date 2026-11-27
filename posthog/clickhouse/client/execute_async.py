@@ -247,7 +247,7 @@ def execute_process_query(
     analytics_props: Optional["AnalyticsProps"] = None,
     sharing_configuration_id: Optional[int] = None,
     staff_rights_withheld: bool = False,
-):
+) -> None:
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
 
