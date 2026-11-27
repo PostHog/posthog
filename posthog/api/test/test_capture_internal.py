@@ -114,25 +114,20 @@ def _make_event(
 
 class TestBuildV1Headers(SimpleTestCase):
     def test_all_required_headers_present(self) -> None:
-        headers = _build_v1_headers("phc_test123", attempt=1)
+        headers = _build_v1_headers("phc_test123", attempt=1, request_id="0199c3e8-4c7b-7e2e-9f21-2b6d5a1c9e04")
         assert headers["Authorization"] == "Bearer phc_test123"
         assert headers["Content-Type"] == "application/json"
         assert "posthog-capture-v1-internal" in headers["User-Agent"]
         assert headers["PostHog-Sdk-Info"] == "posthog-capture-v1-internal/1.0"
         assert headers["PostHog-Attempt"] == "1"
-        assert len(headers["PostHog-Request-Id"]) == 36
+        assert headers["PostHog-Request-Id"] == "0199c3e8-4c7b-7e2e-9f21-2b6d5a1c9e04"
         assert "T" in headers["PostHog-Request-Timestamp"]
 
     def test_attempt_increments(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=3)
+        h1 = _build_v1_headers("tok", attempt=1, request_id="r")
+        h2 = _build_v1_headers("tok", attempt=3, request_id="r")
         assert h1["PostHog-Attempt"] == "1"
         assert h2["PostHog-Attempt"] == "3"
-
-    def test_request_id_unique_per_call(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=1)
-        assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
 
 
 class TestNormalizeOptionsAndProperties(SimpleTestCase):
@@ -649,7 +644,7 @@ class TestCaptureBatchInternal(SimpleTestCase):
         # Second request should have incremented attempt and only retry uuid.
         second_headers = spy.calls[1]["headers"]
         assert second_headers["PostHog-Attempt"] == "2"
-        assert second_headers["PostHog-Request-Id"] != spy.calls[0]["headers"]["PostHog-Request-Id"]
+        assert second_headers["PostHog-Request-Id"] == spy.calls[0]["headers"]["PostHog-Request-Id"]
         second_batch = spy.calls[1]["json"]["batch"]
         assert len(second_batch) == 1
         assert second_batch[0]["uuid"] == u_retry
@@ -705,7 +700,7 @@ class TestCaptureBatchInternal(SimpleTestCase):
         h2 = spy.calls[1]["headers"]
         assert h1["PostHog-Attempt"] == "1"
         assert h2["PostHog-Attempt"] == "2"
-        assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
+        assert h1["PostHog-Request-Id"] == h2["PostHog-Request-Id"]
         for h in (h1, h2):
             assert "Authorization" in h
             assert "PostHog-Sdk-Info" in h

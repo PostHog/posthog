@@ -237,14 +237,14 @@ def _reported_reason(details: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
+def _build_v1_headers(token: str, attempt: int, request_id: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "User-Agent": SDK_INFO,
         "PostHog-Sdk-Info": SDK_INFO,
         "PostHog-Attempt": str(attempt),
-        "PostHog-Request-Id": str(uuid4()),
+        "PostHog-Request-Id": request_id,
         "PostHog-Request-Timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -570,8 +570,10 @@ def _submit_batch_chunk(
             ),
         )
 
+        # Capture v1 expects one PostHog-Request-Id for every attempt of a batch; only the attempt and timestamp change.
+        request_id = str(uuid4())
         while True:
-            headers = _build_v1_headers(token, attempt)
+            headers = _build_v1_headers(token, attempt, request_id)
             submit_payload: dict[str, Any] = {
                 "created_at": payload["created_at"],
                 "capture_internal": payload["capture_internal"],
