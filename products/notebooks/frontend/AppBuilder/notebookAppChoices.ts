@@ -1,6 +1,6 @@
 import { createContext } from 'react'
 
-import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
+import type { NotebookBlockNode, NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MAX_NOTEBOOK_VARIABLE_VALUE_CHARS } from 'scenes/notebooks/Notebook/notebookVariables'
 
@@ -8,9 +8,13 @@ import type { NotebookAppBlockApi } from '../generated/api.schemas'
 
 export type AppChoices = { values: string[]; partial: boolean }
 
-export function dropdownOptions(block: NotebookAppBlockApi, choices?: AppChoices | null): string[] | undefined {
+export type QueryChoiceResult = AppChoices | 'unavailable' | null
+
+export function dropdownOptions(block: NotebookAppBlockApi, choices?: QueryChoiceResult): string[] | undefined {
     return block.input_kind === 'query_select'
-        ? (choices?.values ?? [])
+        ? choices && choices !== 'unavailable'
+            ? choices.values
+            : []
         : block.input_kind === 'select'
           ? (block.options ?? [])
           : undefined
@@ -59,4 +63,26 @@ export function draftChoices(cell: NotebookBlockNode | undefined, column: string
         : null
 }
 
-export const NotebookAppQueryChoicesContext = createContext(draftChoices)
+export const NotebookAppQueryChoicesContext =
+    createContext<(cell: NotebookBlockNode | undefined, column: string) => QueryChoiceResult>(draftChoices)
+
+export function hiddenChoiceSources(
+    cells: NotebookBlockNode[],
+    blocks: NotebookAppBlockApi[],
+    tabId: string
+): NotebookComponentBlockNode[] {
+    const options = new Set(
+        blocks
+            .filter((block) => block.kind === 'input' && block.input_kind === 'query_select')
+            .map((block) => block.node_id)
+    )
+    for (const block of blocks) {
+        if (block.kind === 'cell' && block.tab_id === tabId && block.display !== 'source') {
+            options.delete(block.node_id)
+        }
+    }
+    return cells.filter(
+        (cell): cell is NotebookComponentBlockNode =>
+            cell.type === 'component' && options.has(cell.id) && !!sqlChoiceSource(cell)
+    )
+}

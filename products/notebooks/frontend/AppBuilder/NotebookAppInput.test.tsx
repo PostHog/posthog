@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import type { NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import { NotebookAppQueryChoicesContext } from './notebookAppChoices'
 import { NotebookAppInput } from './NotebookAppInput'
 
 it('adds a whole dropdown option to a list and clears the selection', async () => {
@@ -33,4 +34,18 @@ it('adds a whole dropdown option to a list and clears the selection', async () =
     await userEvent.click(await screen.findByText('Clear all'))
     expect(selected.queryByText('North')).toBeNull()
     expect(selected.queryByText('East, West')).toBeNull()
+})
+
+it('explains how to recover unavailable published query options', () => {
+    render(
+        <NotebookAppQueryChoicesContext.Provider value={() => 'unavailable'}>
+            <NotebookAppInput
+                block={{ id: 'regions', tab_id: 'overview', kind: 'input', input_kind: 'query_select' }}
+                variable={{ name: 'region', type: 'string', value: '' }}
+                disabled={false}
+                onChange={jest.fn()}
+            />
+        </NotebookAppQueryChoicesContext.Provider>
+    )
+    expect(screen.getByRole('status').textContent).toContain('Refresh results')
 })

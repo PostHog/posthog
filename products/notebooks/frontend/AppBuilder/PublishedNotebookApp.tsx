@@ -99,6 +99,9 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                         return queryChoices(current.columns, current.results, column, !!current.hasMore)
                     }
                     const saved = savedQueryResult(attributes, publishedResults[cell.id])
+                    if (saved === 'unavailable') {
+                        return saved
+                    }
                     return saved && typeof saved === 'object'
                         ? queryChoices(saved.result.columns, saved.result.results, column, saved.rows !== 'complete')
                         : null

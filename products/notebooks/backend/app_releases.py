@@ -104,6 +104,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         if block.needs_result and block.node_id in sources and sources[block.node_id].tag_name in ("SQLV2", "PythonV2")
     }
     states = release_cell_states(notebook, result_ids)
+    unsupported = unsupported_viewer_cells(states)
     problems: list[str] = []
     completed: list[datetime] = []
     for block in blocks:
@@ -117,6 +118,8 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             problems.append(f"{name}: the source cell is missing.")
         elif block.needs_query_choices and sources[node_id].tag_name != "SQLV2":
             problems.append(f"{name}: choose a native SQL cell for dropdown options.")
+        elif block.needs_query_choices and node_id in unsupported:
+            problems.append(f"{name}: choose a native SQL cell that only depends on native SQL.")
         elif block.needs_result and node_id in result_ids:
             cell = states.get(node_id)
             if not cell or not cell.last_run or cell.status != "done":
@@ -127,11 +130,7 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             if props.get("runId") != cell.last_run["run_id"] or not isinstance(props.get("result"), dict):
                 problems.append(f"{name}: run the preview and wait for the result to save.")
                 continue
-            if block.needs_query_choices and (
-                cell.connection_id
-                or cell.send_raw_query
-                or block.option_column not in props["result"].get("columns", [])
-            ):
+            if block.needs_query_choices and block.option_column not in props["result"].get("columns", []):
                 problems.append(f"{name}: choose a result column from a native SQL cell.")
                 continue
             completed.append(cell.last_run["finished_at"])
@@ -140,6 +139,17 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
         results_as_of=min(completed, default=None),
         has_previous=notebook.app_published is not None and releases_for(notebook)[1:2].exists(),
     )
+
+
+def unsupported_viewer_cells(cells: dict[str, NotebookCellState]) -> set[str]:
+    pending = [cell for cell in cells.values() if cell.cell_type != "sql" or cell.connection_id or cell.send_raw_query]
+    excluded = {cell.node_id for cell in pending}
+    while pending:
+        for node_id in pending.pop().dependents:
+            if node_id in cells and node_id not in excluded:
+                excluded.add(node_id)
+                pending.append(cells[node_id])
+    return excluded
 
 
 def release_cell_states(notebook: Notebook, result_ids: set[str]) -> dict[str, NotebookCellState]:

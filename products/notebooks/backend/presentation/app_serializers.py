@@ -87,7 +87,11 @@ class NotebookAppBlockSerializer(serializers.Serializer):
         choices=NotebookAppInputKind.choices, default="auto", help_text="Control used for an input."
     )
     option_column = serializers.CharField(
-        max_length=256, allow_blank=True, default="", help_text="Column supplying choices for a query dropdown."
+        max_length=256,
+        allow_blank=True,
+        trim_whitespace=False,
+        default="",
+        help_text="Column supplying choices for a query dropdown.",
     )
     options = serializers.ListField(
         child=serializers.CharField(max_length=1000),

@@ -10,7 +10,7 @@ import { coerceNotebookVariableValue } from 'scenes/notebooks/Notebook/notebookV
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookVariableListInput } from '../NotebookVariableListInput'
-import { dropdownOptions, NotebookAppQueryChoicesContext, type AppChoices } from './notebookAppChoices'
+import { dropdownOptions, NotebookAppQueryChoicesContext, type QueryChoiceResult } from './notebookAppChoices'
 
 type InputProps = {
     variable: NotebookVariable
@@ -134,7 +134,14 @@ function QueryChoiceStatus({
     variable,
     disabled,
     onChange,
-}: InputProps & { choices?: AppChoices | null }): JSX.Element {
+}: InputProps & { choices?: QueryChoiceResult }): JSX.Element {
+    if (choices === 'unavailable') {
+        return (
+            <small role="status">
+                Could not load the saved choices. Refresh results to run the options query again.
+            </small>
+        )
+    }
     if (!choices) {
         return <small role="status">Choices will be available when the options query has a result.</small>
     }

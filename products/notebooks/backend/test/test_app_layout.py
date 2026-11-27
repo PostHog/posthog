@@ -11,9 +11,13 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.notebooks.backend.app_releases import review_sources
+from products.notebooks.backend.facade.contracts import AppBlockSource
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.presentation.app_serializers import NotebookAppBlockSerializer
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
+from products.notebooks.backend.sql_v2_state import NotebookCellState
 
 LAYOUT = {
     "tabs": [{"id": "overview", "title": "Overview"}],
@@ -43,6 +47,37 @@ def test_partial_notebook_update_requires_a_complete_valid_app_layout(layout: di
     serializer = NotebookSerializer(data={"app_draft": layout}, partial=True)
     assert not serializer.is_valid()
     assert "app_draft" in serializer.errors
+
+
+def test_option_column_preserves_sql_identifier_whitespace() -> None:
+    block = NotebookAppBlockSerializer(
+        data={
+            "id": "options",
+            "kind": "input",
+            "tab_id": "overview",
+            "variable": "region",
+            "input_kind": "query_select",
+            "node_id": "regions",
+            "option_column": " region ",
+        }
+    )
+    assert block.is_valid(), block.errors
+    assert block.validated_data["option_column"] == " region "
+
+
+def test_publish_review_rejects_option_sources_with_non_native_ancestors() -> None:
+    notebook = Notebook(variables=[{"name": "region", "type": "string", "value": ""}])
+    source = AppBlockSource(id="options", kind="input", input_kind="query_select", variable="region", node_id="regions")
+    with patch(
+        "products.notebooks.backend.app_releases.release_cell_states",
+        return_value={
+            "python": NotebookCellState(node_id="python", cell_type="python", dependents=["joined", "off-canvas"]),
+            "joined": NotebookCellState(node_id="joined", cell_type="sql", dependents=["regions"]),
+            "regions": NotebookCellState(node_id="regions", cell_type="sql"),
+        },
+    ):
+        review = review_sources(notebook, '<SQLV2 nodeId="regions" code="select * from joined" />', [source])
+    assert review.problems == ["options: choose a native SQL cell that only depends on native SQL."]
 
 
 class TestNotebookAppLayout(APIBaseTest):

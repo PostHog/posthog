@@ -7,7 +7,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.exceptions import Conflict
 
 from products.notebooks.backend.app_release_results import app_result_node_ids
-from products.notebooks.backend.app_releases import read_release
+from products.notebooks.backend.app_releases import read_release, unsupported_viewer_cells
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
@@ -53,14 +53,7 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)
     by_id = {cell.node_id: cell for cell in cells}
-    unsupported = [cell for cell in cells if cell.cell_type != "sql" or cell.connection_id or cell.send_raw_query]
-    excluded = {cell.node_id for cell in unsupported}
-    while unsupported:
-        for dependent in unsupported.pop().dependents:
-            if dependent not in excluded:
-                excluded.add(dependent)
-                unsupported.append(by_id[dependent])
-    displayed = (displayed & by_id.keys()) - excluded
+    displayed = (displayed & by_id.keys()) - unsupported_viewer_cells(by_id)
     required = set(displayed)
     pending = list(displayed)
     while pending:

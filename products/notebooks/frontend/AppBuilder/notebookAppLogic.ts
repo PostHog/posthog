@@ -606,11 +606,21 @@ export const notebookAppLogic: LogicWrapper<notebookAppLogicType> = kea<notebook
             }
             actions.addBlock('cell', { node_id: pinned.nodeId, title: appCellTitle(cell), display: 'output' })
         },
-        updateBlock: ({ id, patch }) =>
+        updateBlock: ({ id, patch }) => {
+            if (patch.node_id) {
+                const pinned = pinAppCell(values.markdownEditorValue, patch.node_id)
+                if (pinned.markdown !== values.markdownEditorValue) {
+                    const notebook = notebookLogic({ shortId: props.shortId })
+                    notebook.actions.handleMarkdownEditorChange(pinned.markdown)
+                    notebook.actions.saveNotebookNow()
+                    patch = { ...patch, node_id: pinned.nodeId }
+                }
+            }
             actions.changeLayout({
                 ...values.layout,
                 blocks: values.layout.blocks.map((block) => (block.id === id ? { ...block, ...patch } : block)),
-            }),
+            })
+        },
         removeBlock: ({ id }) => {
             actions.changeLayout({ ...values.layout, blocks: values.layout.blocks.filter((block) => block.id !== id) })
             actions.selectBlock(null)
