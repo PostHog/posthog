@@ -14,7 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween, withoutBuckets, worstP99Of } from './pickups'
+import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween } from './pickups'
 
 export type MetricSample = {
     role: string
@@ -208,7 +208,7 @@ const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
 function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
     const endsBefore = writer.map(committedAt).filter((end) => end < from)
-    let probedUntil = endsBefore.length > 0 ? Math.max(...endsBefore) : from
+    let probedUntil = endsBefore.length > 0 ? maxOf(endsBefore) : from
     let longest = 0
     for (const sample of byTime(writer)) {
         if (sample.at >= to || committedAt(sample) <= probedUntil) {
@@ -506,9 +506,19 @@ const SERIES_WINDOW_MS = 60_000
 const WRITER_PROBE_GAP_MS = 10_000
 const WRITER_PROBE_LONGEST_IDLE_MS = 1_500
 
-type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true; reset?: true }
+type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true; unmeasured?: string }
 
-type SeriesPoint = { offsetS: number; value: number | null; recovered: boolean; censored?: true; incomplete?: true }
+type SeriesPoint = {
+    offsetS: number
+    value: number | null
+    recovered: boolean
+    censored?: true
+    incomplete?: true
+    unmeasured?: string
+}
+
+const NO_WHOLE_MINUTE = 'the valve phase holds no whole minute'
+const UNBOUNDED_PICKUPS = "scrape windows cannot bound a minute's pickups"
 
 type Series = { baseline: number | null; bar: number | null; points: SeriesPoint[]; valve: Phase }
 
@@ -527,7 +537,7 @@ function windowsOf(phase: Phase): Phase[] {
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase, final: boolean, baseline: boolean) => WindowP99,
+    p99: (window: Phase, baseline: boolean) => WindowP99,
     { wholeMinutes = false } = {}
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
@@ -535,26 +545,30 @@ function seriesOver(
     if (valve === undefined || recent === undefined) {
         return undefined
     }
-    const reference = p99(recent, false, true)
+    const reference = p99(recent, true)
     const usable = reference.value !== null && reference.clean && !reference.censored
     const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
-    const untrusted = reference.reset === true
     const judged = wholeMinutes
         ? {
               from: valve.from,
               to: valve.from + Math.floor((valve.to - valve.from) / SERIES_WINDOW_MS) * SERIES_WINDOW_MS,
           }
         : valve
-    const points = windowsOf(judged).map((window): SeriesPoint => {
-        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to, false)
-        return {
-            offsetS: seconds(window.from - valve.from),
-            value,
-            recovered: bar !== null && value !== null && clean && value <= bar,
-            ...(censored || untrusted ? { censored: true as const } : {}),
-            ...(incomplete ? { incomplete } : {}),
-        }
-    })
+    const windows = windowsOf(judged)
+    const points =
+        windows.length === 0
+            ? [{ offsetS: 0, value: null, recovered: false, censored: true as const, unmeasured: NO_WHOLE_MINUTE }]
+            : windows.map((window): SeriesPoint => {
+                  const { value, clean, censored, incomplete, unmeasured } = p99(window, false)
+                  return {
+                      offsetS: seconds(window.from - valve.from),
+                      value,
+                      recovered: bar !== null && value !== null && clean && value <= bar,
+                      ...(censored ? { censored } : {}),
+                      ...(incomplete ? { incomplete } : {}),
+                      ...(unmeasured ? { unmeasured } : {}),
+                  }
+              })
     return { baseline: usable ? reference.value : null, bar, points, valve }
 }
 
@@ -565,10 +579,11 @@ const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] =>
     { key: `${prefix}baseline`, ...valueOf(baseline) },
     { key: `${prefix}bar`, ...valueOf(bar) },
     ...points.map(
-        ({ offsetS, value, censored, incomplete }): Measured => ({
+        ({ offsetS, value, censored, incomplete, unmeasured }): Measured => ({
             key: `${prefix}t${offsetS}`,
             ...valueOf(value, censored),
             ...(incomplete ? { incomplete } : {}),
+            ...(unmeasured ? { unmeasured } : {}),
         })
     ),
 ]
@@ -587,7 +602,7 @@ function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Serie
     const ends = writer.map(committedAt).sort((a, b) => a - b)
     return seriesOver(
         { drive, timeline },
-        (window, _final, baseline) => {
+        (window, baseline) => {
             const ended = writer.filter(
                 (sample) => within(window, committedAt(sample)) && (!baseline || within(window, sample.at))
             )
@@ -616,30 +631,23 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
         if (!samples.some((sample) => sample.role === role)) {
             return []
         }
-        const series = seriesOver({ drive, timeline }, (window, final, baseline) => {
-            const pickups = pickupsBetween(samples, [role], window, {
-                straddlesEnd: final,
-                ...(baseline ? { fetchedBefore: window.to } : {}),
-            })
+        const series = seriesOver({ drive, timeline }, (window, baseline): WindowP99 => {
+            if (!baseline) {
+                return { value: null, clean: false, censored: true, unmeasured: UNBOUNDED_PICKUPS }
+            }
+            const pickups = pickupsBetween(samples, [role], window, { straddlesEnd: false, fetchedBefore: window.to })
             if (pickups.reset) {
-                return { value: null, clean: false, censored: true, incomplete: true, reset: true }
+                return { value: null, clean: false, censored: true }
             }
             if ('unread' in pickups) {
                 return { value: null, clean: false, incomplete: true }
             }
-            const unobserved = pickups.unobservedTail ? { incomplete: true as const } : {}
-            const closing = pickups.closing[queue] ?? {}
-            const buckets = withoutBuckets(pickups.picked[queue] ?? {}, closing)
+            const buckets = pickups.picked[queue] ?? {}
             if ((buckets['+Inf'] ?? 0) === 0) {
-                return { value: null, clean: false, ...unobserved }
+                return { value: null, clean: false }
             }
-            const { value, beyond } = pickups.unobservedTail ? p99Of(buckets) : worstP99Of(buckets, closing)
-            return {
-                value,
-                clean: !beyond && !pickups.unobservedTail,
-                ...(beyond ? { censored: true as const } : {}),
-                ...unobserved,
-            }
+            const { value, beyond } = p99Of(buckets)
+            return { value, clean: !beyond, ...(beyond ? { censored: true as const } : {}) }
         })
         return series ? [[queue, series] as [string, Series]] : []
     })
@@ -773,8 +781,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
                 key,
                 value: null,
                 censored: true as const,
-                unmeasured:
-                    'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on',
+                unmeasured: UNBOUNDED_PICKUPS,
             })),
     },
     {
