@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
-import type { VacuumRead, VacuumSample } from '../probe/vacuum-probe'
+import { VACUUM_PROBE_EVERY_MS, VacuumRead, VacuumSample } from '../probe/vacuum-probe'
 import { WORKER_OF, p99Of, pickupsBetween } from './bars'
 import type { MeasureEvidence, MeasurementDefinition } from './measurements'
 
@@ -9,13 +9,25 @@ type Read = VacuumSample & { at: number }
 
 type Window = { from: number; to: number }
 
-type Point = { value: number; censored?: true } | { value: null; censored: true; unmeasured: string }
+type Point = { value: number; censored?: true; incomplete?: true } | { value: null; censored: true; unmeasured: string }
 
 type Measured = ReturnType<MeasurementDefinition['measure']>[number]
 
-const SeriesParams = z.object({ every: Duration.default('10m') }).strict()
+const SeriesParams = z
+    .object({
+        every: Duration.default('10m').refine((every) => durationMs(every) >= VACUUM_PROBE_EVERY_MS, {
+            message: `a series window spans at least ${VACUUM_PROBE_EVERY_MS / 1000}s, one vacuum sample`,
+        }),
+    })
+    .strict()
 
 const NO_VACUUM_SAMPLE = 'no vacuum sample in the window'
+
+const MINUTE_MS = 60_000
+
+const ENDPOINT_WITHIN_MS = 2 * VACUUM_PROBE_EVERY_MS
+
+const WORKERS_HIDDEN = 'the database role cannot see autovacuum workers, so no run start was read'
 
 const readsOf = (vacuum: readonly VacuumRead[] | undefined): Read[] =>
     (vacuum ?? []).filter((read): read is Read => !('error' in read)).sort((a, b) => a.at - b.at)
@@ -54,6 +66,8 @@ const perRow = (bytes: number, { liveTuples }: Read): number | undefined =>
 
 const heapPerRow = (read: Read): number | undefined => perRow(read.heapBytes, read)
 
+const toastPerRow = (read: Read): number | undefined => perRow(read.toastBytes, read)
+
 const indexesPerRow = (read: Read): number | undefined =>
     perRow(
         Object.values(read.indexBytes).reduce((sum, bytes) => sum + bytes, 0),
@@ -74,24 +88,73 @@ function sinceAutovacuum(read: Read, { drive }: MeasureEvidence): { value: numbe
 
 type Run = { endedAt: number; seconds?: number }
 
-function runsOf(reads: readonly Read[]): Run[] {
+type Runs = { runs: Run[]; incomplete: boolean }
+
+// Each pair of successful reads brackets the runs that ended between them. Only the last of those has an end time,
+// and only a run that was the sole one to end has a start a read saw.
+function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
+    const { startedAt, endedAt } = evidence.drive
+    const reads = readsOf(evidence.vacuum)
+    if (reads.length === 0) {
+        return undefined
+    }
+    const opening = reads.findLast(({ at }) => at <= startedAt)
+    const closing = reads.find(({ at }) => at >= endedAt)
+    const bracketed = reads.filter(({ at }) => at >= (opening?.at ?? -Infinity) && at <= (closing?.at ?? Infinity))
     const runs: Run[] = []
-    let lastEnd = -Infinity
-    for (let i = 1; i < reads.length; i++) {
-        const ended = reads[i].autovacuums - reads[i - 1].autovacuums
-        const endedAt = reads[i].lastAutovacuumAt
-        if (ended <= 0 || endedAt === null) {
+    let incomplete = opening === undefined || closing === undefined
+    for (let i = 1; i < bracketed.length; i++) {
+        const [previous, current] = [bracketed[i - 1], bracketed[i]]
+        const ended = current.autovacuums - previous.autovacuums
+        const lastEnd = current.lastAutovacuumAt
+        if (ended <= 0 || lastEnd === null) {
             continue
         }
-        const startedAt = reads
-            .slice(0, i + 1)
-            .map(({ vacuumingSince }) => vacuumingSince)
-            .findLast((since): since is number => since !== null && since > lastEnd && since <= endedAt)
-        runs.push(...Array.from({ length: ended - 1 }, () => ({ endedAt })))
-        runs.push(startedAt === undefined ? { endedAt } : { endedAt, seconds: (endedAt - startedAt) / 1000 })
-        lastEnd = endedAt
+        if (lastEnd >= startedAt && lastEnd <= endedAt) {
+            const since = previous.vacuumingSince
+            runs.push(
+                ended === 1 && since !== null && since <= lastEnd
+                    ? { endedAt: lastEnd, seconds: (lastEnd - since) / 1000 }
+                    : { endedAt: lastEnd }
+            )
+        }
+        const earlier = ended - 1
+        if (earlier === 0 || lastEnd < startedAt || previous.at >= endedAt) {
+            continue
+        }
+        if (previous.at >= startedAt && lastEnd <= endedAt) {
+            runs.push(...Array.from({ length: earlier }, () => ({ endedAt: lastEnd })))
+        } else {
+            incomplete = true
+        }
     }
-    return runs
+    return { runs, incomplete }
+}
+
+const workersHidden = ({ vacuumSettings }: MeasureEvidence): boolean =>
+    vacuumSettings !== undefined && !('error' in vacuumSettings) && !vacuumSettings.workersVisible
+
+// The start and end of the drive must each have a read near them, so one surviving read never stands for both.
+function endpointsOf(evidence: MeasureEvidence): { reads: Read[]; incomplete?: true } | { unmeasured: string } {
+    const reads = inDrive(readsOf(evidence.vacuum), evidence)
+    if (reads.length < 2) {
+        return { unmeasured: 'fewer than two vacuum samples in the drive' }
+    }
+    const gapped =
+        reads[0].at - evidence.drive.startedAt > ENDPOINT_WITHIN_MS ||
+        evidence.drive.endedAt - reads.at(-1)!.at > ENDPOINT_WITHIN_MS
+    return { reads, ...(gapped && { incomplete: true as const }) }
+}
+
+const atEndpoints = (evidence: MeasureEvidence, measure: (reads: Read[]) => Measured[]): Measured[] => {
+    const endpoints = endpointsOf(evidence)
+    if ('unmeasured' in endpoints) {
+        return [unmeasured(endpoints.unmeasured)]
+    }
+    return measure(endpoints.reads).map((value) => ({
+        ...value,
+        ...(endpoints.incomplete && { incomplete: true as const }),
+    }))
 }
 
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
@@ -112,20 +175,18 @@ const seriesMeasure = (
 ): MeasurementDefinition => ({ name, unit, params: SeriesParams, measure })
 
 export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
-    soakMeasure('cyclotron_jobs_tuples', 'tuples', (evidence) => {
-        const reads = inDrive(readsOf(evidence.vacuum), evidence)
-        if (reads.length === 0) {
-            return []
-        }
-        const [first, last] = [reads[0], reads.at(-1)!]
-        return [
-            { key: 'live_start', value: first.liveTuples },
-            { key: 'live_end', value: last.liveTuples },
-            { key: 'dead_start', value: first.deadTuples },
-            { key: 'dead_end', value: last.deadTuples },
-            { key: 'dead_max', value: Math.max(...reads.map(({ deadTuples }) => deadTuples)) },
-        ]
-    }),
+    soakMeasure('cyclotron_jobs_tuples', 'tuples', (evidence) =>
+        atEndpoints(evidence, (reads) => {
+            const [first, last] = [reads[0], reads.at(-1)!]
+            return [
+                { key: 'live_start', value: first.liveTuples },
+                { key: 'live_end', value: last.liveTuples },
+                { key: 'dead_start', value: first.deadTuples },
+                { key: 'dead_end', value: last.deadTuples },
+                { key: 'dead_max', value: Math.max(...reads.map(({ deadTuples }) => deadTuples)) },
+            ]
+        })
+    ),
     seriesMeasure('dead_tuple_share', 'share', (evidence, params) => {
         const reads = readsOf(evidence.vacuum)
         return series(evidence, params, (window) => maxPoint(within(reads, window).map(deadShareOf)))
@@ -137,45 +198,55 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
             return value === undefined ? unmeasured(NO_VACUUM_SAMPLE) : { value }
         })
     }),
-    soakMeasure('index_bytes_per_row', 'bytes', (evidence) => {
-        const reads = inDrive(readsOf(evidence.vacuum), evidence)
-        const [start, end] = [firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow)]
-        return start === undefined || end === undefined
-            ? []
-            : [
-                  { key: 'start', value: start },
-                  { key: 'end', value: end },
-              ]
-    }),
-    soakMeasure('bloat_growth', 'ratio', (evidence) => {
-        const reads = inDrive(readsOf(evidence.vacuum), evidence)
-        const indexes = [...new Set(reads.flatMap(({ indexBytes }) => Object.keys(indexBytes)))].sort()
-        const indexPerRow = (index: string) => (read: Read) =>
-            index in read.indexBytes ? perRow(read.indexBytes[index], read) : undefined
-        const keyed = (key: string, measured: Measured[]): Measured[] => measured.map((value) => ({ key, ...value }))
+    soakMeasure('index_bytes_per_row', 'bytes', (evidence) =>
+        atEndpoints(evidence, (reads) => {
+            const [start, end] = [firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow)]
+            return start === undefined || end === undefined
+                ? []
+                : [
+                      { key: 'start', value: start },
+                      { key: 'end', value: end },
+                  ]
+        })
+    ),
+    soakMeasure('bloat_growth', 'ratio', (evidence) =>
+        atEndpoints(evidence, (reads) => {
+            const indexes = [...new Set(reads.flatMap(({ indexBytes }) => Object.keys(indexBytes)))].sort()
+            const indexPerRow = (index: string) => (read: Read) =>
+                index in read.indexBytes ? perRow(read.indexBytes[index], read) : undefined
+            const keyed = (key: string, measured: Measured[]): Measured[] =>
+                measured.map((value) => ({ key, ...value }))
+            return [
+                ...keyed('heap', growthOf(firstOf(reads, heapPerRow), lastOf(reads, heapPerRow))),
+                ...keyed('toast', growthOf(firstOf(reads, toastPerRow), lastOf(reads, toastPerRow))),
+                ...keyed('indexes', growthOf(firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow))),
+                ...indexes.flatMap((index) =>
+                    keyed(
+                        `index_${index}`,
+                        growthOf(firstOf(reads, indexPerRow(index)), lastOf(reads, indexPerRow(index)))
+                    )
+                ),
+            ]
+        })
+    ),
+    soakMeasure('autovacuum_runs', 'runs', (evidence) => {
+        const driven = drivenRunsOf(evidence)
+        if (driven === undefined) {
+            return []
+        }
+        const incomplete = driven.incomplete ? { incomplete: true as const } : {}
         return [
-            ...keyed('heap', growthOf(firstOf(reads, heapPerRow), lastOf(reads, heapPerRow))),
-            ...keyed('indexes', growthOf(firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow))),
-            ...indexes.flatMap((index) =>
-                keyed(`index_${index}`, growthOf(firstOf(reads, indexPerRow(index)), lastOf(reads, indexPerRow(index))))
-            ),
+            { key: 'count', value: driven.runs.length, ...incomplete },
+            workersHidden(evidence)
+                ? { key: 'timed', ...unmeasured(WORKERS_HIDDEN) }
+                : { key: 'timed', value: driven.runs.filter(({ seconds }) => seconds !== undefined).length },
         ]
     }),
-    soakMeasure('autovacuum_runs', 'runs', (evidence) => {
-        const reads = readsOf(evidence.vacuum)
-        const opening = reads.findLast(({ at }) => at < evidence.drive.startedAt)
-        const runs = runsOf([...(opening ? [opening] : []), ...inDrive(reads, evidence)])
-        return reads.length === 0
-            ? []
-            : [
-                  { key: 'count', value: runs.length },
-                  { key: 'timed', value: runs.filter(({ seconds }) => seconds !== undefined).length },
-              ]
-    }),
     soakMeasure('autovacuum_seconds', 's', (evidence) => {
-        const reads = readsOf(evidence.vacuum)
-        const opening = reads.findLast(({ at }) => at < evidence.drive.startedAt)
-        const timed = runsOf([...(opening ? [opening] : []), ...inDrive(reads, evidence)])
+        if (workersHidden(evidence)) {
+            return [unmeasured(WORKERS_HIDDEN)]
+        }
+        const timed = (drivenRunsOf(evidence)?.runs ?? [])
             .flatMap(({ seconds }) => (seconds === undefined ? [] : [seconds]))
             .sort((a, b) => a - b)
         return timed.length === 0
@@ -204,7 +275,8 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       evidence,
                       params,
                       (window) => {
-                          const pickups = pickupsBetween(evidence.samples, [role], window)
+                          // Each scrape interval counts once, in the window its closing scrape falls in.
+                          const pickups = pickupsBetween(evidence.samples, [role], window, { straddle: false })
                           if ('unread' in pickups) {
                               return unmeasured(pickups.unread)
                           }
@@ -231,13 +303,21 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       : writerCpu.unsourced
             return [{ value: null, censored: true, unmeasured: reason }]
         }
-        return series(evidence, params, ({ from, to }) =>
-            maxPoint(
-                writerCpu
-                    .filter(({ at, percent }) => at >= from && at < to && Number.isFinite(percent))
-                    .map(({ percent }) => percent),
-                'no writer CPU minute in the window'
-            )
+        const read = new Map(
+            writerCpu.filter(({ percent }) => Number.isFinite(percent)).map(({ at, percent }) => [at, percent])
         )
+        // A minute that straddles a window edge counts in both windows, so no peak drops out of the one it fell in.
+        return series(evidence, params, ({ from, to }) => {
+            const minutes: number[] = []
+            for (let minute = Math.floor(from / MINUTE_MS) * MINUTE_MS; minute < to; minute += MINUTE_MS) {
+                minutes.push(minute)
+            }
+            const peaks = minutes.flatMap((minute) => (read.has(minute) ? [read.get(minute)!] : []))
+            if (peaks.length === 0) {
+                return unmeasured('no writer CPU minute in the window')
+            }
+            const missing = minutes.some((minute) => minute + MINUTE_MS <= evidence.drive.endedAt && !read.has(minute))
+            return { value: Math.max(...peaks), ...(missing && { incomplete: true as const }) }
+        })
     }),
 ]

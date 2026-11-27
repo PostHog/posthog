@@ -33,16 +33,18 @@ const read = (second: number, table: Table = {}): VacuumRead => ({
     lastAutovacuumAt: null,
     vacuumingSince: null,
     heapBytes: 100_000,
+    toastBytes: 10_000,
     indexBytes: { cyclotron_jobs_pkey: 20_000, idx_cyclotron_jobs_dequeue: 30_000 },
     ...table,
 })
 
 const measured = (name: string, partial: Partial<MeasureEvidence>, params = {}): Partial<Measurement>[] =>
-    measure([{ name, params }], evidence(partial)).map(({ key, value, censored, unmeasured }) => ({
+    measure([{ name, params }], evidence(partial)).map(({ key, value, censored, unmeasured, incomplete }) => ({
         key,
         value,
         ...(censored && { censored }),
         ...(unmeasured && { unmeasured }),
+        ...(incomplete && { incomplete }),
     }))
 
 describe('soak measurements', () => {
@@ -85,6 +87,7 @@ describe('soak measurements', () => {
 
         expect(measured('bloat_growth', { vacuum })).toEqual([
             { key: 'heap', value: 2 },
+            { key: 'toast', value: 2 },
             { key: 'indexes', value: 3.2 },
             { key: 'index_cyclotron_jobs_pkey', value: 2 },
             { key: 'index_idx_cyclotron_jobs_dequeue', value: 4 },
@@ -92,6 +95,19 @@ describe('soak measurements', () => {
         expect(measured('index_bytes_per_row', { vacuum })).toEqual([
             { key: 'start', value: 50 },
             { key: 'end', value: 160 },
+        ])
+    })
+
+    it('marks a start-to-end measure unmeasured when one sample stands for both ends, and incomplete when an end has no sample near it', () => {
+        expect(measured('cyclotron_jobs_tuples', { vacuum: [read(10), { at: atS(1790), error: 'timeout' }] })).toEqual([
+            { value: null, censored: true, unmeasured: 'fewer than two vacuum samples in the drive' },
+        ])
+        expect(measured('bloat_growth', { vacuum: [read(10), read(900, { liveTuples: 500 })] })).toEqual([
+            { key: 'heap', value: 2, incomplete: true },
+            { key: 'toast', value: 2, incomplete: true },
+            { key: 'indexes', value: 2, incomplete: true },
+            { key: 'index_cyclotron_jobs_pkey', value: 2, incomplete: true },
+            { key: 'index_idx_cyclotron_jobs_dequeue', value: 2, incomplete: true },
         ])
     })
 
@@ -104,6 +120,7 @@ describe('soak measurements', () => {
             read(510, { autovacuums: 5, lastAutovacuumAt: atS(105), vacuumingSince: atS(470) }),
             read(520, { autovacuums: 6, lastAutovacuumAt: atS(515) }),
             read(900, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
+            read(1805, { autovacuums: 8, lastAutovacuumAt: atS(895) }),
         ]
 
         expect(measured('autovacuum_runs', { vacuum })).toEqual([
@@ -113,6 +130,71 @@ describe('soak measurements', () => {
         expect(measured('autovacuum_seconds', { vacuum })).toEqual([
             { key: 'p50', value: 10 },
             { key: 'max', value: 45 },
+        ])
+    })
+
+    it.each<[string, VacuumRead[], Partial<Measurement>[]]>([
+        [
+            'leaves untimed a run that ended with another, though a sample saw one of them start',
+            [
+                read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
+                read(500, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(470) }),
+                read(560, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
+                read(1805, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
+            ],
+            [
+                { key: 'count', value: 2 },
+                { key: 'timed', value: 0 },
+            ],
+        ],
+        [
+            'counts a run by its end time when the samples around it straddle the start or the end of the drive',
+            [
+                read(-15, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
+                read(5, { autovacuums: 5, lastAutovacuumAt: atS(-10) }),
+                read(1795, { autovacuums: 5, lastAutovacuumAt: atS(-10) }),
+                read(1805, { autovacuums: 6, lastAutovacuumAt: atS(1799) }),
+            ],
+            [
+                { key: 'count', value: 1 },
+                { key: 'timed', value: 0 },
+            ],
+        ],
+        [
+            'marks the count incomplete when runs ended on both sides of a drive edge between two samples',
+            [
+                read(-15, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
+                read(5, { autovacuums: 6, lastAutovacuumAt: atS(2) }),
+                read(1805, { autovacuums: 6, lastAutovacuumAt: atS(2) }),
+            ],
+            [
+                { key: 'count', value: 1, incomplete: true },
+                { key: 'timed', value: 0 },
+            ],
+        ],
+        [
+            'marks the count incomplete when no sample was taken after the drive',
+            [read(-5, { autovacuums: 4 }), read(900, { autovacuums: 5, lastAutovacuumAt: atS(895) })],
+            [
+                { key: 'count', value: 1, incomplete: true },
+                { key: 'timed', value: 0 },
+            ],
+        ],
+    ])('%s', (_story, vacuum, expected) => {
+        expect(measured('autovacuum_runs', { vacuum })).toEqual(expected)
+    })
+
+    it('leaves the autovacuum run times unmeasured when the database role cannot see autovacuum workers', () => {
+        const vacuum = [read(-5), read(1805, { autovacuums: 1, lastAutovacuumAt: atS(900) })]
+        const vacuumSettings = { settings: {}, storage: {}, workersVisible: false }
+        const hidden = 'the database role cannot see autovacuum workers, so no run start was read'
+
+        expect(measured('autovacuum_runs', { vacuum, vacuumSettings })).toEqual([
+            { key: 'count', value: 1 },
+            { key: 'timed', value: null, censored: true, unmeasured: hidden },
+        ])
+        expect(measured('autovacuum_seconds', { vacuum, vacuumSettings })).toEqual([
+            { value: null, censored: true, unmeasured: hidden },
         ])
     })
 
@@ -152,12 +234,33 @@ describe('soak measurements', () => {
         ])
     })
 
+    it('counts the scrape interval that straddles a window edge in the later window only', () => {
+        const worker = (second: number, early: number, late: number): MetricSample => ({
+            role: 'cdp-cyclotron-worker-hogflow',
+            replica: 0,
+            at: atS(second),
+            startedAt: FROM / 1000 - 60,
+            cpuSeconds: 1,
+            rssBytes: 1,
+            processed: {},
+            pgClientErrors: 0,
+            consumerLoopErrors: 0,
+            janitorStalled: 0,
+            lateness: { hogflow: { '1': early, '10': early + late, '+Inf': early + late } },
+        })
+        const samples = Array.from({ length: 122 }, (_, i) => worker(-5 + i * 10, i * 100, i < 61 ? 0 : 1000))
+
+        expect(measured('pickup_p99_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })).toEqual([
+            { key: 'hogflow_t0', value: 1 },
+            { key: 'hogflow_t600', value: 10 },
+        ])
+    })
+
     it('keeps the writer CPU peak of each window, and says why when the target has no writer CPU', () => {
-        const writerCpu: CpuPoint[] = [
-            { at: atS(0), percent: 30 },
-            { at: atS(60), percent: 55 },
-            { at: atS(600), percent: 41 },
-        ]
+        const writerCpu: CpuPoint[] = Array.from({ length: 20 }, (_, minute) => ({
+            at: atS(minute * 60),
+            percent: { 1: 55, 10: 41 }[minute] ?? 30,
+        }))
 
         expect(measured('writer_cpu_percent', { writerCpu, drive: { startedAt: atS(0), endedAt: atS(1200) } })).toEqual(
             [
@@ -171,6 +274,20 @@ describe('soak measurements', () => {
             })
         ).toEqual([
             { value: null, censored: true, unmeasured: 'the local stack has no Aurora writer to read CPU from' },
+        ])
+    })
+
+    it('counts a writer CPU minute that straddles a window edge in both windows, and marks a window missing a minute', () => {
+        const writerCpu: CpuPoint[] = Array.from({ length: 20 }, (_, minute) => ({
+            at: atS(minute * 60),
+            percent: minute === 10 ? 90 : 30,
+        })).filter(({ at }) => at !== atS(19 * 60))
+
+        expect(
+            measured('writer_cpu_percent', { writerCpu, drive: { startedAt: atS(10), endedAt: atS(1210) } })
+        ).toEqual([
+            { key: 't0', value: 90 },
+            { key: 't600', value: 90, incomplete: true },
         ])
     })
 })

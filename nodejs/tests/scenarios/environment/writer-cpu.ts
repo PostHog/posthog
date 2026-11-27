@@ -16,6 +16,9 @@ export async function writerCpuOf(
     signal?: AbortSignal
 ): Promise<CpuPoint[]> {
     const lastMinute = Math.floor(window.endedAt / MINUTE_MS) * MINUTE_MS - MINUTE_MS
+    if (lastMinute < Math.floor(window.startedAt / MINUTE_MS) * MINUTE_MS) {
+        return []
+    }
     const expired = new AbortController()
     const timer = setTimeout(() => expired.abort(), PUBLISH_WAIT_MS)
     const stop = signal ? AbortSignal.any([signal, expired.signal]) : expired.signal

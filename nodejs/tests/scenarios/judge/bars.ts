@@ -126,7 +126,8 @@ function add(
 export function pickupsBetween(
     samples: readonly MetricSample[],
     roles: readonly string[],
-    { from, to }: Pick<Window, 'from' | 'to'>
+    { from, to }: Pick<Window, 'from' | 'to'>,
+    { straddle = true }: { straddle?: boolean } = {}
 ): { picked: Record<string, Buckets> } | { unread: string } {
     const picked: Record<string, Buckets> = {}
     const unscraped = roles.find((role) => !samples.some((sample) => sample.role === role))
@@ -147,7 +148,8 @@ export function pickupsBetween(
         // never pass into the next step's larger volume unjudged.
         const last = inside.at(-1)!
         const next = sorted.find(({ at }) => at > to)
-        const covered = last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
+        const covered =
+            straddle && last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})

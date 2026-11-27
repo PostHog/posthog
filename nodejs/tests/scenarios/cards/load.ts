@@ -352,6 +352,13 @@ function checkTrafficOnce(card: Card): string[] {
         .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
+function checkMeasureOnce(card: Card): string[] {
+    const listed = card.measure.map(({ name }) => name)
+    return [...new Set(listed.filter((name, i) => listed.indexOf(name) !== i))].map(
+        (name) => `measure: ${name} is listed more than once, and its keys would overwrite each other; list it once`
+    )
+}
+
 type ProfileRead = { profile: Profile; unscaledProfile: Profile; dir?: string } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
@@ -490,6 +497,7 @@ function check(
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
         ...checkTrafficOnce(card),
+        ...checkMeasureOnce(card),
         ...checkIntakeVerdict(card),
         ...checkAcceptedBoundary(card),
         ...('profile' in loaded

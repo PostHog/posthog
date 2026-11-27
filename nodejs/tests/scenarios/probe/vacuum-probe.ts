@@ -1,5 +1,7 @@
 import { withPostgres } from '../environment/stack'
 
+export const VACUUM_PROBE_EVERY_MS = 10_000
+
 export type VacuumSample = {
     liveTuples: number
     deadTuples: number

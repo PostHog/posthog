@@ -55,7 +55,7 @@ import { edgeTruth } from '../judge/truth'
 import { CounterProbe, clickhouseOf, createCounterProbe } from '../probe/counter-probe'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
-import { VacuumRead, createVacuumProbe } from '../probe/vacuum-probe'
+import { VACUUM_PROBE_EVERY_MS, VacuumRead, createVacuumProbe } from '../probe/vacuum-probe'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
 import { WEBHOOK_HOST } from '../provider-edge'
 import { Provenance, provenanceOf } from '../scorecard/provenance'
@@ -166,7 +166,6 @@ const TOPOLOGY_WITHIN_MS = 30_000
 const TOPOLOGY_EVERY_MS = 1000
 const WRITER_PROBE_EVERY_MS = 1000
 const QUEUE_PROBE_EVERY_MS = 5000
-const VACUUM_PROBE_EVERY_MS = 10_000
 const PROBED_QUEUES: Queue[] = ['hogflow', 'email']
 
 type Outcome = Pick<
