@@ -211,7 +211,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "interviews": {
-        "description": "Interviews scheduled for each job application, with their timeslots and interviewers.",
+        "description": "Interviews of each job application, with their timeslots and interviewers. SmartRecruiters documents that its Interview API returns the interviews created through that API, so interviews scheduled in other ways can be missing.",
         "docs_url": f"{_DOCS}/interviewsget-list-1",
         "columns": {
             "id": "Unique identifier of the interview.",
