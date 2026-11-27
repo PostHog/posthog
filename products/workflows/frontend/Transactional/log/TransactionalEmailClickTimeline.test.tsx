@@ -4,19 +4,25 @@ import { fireEvent, render, screen } from '@testing-library/react'
 
 import { TransactionalEmailClickTimeline } from './TransactionalEmailClickTimeline'
 
+const RETRY = '[data-attr="transactional-email-outcome-retry"]'
+
 describe('TransactionalEmailClickTimeline', () => {
     it('tells a reader without access what they need, with no retry', () => {
-        render(<TransactionalEmailClickTimeline rows={null} failed denied onRetry={jest.fn()} clickTracking />)
+        const { container } = render(
+            <TransactionalEmailClickTimeline rows={null} failed denied onRetry={jest.fn()} clickTracking />
+        )
 
         expect(screen.getByText(/You need access to persons and to querying events/)).toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+        expect(container.querySelector(RETRY)).toBeNull()
     })
 
     it('retries clicks that failed to load', () => {
         const onRetry = jest.fn()
-        render(<TransactionalEmailClickTimeline rows={null} failed denied={false} onRetry={onRetry} clickTracking />)
+        const { container } = render(
+            <TransactionalEmailClickTimeline rows={null} failed denied={false} onRetry={onRetry} clickTracking />
+        )
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0])
+        fireEvent.click(container.querySelector(RETRY) as HTMLElement)
 
         expect(onRetry).toHaveBeenCalledTimes(1)
     })
