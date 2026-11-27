@@ -13277,10 +13277,10 @@ Diffed against: <https://raw.githubusercontent.com/SerpstatGlobal/serpstat-mcp-s
 - [x] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
 - [x] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
 - [x] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
-- [ ] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
-- [ ] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
-- [ ] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium)
-- [ ] `getTopCompetitorsDomainsHistory (POST /v4/, JSON-RPC RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory)` — track competing domains in the search results for project keywords over time (medium)
+- [x] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
+- [x] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
+- [x] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium). Built with getOrganicCompetitorsPage, because getCompetitors is deprecated.
+- [x] `getTopCompetitorsDomainsHistory (POST /v4/, JSON-RPC RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory)` — track competing domains in the search results for project keywords over time (medium)
 - [ ] `getList (POST /v4/, JSON-RPC AuditSite.getList)` — list completed site audits and establish an audit history for each project (medium)
 - [ ] `getErrorElements (POST /v4/, JSON-RPC AuditSite.getErrorElements)` — analyze pages with technical SEO issues and distinguish new, existing, and resolved problems (medium)
 
