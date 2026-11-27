@@ -50,9 +50,10 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
     }),
     listeners(({ values }) => ({
         leaveWithoutCalendar: async (_, breakpoint) => {
+            const calendarPath = router.values.location.pathname
             await posthog.featureFlags?.reloadFeatureFlagsAsync()
             breakpoint()
-            if (!values.hasCalendar) {
+            if (!values.hasCalendar && router.values.location.pathname === calendarPath) {
                 router.actions.replace(urls.workflows())
             }
         },

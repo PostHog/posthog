@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { adventCalendarAccessLogic } from './adventCalendarAccessLogic'
@@ -22,7 +24,7 @@ export function AdventCalendarScene(): JSX.Element {
     }, [flagsSettled, hasCalendar, leaveWithoutCalendar])
 
     if (!flagsSettled || !hasCalendar) {
-        return <div className="flex-1" />
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (

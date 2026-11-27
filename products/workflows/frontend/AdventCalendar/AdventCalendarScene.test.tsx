@@ -19,6 +19,7 @@ describe('AdventCalendarScene', () => {
 
     beforeEach(() => {
         window.localStorage.clear()
+        jest.useFakeTimers()
         initKeaTests()
         appLogic.mount()
         router.actions.push(urls.workflowsAdventCalendar())
@@ -34,6 +35,7 @@ describe('AdventCalendarScene', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
         Object.assign(posthog, { featureFlags: originalFeatureFlags })
     })
 
@@ -53,6 +55,17 @@ describe('AdventCalendarScene', () => {
         unmount()
     })
 
+    it('leaves a visitor who navigated on during the flag load where they went', async () => {
+        const { unmount } = render(<AdventCalendarScene />)
+        setCalendarFlag(false)
+        act(() => router.actions.push(urls.insights()))
+
+        await finishFlagLoad('loaded')
+
+        expect(pathname()).toMatch(/\/insights$/)
+        unmount()
+    })
+
     it('keeps a visitor whose early flags missed the calendar but the fresh load has it', async () => {
         const { unmount } = render(<AdventCalendarScene />)
         setCalendarFlag(false)
@@ -69,7 +82,7 @@ describe('AdventCalendarScene', () => {
 
     it('sends a visitor to Workflows when flags time out and the flag load fails', async () => {
         const { unmount } = render(<AdventCalendarScene />)
-        act(() => appLogic.actions.ignoreFeatureFlags())
+        act(() => jest.advanceTimersByTime(3000))
 
         await finishFlagLoad('error')
 
