@@ -4,6 +4,7 @@ pub mod appearance;
 pub mod chat;
 /// Drafts and controls for composing session messages.
 pub mod composer;
+pub mod puppet;
 pub mod transcript;
 const MUTED: u32 = ui::SECONDARY;
 const LINE: u32 = ui::RULE;

@@ -72,7 +72,7 @@ pub(super) struct TopicChatList {
     pub pinned: std::rc::Rc<std::cell::Cell<bool>>,
     pub session: Arc<meep_protocol::sessions::AgentSession>,
     pub linked: Arc<Vec<Vec<crate::details::ChatTask>>>,
-    pub running: bool,
+    pub pending_replies: Arc<HashSet<usize>>,
     /// Keep selected text mounted until the selection is cleared.
     pub full_selection: bool,
     /// Row bounds preserve the reader's place when changing selection mode.

@@ -15,6 +15,7 @@ pub(super) struct TopicChatContent {
     linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
     receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
     answering: Option<TaskId>,
+    pending_replies: Arc<HashSet<usize>>,
 }
 
 #[derive(Default)]
@@ -2927,6 +2928,7 @@ impl Desktop {
         let id = state.topic.id;
         let mut messages = vec![];
         let mut thread_rows = BTreeMap::new();
+        let mut pending_replies = Vec::new();
         for t in &state.threads {
             if !t.is_topic_chat() {
                 continue;
@@ -2986,20 +2988,33 @@ impl Desktop {
                     ..Default::default()
                 })
             }
-            let linked = t.outcomes.iter().find_map(|outcome| match outcome {
+            let mut linked = t.outcomes.iter().filter_map(|outcome| match outcome {
                 Outcome::Task(id) => state.tasks.iter().find(|task| task.id == *id),
                 _ => None,
             });
-            if let Some(task) = linked
-                && !t.outcomes.iter().any(|o| {
-                    matches!(
-                        o,
-                        Outcome::Reply {
-                            to: Source::User,
-                            ..
-                        }
-                    )
-                })
+            let has_reply = t.outcomes.iter().any(|outcome| {
+                matches!(
+                    outcome,
+                    Outcome::Reply {
+                        to: Source::User,
+                        ..
+                    }
+                )
+            });
+            let awaiting_reply = (t.state == ThreadState::Sorting && t.sort_retry.is_none())
+                || linked.clone().any(|task| {
+                    task.from_thread == Some(t.id)
+                        && task.assignment == Some(InboxAssignment::ChatAnswer)
+                        && matches!(task.column, Column::Todo | Column::InProgress)
+                });
+            if awaiting_reply && !has_reply {
+                let start = thread_rows[&t.id];
+                if let Some(offset) = messages[start..].iter().rposition(|m| m.role == "user") {
+                    pending_replies.push(start + offset);
+                }
+            }
+            if let Some(task) = linked.next()
+                && !has_reply
             {
                 // The topic agent's turn: its reply lands on this message. Only a question
                 // or a failure is worth a line of its own, on the message it answers.
@@ -3122,6 +3137,12 @@ impl Desktop {
         TopicChatContent {
             topic: id,
             thread_rows,
+            pending_replies: Arc::new(
+                pending_replies
+                    .into_iter()
+                    .map(|i| sorted_rows[i])
+                    .collect(),
+            ),
             session: std::sync::Arc::new(session),
             linked: std::sync::Arc::new(linked),
             receipts,
@@ -3165,7 +3186,7 @@ impl Desktop {
                         message,
                         key: &key,
                         index,
-                        active: index + 1 == session.messages.len() && session.status == "running",
+                        active: content.pending_replies.contains(&index),
                     },
                     w,
                     cx,
@@ -3376,7 +3397,7 @@ impl Desktop {
         let topic = state.topic.id;
         let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
         let count = if selecting { 1 } else { session.messages.len() };
-        let running = session.status == "running";
+        let pending_replies = content.pending_replies.clone();
         let (list_state, selection_rows, anchor, pinned) = {
             let mut cached = self.chat_list.borrow_mut();
             let cache = cached.get_or_insert_with(|| super::desktop::TopicChatList {
@@ -3392,7 +3413,7 @@ impl Desktop {
                 pinned: std::rc::Rc::new(std::cell::Cell::new(true)),
                 session: session.clone(),
                 linked: linked.clone(),
-                running,
+                pending_replies: pending_replies.clone(),
                 full_selection: selecting,
 
                 selection_rows: Vec::new(),
@@ -3452,7 +3473,7 @@ impl Desktop {
                 if (!std::sync::Arc::ptr_eq(&cache.session, &session)
                     && cache.session.messages != session.messages)
                     || linked_changed
-                    || cache.running != running
+                    || cache.pending_replies != pending_replies
                 {
                     cache.list.remeasure_items(0..1);
                 }
@@ -3486,9 +3507,13 @@ impl Desktop {
                         let list = cache.list.clone();
                         w.on_next_frame(move |_, _| list.scroll_to_end());
                     }
-                } else if cache.running != running && !session.messages.is_empty() {
-                    let last = session.messages.len() - 1;
-                    cache.list.remeasure_items(last..last + 1);
+                }
+                if cache.pending_replies != pending_replies {
+                    for &index in cache.pending_replies.symmetric_difference(&pending_replies) {
+                        if index < count {
+                            cache.list.remeasure_items(index..index + 1);
+                        }
+                    }
                     if request_row.is_none() && at_end {
                         cache.list.scroll_to_end();
                     }
@@ -3496,7 +3521,7 @@ impl Desktop {
             }
             cache.session = session.clone();
             cache.linked = linked.clone();
-            cache.running = running;
+            cache.pending_replies = pending_replies.clone();
             cache.full_selection = selecting;
             if selecting {
                 cache
@@ -3568,7 +3593,7 @@ impl Desktop {
             .flex_1()
             .min_h_0()
             .w_full()
-            .on_scroll_wheel(move |event, _, _| {
+            .on_scroll(move |event, _, _| {
                 if event.delta.pixel_delta(px(20.)).y > px(0.) {
                     pinned.set(false);
                 }
@@ -3590,8 +3615,7 @@ impl Desktop {
                                                 message,
                                                 key: &key,
                                                 index,
-                                                active: index + 1 == session.messages.len()
-                                                    && session.status == "running",
+                                                active: pending_replies.contains(&index),
                                             },
                                             w,
                                             cx,
@@ -3630,8 +3654,7 @@ impl Desktop {
                                             message,
                                             key: &key,
                                             index,
-                                            active: index + 1 == session.messages.len()
-                                                && session.status == "running",
+                                            active: pending_replies.contains(&index),
                                         },
                                         w,
                                         cx,
@@ -4506,45 +4529,29 @@ impl Desktop {
         let working = Self::chat_answer_in_progress(state)
             .filter(|t| t.column == Column::InProgress)
             .map(|t| t.worker.clone());
-        let messages = state
-            .threads
-            .iter()
-            .filter(|t| t.is_topic_chat() && t.state == ThreadState::Sorting)
-            .count();
         let todos = state
             .tasks
             .iter()
             .filter(|t| t.assignment == Some(InboxAssignment::Session) && t.column == Column::Todo)
             .count();
-        if working.is_none() && messages == 0 && todos == 0 {
-            return None;
+        let mut parts = Vec::new();
+        if let Some(progress) = working.flatten()
+            && !matches!(
+                progress.as_str(),
+                "" | "Running" | "in_progress" | "Starting"
+            )
+        {
+            parts.push(format!("Working · {progress}"));
         }
-        let mut waiting = vec![];
-
         if todos > 0 {
-            waiting.push(format!(
+            parts.push(format!(
                 "{todos} to-do{} waiting",
                 if todos == 1 { "" } else { "s" }
             ));
         }
-        // Stop sits in the composer while it works.
-        let mut parts = vec![];
-        if let Some(progress) = working {
-            parts.push(match progress.as_deref() {
-                // Provider states such as "in_progress" say nothing the word Working does not.
-                Some(p)
-                    if !p.is_empty() && p != "Running" && p != "in_progress" && p != "Starting" =>
-                {
-                    format!("Working · {p}")
-                }
-                _ => "Working".to_owned(),
-            });
+        if parts.is_empty() {
+            return None;
         }
-        if messages > 0 && parts.is_empty() {
-            parts.push("Working".to_owned());
-        }
-        parts.extend(waiting);
-        let busy = parts.first().is_some();
         Some(
             ui::row()
                 .flex_none()
@@ -4554,9 +4561,6 @@ impl Desktop {
                 .mb(px(6.))
                 .text_size(px(12.5))
                 .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                .when(busy, |row| {
-                    row.child(meep_ui::gpui_kit::component::spinner::Spinner::new().small())
-                })
                 .child(parts.join(" · ")),
         )
     }
@@ -4671,6 +4675,14 @@ mod tests {
             .collect();
         assert_eq!(texts, ["Earlier", "Later"]);
         assert_eq!(updated.thread_rows[&later], 1);
+        assert_eq!(*updated.pending_replies, HashSet::from([0, 1]));
+        state.threads[0].state = ThreadState::Handled;
+        state.threads[0].outcomes.push(Outcome::Reply {
+            to: Source::User,
+            text: "Finished.".into(),
+        });
+        cache.invalidate(state.topic.id);
+        assert_eq!(*cache.get(&state).pending_replies, HashSet::from([0]));
         let thread = &mut state.threads[0];
         for (key, expected) in [
             (later.to_string(), Tab::Chat),

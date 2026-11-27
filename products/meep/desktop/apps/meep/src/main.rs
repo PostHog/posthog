@@ -17,6 +17,8 @@ mod previews;
 mod scroll_motion;
 mod shortcuts;
 mod sidebar;
+#[cfg(feature = "demo-driver")]
+mod state_preview;
 mod tables;
 mod tasks_view;
 mod topic_card;
@@ -60,6 +62,7 @@ fn main() -> Result<()> {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             meep_render::init(cx);
+            meep_shell::puppet::preload();
             meep_shell::workspace::install_menus("Meep", cx);
             let options_window = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -76,8 +79,26 @@ fn main() -> Result<()> {
             };
             let opened = meep_shell::workspace::open_window(options_window, cx, |w, cx| {
                 cx.new(|cx| {
+                    meep_shell::appearance::set_palette(
+                        meep_shell::appearance::resolve(None, w.appearance()),
+                        cx,
+                    );
+                    cx.observe_window_appearance(w, |s: &mut Host, w, cx| {
+                        if s.view.is_none() {
+                            meep_shell::appearance::set_palette(
+                                meep_shell::appearance::resolve(None, w.appearance()),
+                                cx,
+                            );
+                            cx.notify();
+                        }
+                    })
+                    .detach();
                     let host = Host {
                         motion: Default::default(),
+                        gaze: 4,
+                        eye_center: Default::default(),
+                        #[cfg(feature = "demo-driver")]
+                        preview: Default::default(),
                         options,
                         runtime,
                         view: None,
@@ -113,6 +134,10 @@ fn main() -> Result<()> {
 
 struct Host {
     motion: std::rc::Rc<scroll_motion::ScrollMotion>,
+    gaze: usize,
+    eye_center: std::rc::Rc<std::cell::Cell<Option<Point<Pixels>>>>,
+    #[cfg(feature = "demo-driver")]
+    preview: state_preview::Scene,
     options: Options,
     runtime: Arc<Runtime>,
     view: Option<Entity<Desktop>>,
@@ -120,6 +145,10 @@ struct Host {
 }
 impl Host {
     fn connect(&self, w: &Window, cx: &mut Context<Self>) {
+        #[cfg(feature = "demo-driver")]
+        if self.options.preview_states {
+            return;
+        }
         let options = self.options.clone();
         let task = self.runtime.spawn(async move { options.connect().await });
         cx.spawn_in(w, async move |this, cx| {
@@ -139,6 +168,10 @@ impl Host {
 }
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(feature = "demo-driver")]
+        if self.options.preview_states {
+            return self.preview_states(cx);
+        }
         if let Some(view) = &self.view {
             return div()
                 .relative()
@@ -147,24 +180,51 @@ impl Render for Host {
                 .child(view.clone())
                 .into_any_element();
         }
-        let reduced = cx.reduce_motion();
-        let (slug, title, line) = match &self.error {
-            None => ("coffee-run", "Opening your workspace", boot_line(None)),
-            Some(e) => (
-                "error",
-                "Meep couldn't open your workspace",
-                boot_line(Some(e)),
-            ),
+        self.opening_screen(cx).into_any_element()
+    }
+}
+impl Host {
+    fn opening_screen(&self, cx: &mut Context<Self>) -> AnyElement {
+        let (title, line) = match &self.error {
+            None => ("Opening your workspace", boot_line(None)),
+            Some(e) => ("Meep couldn't open your workspace", boot_line(Some(e))),
         };
         ui::page()
             .justify_center()
             .items_center()
             .pb(px(48.))
-            .child(topic_icon::bob(
-                "boot-hog",
-                topic_icon::hero(slug, 128.),
-                reduced,
-            ))
+            .on_mouse_move(cx.listener(|s, event: &MouseMoveEvent, _, cx| {
+                if s.error.is_some() || cx.reduce_motion() {
+                    return;
+                }
+                let Some(center) = s.eye_center.get() else {
+                    return;
+                };
+                let axis = |delta: f32| {
+                    if delta < -16. {
+                        0
+                    } else if delta > 16. {
+                        2
+                    } else {
+                        1
+                    }
+                };
+                let gaze = axis(f32::from(event.position.x - center.x))
+                    + 3 * axis(f32::from(event.position.y - center.y));
+                if s.gaze != gaze {
+                    s.gaze = gaze;
+                    cx.notify();
+                }
+            }))
+            .child(if self.error.is_some() {
+                meep_shell::puppet::connection_error(156.)
+            } else {
+                let center = self.eye_center.clone();
+                meep_shell::puppet::opening(if cx.reduce_motion() { 4 } else { self.gaze }, 156.)
+                    .on_children_prepainted(move |children, _, _| {
+                        center.set(children.last().map(|eyes| eyes.center()));
+                    })
+            })
             .child(
                 div()
                     .pt(px(16.))
@@ -187,6 +247,10 @@ impl Render for Host {
                     ui::primary_button("retry", "Try again").on_click(cx.listener(
                         |s, _, w, cx| {
                             s.error = None;
+                            #[cfg(feature = "demo-driver")]
+                            {
+                                s.preview = Default::default();
+                            }
                             s.connect(w, cx);
                             cx.notify()
                         },

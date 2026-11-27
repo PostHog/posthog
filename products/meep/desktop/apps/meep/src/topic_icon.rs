@@ -127,30 +127,14 @@ fn icon_tile(icon: &TopicIcon, size: f32, art_size: f32, sprite: Option<&Arc<Ima
         .or_else(|| IMAGES.get(icon.hedgehog.as_str()))
         .unwrap_or(&IMAGES["wizard-1"]);
     let (_, background) = meep_shell::icons::inks(&icon.color);
-    div()
-        .flex_none()
-        .size(px(size))
-        .relative()
-        .rounded_full()
-        .bg(rgb(background))
-        .overflow_hidden()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(
-            img(image.clone())
-                .flex_none()
-                .size(px(art_size))
-                .object_fit(ObjectFit::Contain),
-        )
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .rounded_full()
-                .border(px(1.))
-                .border_color(meep_shell::icons::tile_edge()),
-        )
+    meep_shell::icons::disc(
+        size,
+        background,
+        img(image.clone())
+            .flex_none()
+            .size(px(art_size))
+            .object_fit(ObjectFit::Contain),
+    )
 }
 
 pub(super) fn picker(topic: TopicId, icon: &TopicIcon, cx: &Context<Desktop>) -> Popover {

@@ -7,6 +7,18 @@ use gpui_kit::component::{
 use meep_protocol::sessions::*;
 use std::collections::HashSet;
 
+pub fn pending_reply() -> Div {
+    row()
+        .h(px(20.))
+        .gap(px(6.))
+        .child(
+            spinner::Spinner::new()
+                .with_size(px(13.))
+                .color(rgb(ui::theme::color(MUTED)).into()),
+        )
+        .child(label("Thinking"))
+}
+
 /// Stable identity and position for a conversation row in either a list or a full pane.
 pub struct TranscriptRow<'a> {
     /// Turn to render.
@@ -186,10 +198,7 @@ pub trait TranscriptHost: Sized + 'static {
                 )
                 .when(active, |col| {
                     col.child(
-                        row()
-                            .gap(px(5.))
-                            .child(self.activity_indicator().clone())
-                            .child(label("Thinking")),
+                        pending_reply().id(SharedString::from(format!("pending-{message_key}"))),
                     )
                 });
         }

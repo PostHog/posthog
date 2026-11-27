@@ -3,7 +3,7 @@ use super::*;
 use anyhow::Context as _;
 use meep_protocol::sessions::{AgentMessage, AgentSession};
 use meep_render::sdk::{MountedView, ViewContext, ViewHost};
-use meep_ui::gpui_kit::component::{Disableable, Icon, Sizable, input::Enter};
+use meep_ui::gpui_kit::component::{Disableable, Icon, input::Enter};
 use meep_wire::views::{Stage, View, ViewCommand};
 use serde_json::{Value, json};
 
@@ -644,11 +644,7 @@ impl Desktop {
                         .justify_center()
                         .gap(px(8.))
                         .p(px(24.))
-                        .child(
-                            Icon::new(Glyph::TriangleAlert)
-                                .size(px(24.))
-                                .text_color(rgb(ui::theme::color(ui::TERTIARY))),
-                        )
+                        .child(super::topic_icon::hero("magnifying-glass", 80.))
                         .child(ui::heading("script-error", "This view couldn’t load"))
                         // The raw diagnostic goes only into the fix request.
                         .child(
@@ -674,7 +670,7 @@ impl Desktop {
                 }
             }
         } else {
-            building(&v).into_any_element()
+            building(v.turns.last().map(|t| (t.prompt.as_str(), &t.stage))).into_any_element()
         };
         ui::column()
             .size_full()
@@ -1207,7 +1203,7 @@ fn view_mark(size: f32) -> Div {
                 .text_color(rgb(ui::theme::color(ui::SECONDARY))),
         )
 }
-fn building(v: &View) -> Div {
+pub(super) fn building(current: Option<(&str, &Stage)>) -> Div {
     let bar = |x, y| div().w(relative(x)).h(px(y)).rounded_full().bg(ui::ink(28));
     let outline = ui::column()
         .w_full()
@@ -1225,21 +1221,7 @@ fn building(v: &View) -> Div {
                 .child(bar(0.035, 10.))
                 .child(bar(w, 8.))
         }));
-    let current = v.turns.last();
-    let running = current.is_some_and(|t| !t.stage.finished());
-    let outline = if running {
-        outline
-            .with_animation(
-                "building-outline",
-                Animation::new(std::time::Duration::from_millis(1800))
-                    .repeat()
-                    .with_easing(pulsating_between(0.6, 1.)),
-                |el, t| el.opacity(t),
-            )
-            .into_any_element()
-    } else {
-        outline.into_any_element()
-    };
+    let running = current.is_some_and(|(_, stage)| !stage.finished());
     ui::column()
         .size_full()
         .items_center()
@@ -1250,9 +1232,15 @@ fn building(v: &View) -> Div {
                 .max_w(px(360.))
                 .mb(px(48.))
                 .items_center()
-                .child(outline)
+                .child(if running {
+                    meep_shell::puppet::inspecting()
+                } else {
+                    outline
+                })
                 .when_some(
-                    current.map(|t| t.prompt.clone()).filter(|p| !p.is_empty()),
+                    current
+                        .map(|(prompt, _)| prompt.to_owned())
+                        .filter(|p| !p.is_empty()),
                     |c, prompt| {
                         // What was asked, as a quiet caption under the outline;
                         // the header carries the name.
@@ -1264,11 +1252,10 @@ fn building(v: &View) -> Div {
                         .mt(px(10.))
                         .gap(px(8.))
                         .justify_center()
-                        .when(running, |r| {
-                            r.child(meep_ui::gpui_kit::component::spinner::Spinner::new().small())
-                        })
                         .child(ui::caption(
-                            current.map(|t| progress(&t.stage)).unwrap_or_default(),
+                            current
+                                .map(|(_, stage)| progress(stage))
+                                .unwrap_or_default(),
                         )),
                 ),
         )

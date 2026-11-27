@@ -4525,6 +4525,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "gpui-kit",
+ "image",
  "meep-protocol",
  "meep-ui",
  "objc2 0.6.5",

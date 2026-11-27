@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 anyhow = "1"
 meep-protocol = { path = "../meep-protocol" }
 chrono = "0.4"

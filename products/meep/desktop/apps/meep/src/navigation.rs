@@ -2182,7 +2182,10 @@ impl Desktop {
                                 |s, w, cx| s.login(w, cx),
                             )
                             .disabled(self.login_busy),
-                        ),
+                        )
+                        .when(self.login_busy, |r| {
+                            r.child(meep_shell::puppet::opening(4, 38.))
+                        }),
                 )
                 .child(
                     div()
@@ -2334,20 +2337,26 @@ impl Desktop {
                     item(
                         "Signed out",
                         "Choose your PostHog region, then sign in.",
-                        ui::row().gap(px(8.)).child(self.region_picker(cx)).child(
-                            control(
-                                "settings-login",
-                                if self.login_busy {
-                                    "Waiting for PostHog…"
-                                } else {
-                                    "Sign in to PostHog"
-                                },
-                                true,
-                                cx,
-                                |s, w, cx| s.login(w, cx),
-                            )
-                            .disabled(self.login_busy),
-                        ),
+                        ui::row()
+                            .gap(px(8.))
+                            .when(self.login_busy, |r| {
+                                r.child(meep_shell::puppet::opening(4, 38.))
+                            })
+                            .child(self.region_picker(cx))
+                            .child(
+                                control(
+                                    "settings-login",
+                                    if self.login_busy {
+                                        "Waiting for PostHog…"
+                                    } else {
+                                        "Sign in to PostHog"
+                                    },
+                                    true,
+                                    cx,
+                                    |s, w, cx| s.login(w, cx),
+                                )
+                                .disabled(self.login_busy),
+                            ),
                     )
                 };
                 ui::column()

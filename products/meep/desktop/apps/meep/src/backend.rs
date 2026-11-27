@@ -37,6 +37,9 @@ const SCOPES: &[&str] = &[
 #[derive(Clone, Parser)]
 #[command(name = "meep", about = "Meep")]
 pub(super) struct Options {
+    #[cfg(feature = "demo-driver")]
+    #[arg(long, help = "Preview workspace, chat, view and error states offline")]
+    pub(super) preview_states: bool,
     /// PostHog region for browser sign-in.
     #[arg(long, value_enum)]
     posthog: Option<Region>,
