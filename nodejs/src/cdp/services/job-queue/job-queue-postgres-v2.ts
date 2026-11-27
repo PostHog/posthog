@@ -27,7 +27,7 @@ import {
 } from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
-import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
+import { ConsumerOptions, IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export { acceptsPendingWake, extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
@@ -89,6 +89,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private consumerQueue?: string
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
+    private beforeStopDeadline?: ConsumerOptions['beforeStopDeadline']
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
     private stateOpener: StateOpener
 
@@ -145,7 +146,8 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options: ConsumerOptions = {}
     ): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
@@ -154,6 +156,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         await this.startAsProducer()
 
         this.consumerQueue = queue
+        this.beforeStopDeadline = options.beforeStopDeadline
         this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
@@ -207,10 +210,13 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         }
         const deadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
         this.stopDeadline = deadline
+        const hook = this.beforeStopDeadline
+        const hookTimer = hook && setTimeout(hook.run, Math.max(0, deadline - hook.leadMs - Date.now()))
         const drained = await settleBefore(
             deadline,
             worker.stopConsuming().then(() => this.drainWrites())
         )
+        clearTimeout(hookTimer)
         if (!drained) {
             logger.warn('CyclotronV2 stop deadline passed with work still running; the janitor resets its jobs', {
                 writes: this.resultWrites.promises.size,

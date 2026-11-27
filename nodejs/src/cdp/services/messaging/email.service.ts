@@ -195,6 +195,15 @@ class EmailSendDeadlineError extends Error {
     }
 }
 
+class EmailWorkerStoppedError extends Error {
+    constructor() {
+        super(
+            'The email sender restarted before this email reached SES, so it waits for the next sender. No action is needed on your side.'
+        )
+        this.name = 'EmailWorkerStoppedError'
+    }
+}
+
 export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
 
 class MessageTooLargeError extends Error {
@@ -681,7 +690,7 @@ export class EmailService {
     }
 
     public stopSending(): void {
-        this.sending.abort(new Error('The email worker stopped sending before its queue disconnects'))
+        this.sending.abort()
     }
 
     private async jobOwnershipBeforeSend(
@@ -783,6 +792,8 @@ export class EmailService {
         let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
+        const sendStep = sendStepOf(invocation)
+        let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
 
         try {
             const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
@@ -805,8 +816,6 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = sendStepOf(invocation)
-            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -986,6 +995,17 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (error instanceof EmailWorkerStoppedError && !isTest) {
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc()
+                addLog('info', error.message)
             } else if (
                 isAttachmentLoadFailure(error) &&
                 !isTest &&
@@ -1815,6 +1835,9 @@ export class EmailService {
             files,
             deadline: deadline ? AbortSignal.any([deadline, this.sending.signal]) : this.sending.signal,
         })
+        if (outcome.kind === 'not_sent' && outcome.reason === 'before_deadline' && this.sending.signal.aborted) {
+            throw new EmailWorkerStoppedError()
+        }
         return messageIdOrSendError(outcome, from.email)
     }
 
