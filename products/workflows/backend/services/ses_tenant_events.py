@@ -45,7 +45,7 @@ def _extract_team_id(event: dict[str, Any]) -> int | None:
     return None
 
 
-def _confirm_subscription(message: Mapping[str, Any]) -> None:
+def confirm_sns_subscription(message: Mapping[str, Any]) -> None:
     """Call back the SubscribeURL AWS sent, which completes the SNS subscription handshake."""
     subscribe_url = message.get("SubscribeURL")
     if not isinstance(subscribe_url, str) or not is_valid_sns_url(subscribe_url):
@@ -88,6 +88,6 @@ def _handle_notification(message: Mapping[str, Any]) -> None:
 def handle_ses_tenant_event(delivery: WebhookDelivery) -> None:
     """One SNS delivery: the subscription handshake, or a tenant reputation event."""
     if delivery.event_type == "SubscriptionConfirmation":
-        _confirm_subscription(delivery.payload)
+        confirm_sns_subscription(delivery.payload)
     elif delivery.event_type == "Notification":
         _handle_notification(delivery.payload)

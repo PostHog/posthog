@@ -129,15 +129,19 @@ def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
 
 
 def _execute(
-    team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None, *, query_type: str
+    team_id: int,
+    query: str,
+    params: dict[str, Any],
+    settings: dict[str, int] | None = None,
+    *,
+    query_type: str,
+    workload: Workload = Workload.ONLINE,
 ) -> list[tuple]:
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY, query_type=query_type)
     # The log is read by a person looking at the page, or by an agent answering one.
     return cast(
         list,
-        sync_execute(
-            query, {"team_id": team_id, **params}, settings=settings, workload=Workload.ONLINE, team_id=team_id
-        ),
+        sync_execute(query, {"team_id": team_id, **params}, settings=settings, workload=workload, team_id=team_id),
     )
 
 
@@ -1043,4 +1047,41 @@ def _conversions(
     return {
         recipient: _Conversion(first_at=first_at.astimezone(UTC), revenue=float(total or 0.0))
         for recipient, first_at, total in response.results or []
+    }
+
+
+@frozen
+class OriginalSend:
+    message_id: UUID
+    workflow_id: UUID | None
+
+
+def find_sends_by_provider_message_ids(team_id: int, provider_message_ids: Sequence[str]) -> dict[str, OriginalSend]:
+    """The sends a reply's headers name. The ids come from a stranger's message, so only this team's sends can match."""
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT
+            anyIf(provider_message_id, provider_message_id != '') AS provider_id,
+            message_id,
+            anyIf(function_id, function_id != '') AS workflow_id
+        FROM {EMAIL_STATUS_EVENTS_TABLE}
+        WHERE team_id = %(team_id)s
+            AND created_at >= %(since)s
+            AND (created_at, message_id) IN (
+                SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE}
+                WHERE team_id = %(team_id)s
+                    AND created_at >= %(since)s
+                    AND provider_message_id IN %(provider_message_ids)s
+            )
+        GROUP BY message_id
+        """,
+        {"provider_message_ids": list(provider_message_ids), "since": datetime.now(UTC) - RETENTION},
+        query_type="received_email_original_send",
+        # This runs in a background task, with nobody waiting on a page.
+        workload=Workload.OFFLINE,
+    )
+    return {
+        provider_id: OriginalSend(message_id=message_id, workflow_id=UUID(workflow_id) if workflow_id else None)
+        for provider_id, message_id, workflow_id in rows
     }

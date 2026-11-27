@@ -65,6 +65,12 @@ class PublishedRecords:
         return not self.unanswered
 
 
+@frozen
+class MxLookup:
+    records: tuple[tuple[int, str], ...]
+    answered: bool
+
+
 # The zone's own nameservers answer first because public resolvers cache a negative answer for the
 # zone's SOA minimum TTL, which hides a record the customer just added for up to an hour. A public
 # resolver then checks what they could not confirm, because they cannot follow a CNAME to another
@@ -113,6 +119,21 @@ def _with_published_value(
 ) -> tuple[EmailDomainStatusRecord, PublishedRecords]:
     in_force = replace(record, value=_policy_in_force(published.dmarc_policies[record][0]) or record.value)
     return in_force, replace(published, records=(published.records - {record}) | {in_force})
+
+
+def lookup_mx(domain: str) -> MxLookup:
+    """The domain's MX records as the zone's own nameservers see them, so a record just added shows up at once."""
+    if (oob_domain := matched_oob_domain(domain)) is not None:
+        logger.info("security.oob_domain_seen domain=%s guard=email_domain_mx", oob_domain)
+    resolver = _authoritative_resolver(domain) or _system_resolver()
+    answers = _resolve(resolver, _Lookup(name=domain, type=RecordType.MX))
+    if answers is None:
+        return MxLookup(records=(), answered=False)
+    records = []
+    for answer in answers:
+        preference, _, host = answer.partition(" ")
+        records.append((int(preference), host))
+    return MxLookup(records=tuple(sorted(records)), answered=True)
 
 
 def _published_with(resolver: dns.resolver.Resolver, records: Sequence[EmailDomainStatusRecord]) -> PublishedRecords:

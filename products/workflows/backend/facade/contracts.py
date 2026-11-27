@@ -1531,3 +1531,10 @@ class AdventCalendarQuestionResult:
     day: AdventCalendarDay
     answer: AdventCalendarOption | None
     shares: tuple[AdventCalendarShare, ...]
+
+
+class InboundDomainError(Exception):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail

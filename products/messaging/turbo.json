@@ -14,7 +14,8 @@
                 "backend/scopes.py",
                 "backend/apps.py",
                 "backend/admin.py",
-                "backend/services/transactional_email.py"
+                "backend/services/transactional_email.py",
+                "backend/services/transactional_email_log.py"
             ],
             "outputs": [],
             "cache": true

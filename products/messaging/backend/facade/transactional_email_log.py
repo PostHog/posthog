@@ -7,6 +7,7 @@ from products.messaging.backend.services.transactional_email_activity import (
 )
 from products.messaging.backend.services.transactional_email_log import (
     MAX_CONVERSION_WINDOW_DAYS,
+    find_sends_by_provider_message_ids,
     get_transactional_email,
     list_transactional_emails,
     transactional_email_impact,
@@ -19,6 +20,7 @@ __all__ = [
     "ACTIVITY_WINDOW_DAYS",
     "EMAIL_STATUS_RETENTION_DAYS",
     "MAX_CONVERSION_WINDOW_DAYS",
+    "find_sends_by_provider_message_ids",
     "get_transactional_email",
     "get_transactional_email_activity",
     "list_transactional_emails",

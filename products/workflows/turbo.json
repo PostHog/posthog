@@ -39,7 +39,9 @@
                 "backend/services/transactional_push_workflows.py",
                 "backend/services/provider_cohorts.py",
                 "backend/utils/email_sending_tiers.py",
-                "backend/utils/rrule_utils.py"
+                "backend/utils/rrule_utils.py",
+                "backend/services/inbound_email/retention.py",
+                "backend/services/inbound_email/schedule.py"
             ],
             "outputs": [],
             "cache": true

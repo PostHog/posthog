@@ -126,6 +126,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int], should_stop: Callab
     from products.product_analytics.backend.facade import api as product_analytics_facade
     from products.today.backend.facade import api as today_facade
     from products.web_analytics.backend.facade import health_rollups as web_analytics_health_rollups
+    from products.workflows.backend.facade.received_emails import delete_received_emails_for_teams
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -142,6 +143,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int], should_stop: Callab
     today_facade.delete_highlights_for_teams(team_ids)
     product_analytics_facade.delete_agent_insight_reads_for_teams(team_ids)
     growth_facade.delete_sdk_version_rollups_for_teams(team_ids)
+    # The cascade would remove the rows, but only this also removes the mail in object storage.
+    delete_received_emails_for_teams(team_ids)
     web_analytics_health_rollups.delete_health_rollups_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)

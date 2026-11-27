@@ -1,4 +1,4 @@
-"""Workflows' consumers: the customer-facing GitHub App endpoint, and the SES events SNS topic.
+"""Workflows' consumers: the customer-facing GitHub App endpoint, and the SES events and receiving SNS topics.
 
 The registry imports this module on the first delivery, so it stays cheap: both handlers defer
 their own product import.
@@ -19,6 +19,12 @@ def _run_workflows_ses_events(delivery: WebhookDelivery) -> None:
     accept_ses_event(delivery)
 
 
+def _run_workflows_ses_inbound(delivery: WebhookDelivery) -> None:
+    from products.workflows.backend.facade.api import accept_ses_inbound_email  # noqa: PLC0415
+
+    accept_ses_inbound_email(delivery)
+
+
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
         name="workflows",
@@ -34,5 +40,12 @@ WEBHOOK_CONSUMERS = (
         # Confirming the subscription is this consumer's business too: it means calling AWS back.
         event_types=frozenset({"SubscriptionConfirmation", "Notification"}),
         handler=_run_workflows_ses_events,
+    ),
+    WebhookConsumer(
+        name="workflows_ses_inbound",
+        provider="sns",
+        app="ses_inbound",
+        event_types=frozenset({"SubscriptionConfirmation", "Notification"}),
+        handler=_run_workflows_ses_inbound,
     ),
 )
