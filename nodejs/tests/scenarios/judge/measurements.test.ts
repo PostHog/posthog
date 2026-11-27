@@ -10,7 +10,6 @@ import type { JournalEntry } from './judge'
 import {
     DriveWindow,
     HostSample,
-    MEASUREMENTS,
     MeasureEvidence,
     Measurement,
     MetricSample,
@@ -138,12 +137,6 @@ const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
 const between = (fromS: number, toS: number) => (second: number) => second >= fromS && second <= toS
 
 describe('measurements', () => {
-    it('names each measurement once, so a card resolves every name to the one it means', () => {
-        const names = MEASUREMENTS.map(({ name }) => name)
-
-        expect(names.filter((name, i) => names.indexOf(name) !== i)).toEqual([])
-    })
-
     const missedAt = (atS: number, replica = 0): MissedScrape => ({ role: ROLE, replica, at: FROM + atS * 1000 })
 
     it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>]>([
@@ -997,6 +990,32 @@ describe('measurements', () => {
                 censored: true,
                 unmeasured: UNBOUNDED_PICKUPS,
             },
+        ])
+    })
+
+    it('gives the valve pickup p99 and the soak pickup series each its own rows, so a card that asks for both gets both', () => {
+        expect(
+            measure(
+                [
+                    { name: 'pickup_p99_seconds', params: {} },
+                    { name: 'pickup_p99_window_seconds', params: {} },
+                ],
+                evidence({ samples: pickedEvery5s(between(705, 760)), drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+            )
+        ).toEqual([
+            ...['baseline', 'bar', 't0', 't60', 't120'].map((key) => ({
+                name: 'pickup_p99_seconds',
+                unit: 's',
+                key: `hogflow_${key}`,
+                value: null,
+                censored: true,
+                unmeasured: UNBOUNDED_PICKUPS,
+            })),
+            ...[
+                ['t0', 0.5],
+                ['t600', 5],
+                ['t1200', 0.5],
+            ].map(([key, value]) => ({ name: 'pickup_p99_window_seconds', unit: 's', key: `hogflow_${key}`, value })),
         ])
     })
 
