@@ -17,7 +17,8 @@ const PLAIN_BATCH_ALLOWANCE_BYTES = 512 * MIB
 const FIRST_DEFERRAL_MS = 5_000
 const LONGEST_DEFERRAL_MS = 120_000
 
-export type DeferralReason = 'over_budget' | 'over_heap' | 'at_cap' | 'refused'
+const DEFERRAL_REASONS = ['over_budget', 'over_heap', 'at_cap', 'refused'] as const
+export type DeferralReason = (typeof DEFERRAL_REASONS)[number]
 
 declare const mintedByTheRegistry: unique symbol
 export type Admission = {
@@ -41,6 +42,10 @@ export const deferralTokensSpent = new Counter({
     help: 'Sends with files that the email worker had no room for and deferred. Each one spent the SES rate-limit token its dequeue claimed without sending',
     labelNames: ['reason'],
 })
+
+for (const reason of DEFERRAL_REASONS) {
+    deferralTokensSpent.labels({ reason }).inc(0)
+}
 
 const unadmittedLoads = new Counter({
     name: 'cdp_email_attachments_unadmitted_loads_total',
