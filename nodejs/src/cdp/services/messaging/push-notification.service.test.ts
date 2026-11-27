@@ -910,19 +910,24 @@ describe('PushNotificationService', () => {
             expect(sentTokens()).toEqual(['run-person-token'])
         })
 
-        it('reaches no device of a named person from a transactional email run', async () => {
-            personsManager.getCyclotronPerson.mockResolvedValue(
-                namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
-            )
-            mockTrackedFetch.mockResolvedValue(ok())
-            const invocation = invocationNaming('named-user')
-            invocation.state.globals.event.event = '$transactional_email'
+        it.each(['$transactional_email', '$transactional_push'])(
+            'reaches no device of a named person from a %s run',
+            async (eventName) => {
+                personsManager.getCyclotronPerson.mockResolvedValue(
+                    namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
+                )
+                mockTrackedFetch.mockResolvedValue(ok())
+                const invocation = invocationNaming('named-user')
+                invocation.state.globals.event.event = eventName
 
-            const result = await service.executeSendPushNotification(invocation)
+                const result = await service.executeSendPushNotification(invocation)
 
-            expect(sentTokens()).toEqual([])
-            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
-        })
+                expect(sentTokens()).toEqual([])
+                expect(result.metrics).toContainEqual(
+                    expect.objectContaining({ metric_name: 'push_skipped', count: 1 })
+                )
+            }
+        )
 
         it('skips with a warning naming the input when it matches no person', async () => {
             // Falling back to the run person here would notify someone the step did not name.
@@ -1020,10 +1025,8 @@ describe('PushNotificationService', () => {
                 expect(second.metrics).toEqual([expect.objectContaining({ metric_name: 'push_sent', count: 1 })])
             })
 
-            it.each([
-                ['the run has no person', 'test-distinct-id'],
-                ['the step names someone with no person', 'new-user'],
-            ])('waits for a person that does not exist yet when %s', async (_, distinctId) => {
+            it('waits for a person that does not exist yet when the run has no person', async () => {
+                const distinctId = 'test-distinct-id'
                 const invocation = transactionalSend(distinctId)
                 invocation.state.globals.person = undefined
 
@@ -1064,12 +1067,13 @@ describe('PushNotificationService', () => {
             })
 
             it('skips without waiting when the provider says the only token is dead', async () => {
-                personsManager.getCyclotronPerson.mockResolvedValue(
-                    namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
-                )
                 mockTrackedFetch.mockResolvedValue(unregistered())
+                const invocation = transactionalSend()
+                invocation.state.globals.person!.properties = {
+                    [runPersonKey]: encryptedFields.encrypt('run-person-token'),
+                }
 
-                const result = await service.executeSendPushNotification(transactionalSend('named-user'))
+                const result = await service.executeSendPushNotification(invocation)
 
                 expect(result.finished).toBe(true)
                 expect(result.metrics).toContainEqual(
