@@ -1,6 +1,7 @@
 import { http, HttpResponse, type DefaultBodyType, type StrictRequest } from 'msw'
 import { setupServer } from 'msw/node'
 import { createHash } from 'node:crypto'
+import { FeatureFlagEvaluations } from 'posthog-node'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createApp } from '@/hono/app'
@@ -615,17 +616,33 @@ describe('pinned project with switch-project (Hono)', () => {
             }
             mswServer.events.on('request:start', record)
             const localApi = vi.spyOn(constants, 'isLocalApi').mockReturnValue(false)
-            const flags = vi
-                .spyOn(getPostHogClient(), 'getAllFlagsAndPayloads')
-                .mockImplementation(async (_distinctId, options) => ({
-                    featureFlags: Object.fromEntries(
-                        (options?.flagKeys ?? []).map((key) => [
-                            key,
-                            key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
-                        ])
-                    ),
-                    featureFlagPayloads: {},
-                }))
+            const flags = vi.spyOn(getPostHogClient(), 'evaluateFlags').mockImplementation(
+                async (_distinctId, options?: { flagKeys?: string[] }) =>
+                    new FeatureFlagEvaluations({
+                        host: {
+                            captureFlagCalledEventIfNeeded: () => undefined,
+                            resolveSendFeatureFlagEvents: () => false,
+                            logWarning: () => undefined,
+                        },
+                        distinctId: 'distinct-id',
+                        flags: Object.fromEntries(
+                            (options?.flagKeys ?? []).map((key) => [
+                                key,
+                                {
+                                    key,
+                                    enabled: key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                                    variant: undefined,
+                                    payload: undefined,
+                                    id: undefined,
+                                    version: undefined,
+                                    reason: undefined,
+                                    locallyEvaluated: false,
+                                    hasExperiment: undefined,
+                                },
+                            ])
+                        ),
+                    })
+            )
             try {
                 const results = await postBatch(
                     Array.from({ length: 100 }, (_, index) => ({

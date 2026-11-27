@@ -159,6 +159,7 @@ vi.mock('@/hono/request-context', async () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { GUIDANCE_RULE_FLAGS } from '@/hono/guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
@@ -288,6 +289,35 @@ describe('RequestStateResolver MCP client contexts', () => {
             requiredFlags.mockRestore()
             evaluate.mockReset().mockResolvedValue({ flags: {}, payloads: {} })
         }
+    })
+
+    it('keeps guidance flag payloads and the exposure report from the one flag lookup', async () => {
+        const guidanceFlag = GUIDANCE_RULE_FLAGS[0]!
+        const reported: string[] = []
+        const evaluate = vi
+            .mocked(evaluateFeatureFlags)
+            .mockClear()
+            .mockResolvedValueOnce({
+                flags: { [guidanceFlag]: 'treated', [MCP_INTENT_PROMPT_FLAG]: 'variant' },
+                payloads: {
+                    [guidanceFlag]: { label: 'Guidance copy' },
+                    [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Intent' },
+                },
+                reportExposure: (flagKey) => reported.push(flagKey),
+            })
+
+        const state = await makeResolver().resolve(makeProps())
+        state.reportFlagExposure?.(guidanceFlag)
+
+        expect({
+            lookups: evaluate.mock.calls.length,
+            payloads: state.guidanceFlagPayloads,
+            reported,
+        }).toEqual({
+            lookups: 1,
+            payloads: { [guidanceFlag]: { label: 'Guidance copy' } },
+            reported: [guidanceFlag],
+        })
     })
 
     it('times each resolution step it ran', async () => {
