@@ -118,7 +118,10 @@ export interface accessControlsLogicValues {
     roles: RoleType[] // roleAccessControlLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     selectedTabOptions: string | null // sidePanelStateLogic
+    sidePanelOpen: boolean // sidePanelStateLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
+    accessDetailDialogOpen: boolean
+    accessDetailInDialog: boolean
     accessDetailPanelEnabled: boolean
     activePanelSubject: AccessDetailSubject | null
     activeTab: AccessControlsTab
@@ -137,6 +140,7 @@ export interface accessControlsLogicValues {
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
     objectRuleResourceOptions: ObjectRuleResource[]
+    openDetailSubject: AccessDetailSubject | null
     panelEntry: AccessControlSettingsEntry | null
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
@@ -306,6 +310,16 @@ export interface accessControlsLogicActions {
     roleMembershipsChanged: () => {
         value: true
     } // roleAccessControlLogic
+    openSidePanel: (
+        tab: SidePanelTab,
+        options?: string | undefined
+    ) => {
+        options: string | undefined
+        tab: SidePanelTab
+    } // sidePanelStateLogic
+    closeAccessDetailDialog: () => {
+        value: true
+    }
     closeRuleModal: () => {
         value: true
     }
@@ -375,7 +389,7 @@ export interface accessControlsLogicActions {
         rolesData: AccessControlRolesResponse
         payload?: any
     }
-    openAccessDetailPanel: (
+    openAccessDetail: (
         scopeType: AccessDetailSubjectScope,
         subjectId: string
     ) => {
@@ -436,6 +450,15 @@ export interface accessControlsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
         accessDetailPanelEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        accessDetailInDialog: (accessDetailPanelEnabled: boolean, featureFlags: FeatureFlagsSet) => boolean
+        openDetailSubject: (
+            accessDetailInDialog: boolean,
+            accessDetailDialogOpen: boolean,
+            panelSubject: AccessDetailSubject | null,
+            sidePanelOpen: any,
+            selectedTab: SidePanelTab | null,
+            activePanelSubject: AccessDetailSubject | null
+        ) => AccessDetailSubject | null
         panelOptionsSubject: (
             selectedTab: SidePanelTab | null,
             selectedTabOptions: string | null
@@ -552,6 +575,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             ],
             roleAccessControlLogic,
             ['roleMembershipsChanged', 'deleteRoleSuccess'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
         ],
         values: [
             userLogic,
@@ -565,7 +590,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             sidePanelStateLogic,
-            ['selectedTab', 'selectedTabOptions'],
+            ['selectedTab', 'selectedTabOptions', 'sidePanelOpen'],
         ],
     })),
 
@@ -575,7 +600,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
-        openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
+        openAccessDetail: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
+        closeAccessDetailDialog: true,
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
         setShowAllProducts: (show: boolean) => ({ show }),
         setSubjectProjectAccess: (
@@ -686,14 +712,21 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
          */
         // A fresh subject invalidates the previous subject's entry while the new one loads
         panelEntry: {
-            openAccessDetailPanel: () => null,
+            openAccessDetail: () => null,
         },
         /** The Products list starts collapsed for every newly opened subject. */
-        showAllProducts: [false, { setShowAllProducts: (_, { show }) => show, openAccessDetailPanel: () => false }],
+        showAllProducts: [false, { setShowAllProducts: (_, { show }) => show, openAccessDetail: () => false }],
+        accessDetailDialogOpen: [
+            false,
+            {
+                openAccessDetail: () => true,
+                closeAccessDetailDialog: () => false,
+            },
+        ],
         panelSubject: [
             null as AccessDetailSubject | null,
             {
-                openAccessDetailPanel: (_, { scopeType, subjectId }) => ({ scopeType, subjectId }),
+                openAccessDetail: (_, { scopeType, subjectId }) => ({ scopeType, subjectId }),
                 // Deliberately not cleared on setActiveTab: urlToAction re-dispatches it on every location
                 // change, including the hash changing as side panel tabs are switched, which would wipe the
                 // selection. The row highlight already ignores a subject from the other scope.
@@ -711,6 +744,38 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         accessDetailPanelEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL],
+        ],
+
+        /** The Today layout has no side panel tab for the detail, so it opens in a dialog over the list. */
+        accessDetailInDialog: [
+            (s) => [s.accessDetailPanelEnabled, s.featureFlags],
+            (accessDetailPanelEnabled: boolean, featureFlags: FeatureFlagsSet): boolean =>
+                accessDetailPanelEnabled && !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
+        ],
+
+        /** The subject whose detail is on screen, in the dialog or the side panel, or null when neither shows one. */
+        openDetailSubject: [
+            (s) => [
+                s.accessDetailInDialog,
+                s.accessDetailDialogOpen,
+                s.panelSubject,
+                s.sidePanelOpen,
+                s.selectedTab,
+                s.activePanelSubject,
+            ],
+            (
+                accessDetailInDialog: boolean,
+                accessDetailDialogOpen: boolean,
+                panelSubject: AccessDetailSubject | null,
+                sidePanelOpen: boolean,
+                selectedTab: SidePanelTab | null,
+                activePanelSubject: AccessDetailSubject | null
+            ): AccessDetailSubject | null => {
+                if (accessDetailInDialog) {
+                    return accessDetailDialogOpen ? panelSubject : null
+                }
+                return sidePanelOpen && selectedTab === SidePanelTab.AccessDetail ? activePanelSubject : null
+            },
         ],
 
         /** Subject carried in the side panel's own options — a deep link or a fresh open. */
@@ -980,7 +1045,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             )
         },
 
-        openAccessDetailPanel: ({ scopeType, subjectId }) => {
+        openAccessDetail: ({ scopeType, subjectId }) => {
             captureAccessControlEvent(
                 scopeType === 'role' ? 'access_control_role_detail_opened' : 'access_control_member_detail_opened',
                 { ui_version: 'v2' }
@@ -989,6 +1054,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             // Load on the action rather than a subscription on activePanelSubject: re-opening the same
             // subject nulls panelEntry without changing the subject, so a subscription would never refire.
             actions.loadPanelEntry({ scopeType, subjectId })
+            if (!values.accessDetailInDialog) {
+                actions.openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${subjectId}`)
+            }
         },
 
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
@@ -1177,7 +1245,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 (subject.subjectId !== values.panelSubject?.subjectId ||
                     subject.scopeType !== values.panelSubject?.scopeType)
             ) {
-                actions.openAccessDetailPanel(subject.scopeType, subject.subjectId)
+                actions.openAccessDetail(subject.scopeType, subject.subjectId)
             }
         },
     })),
@@ -1214,7 +1282,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             // URL would re-open the linked member and reset the tab after each of those.
             router.actions.replace(router.values.location.pathname, link.rest, hashParams)
             if (link.memberId) {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, `member:${link.memberId}`)
+                actions.openAccessDetail('member', link.memberId)
             }
         },
     })),

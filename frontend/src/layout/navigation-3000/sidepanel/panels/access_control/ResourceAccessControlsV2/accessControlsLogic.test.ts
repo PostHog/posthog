@@ -270,7 +270,7 @@ describe('accessControlsLogic', () => {
         it('reloads the entry when the already-open subject is opened again', async () => {
             // A member row click dispatches both of these (AccessControls.tsx)
             const clickMemberRow = (): void => {
-                logic.actions.openAccessDetailPanel('member', 'member-1')
+                logic.actions.openAccessDetail('member', 'member-1')
                 sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-1')
             }
 
@@ -329,7 +329,7 @@ describe('accessControlsLogic', () => {
         it('lets another member replace the deep-linked one', async () => {
             router.actions.push(settingsPath, { access_tab: 'members', access_member_id: 'member-1' })
 
-            logic.actions.openAccessDetailPanel('member', 'member-2')
+            logic.actions.openAccessDetail('member', 'member-2')
             sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-2')
 
             await expectLogic(logic).toMatchValues({

@@ -36,11 +36,6 @@ const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
             default: m.QuillAccessControlPanel,
         }))
     ),
-    [SidePanelTab.AccessDetail]: lazyWithRetry(() =>
-        import('~/layout/navigation-3000/sidepanel/panels/access_control/quill/QuillAccessDetailPanel').then((m) => ({
-            default: m.QuillAccessDetailPanel,
-        }))
-    ),
 }
 
 type SwitchDirection = 'forward' | 'backward'

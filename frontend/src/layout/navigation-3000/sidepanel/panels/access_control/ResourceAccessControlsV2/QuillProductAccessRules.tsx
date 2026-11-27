@@ -82,7 +82,13 @@ export function QuillProductAccessRules({
     return (
         <QuillAccessDetailSection title="Products" description={`The access this ${subjectNoun} has to each product.`}>
             <ProductRowEditingContext.Provider value={rowEditing}>
-                <DataTable columns={COLUMNS} data={visibleResources} getRowId={(row) => row.key} fullWidth />
+                <DataTable
+                    className="rounded-md border border-border"
+                    columns={COLUMNS}
+                    data={visibleResources}
+                    getRowId={(row) => row.key}
+                    fullWidth
+                />
             </ProductRowEditingContext.Provider>
             {canCollapse && (
                 <div className="flex">
