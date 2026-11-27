@@ -236,6 +236,11 @@ export const Profile = z
         path: ['synthetic'],
         message: 'backlog_padding requires a backlog',
     })
+    .refine(({ feedback, replicas }) => feedback === undefined || (replicas['cdp-api'] ?? 1) === 1, {
+        path: ['feedback'],
+        message:
+            'the edge posts feedback to the first cdp-api replica only, so feedback shares need one cdp-api replica',
+    })
     .refine(
         ({ synthetic, traffic }) =>
             !synthetic?.includes('transactional_email_parks') ||

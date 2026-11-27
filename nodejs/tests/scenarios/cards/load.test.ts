@@ -481,6 +481,31 @@ describe('load', () => {
             'profile.synthetic: transactional_email_parks requires positive transactional email parks',
         ],
         [
+            'a card that measures SES feedback on a profile without feedback shares',
+            { ...card, measure: [{ name: 'ses_feedback_posts', params: {} }] },
+            profile,
+            'profile.feedback: ses_feedback_posts measures SES feedback, so the profile needs shares that post some',
+        ],
+        [
+            'a card that measures SES feedback on a profile whose shares post none',
+            { ...card, measure: [{ name: 'ses_feedback_ms', params: {} }] },
+            {
+                ...profile,
+                feedback: { delivery: 0, hardBounce: 0, softBounce: 0, complaint: 0, open: 0, click: 0 },
+            },
+            'profile.feedback: ses_feedback_ms measures SES feedback, so the profile needs shares that post some',
+        ],
+        [
+            'feedback shares on a profile with more than one cdp-api replica',
+            card,
+            {
+                ...profile,
+                replicas: { 'cdp-api': 2 },
+                feedback: { delivery: 1, hardBounce: 0, softBounce: 0, complaint: 0, open: 0, click: 0 },
+            },
+            'profile.feedback: the edge posts feedback to the first cdp-api replica only, so feedback shares need one cdp-api replica',
+        ],
+        [
             'a profile the repository does not ship',
             { ...card, profile: 'prod-shape' },
             undefined,

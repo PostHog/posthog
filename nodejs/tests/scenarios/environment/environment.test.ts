@@ -97,7 +97,7 @@ const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
 }
 
-const sendThrough = async (edgeUrl: string): Promise<string> => {
+const sendThrough = async (edgeUrl: string, configurationSetName?: string): Promise<string> => {
     const ses = new SESv2Client({
         endpoint: edgeUrl,
         region: 'us-east-1',
@@ -110,6 +110,7 @@ const sendThrough = async (edgeUrl: string): Promise<string> => {
                 FromEmailAddress: 'flows@www.example.com',
                 Destination: { ToAddresses: ['run-1-1@www.example.com'] },
                 Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello there' } } } },
+                ConfigurationSetName: configurationSetName,
             })
         )
         return 'sent'
@@ -2441,6 +2442,21 @@ describe('scenario environment', () => {
                 'cdp_intake_workflow_webhook',
                 'scenario_intake_dlq',
             ])
+        })
+
+        it('accepts sends on the configuration sets the profile names, once the card starts', async () => {
+            environment = environmentOf()
+            await environment.up(NEVER_ABORTED)
+
+            await environment.reset({
+                SES_TRACKED_CONFIGURATION_SET: 'profile-tracking',
+                SES_UNTRACKED_CONFIGURATION_SET: 'profile-untracked',
+            })
+
+            expect([
+                await sendThrough(environment.edgeUrl(), 'profile-tracking'),
+                await sendThrough(environment.edgeUrl(), 'profile-untracked'),
+            ]).toEqual(['sent', 'sent'])
         })
 
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog, keeping the resident backlog", async () => {

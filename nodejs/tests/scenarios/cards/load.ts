@@ -155,10 +155,25 @@ function checkIntakeProfile(profile: Profile): string[] {
     ]
 }
 
+const FEEDBACK_MEASUREMENTS = ['ses_feedback_ms', 'ses_feedback_posts']
+
+function checkFeedbackProfile(card: Card, { feedback }: Profile): string[] {
+    const posts = feedback !== undefined && feedback.delivery + feedback.hardBounce + feedback.softBounce > 0
+    return posts
+        ? []
+        : card.measure
+              .filter(({ name }) => FEEDBACK_MEASUREMENTS.includes(name))
+              .map(
+                  ({ name }) =>
+                      `profile.feedback: ${name} measures SES feedback, so the profile needs shares that post some`
+              )
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
     return [
+        ...checkFeedbackProfile(card, profile),
         ...Object.keys(profile.settings)
             .filter((name) => !rolesRead(name) && !loadProducerReads(name))
             .map((name) => `profile.settings.${name}: not a setting the roles or the load producer read`),
