@@ -86,7 +86,13 @@ class TestAbuseReview(AbuseClassificationTestCase):
             destination,
             "updated",
             changes=[
-                {"type": "HogFunction", "action": "changed", "field": "hog", "before": "", "after": "fetch('a')"},
+                {
+                    "type": "HogFunction",
+                    "action": "changed",
+                    "field": "hog",
+                    "before": "",
+                    "after": "fetch('https://a.example.com')",
+                },
                 {"type": "HogFunction", "action": "changed", "field": "enabled", "before": False, "after": True},
             ],
         )
@@ -94,7 +100,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
             destination,
             "tested",
             context={
-                "hog": "fetch('b')",
+                "hog": "fetch('http://10.0.0.1:8000')",
                 "mock_async_functions": False,
                 "request_origins": [f"https://site{index:02}.example.com" for index in range(25)]
                 + ["http://169.254.169.254"],
@@ -131,11 +137,12 @@ class TestAbuseReview(AbuseClassificationTestCase):
             "cdp_trust_score": None,
             "tier": "standard",
         }
-        assert [(entry["activity"], entry["code"], entry["enabled"]) for entry in case["history"]] == [
-            ("created", None, None),
-            ("updated", "fetch('a')", True),
-            ("tested", "fetch('b')", None),
+        assert [(entry["activity"], entry["hosts"], entry["enabled"]) for entry in case["history"]] == [
+            ("created", [], None),
+            ("updated", ["a.example.com"], True),
+            ("tested", ["10.0.0.1"], None),
         ]
+        assert "fetch(" not in json.dumps(case["history"])
         assert case["history"][1]["changed_fields"] == ["hog", "enabled"]
         assert case["history"][2]["request_origins"][0] == "http://169.254.169.254"
         assert len(case["history"][2]["request_origins"]) == case_file.MAX_ORIGINS_PER_TEST
@@ -148,15 +155,29 @@ class TestAbuseReview(AbuseClassificationTestCase):
             "rule_hits": {"internal_host": 3},
         }
 
-    def test_flagged_hosts_lead_the_capped_host_list(self) -> None:
+    def test_flagged_hosts_lead_the_capped_host_lists(self) -> None:
         many_hosts = "".join(f"fetch('https://host{index:02}.example.com');" for index in range(25))
-        destination = self.create_destination(hog=many_hosts + "fetch('http://localhost:8000')")
+        destination = self.create_destination(
+            hog=many_hosts + "fetch('http://metadata.google.internal/computeMetadata/v1/')"
+        )
 
         function = self.case_of(destination)["function"]
+        request_hosts = function["classification"]["request_hosts"]
 
-        assert function["named_hosts"][0] == "localhost"
+        assert function["named_hosts"][0] == "metadata.google.internal"
         assert len(function["named_hosts"]) == case_file.MAX_HOSTS_PER_FUNCTION
         assert function["named_hosts_omitted"] == 28 - case_file.MAX_HOSTS_PER_FUNCTION
+        assert request_hosts[0] == "metadata.google.internal"
+        assert len(request_hosts) == case_file.MAX_HOSTS_PER_FUNCTION
+        assert function["classification"]["request_hosts_omitted"] == 28 - case_file.MAX_HOSTS_PER_FUNCTION
+
+    def test_a_control_character_in_a_host_shows_as_a_visible_symbol(self) -> None:
+        destination = self.create_destination(hog="fetch('http://a%01b.example.com/')")
+
+        named_hosts = self.case_of(destination)["function"]["named_hosts"]
+
+        assert "a\u2401b.example.com" in named_hosts
+        assert not any("\x01" in host for host in named_hosts)
 
     @parameterized.expand(
         [
@@ -243,7 +264,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
             changes=[
                 {
                     "field": "hog",
-                    "after": f"fetch('https://x.example.com/?key={SECRET_VALUE.upper()}', {{'body': event.properties.email}})",
+                    "after": f"fetch('https://{SECRET_VALUE}.example.com/?key={SECRET_VALUE}')",
                 }
             ],
         )
@@ -284,9 +305,8 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         serialized = build_case_file(destination, score(destination)).to_json()
 
-        assert SECRET_VALUE not in serialized.lower()
+        assert SECRET_VALUE not in serialized
         assert legacy_secret not in serialized
-        assert "event.properties.email" in serialized
         assert "https://hooks.example.com/orders" in serialized
 
     def test_a_secret_url_used_as_a_test_target_is_redacted_from_test_origins(self) -> None:
@@ -306,11 +326,11 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         assert secret_label not in serialized
 
-    def test_a_long_config_with_ordinary_history_keeps_its_hosts(self) -> None:
+    def test_a_long_config_with_a_long_history_keeps_its_hosts(self) -> None:
         padding = " ".join(f"w{index}" for index in range(12_000))
         destination = self.create_destination(hog=f"fetch('http://169.254.169.254/latest');\n// {padding}")
         for version in range(case_file.MAX_HISTORY_ENTRIES):
-            code = " ".join(f"v{version}x{index}" for index in range(600))
+            code = "".join(f"fetch('https://v{version}h{index:02}{'a' * 200}.example.com');" for index in range(20))
             entry = self.log(destination, "updated", changes=[{"field": "hog", "after": code}])
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
 
@@ -319,15 +339,23 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert len(json.dumps(case, ensure_ascii=False, separators=(",", ":"))) <= case_file.MAX_CASE_FILE_CHARS
         assert case["function"]["named_hosts"][0] == "169.254.169.254"
         assert case["function"]["classification"]["request_hosts"][0] == "169.254.169.254"
-        assert case["history"][-1]["code"].startswith(f"v{case_file.MAX_HISTORY_ENTRIES - 1}x0")
+        assert case["history_omitted"] > 0
+        assert case["history"][-1]["hosts"][0].startswith(f"v{case_file.MAX_HISTORY_ENTRIES - 1}h00")
 
     def test_the_org_function_check_costs_no_query_per_function(self) -> None:
         destination = self.create_destination()
+        template = self.create_template("destination")
 
         def queries_with(other_functions: int) -> int:
             existing = HogFunction.objects.filter(team=self.team).exclude(pk=destination.pk).count()
             for index in range(other_functions - existing):
-                self.other_function(self.team, name=f"Function {index}", hog="fetch('http://localhost:8000')")
+                self.other_function(
+                    self.team,
+                    name=f"Function {index}",
+                    hog="fetch('http://localhost:8000')",
+                    template_id=template.template_id,
+                    hog_function_template=template,
+                )
             destination.refresh_from_db()
             scored = score(destination)
             with CaptureQueriesContext(connection) as captured:
@@ -339,7 +367,9 @@ class TestAbuseReview(AbuseClassificationTestCase):
     def test_history_and_the_org_function_check_are_capped_to_the_latest(self) -> None:
         destination = self.create_destination()
         for version in range(case_file.MAX_HISTORY_ENTRIES + 5):
-            entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"// version {version}"}])
+            entry = self.log(
+                destination, "updated", changes=[{"field": "hog", "after": f"fetch('https://v{version}.example.com')"}]
+            )
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
         for index in range(case_file.MAX_ORG_FUNCTIONS_CHECKED + 3):
             self.other_function(self.team, name=f"Function {index}", hog="fetch('http://localhost:8000')")
@@ -348,8 +378,8 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         assert len(case["history"]) == case_file.MAX_HISTORY_ENTRIES
         assert case["history_omitted"] == 5
-        assert case["history"][0]["code"] == "// version 5"
-        assert case["history"][-1]["code"] == f"// version {case_file.MAX_HISTORY_ENTRIES + 4}"
+        assert case["history"][0]["hosts"] == ["v5.example.com"]
+        assert case["history"][-1]["hosts"] == [f"v{case_file.MAX_HISTORY_ENTRIES + 4}.example.com"]
         assert case["org_functions"]["total"] == case_file.MAX_ORG_FUNCTIONS_CHECKED + 3
         assert case["org_functions"]["checked_for_rules"] == case_file.MAX_ORG_FUNCTIONS_CHECKED
         assert case["org_functions"]["rule_hits"] == {"internal_host": case_file.MAX_ORG_FUNCTIONS_CHECKED}
@@ -357,7 +387,18 @@ class TestAbuseReview(AbuseClassificationTestCase):
     def test_an_oversized_case_file_drops_the_oldest_history_to_fit(self) -> None:
         destination = self.create_destination()
         for version in range(10):
-            entry = self.log(destination, "updated", changes=[{"field": "hog", "after": f"{version}" + "x" * 400}])
+            entry = self.log(
+                destination,
+                "updated",
+                changes=[
+                    {
+                        "field": "hog",
+                        "after": "".join(
+                            f"fetch('https://v{version}h{index}{'a' * 90}.example.com');" for index in range(5)
+                        ),
+                    }
+                ],
+            )
             ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
 
         with patch.object(case_file, "MAX_CASE_FILE_CHARS", 6_000):
@@ -369,7 +410,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert "169.254.169.254" in serialized
         assert 0 < len(built.history) < 10
         assert len(built.history) + built.history_omitted == 10
-        assert built.history[-1].code == "9" + "x" * 400
+        assert built.history[-1].hosts[0].startswith("v9h0")
 
     @parameterized.expand(
         [
@@ -401,7 +442,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
         case = self.case_of(destination)
 
         assert len(json.dumps(case, ensure_ascii=False, separators=(",", ":"))) <= case_file.MAX_CASE_FILE_CHARS
-        assert [entry["code"] for entry in case["history"]] == ["fetch('http://127.0.0.1')"]
+        assert [entry["hosts"] for entry in case["history"]] == [["127.0.0.1"]]
 
 
 class TestAbuseReviewJudge(AbuseClassificationTestCase):

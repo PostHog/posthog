@@ -43,8 +43,8 @@ body included. request_hosts lists the hosts the rules count as request targets,
 the code can send any request at all.
 - account: the organization's age, minutes from signup to this save, whether billing reports a subscription, \
 members, projects, the billing trust score for this product, and its tier (new means fresh, free and small).
-- history: the function's latest edits and tests, oldest first, and how many earlier ones were left out. Updates show the new code. Tests that sent real \
-requests show the origins they reached. Draft saves show only that the draft changed, never its content.
+- history: the function's latest edits and tests, oldest first, and how many earlier ones were left out. Each update and test shows the \
+hosts its code named, never the code itself. Tests that sent real requests also show the origins they reached. Draft saves show only that the draft changed, never its content.
 - org_functions: counts of the organization's other functions: how many there are, how many are deleted or \
 disabled, and how many of the most recently updated ones hit each rule.
 

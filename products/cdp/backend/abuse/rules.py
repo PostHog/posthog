@@ -1217,6 +1217,11 @@ def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
     return _flagged_first(_hosts_in(_texts(content)))
 
 
+def hosts_named_in(text: str) -> tuple[str, ...]:
+    """The hosts of the URLs in one piece of code, hosts that a rule flags first."""
+    return _flagged_first(_hosts_in([text]))
+
+
 def _flagged_first(hosts: Iterable[str]) -> tuple[str, ...]:
     flagged: dict[str, bool] = {}
     for host in hosts:

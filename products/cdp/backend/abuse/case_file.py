@@ -4,12 +4,11 @@ account, and counts of the organization's other functions.
 Built from Postgres only, bounded in size, and without secret input values.
 """
 
-import re
 import json
 from collections import Counter
 from dataclasses import asdict, replace
 from datetime import datetime
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 from django.db.models import Count, Q
 
@@ -33,7 +32,6 @@ MAX_ORG_FUNCTIONS_CHECKED = 50
 MAX_HOSTS_PER_FUNCTION = 20
 MAX_RULE_EVIDENCE = 20
 UNLOCATED = "not explained by the public content: depends on a secret input"
-MAX_HISTORY_CODE_CHARS = 4_000
 MAX_ORIGINS_PER_TEST = 20
 MAX_ORIGIN_CHARS = 300
 # Room for the function's config, which `build_state` caps at the Jev state limit, and a short history.
@@ -52,9 +50,6 @@ _RULE_FIELDS = (
     "masking",
     "hog_function_template",
 )
-# Shorter values, such as "true" or a port number, would redact ordinary code.
-_MIN_SECRET_CHARS = 8
-_REDACTED = "[secret]"
 # JSON escapes a control character to six characters, so a host or old code full of them would cost six times its
 # length against the cap. The Control Pictures block shows each one as a single visible symbol instead.
 _VISIBLE_CONTROLS = {code: 0x2400 + code for code in range(0x20) if chr(code) not in "\n\t"}
@@ -106,7 +101,10 @@ class HistoryEntry:
     activity: str
     at: datetime
     changed_fields: tuple[str, ...] = ()
-    code: str | None = None
+    # The hosts that the new code of an update, or the code of a test, named, flagged ones first. Old code itself
+    # stays out: a credential hard-coded in it and rotated since cannot be matched for redaction.
+    hosts: tuple[str, ...] = ()
+    hosts_omitted: int = 0
     enabled: bool | None = None
     # A test that sent real requests records the origins it reached. Redacted again against the secrets stored now,
     # because the row only redacts the secrets that were stored when the test ran.
@@ -164,7 +162,8 @@ def build_case_file(hog_function: HogFunction, scored: ScoredHogFunction) -> Cas
             history=history.entries,
             history_omitted=history.omitted,
             org_functions=_org_function_counts(hog_function),
-        )
+        ),
+        hog_function_id=str(hog_function.id),
     )
 
 
@@ -207,7 +206,7 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
 
 def _rule_evidence(content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]) -> tuple[rules.RuleEvidence, ...]:
     public = tuple(
-        replace(entry, host=None if entry.host is None else _visible(entry.host))
+        replace(entry, location=_visible(entry.location), host=None if entry.host is None else _visible(entry.host))
         for entry in rules.rule_evidence(content)
         if entry.rule in rule_hits
     )
@@ -269,9 +268,8 @@ def _history(hog_function: HogFunction) -> _History:
         *values,
         *_url_secret_labels(values),
     ]
-    code_secrets = _secret_pattern(values)
     return _History(
-        entries=tuple(_history_entry(row, origin_secrets, code_secrets) for row in rows),
+        entries=tuple(_history_entry(row, origin_secrets) for row in rows),
         omitted=max(total - MAX_HISTORY_ENTRIES, 0),
     )
 
@@ -291,8 +289,8 @@ def _plaintext_mapping_secrets(hog_function: HogFunction) -> list[JsonValue]:
 
 
 def _secret_values(hog_function: HogFunction) -> list[str]:
-    """The values of the secret inputs and the defaults of secret schema entries. The compiled bytecode stored beside
-    a value is left out, because its strings are names such as `properties` that would redact ordinary code."""
+    """The values of the secret inputs and the defaults of secret schema entries, without the compiled bytecode stored
+    beside a value."""
     entries: list[JsonValue] = [*_plaintext_mapping_secrets(hog_function)]
     for stored in (hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs):
         if isinstance(stored, dict):
@@ -333,20 +331,6 @@ def _texts_in(value: object) -> list[str]:
     return []
 
 
-def _secret_pattern(values: list[str]) -> re.Pattern[str] | None:
-    # One pass, longest first, so a secret inside or overlapping a longer one cannot leave part of either behind.
-    # A secret in a URL is often percent-encoded.
-    forms = {form for value in values if len(value) >= _MIN_SECRET_CHARS for form in (value, quote(value, safe=""))}
-    if not forms:
-        return None
-    return re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)), re.IGNORECASE)
-
-
-def _without_secrets(text: str, secrets: re.Pattern[str] | None) -> str:
-    # Code saved before a credential moved into a secret input still holds it as a literal.
-    return text if secrets is None else secrets.sub(_REDACTED, text)
-
-
 def _tested_integration_ids(rows: list[ActivityLog]) -> list[int]:
     ids: set[int] = set()
     for row in rows:
@@ -362,7 +346,7 @@ def _test_context(row: ActivityLog) -> dict[str, JsonValue]:
     return context if isinstance(context, dict) else {}
 
 
-def _history_entry(row: ActivityLog, secrets: list[str], code_secrets: re.Pattern[str] | None) -> HistoryEntry:
+def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
     detail = row.detail if isinstance(row.detail, dict) else {}
     changes = [change for change in detail.get("changes") or [] if isinstance(change, dict)]
     new_values = {
@@ -373,19 +357,25 @@ def _history_entry(row: ActivityLog, secrets: list[str], code_secrets: re.Patter
     enabled = new_values.get("enabled")
     origins = test.get("request_origins")
     shown_origins = _redacted_origins(origins, secrets) if isinstance(origins, list) else None
+    hosts = _redacted_hosts(rules.hosts_named_in(code), secrets) if isinstance(code, str) else ()
     mocked = test.get("mock_async_functions")
     return HistoryEntry(
         activity=row.activity,
         at=row.created_at,
         changed_fields=tuple(str(change.get("field")) for change in changes if change.get("field")),
-        code=_cut(_visible(_without_secrets(code, code_secrets)), MAX_HISTORY_CODE_CHARS)
-        if isinstance(code, str)
-        else None,
+        hosts=tuple(_visible(host) for host in hosts[:MAX_HOSTS_PER_FUNCTION]),
+        hosts_omitted=max(len(hosts) - MAX_HOSTS_PER_FUNCTION, 0),
         enabled=enabled if isinstance(enabled, bool) else None,
         request_origins=shown_origins,
         request_origins_omitted=max(len(origins) - MAX_ORIGINS_PER_TEST, 0) if isinstance(origins, list) else 0,
         mocked_async_functions=mocked if isinstance(mocked, bool) else None,
     )
+
+
+def _redacted_hosts(hosts: tuple[str, ...], secrets: list[str]) -> tuple[str, ...]:
+    # The origin redactor reads a whole origin, so each host goes through it as one.
+    redacted = redact_secrets_in_origins([f"https://{host}" for host in hosts], secrets)
+    return tuple(origin.removeprefix("https://") for origin in redacted)
 
 
 def _redacted_origins(origins: list[JsonValue], secrets: list[str]) -> tuple[str, ...]:
@@ -444,7 +434,7 @@ def _visible(text: str) -> str:
     return text.translate(_VISIBLE_CONTROLS)
 
 
-def _fit(case_file: CaseFile) -> CaseFile:
+def _fit(case_file: CaseFile, *, hog_function_id: str) -> CaseFile:
     """Shrink the case file until it fits: the oldest history down to the latest entry, then the hosts, then rule
     evidence past one entry per rule, then the latest history entry. A long config with ordinary history keeps its
     hosts, and padding in the hosts cannot push out the latest edit."""
@@ -452,7 +442,9 @@ def _fit(case_file: CaseFile) -> CaseFile:
         shrunk = _without_last_list_item(case_file)
         if shrunk is None:
             # Every remaining part has its own bound that keeps it under the cap, so this means one of them grew.
-            logger.warning("cdp_abuse_case_file_over_cap", chars=len(case_file.to_json()))
+            logger.warning(
+                "cdp_abuse_case_file_over_cap", hog_function_id=hog_function_id, chars=len(case_file.to_json())
+            )
             break
         case_file = shrunk
     return case_file
