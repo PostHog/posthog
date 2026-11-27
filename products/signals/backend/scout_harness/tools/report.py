@@ -120,7 +120,12 @@ from products.signals.backend.scout_harness.tools.emit import (
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT_REASON, ReportAuthor
-from products.signals.backend.scout_harness.tools.report_quality import QualityHint, apply_report_quality_checks
+from products.signals.backend.scout_harness.tools.report_quality import (
+    QualityHint,
+    ReportQualityHintField,
+    apply_report_quality_checks,
+    repair_suggested_prompts,
+)
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -297,7 +302,8 @@ class EmitReportResult:
     report was dropped and how to unblock it rather than losing a full run to a silent skip.
     `idempotent_replay` means this call authored nothing because its emit key already had a report:
     the fields above describe that first report, so the caller reads its own emission back.
-    `quality_hints` lists the quality checks the title or summary matched (see `report_quality.py`).
+    `quality_hints` lists the quality checks the title, summary, or suggested prompts matched (see
+    `report_quality.py`).
     """
 
     report_id: str | None
@@ -529,23 +535,44 @@ def _capture_quality_hints(*, team: Team, author: ReportAuthor, tool: str, hints
             )
 
 
-def _repair_report_text(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
+def _repair_report_inputs(kwargs: dict[str, Any]) -> tuple[QualityHint, ...]:
     result = apply_report_quality_checks(title=kwargs.get("title"), summary=kwargs.get("summary"))
     kwargs["title"], kwargs["summary"] = result.title, result.summary
-    return result.hints
+    prompts = repair_suggested_prompts(kwargs.get("suggested_prompts"))
+    kwargs["suggested_prompts"] = prompts.prompts
+    return result.hints + prompts.hints
+
+
+def _error_naming_left_out_prompts(
+    error: InvalidScoutReportError, hints: Sequence[QualityHint]
+) -> InvalidScoutReportError | None:
+    """The error to raise in place of `error` when the repair left out a suggested prompt, else None.
+
+    A refused call returns no `quality_hints`, so the scout learns about the left-out prompts only from
+    the error. This matters most for an edit whose only field was a prompt past a bound: after the
+    repair it has nothing to write, and the "needs at least one of" error alone names no bound."""
+    prompt_messages = [hint.message for hint in hints if hint.field == ReportQualityHintField.SUGGESTED_PROMPTS]
+    if not prompt_messages:
+        return None
+    return InvalidScoutReportError(" ".join([str(error), *prompt_messages]))
 
 
 def _report_quality_checks(
     tool: str,
 ) -> Callable[[Callable[_Parameters, _ReportResult]], Callable[_Parameters, _ReportResult]]:
-    """Repair the `title` / `summary` kwargs before the tool runs, and return the matched checks on its
-    result as `quality_hints`."""
+    """Repair the `title` / `summary` / `suggested_prompts` kwargs before the tool runs, and return the
+    matched checks on its result as `quality_hints`."""
 
     def decorator(function: Callable[_Parameters, _ReportResult]) -> Callable[_Parameters, _ReportResult]:
         @wraps(function)
         def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
-            result = function(*args, **kwargs)
+            hints = _repair_report_inputs(cast(dict[str, Any], kwargs))
+            try:
+                result = function(*args, **kwargs)
+            except InvalidScoutReportError as error:
+                if (prompt_error := _error_naming_left_out_prompts(error, hints)) is None:
+                    raise
+                raise prompt_error from error
             _capture_quality_hints(
                 team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
             )
@@ -564,8 +591,13 @@ def _report_quality_checks_async(
     ) -> Callable[_Parameters, Awaitable[_ReportResult]]:
         @wraps(function)
         async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _ReportResult:
-            hints = _repair_report_text(cast(dict[str, Any], kwargs))
-            result = await function(*args, **kwargs)
+            hints = _repair_report_inputs(cast(dict[str, Any], kwargs))
+            try:
+                result = await function(*args, **kwargs)
+            except InvalidScoutReportError as error:
+                if (prompt_error := _error_naming_left_out_prompts(error, hints)) is None:
+                    raise
+                raise prompt_error from error
             if hints:
                 await database_sync_to_async(_capture_quality_hints, thread_sensitive=False)(
                     team=cast(Team, kwargs["team"]), author=cast(ReportAuthor, kwargs["author"]), tool=tool, hints=hints
@@ -1269,6 +1301,8 @@ def _build_suggested_prompts(suggested_prompts: list[str] | None) -> list[str]:
 
     Runs before the safety judge, like `_build_charts`, so a set past its bounds fails the call
     outright instead of paying for the judge and then rolling back mid-persist.
+    The report tools leave out a prompt past a bound before this runs (`repair_suggested_prompts`),
+    so this refuses only a caller that does not go through them.
     """
     if not suggested_prompts:
         return []

@@ -57,6 +57,10 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     # scan. Null on rows written before this field existed; treat null the same as `computed_at`
     # (every row was a full scan before incremental folding existed).
     full_scan_at = models.DateTimeField(null=True)
+    # When a run last confirmed these stats are current: every recompute, and a run that found the Delta
+    # version unchanged. That skip writes no stats, so `computed_at` does not move; the post-import gate
+    # reads this so a quiet table is checked once per recompute interval, not on every sync.
+    checked_at = models.DateTimeField(null=True)
 
     __repr__ = sane_repr("table_id", "column_name", "computed_at")
 

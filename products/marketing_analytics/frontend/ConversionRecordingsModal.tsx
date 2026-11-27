@@ -2,12 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { conversionRecordingsLogic } from './conversionRecordingsLogic'
 import { MarketingQueryError } from './dashboard/MarketingQueryError'
 import { ConversionRecordingsRequestApi } from './generated/api.schemas'
+import { QuillConversionRecordingsModal } from './QuillConversionRecordingsModal'
 
 export function ConversionRecordingsModal({
     request,
@@ -21,12 +23,61 @@ export function ConversionRecordingsModal({
     const logic = conversionRecordingsLogic({ request })
     const { page, pageLoading } = useValues(logic)
     const { loadSessions } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const title = `${goalName}: conversion recordings for ${request.group || '(not set)'}`
+    const queryError = page.errorMessage ? (
+        <MarketingQueryError
+            message={page.errorMessage}
+            queryId={page.queryId}
+            onRetry={() => loadSessions({ pageIndex: page.retryPage })}
+            loading={pageLoading}
+        />
+    ) : null
+    const playlist = (
+        <SessionRecordingsPlaylist
+            key={page.pageIndex}
+            logicKey={`marketing-conversions-${JSON.stringify(request)}-${page.pageIndex}`}
+            analyticsSource="marketing-analytics-conversions"
+            autoPlay={false}
+            filters={{
+                ...DEFAULT_RECORDING_FILTERS,
+                session_ids: page.session_ids,
+                date_from: 'all',
+                date_to: null,
+                duration: [],
+                filter_test_accounts: false,
+            }}
+            resetToCallerFilters
+            updateSearchParams={false}
+            listEmptyState={
+                <p className="p-4">
+                    No recordings are available for these conversion sessions. Try another date range or conversion
+                    goal.
+                </p>
+            }
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillConversionRecordingsModal
+                title={title}
+                onClose={onClose}
+                page={page}
+                pageLoading={pageLoading}
+                onLoadPage={(pageIndex) => loadSessions({ pageIndex })}
+                queryError={queryError}
+                playlist={playlist}
+            />
+        )
+    }
 
     return (
         <LemonModal
             isOpen
             onClose={onClose}
-            title={`${goalName}: conversion recordings for ${request.group || '(not set)'}`}
+            title={title}
             width="90vw"
             footer={
                 (page.pageIndex > 0 || page.has_more) && (
@@ -62,39 +113,9 @@ export function ConversionRecordingsModal({
                         Conversion details are being prepared. Try again in a few minutes.
                     </LemonBanner>
                 )}
-                {page.errorMessage && (
-                    <MarketingQueryError
-                        message={page.errorMessage}
-                        queryId={page.queryId}
-                        onRetry={() => loadSessions({ pageIndex: page.retryPage })}
-                        loading={pageLoading}
-                    />
-                )}
+                {queryError}
                 {page.session_ids.length > 0 ? (
-                    <div className="h-[60vh] min-h-96 overflow-auto">
-                        <SessionRecordingsPlaylist
-                            key={page.pageIndex}
-                            logicKey={`marketing-conversions-${JSON.stringify(request)}-${page.pageIndex}`}
-                            analyticsSource="marketing-analytics-conversions"
-                            autoPlay={false}
-                            filters={{
-                                ...DEFAULT_RECORDING_FILTERS,
-                                session_ids: page.session_ids,
-                                date_from: 'all',
-                                date_to: null,
-                                duration: [],
-                                filter_test_accounts: false,
-                            }}
-                            resetToCallerFilters
-                            updateSearchParams={false}
-                            listEmptyState={
-                                <p className="p-4">
-                                    No recordings are available for these conversion sessions. Try another date range or
-                                    conversion goal.
-                                </p>
-                            }
-                        />
-                    </div>
+                    <div className="h-[60vh] min-h-96 overflow-auto">{playlist}</div>
                 ) : !pageLoading && !page.preparing && !page.errorMessage ? (
                     <LemonBanner type="info">
                         These conversions have no session IDs. Try another date range or conversion goal.

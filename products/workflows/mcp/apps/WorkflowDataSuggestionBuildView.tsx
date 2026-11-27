@@ -7,7 +7,7 @@ export function WorkflowDataSuggestionBuildView({ build }: { build: WorkflowData
         return <p className="m-0 text-sm text-muted-foreground">Building your workflow. This takes up to a minute.</p>
     }
     if (build.status === 'failed') {
-        return <p className="m-0 text-sm text-destructive">{build.error}</p>
+        return <p className="m-0 text-sm text-destructive-foreground">{build.error}</p>
     }
     return (
         <div className="flex flex-col gap-1 text-sm">

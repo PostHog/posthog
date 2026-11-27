@@ -5726,6 +5726,7 @@ export const INTEGRATION_KINDS = [
     'apple-ads',
     'postgresql',
     'aws-s3',
+    'aws-warehouse-sources',
     'aws-redshift',
     's3-compatible',
     'snowflake',
@@ -8138,8 +8139,6 @@ export interface DataWarehouseSourceRowCount {
     billing_period_start: string
     materialized_rows_in_billing_period: number
     total_rows: number
-    tracked_billing_rows: number
-    pending_billing_rows: number
 }
 
 export interface DataWarehouseActivityRecord {

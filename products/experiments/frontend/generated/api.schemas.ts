@@ -2405,6 +2405,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `result_ready` - Result Ready
  * * `flag_shared` - Flag Shared
  * * `stale_experiment` - Stale Experiment
+ * * `exposure_rows_left_out` - Exposure Rows Left Out
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2441,6 +2442,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ResultReady: 'result_ready',
     FlagShared: 'flag_shared',
     StaleExperiment: 'stale_experiment',
+    ExposureRowsLeftOut: 'exposure_rows_left_out',
 } as const
 
 /**
@@ -2517,6 +2519,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `multiple_variants_share` - Multiple Variants Share
  * * `events_billing_limit` - Events Billing Limit
  * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+ * * `exposure_rows_left_out` - Exposure Rows Left Out
  */
 export type ExperimentHealthCheckKeyEnumApi =
     (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
@@ -2551,6 +2554,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     MultipleVariantsShare: 'multiple_variants_share',
     EventsBillingLimit: 'events_billing_limit',
     FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+    ExposureRowsLeftOut: 'exposure_rows_left_out',
 } as const
 
 /**
@@ -2591,7 +2595,8 @@ export interface ExperimentHealthFindingApi {
      * * `metrics_not_matured` - Metrics Not Matured
      * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
-     * * `stale_experiment` - Stale Experiment */
+     * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2652,7 +2657,8 @@ export interface ExperimentHealthFindingApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
-     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     check: ExperimentHealthCheckKeyEnumApi
 }
 
@@ -2743,6 +2749,9 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
  * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
  * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+ * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+ * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+ * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2818,6 +2827,9 @@ export const ExperimentHealthValueKeyEnumApi = {
     AssignedOutsideCount: 'assigned_outside_count',
     OtherDraftExperimentCount: 'other_draft_experiment_count',
     FiltersTestAccounts: 'filters_test_accounts',
+    LeftOutRowCount: 'left_out_row_count',
+    UnknownVariantRowCount: 'unknown_variant_row_count',
+    EmptyIdRowCount: 'empty_id_row_count',
 } as const
 
 /**
@@ -2914,7 +2926,10 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2992,7 +3007,10 @@ export interface ExperimentHealthCheckRuleApi {
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -3058,7 +3076,8 @@ export interface ExperimentHealthCheckResultApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
-     * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out */
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string

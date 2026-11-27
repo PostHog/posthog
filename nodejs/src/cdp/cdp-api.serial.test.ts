@@ -113,7 +113,7 @@ import {
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { CYCLOTRON_QUEUE_ROLES, CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType } from './types'
 import { EMAIL_BODY_TAG_LIMIT, LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
@@ -2821,6 +2821,7 @@ describe('CDP API', () => {
             manager = new CyclotronV2Manager({
                 pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
                 depthLimit: 1_000_000,
+                ...CYCLOTRON_QUEUE_ROLES,
             })
             await manager.connect()
             cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
@@ -2846,6 +2847,7 @@ describe('CDP API', () => {
             const worker = new CyclotronV2Worker({
                 pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
                 queueName: 'email',
+                fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
                 batchMaxSize: 100,
                 pollDelayMs: 10,
                 includeEmptyBatches: true,
@@ -6821,7 +6823,7 @@ describe('CDP API', () => {
         const pushFlow = (
             status: HogFlow['status'] = 'active',
             stepType = 'function_push',
-            inputs: Record<string, unknown> = toRequestPerson,
+            inputs: Record<string, any> = toRequestPerson,
             pushSteps = 1
         ): HogFlow => {
             const flow = new FixtureHogFlowBuilder()

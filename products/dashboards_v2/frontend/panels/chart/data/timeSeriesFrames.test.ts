@@ -1,5 +1,5 @@
 import type { DataFrame } from '../../../query/queryTypes'
-import { MAX_REMEMBERED_COLORS, stableSeriesColors, timeSeriesFromFrames } from './timeSeriesFrames'
+import { MAX_REMEMBERED_COLORS, stableSeriesColors, timeSeriesFromFrames, yAxisFor } from './timeSeriesFrames'
 
 const frame = (
     name: string,
@@ -138,5 +138,19 @@ describe('stableSeriesColors', () => {
         expect(assigned.size).toBe(MAX_REMEMBERED_COLORS)
         expect(assigned.has('2:0')).toBe(true)
         expect(assigned.has('0:0')).toBe(false)
+    })
+})
+
+describe('yAxisFor', () => {
+    it("formats each axis using only its own series' values", () => {
+        const { axes, series } = timeSeriesFromFrames([
+            frame('memory', ['2026-11-01'], [2048], { refId: 'A', unit: 'By' }),
+            frame('cache hits', ['2026-11-01'], [0.5], { refId: 'B', unit: '1' }),
+        ])
+        const config = yAxisFor(axes, series)
+        const [bytes, ratio] = Array.isArray(config) ? config : [config]
+
+        expect(bytes.tickFormatter?.(2048)).toBe('2 KiB')
+        expect(ratio.tickFormatter?.(0.5)).toBe('50%')
     })
 })

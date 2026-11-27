@@ -50,6 +50,10 @@ from products.experiments.backend.health.checks.exposure_criteria import (
     exposure_criteria_values,
 )
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters, exposure_filters_values
+from products.experiments.backend.health.checks.exposure_rows_left_out import (
+    exposure_rows_left_out,
+    exposure_rows_left_out_values,
+)
 from products.experiments.backend.health.checks.filtered_exposures import (
     KEPT_SHARE_THRESHOLD,
     MINIMUM_EXPOSED_WITHOUT_FILTER,
@@ -521,6 +525,27 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             ),
         ),
     ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT,
+        name="Exposure rows that don't count",
+        description=(
+            "Counts the rows of a warehouse-native exposure query that the exposures leave out: rows with a variant "
+            "that is none of the experiment's variants, and rows with an empty entity_id. Such rows usually mean that "
+            "the query returns the variant or the id in another form than the experiment expects, so users go "
+            "uncounted."
+        ),
+        run=exposure_rows_left_out,
+        read=exposure_rows_left_out_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.LEFT_OUT_ROW_COUNT, threshold=0, warns=ExperimentHealthRuleSide.ABOVE
+        ),
+    ),
+)
+
+# The checks that run on the exposures of a warehouse-native experiment. The other exposure checks read the flag's
+# calls and the exposure events, which a warehouse has neither of.
+WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = tuple(
+    check for check in EXPOSURE_HEALTH_CHECKS if check.key == ExperimentHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
 )
 
 

@@ -707,6 +707,9 @@ services:
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             <<: [*single-temporal-queue, *batch-exports]
+            # The worker imports only the data warehouse sources that this install has, because
+            # importing every source's vendor SDK costs memory that a small host needs.
+            TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES: ${TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES:-false}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
