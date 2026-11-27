@@ -14,6 +14,10 @@ ENDPOINTS = {
     "InvoiceLines": "accounts-receivable/invoice-line",
     "BillLines": "accounts-payable/bill-line",
     "ARPayments": "accounts-receivable/payment",
+    "APPayments": "accounts-payable/payment",
+    "Locations": "company-config/location",
+    "Departments": "company-config/department",
+    "GLBudgets": "general-ledger/budget",
 }
 
 # High-volume objects read every field from the query service instead of one detail request per key.
@@ -23,5 +27,6 @@ QUERY_ROWS_OBJECTS = frozenset(
         "accounts-receivable/invoice-line",
         "accounts-payable/bill-line",
         "accounts-receivable/payment",
+        "accounts-payable/payment",
     }
 )

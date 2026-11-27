@@ -75,7 +75,13 @@ def validate_destination_config(
     _, workflow_inputs = DESTINATION_WORKFLOWS[destination_type]
     base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
     workflow_fields = dataclasses.fields(workflow_inputs)
-    destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
+    # TODO: Remove the opt-in once every export reads events_json. Users set this base field in the config, so it
+    # gets the same type check as the destination's own fields.
+    destination_fields = {
+        field
+        for field in workflow_fields
+        if field.name not in base_field_names or field.name == "use_new_events_schema"
+    }
 
     extra_fields = validated.keys() - {field.name for field in destination_fields} - base_field_names
     if extra_fields:

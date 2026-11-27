@@ -11,7 +11,7 @@
 - Add PostHog MCP to your agent: `npx @posthog/wizard mcp add`.
 - [MCP server](https://mcp.posthog.com/mcp): Connect an MCP client here to query data and manage flags, insights, experiments and more.
 - [MCP server docs](https://posthog.com/docs/model-context-protocol): How to connect and authenticate.
-- [Agent sign-up and authentication]({{ site_url }}/auth.md): Create an account or authenticate an existing user.
+- [Agent sign-up and authentication](https://posthog.com/auth.md): Create an account or authenticate an existing user.
 - [API reference](https://posthog.com/docs/api): REST API. It uses a personal API key.
 - [Personal API keys]({{ site_url }}/settings/user-api-keys): Create a key here.
 

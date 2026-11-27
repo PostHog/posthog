@@ -27,8 +27,12 @@ type Pending = {
     reject: (error: Error) => void
     queuedAt: number
     context: Record<string, unknown>
+    signal?: AbortSignal
     retriedBusy?: boolean
+    answered?: boolean
 }
+
+type Running = { batch: Pending[]; controller: AbortController }
 
 export interface QueryBatchRunnerOptions {
     /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
@@ -44,9 +48,8 @@ function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi
     const time = request.time ?? UNTIL_BATCH_ACCEPTS_NO_TIME
     const refId = String(index)
     const target: QueryBatchRequestApi['queries'][number]['target'] =
-        query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'
-            ? { refId, language: query.language, query: query.query }
-            : {
+        query.language === 'query'
+            ? {
                   refId,
                   language: 'query',
                   // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
@@ -54,6 +57,7 @@ function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi
                       request.time ? query.query : { query: query.query, filters: { date_from: null } }
                   ),
               }
+            : { refId, language: query.language, query: query.query }
     return {
         target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },
@@ -69,9 +73,16 @@ function timeLabel(value: unknown, dateOnly: boolean): unknown {
     return dateOnly ? iso.slice(0, 10) : iso
 }
 
+function hasLabels(labels: Record<string, string> | undefined): labels is Record<string, string> {
+    return !!labels && Object.keys(labels).length > 0
+}
+
 export function toDataFrame(frame: Frame): DataFrame {
     return {
         ...(frame.name ? { name: frame.name } : {}),
+        ...(hasLabels(frame.labels) ? { labels: frame.labels } : {}),
+        ...(frame.meta ? { meta: frame.meta } : {}),
+        ...(frame.hash ? { hash: frame.hash } : {}),
         fields: frame.fields.map((field) => ({
             name: field.name,
             type: field.type,
@@ -80,6 +91,7 @@ export function toDataFrame(frame: Frame): DataFrame {
                     ? field.values.map((value) => timeLabel(value, field.unit === 'date'))
                     : field.values,
             ...(field.type !== 'time' && field.unit ? { unit: field.unit } : {}),
+            ...(hasLabels(field.labels) ? { labels: field.labels } : {}),
         })),
     }
 }
@@ -99,12 +111,25 @@ export function resultFromLine(line: QueryBatchLine): QueryResult | Error {
     }
 }
 
-async function postBatch(teamId: number, body: QueryBatchRequestApi, timer: QueryBatchTimer): Promise<Response> {
+function abortError(): Error {
+    return new DOMException('Nothing waits for this query any more', 'AbortError')
+}
+
+async function postBatch(
+    teamId: number,
+    body: QueryBatchRequestApi,
+    timer: QueryBatchTimer,
+    signal: AbortSignal
+): Promise<Response> {
     for (let attempt = 0; ; attempt++) {
+        if (signal.aborted) {
+            throw abortError()
+        }
         timer.attempt()
         const response = await fetch(getDashboardV2QueryBatchCreateUrl(String(teamId)), {
             method: 'POST',
             credentials: 'same-origin',
+            signal,
             // No Accept header: DRF negotiates it against JSON renderers before the view streams, so
             // `application/x-ndjson` is refused with a 406.
             headers: {
@@ -124,7 +149,7 @@ async function postBatch(teamId: number, body: QueryBatchRequestApi, timer: Quer
 
 async function runBatch(
     teamId: number,
-    batch: Pending[],
+    { batch, controller }: Running,
     timer: QueryBatchTimer,
     retry: (pending: Pending) => void
 ): Promise<void> {
@@ -137,7 +162,8 @@ async function runBatch(
                 format: 'frames',
                 queries: batch.map((pending, index) => batchTarget(pending.request, index)),
             },
-            timer
+            timer,
+            controller.signal
         )
         if (!response.ok || !response.body) {
             error = new Error(`The query batch failed with status ${response.status}`)
@@ -150,18 +176,27 @@ async function runBatch(
                         return
                     }
                     unanswered.delete(line.i)
+                    pending.answered = true
                     // Another tab, or a slot not yet freed, held this person's running batches.
-                    const busy = line.error === BUSY_ERROR && !pending.retriedBusy
+                    const busy = line.error === BUSY_ERROR && !pending.retriedBusy && !pending.signal?.aborted
                     timer.line(line, busy)
                     if (busy) {
-                        retry({ ...pending, retriedBusy: true, queuedAt: performance.now() })
-                        return
-                    }
-                    const result = resultFromLine(line)
-                    if (result instanceof Error) {
-                        pending.reject(result)
+                        pending.answered = false
+                        pending.retriedBusy = true
+                        pending.queuedAt = performance.now()
+                        retry(pending)
                     } else {
-                        pending.resolve(result)
+                        const result = resultFromLine(line)
+                        if (result instanceof Error) {
+                            pending.reject(result)
+                        } else {
+                            pending.resolve(result)
+                        }
+                    }
+                    // `abandon` only checks when a query aborts, so a stream left holding only aborted queries
+                    // after this answer stops here.
+                    if (unanswered.size > 0 && [...unanswered.values()].every((one) => one.signal?.aborted)) {
+                        controller.abort()
                     }
                 },
                 (byteLength) => timer.chunk(byteLength)
@@ -183,7 +218,8 @@ async function runBatch(
  * every tile a dashboard mounts, share one stream, and each chart's promise settles as soon as its own line arrives.
  * Up to `MAX_STREAMS` streams run at once, which stays inside the server's per-person shares
  * (`MAX_BATCHES_PER_USER` and `MAX_OPEN_BATCHES_PER_USER`). Charts that ask while every stream is open are sent
- * together once one ends.
+ * together once one ends. A query whose signal aborts leaves the queue, and a stream stops once every query still
+ * waiting on it has aborted, so a closed dashboard or an old time range frees the slot.
  */
 export function createQueryBatchRunner(teamId: number, options: QueryBatchRunnerOptions = {}): RunQuery {
     // The scene makes a runner per visit, so its creation stands in for the board mounting.
@@ -196,6 +232,21 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
     // Busy answers wait for every stream that was open when theirs ended, because those streams hold the person's
     // running queries on the server.
     let held: { busy: Pending[]; waitingOn: Set<number>; due: boolean }[] = []
+    const running = new Set<Running>()
+
+    const abandon = (pending: Pending): void => {
+        pending.reject(abortError())
+        const at = queued.indexOf(pending)
+        if (at >= 0) {
+            queued.splice(at, 1)
+            return
+        }
+        for (const stream of running) {
+            if (stream.batch.includes(pending) && stream.batch.every((one) => one.answered || one.signal?.aborted)) {
+                stream.controller.abort()
+            }
+        }
+    }
 
     const flush = (): void => {
         if (timer !== null) {
@@ -205,7 +256,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
         held = held.filter((entry) => {
             const ready = entry.due && entry.waitingOn.size === 0
             if (ready) {
-                queued.push(...entry.busy)
+                queued.push(...entry.busy.filter((pending) => !pending.signal?.aborted))
             }
             return !ready
         })
@@ -216,8 +267,11 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             const id = nextStream++
             open.add(id)
             const busy: Pending[] = []
+            const current: Running = { batch, controller: new AbortController() }
+            running.add(current)
             const batchTimer = new QueryBatchTimer(board, batch)
-            void runBatch(teamId, batch, batchTimer, (pending) => busy.push(pending)).finally(() => {
+            void runBatch(teamId, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
+                running.delete(current)
                 try {
                     batchTimer.capture(batch[0].context)
                 } catch {
@@ -241,9 +295,22 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
         }
     }
 
-    return (request) =>
+    return (request, signal) =>
         new Promise<QueryResult>((resolve, reject) => {
-            queued.push({ request, resolve, reject, queuedAt: performance.now(), context: options.context?.() ?? {} })
+            if (signal?.aborted) {
+                reject(abortError())
+                return
+            }
+            const pending: Pending = {
+                request,
+                resolve,
+                reject,
+                queuedAt: performance.now(),
+                context: options.context?.() ?? {},
+                signal,
+            }
+            signal?.addEventListener('abort', () => abandon(pending), { once: true })
+            queued.push(pending)
             if (streams < MAX_STREAMS && timer === null) {
                 timer = setTimeout(flush, COALESCE_MS)
             }

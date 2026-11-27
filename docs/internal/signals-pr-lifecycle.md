@@ -324,6 +324,14 @@ The boolean `self-driving-github-optional` flag targets the canonical project gr
 
 Pilot activation stores `activation_mode: github_optional` in the existing onboarding draft and completes through the existing activation API. It leaves `autostart_enabled` false regardless of pricing flags. Completed pilot activation also admits the project to scout discovery and dispatch while the flag is enabled, respecting fleet exclusions, withheld skills, permissions, and budgets. Fleet admission uses loaded local flag definitions and retries admission on later ticks when definitions are unavailable. Enabling the flag alone never creates scouts or enables sources. Already-active projects keep their settings.
 
+Quick setup activates an eligible project in pilot mode whether or not GitHub is connected.
+The guided steps use pilot mode only while GitHub is not connected.
+Their final step then keeps Connect GitHub as the main action and offers Activate without GitHub as the secondary one.
+Activate without GitHub opens a dialog that shows why Self-driving asks for GitHub access and offers to connect GitHub, and the project activates only after the person confirms there.
+Turning on automatic implementation in that step keeps GitHub required, because pull requests need it and the pilot mode leaves implementation off.
+A project that connects GitHub there activates through the standard path, so a draft saved before the connection does not keep the pilot mode.
+A guided pilot draft keeps `setup_mode: guided`: it does not need the general scout and starts no recommendations job.
+
 An explicit `guaranteed_team_ids: []` in the `signals-scout` payload drains pilot teams too, blocking both scheduled and manual scout runs.
 
 Activation in a child environment requires task editor access on the parent project and disables automatic implementation there. Scout-authored reports record code availability from the run's saved repository, GitHub posture, and pilot eligibility at dispatch. Repository checks distinguish missing access from temporary GitHub failures: automatic work can retry temporary failures, and manual requests return a retryable 503.

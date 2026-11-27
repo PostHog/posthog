@@ -12,6 +12,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import asyncify
 
@@ -136,16 +137,16 @@ def await_agent_egress_git(input: AgentEgressProbeInput) -> None:
         raise ValueError("Git routing belongs to another sandbox")
     raw = (run.state or {}).get("agent_egress_probe")
     if not raw:
-        raise GitGrantUnavailable("Git egress enrollment is not ready")
+        raise NonReportableApplicationError("Git egress enrollment is not ready", type="GitGrantUnavailable")
     state = AgentEgressExecution.model_validate(raw)
     if state.closed or state.expires_at <= timezone.now().timestamp():
         raise ValueError("Git egress enrollment has ended")
     if state.sandbox_id is None:
-        raise GitGrantUnavailable("Git egress relay is not ready")
+        raise NonReportableApplicationError("Git egress relay is not ready", type="GitGrantUnavailable")
     if state.sandbox_id != input.sandbox_id:
         raise ValueError("Git routing belongs to another sandbox")
     if not state.git_read_configured:
-        raise GitGrantUnavailable("Git egress route is not ready")
+        raise NonReportableApplicationError("Git egress route is not ready", type="GitGrantUnavailable")
     if (
         AgentEgressRegistry(region=settings.AGENT_EGRESS_REGION).lookup(
             team_id=input.team_id, run_id=UUID(input.run_id), execution_id=state.execution_id

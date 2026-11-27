@@ -60,7 +60,7 @@ class WistiaSource(ResumableSource[WistiaSourceConfig, WistiaResumeConfig]):
 
 Only the account owner can create API tokens. Go to the [API page of your Wistia account settings](https://account.wistia.com/account/api) and create a token with these permissions:
 - **Read all folder and media data** for media, folders, subfolders, captions, channels, and channel episodes
-- **Read all data** for tags and webinars
+- **Read all data** for tags, speakers, webinars, and webinar registrations
 - **Read detailed stats** for visitors, events, and the stats tables""",
             iconPath="/static/services/wistia.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wistia",

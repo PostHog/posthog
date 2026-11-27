@@ -93,7 +93,7 @@ def mock_clickhouse_client():
         yield mock_client
 
 
-@pytest.mark.parametrize("use_native_schema", [False, True])
+@pytest.mark.parametrize("native_switch", ["off", "batch-exports-rollout", "export"])
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -114,7 +114,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     model: AnyBatchExportModel,
     is_backfill: bool,
     backfill_within_last_6_days: bool,
-    use_native_schema: bool,
+    native_switch: str,
 ):
     """Test that the insert_into_internal_stage_activity executes the expected ClickHouse query when the model is an events model.
 
@@ -131,7 +131,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         pytest.skip("A backfill's table depends on its start, not on when its run ends")
 
     reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
-    if use_native_schema:
+    if native_switch != "off":
         expected_table = "events_json_recent" if reads_recent_range else "events_json"
     elif not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
@@ -164,12 +164,13 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         if is_backfill
         else None,
         destination_default_fields=None,
+        use_new_events_schema=native_switch == "export",
     )
 
     batch_exports_url = "http://batch-exports.example.com:8123/"
     with (
         override_settings(
-            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0,
             CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
             CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=None,
         ),
@@ -197,6 +198,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     [
         ("off", "events", "main"),
         ("batch-exports-rollout", "events_json", "events"),
+        ("export", "events_json", "events"),
         ("project-rollout-flag", "events", "main"),
     ],
 )
@@ -220,6 +222,7 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         backfill_details=None,
         is_workflows=True,
         destination_default_fields=None,
+        use_new_events_schema=native_switch == "export",
     )
 
     events_url = "http://events.example.com:8123/"

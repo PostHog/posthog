@@ -1,5 +1,10 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper. */
 import { expectLogic } from 'kea-test-utils'
+
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -132,6 +137,78 @@ describe('pullRequestsLogic', () => {
         expect(logic.values.page?.results[0].report).toEqual({ id: 'rep-1', status: 'in_progress' })
         expect(logic.values.page?.results[1].report).toEqual({ id: 'rep-2', status: 'in_progress' })
         expect(reportLoads).toBeGreaterThan(loadsBefore)
+        monitoringLogic.unmount()
+    })
+
+    it('keeps a monitored PR visible in the timeline when started from a child environment', async () => {
+        const reportId = 'rep-5'
+        const requestedPaths: string[] = []
+        let monitoringStarted = false
+        useMocks({
+            get: {
+                [PULL_REQUESTS_URL]: ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [
+                        200,
+                        {
+                            results: [makePR(5)],
+                            github_login: 'example-author',
+                            has_integration: true,
+                        },
+                    ]
+                },
+                [REPORTS_URL]: ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [
+                        200,
+                        {
+                            count: monitoringStarted ? 1 : 0,
+                            next: null,
+                            previous: null,
+                            results: monitoringStarted
+                                ? [{ id: reportId, metrics: [], monitoring_summary: null, monitoring_outcome: null }]
+                                : [],
+                        },
+                    ]
+                },
+            },
+            post: {
+                [MONITOR_PR_URL]: ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    monitoringStarted = true
+                    return [
+                        202,
+                        {
+                            report_id: reportId,
+                            report_url: `http://localhost:8000/project/99/inbox/reports/${reportId}`,
+                            status: 'in_progress',
+                            idempotent_replay: false,
+                        },
+                    ]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 99 })
+        projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, id: 99 })
+
+        const monitoringLogic = monitoringTabLogic()
+        monitoringLogic.mount()
+        await expectLogic(monitoringLogic).toFinishAllListeners()
+        logic = pullRequestsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
+
+        logic.actions.monitorPR('https://github.com/example/widget/pull/5')
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(monitoringLogic).toFinishAllListeners()
+
+        expect(monitoringLogic.values.reports?.map((report) => report.id)).toEqual([reportId])
+        expect(requestedPaths).toEqual([
+            '/api/projects/99/signals/reports/',
+            '/api/projects/99/signals/pull_requests/',
+            '/api/projects/99/signals/monitor_pr/',
+            '/api/projects/99/signals/reports/',
+        ])
         monitoringLogic.unmount()
     })
 

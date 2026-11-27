@@ -30,7 +30,7 @@ export function SlackChannelScoutModal(): JSX.Element {
         channelOptions,
         unsyncedChannelCount,
     } = useValues(slackChannelScoutLogic)
-    const { closeSlackScoutModal, setSlackScoutValue } = useActions(slackChannelScoutLogic)
+    const { closeSlackScoutModal, pickSlackScoutSource } = useActions(slackChannelScoutLogic)
 
     const handleClose = (): void => {
         if (!isSlackScoutSubmitting) {
@@ -74,18 +74,16 @@ export function SlackChannelScoutModal(): JSX.Element {
                     </LemonField>
                     {(channelSources?.length ?? 0) > 1 && (
                         <LemonField name="source_id" label="Slack source">
-                            {({ value, onChange }) => (
+                            {({ value }) => (
                                 <LemonSelect
                                     value={value}
-                                    onChange={(sourceId) => {
-                                        onChange(sourceId)
-                                        setSlackScoutValue('channel_ids', [])
-                                    }}
-                                    options={(channelSources ?? []).map((source, index) => ({
+                                    onChange={(sourceId) => sourceId && pickSlackScoutSource(sourceId)}
+                                    options={(channelSources ?? []).map((source) => ({
                                         value: source.id,
-                                        label: `Slack source ${index + 1}`,
+                                        label: `${source.label} (${source.channels.length} ${source.channels.length === 1 ? 'channel' : 'channels'})`,
                                     }))}
                                     fullWidth
+                                    data-attr="signal-slack-scout-source"
                                 />
                             )}
                         </LemonField>
