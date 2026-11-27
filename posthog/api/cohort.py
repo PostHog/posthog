@@ -1466,7 +1466,7 @@ def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculat
 class CohortFromSelectionSerializer(serializers.Serializer):
     request_id = serializers.UUIDField(help_text="Reuse this key when retrying the same submission.")
     name = serializers.CharField(max_length=400, help_text="Name for the new static cohort.")
-    person_ids = serializers.ListField(
+    person_ids = LengthFirstListField(
         child=serializers.UUIDField(),
         allow_empty=False,
         max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,

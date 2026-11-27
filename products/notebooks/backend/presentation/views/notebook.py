@@ -431,6 +431,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             attrs
         ) and not self.app_builder_enabled:
             raise PermissionDenied("App builder is not available for this project.")
+        if layout := attrs.get("app_published"):
+            self.validate_workflow_targets(layout)
         if "restore_previous_app_release" in attrs and (
             not self.instance
             or set(attrs) != {"restore_previous_app_release", "app_revision"}
@@ -440,6 +442,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
         if set(attrs) == {"app_revision"}:
             raise serializers.ValidationError({"app_revision": "Include an app layout or notebook change to save."})
         return super().validate(attrs)
+
+    def validate_workflow_targets(self, layout: dict[str, Any]) -> None:
+        workflow_ids = {
+            str(block["workflow_id"]) for block in layout["blocks"] if block.get("submit_action") == "run_workflow"
+        }
+        if not workflow_ids:
+            return
+        from products.notebooks.backend.facade.app_action_targets import eligible_action_targets
+
+        access_control = self.user_access_control
+        targets = eligible_action_targets("run_workflow", self.context["team_id"], workflow_ids)
+        levels = access_control.bulk_object_access_levels("hog_flow", targets) if access_control else {}
+        if any(levels.get(workflow_id) not in {"viewer", "editor", "manager"} for workflow_id in workflow_ids):
+            raise serializers.ValidationError(
+                {"app_published": "Choose an active workflow with a manual or scheduled trigger."}
+            )
 
     def to_representation(self, instance: Notebook) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -585,6 +603,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 if previous is None:
                     raise serializers.ValidationError("There is no previous published version to restore.")
                 validated_data["app_published"] = previous.layout
+                self.validate_workflow_targets(previous.layout)
             update_app_revision(validated_data, locked_instance.app_revision)
 
             if validated_data.keys():

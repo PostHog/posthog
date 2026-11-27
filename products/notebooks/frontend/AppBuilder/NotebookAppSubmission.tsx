@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
@@ -7,11 +8,16 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { cohortsFromSelectionCreate } from 'products/cohorts/frontend/generated/api'
-import { hogFlowsRunCreate } from 'products/workflows/frontend/generated/api'
+import { hogFlowsRetrieve, hogFlowsRunCreate } from 'products/workflows/frontend/generated/api'
 
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
-
-type EditableValue = string | number | boolean | null
+import {
+    emptySubmissionDraft,
+    notebookAppSubmissionLogic,
+    type CellEdits,
+    type EditableValue,
+    type SubmissionDraft,
+} from './notebookAppSubmissionLogic'
 
 function SubmissionValue({
     value,
@@ -50,14 +56,30 @@ function SubmissionValue({
     return <span>{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}</span>
 }
 
-type CellEdits = Record<number, Record<number, EditableValue>>
-
 function displayedValue(edits: CellEdits, row: number, column: number, original: unknown): unknown {
     return edits[row] && column in edits[row] ? edits[row][column] : original
 }
 
+const workflowSizeError = 'Select fewer rows or shorten their values. Workflow inputs must fit within 5 KB.'
+
+function workflowVariablesFit(variables: Record<string, unknown>): boolean {
+    const json = JSON.stringify(variables)
+    let size = json.length
+    if (size > 5120) {
+        return false
+    }
+    // Python's JSON encoder escapes non-ASCII code units and adds a space after each separator.
+    for (const [token] of json.matchAll(/"(?:[^"\\]|\\.)*"|[:,]/g)) {
+        size += token.length === 1 ? 1 : 5 * (token.match(/[^\u0000-\u007e]/g)?.length ?? 0)
+    }
+    return size <= 5120
+}
+
 function submissionError(cause: unknown): string {
     const detail = cause && typeof cause === 'object' && 'detail' in cause ? cause.detail : null
+    if (String(detail ?? cause).includes('Total size of variable overrides')) {
+        return workflowSizeError
+    }
     return typeof detail === 'string' ? detail : 'Submission failed. Check your permissions and try again.'
 }
 
@@ -86,6 +108,8 @@ function unavailableReason(
 }
 
 type SubmissionProps = {
+    sessionId: string
+    draftKey: string
     action: NonNullable<NotebookAppBlockApi['submit_action']>
     project: string
     workflowId?: string
@@ -109,16 +133,25 @@ export function NotebookAppSubmission(props: SubmissionProps): JSX.Element {
     return <SubmissionForm {...props} />
 }
 
-function SubmissionForm({ action, project, workflowId, columns, rows, pendingInputs }: SubmissionProps): JSX.Element {
+function SubmissionForm({
+    sessionId,
+    draftKey,
+    action,
+    project,
+    workflowId,
+    columns,
+    rows,
+    pendingInputs,
+}: SubmissionProps): JSX.Element {
     const cohort = action === 'create_cohort'
-    const [name, setName] = useState('')
-    const [selected, setSelected] = useState<number[]>([])
-    const [edits, setEdits] = useState<CellEdits>({})
-    const [sending, setSending] = useState(false)
-    const [error, setError] = useState('')
-    const [outcome, setOutcome] = useState<{ title: string; link: string }>()
-    const request = useRef<{ key: string; payload: string } | null>(null)
-    const inFlight = useRef(false)
+    const logic = notebookAppSubmissionLogic({ sessionId })
+    const { drafts } = useValues(logic)
+    const { name, selected, edits, sending, error, outcome } = drafts[draftKey] ?? emptySubmissionDraft
+    const update = (patch: Partial<SubmissionDraft>): void => {
+        if (logic.isMounted()) {
+            logic.actions.updateDraft(draftKey, patch)
+        }
+    }
 
     const personColumn = columns.indexOf('person_id')
     const table = useMemo(() => rows.map((values, index) => ({ values, index })), [rows])
@@ -127,12 +160,11 @@ function SubmissionForm({ action, project, workflowId, columns, rows, pendingInp
     const buttonLabel = cohort ? 'Create cohort' : 'Run workflow'
     const disabledReason = unavailableReason(cohort, name, rowCount, pendingInputs, !!outcome)
     async function submit(): Promise<void> {
-        if (inFlight.current || disabledReason) {
+        const previous = logic.values.drafts[draftKey]
+        if (previous?.sending || previous?.outcome || disabledReason) {
             return
         }
-        inFlight.current = true
-        setSending(true)
-        setError('')
+        update({ sending: true, error: '' })
         try {
             const personIds = cohort ? [...new Set(selected.map((index) => String(rows[index][personColumn])))] : []
             const records = cohort
@@ -143,32 +175,42 @@ function SubmissionForm({ action, project, workflowId, columns, rows, pendingInp
                       )
                   )
             const payload = JSON.stringify([name.trim(), personIds, records])
-            if (request.current?.payload !== payload) {
-                request.current = { key: uuid(), payload }
-            }
+            const request = previous?.request?.payload === payload ? previous.request : { key: uuid(), payload }
+            update({ request })
             if (cohort) {
                 const result = await cohortsFromSelectionCreate(project, {
                     name: name.trim(),
-                    request_id: request.current.key,
+                    request_id: request.key,
                     person_ids: personIds,
                 })
-                setOutcome({ title: 'Open cohort', link: urls.cohort(result.cohort_id) })
+                update({ outcome: { title: 'Open cohort', link: urls.cohort(result.cohort_id) } })
             } else if (workflowId) {
+                if (!workflowVariablesFit({ rows: records })) {
+                    update({ error: workflowSizeError })
+                    return
+                }
+                const workflow = await hogFlowsRetrieve(project, workflowId)
+                const defaults = Object.fromEntries(
+                    (workflow.variables ?? []).map((variable) => [variable.key, variable.default ?? null])
+                )
+                if (!workflowVariablesFit({ ...defaults, rows: records })) {
+                    update({ error: workflowSizeError })
+                    return
+                }
                 await hogFlowsRunCreate(
                     project,
                     workflowId,
                     { variables: { rows: records } },
                     {
-                        headers: { 'Idempotency-Key': request.current.key },
+                        headers: { 'Idempotency-Key': request.key },
                     }
                 )
-                setOutcome({ title: 'View workflow runs', link: urls.workflow(workflowId, 'invocations') })
+                update({ outcome: { title: 'View workflow runs', link: urls.workflow(workflowId, 'invocations') } })
             }
         } catch (cause) {
-            setError(submissionError(cause))
+            update({ error: submissionError(cause) })
         } finally {
-            inFlight.current = false
-            setSending(false)
+            update({ sending: false })
         }
     }
 
@@ -196,9 +238,9 @@ function SubmissionForm({ action, project, workflowId, columns, rows, pendingInp
                                           : undefined
                                 }
                                 onChange={(checked) =>
-                                    setSelected((prev) =>
-                                        checked ? [...prev, index] : prev.filter((i) => i !== index)
-                                    )
+                                    update({
+                                        selected: checked ? [...selected, index] : selected.filter((i) => i !== index),
+                                    })
                                 }
                             />
                         ),
@@ -214,7 +256,7 @@ function SubmissionForm({ action, project, workflowId, columns, rows, pendingInp
                                 editable={!cohort && selected.includes(index)}
                                 disabled={busy}
                                 onEdit={(value) =>
-                                    setEdits((prev) => ({ ...prev, [index]: { ...prev[index], [i]: value } }))
+                                    update({ edits: { ...edits, [index]: { ...edits[index], [i]: value } } })
                                 }
                             />
                         ),
@@ -227,7 +269,7 @@ function SubmissionForm({ action, project, workflowId, columns, rows, pendingInp
                         aria-label="Cohort name"
                         placeholder="Cohort name"
                         value={name}
-                        onChange={setName}
+                        onChange={(name) => update({ name })}
                         maxLength={400}
                         disabled={busy}
                     />

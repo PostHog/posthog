@@ -266,6 +266,7 @@ function RowActionSettings({
                 <MarkdownNotebookEntityPicker
                     action="select"
                     kind="workflow"
+                    runnableWorkflowsOnly
                     onClose={() => setWorkflowPickerBlock(null)}
                     onSelect={({ props }) => {
                         onBlock(block.id, {

@@ -33,6 +33,7 @@ from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
     CohortFilters,
+    CohortFromSelectionSerializer,
     CohortViewSet,
     _criteria_edit_queues_behavioral_run,
     flag_call_criterion_shape_problem,
@@ -151,6 +152,13 @@ _REALTIME_CRITERIA_REFUSAL = "Realtime is on for this cohort"
 
 
 class TestCohortSelectionSubmission(APIBaseTest):
+    def test_selection_reports_an_oversized_list_before_individual_values(self):
+        serializer = CohortFromSelectionSerializer(
+            data={"request_id": str(uuid4()), "name": "Selection", "person_ids": [""] * 1001}
+        )
+        assert not serializer.is_valid()
+        assert [error.code for error in serializer.errors["person_ids"]] == ["max_length"]
+
     def test_retry_creates_one_cohort_and_one_activity(self):
         person_ids = [str(uuid4()), str(uuid4())]
         data = {"request_id": str(uuid4()), "name": "Activation follow-up", "person_ids": person_ids}

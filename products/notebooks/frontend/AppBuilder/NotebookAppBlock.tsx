@@ -23,7 +23,7 @@ export function NotebookAppBlock({
     canInteract,
     onInput,
     onCellOutput,
-    renderOutput,
+    renderOutput: renderBlockOutput,
 }: {
     block: NotebookAppBlockApi
     cell?: NotebookBlockNode
@@ -63,6 +63,7 @@ export function NotebookAppBlock({
             </LemonBanner>
         )
     }
+    const renderOutput = renderBlockOutput && ((outputCell: NotebookBlockNode) => renderBlockOutput(outputCell, block))
     const source =
         cell.type === 'component' && typeof cell.props.code === 'string' ? cell.props.code : serializeNode(cell)
     return (
@@ -105,7 +106,7 @@ export function NotebookAppBlock({
                 </pre>
             ) : null}
             {block.display !== 'source' &&
-                (renderOutput?.(cell, block) ?? (
+                (renderOutput?.(cell) ?? (
                     <ComponentPanelContext.Provider
                         value={{
                             componentPanels: { filters: false, results: true },

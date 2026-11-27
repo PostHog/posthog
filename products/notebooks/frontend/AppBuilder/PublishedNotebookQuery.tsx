@@ -66,6 +66,7 @@ function publishedQueryHeight(
 export function PublishedNotebookQuery({
     cell,
     block,
+    submissionSession,
     project,
     pendingInputs,
     current,
@@ -75,6 +76,7 @@ export function PublishedNotebookQuery({
 }: {
     cell: NotebookComponentBlockNode
     block: NotebookAppBlockApi
+    submissionSession: string
     project: string
     pendingInputs: boolean
     current?: ViewerOutput
@@ -102,6 +104,8 @@ export function PublishedNotebookQuery({
             <>
                 <NotebookAppSubmission
                     key={key}
+                    sessionId={submissionSession}
+                    draftKey={JSON.stringify([block.id, cell.id, current?.generation ?? 'published'])}
                     action={block.submit_action}
                     workflowId={block.workflow_id}
                     project={project}
