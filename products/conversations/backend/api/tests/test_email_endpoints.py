@@ -139,6 +139,12 @@ class TestEmailChannelPermissions(BaseTest):
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
             ),
             (
+                "set-display-name",
+                "post",
+                "/api/conversations/v1/email/set-display-name",
+                {"config_id": "00000000-0000-0000-0000-000000000999", "from_name": "Support"},
+            ),
+            (
                 "set-trusted-relay",
                 "post",
                 "/api/conversations/v1/email/set-trusted-relay",
@@ -1643,6 +1649,94 @@ class TestEmailTrustedRelaySettings(BaseTest):
         assert response.status_code == 400
         assert response.json()["attr"] == "trusted_relay_sender"
         assert response.json()["detail"] == "Enter a valid email address."
+
+
+class TestEmailDisplayNameSettings(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.other_member = User.objects.create(email="other-member@example.com")
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=self.other_member, level=OrganizationMembership.Level.MEMBER
+        )
+
+    def _set_display_name(self, config: EmailChannel, from_name: str):
+        return self.client.post(
+            "/api/conversations/v1/email/set-display-name",
+            {"config_id": str(config.id), "from_name": from_name},
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("admin_renames_support", OrganizationMembership.Level.ADMIN, EmailChannelKind.SUPPORT, None, 200),
+            ("member_cannot_rename_support", OrganizationMembership.Level.MEMBER, EmailChannelKind.SUPPORT, None, 403),
+            (
+                "owner_renames_own_channel",
+                OrganizationMembership.Level.MEMBER,
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "self",
+                200,
+            ),
+            (
+                "member_cannot_rename_others_channel",
+                OrganizationMembership.Level.MEMBER,
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "other",
+                404,
+            ),
+            (
+                "admin_renames_others_channel",
+                OrganizationMembership.Level.ADMIN,
+                EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "other",
+                200,
+            ),
+        ]
+    )
+    def test_rename_permissions(self, _name, level, kind, owner, expected_status):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        config = EmailChannel.objects.create(
+            team=self.team,
+            kind=kind,
+            owner={"self": self.user, "other": self.other_member, None: None}[owner],
+            inbound_token="display-name",
+            from_email="support@example.com",
+            from_name="Old name",
+            domain="example.com",
+        )
+
+        response = self._set_display_name(config, "  Acme Support  ")
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.from_name == ("Acme Support" if expected_status == 200 else "Old name")
+
+    def test_rename_is_scoped_to_the_current_team_and_rejects_blank(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_team = Team.objects.create(organization=self.organization)
+        other_config = EmailChannel.objects.create(
+            team=other_team,
+            inbound_token="other-display-name",
+            from_email="other@example.com",
+            from_name="Other",
+            domain="example.com",
+        )
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="display-name",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+
+        assert self._set_display_name(other_config, "Renamed").status_code == 404
+        assert self._set_display_name(config, "   ").status_code == 400
+        other_config.refresh_from_db()
+        config.refresh_from_db()
+        assert (other_config.from_name, config.from_name) == ("Other", "Support")
 
 
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):

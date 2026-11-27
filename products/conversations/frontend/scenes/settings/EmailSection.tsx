@@ -10,6 +10,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { EmailDisplayNameSettings } from '../../components/EmailDisplayNameSettings/EmailDisplayNameSettings'
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
 import { QuillEmailSection } from '../../components/QuillEmailSection/QuillEmailSection'
 import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
@@ -68,6 +69,8 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
         settingDefaultEmailConfigId,
         trustedRelaySenderDrafts,
         trustedRelaySavingConfigId,
+        emailDisplayNameDrafts,
+        emailDisplayNameSavingConfigId,
     } = useValues(supportSettingsLogic)
     const {
         disconnectEmail,
@@ -76,6 +79,8 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
         setDefaultEmail,
         setTrustedRelaySenderDraft,
         saveTrustedRelaySender,
+        setEmailDisplayNameDraft,
+        saveEmailDisplayName,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -92,6 +97,16 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     return (
         <div className="flex flex-col gap-3 p-3">
             {config.forwarding_address && <EmailForwardingAddress forwardingAddress={config.forwarding_address} />}
+
+            <EmailDisplayNameSettings
+                configId={config.id}
+                value={emailDisplayNameDrafts[config.id] ?? config.from_name}
+                savedValue={config.from_name}
+                restrictionReason={adminRestrictionReason}
+                savingConfigId={emailDisplayNameSavingConfigId}
+                onChange={(value) => setEmailDisplayNameDraft(config.id, value)}
+                onSave={() => saveEmailDisplayName(config.id)}
+            />
 
             {/* Domain verification */}
             <div>

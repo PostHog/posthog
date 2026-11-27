@@ -23,6 +23,7 @@ import {
 } from '../../scenes/settings/emailSettingsHelpers'
 import { EmailConfigStatus, supportSettingsLogic } from '../../scenes/settings/supportSettingsLogic'
 import { QuillDnsRecordsTable } from '../QuillDnsRecordsTable/QuillDnsRecordsTable'
+import { QuillEmailDisplayNameSettings } from '../QuillEmailDisplayNameSettings/QuillEmailDisplayNameSettings'
 import { QuillEmailForwardingAddress } from '../QuillEmailForwardingAddress/QuillEmailForwardingAddress'
 import { QuillTrustedRelaySenderSettings } from '../QuillTrustedRelaySenderSettings/QuillTrustedRelaySenderSettings'
 
@@ -33,6 +34,8 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
         settingDefaultEmailConfigId,
         trustedRelaySenderDrafts,
         trustedRelaySavingConfigId,
+        emailDisplayNameDrafts,
+        emailDisplayNameSavingConfigId,
     } = useValues(supportSettingsLogic)
     const {
         disconnectEmail,
@@ -41,6 +44,8 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
         setDefaultEmail,
         setTrustedRelaySenderDraft,
         saveTrustedRelaySender,
+        setEmailDisplayNameDraft,
+        saveEmailDisplayName,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
@@ -57,6 +62,18 @@ export function QuillEmailConfigContent({ config }: { config: EmailConfigStatus 
     return (
         <div className="flex flex-col gap-3">
             {config.forwarding_address && <QuillEmailForwardingAddress forwardingAddress={config.forwarding_address} />}
+
+            <QuillEmailDisplayNameSettings
+                configId={config.id}
+                value={emailDisplayNameDrafts[config.id] ?? config.from_name}
+                savedValue={config.from_name}
+                restrictionReason={adminRestrictionReason}
+                savingConfigId={emailDisplayNameSavingConfigId}
+                onChange={(value) => setEmailDisplayNameDraft(config.id, value)}
+                onSave={() => saveEmailDisplayName(config.id)}
+            />
+
+            <Separator />
 
             <Field>
                 <FieldLabel>Domain verification</FieldLabel>
