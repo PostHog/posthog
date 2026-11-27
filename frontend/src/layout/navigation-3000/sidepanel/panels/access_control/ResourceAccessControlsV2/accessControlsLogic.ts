@@ -47,6 +47,7 @@ import { accessControlLogic } from '../accessControlLogic'
 import { isResourceShownInAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
+import { parseAccessDeepLink } from './helpers'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -1200,22 +1201,22 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
     urlToAction(({ actions }) => ({
         '/settings/:section': (_, searchParams, hashParams) => {
-            const { access_tab: tab, access_role_id, access_member_id, ...rest } = searchParams
-            if (tab === undefined && access_role_id === undefined && access_member_id === undefined) {
+            const link = parseAccessDeepLink(searchParams)
+            if (!link) {
                 return
             }
-            if (tab === 'roles' || tab === 'members' || tab === 'defaults') {
-                actions.setActiveTab(tab)
+            if (link.tab) {
+                actions.setActiveTab(link.tab)
             }
-            if (tab === 'roles' && access_role_id) {
-                actions.setFilters({ roleIds: [access_role_id] })
+            if (link.roleId) {
+                actions.setFilters({ roleIds: [link.roleId] })
             }
             // A deep link applies once. This handler runs on every location change, including the hash
             // changing as the side panel opens, closes or switches subject, so leaving the params in the
             // URL would re-open the linked member and reset the tab after each of those.
-            router.actions.replace(router.values.location.pathname, rest, hashParams)
-            if (tab === 'members' && access_member_id) {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, `member:${access_member_id}`)
+            router.actions.replace(router.values.location.pathname, link.rest, hashParams)
+            if (link.memberId) {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, `member:${link.memberId}`)
             }
         },
     })),

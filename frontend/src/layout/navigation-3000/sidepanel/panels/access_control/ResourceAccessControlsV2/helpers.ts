@@ -4,7 +4,13 @@ import { fullNameOrEmail, toSentenceCase } from 'lib/utils/strings'
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, RoleMemberType } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
-import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
+import {
+    AccessControlMemberEntry,
+    AccessControlRoleEntry,
+    AccessControlSettingsEntry,
+    AccessControlsTab,
+    InheritedReason,
+} from './types'
 
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
@@ -246,4 +252,29 @@ export function roleMemberNames(members: RoleMemberType[]): string {
         .map((m) => fullNameOrEmail(m.user))
         .sort()
         .join(', ')
+}
+
+export interface AccessDeepLink {
+    tab: AccessControlsTab | null
+    /** Narrows the roles tab to this role. */
+    roleId: string | null
+    /** Opens this member's access detail. */
+    memberId: string | null
+    /** The search params that are not part of the deep link. */
+    rest: Record<string, any>
+}
+
+/** The access settings deep link in these search params, or null when they hold none. */
+export function parseAccessDeepLink(searchParams: Record<string, any>): AccessDeepLink | null {
+    const { access_tab, access_role_id, access_member_id, ...rest } = searchParams
+    if (access_tab === undefined && access_role_id === undefined && access_member_id === undefined) {
+        return null
+    }
+    const tab = ['roles', 'members', 'defaults'].includes(access_tab) ? (access_tab as AccessControlsTab) : null
+    return {
+        tab,
+        roleId: tab === 'roles' && access_role_id ? String(access_role_id) : null,
+        memberId: tab === 'members' && access_member_id ? String(access_member_id) : null,
+        rest,
+    }
 }
