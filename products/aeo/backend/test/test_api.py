@@ -23,7 +23,11 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOTopicRelabelBurstRateThrottle
+from posthog.rate_limit import (
+    AEOKeywordReportBurstRateThrottle,
+    AEOSearchDetailBurstRateThrottle,
+    AEOTopicRelabelBurstRateThrottle,
+)
 
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.check_brands import enrich_check_brands
@@ -1266,6 +1270,46 @@ class TestAEOPromptAPI(APIBaseTest):
         assert detail["keywords"] == ["pricing"]
         assert sorted(prompt["text"] for prompt in detail["top_prompts"]) == ["cheapest?", "pricing?"]
 
+        # The generated client sends an unset filter as the text 'null', which counts every engine and topic.
+        unfiltered = self.client.get(
+            f"{self.url}search_detail/",
+            {"search": "acme pricing", "engine": "null", "topic": "null", "date_from": "-7d"},
+        ).json()
+        assert (unfiltered["answers"], unfiltered["engines"]) == (3, ["claude-web-search", "openai-web-search"])
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["web_analytics:read"], status.HTTP_200_OK),
+            ("other_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_detail_reads_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+        # Session auth skips scope checks, so only a scoped key catches an action left out of the read actions.
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="aeo read", secure_value=hash_key_value(value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"{self.url}search_detail/", {"search": "acme pricing"}, headers={"authorization": f"Bearer {value}"}
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_search_detail_is_throttled_for_the_session_authenticated_ui(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(AEOSearchDetailBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.get(f"{self.url}search_detail/", {"search": f"nonce {index}"}).status_code
+                for index in range(3)
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_use_the_competitors_confirmed_in_the_catalog(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
@@ -1839,6 +1883,9 @@ class TestAEOPromptAPI(APIBaseTest):
             ("longer_window", "domain=example.com&date_from=-60d", ["best funnel tools?", "best funnel tools?"]),
             ("past_range", "domain=example.com&date_from=-60d&date_to=-30d", ["best funnel tools?"]),
             ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("topic", "domain=example.com&topic=Flags", []),
+            ("no_topic", "domain=example.com&topic=", ["best funnel tools?"]),
+            ("unset_filters_sent_as_null", "domain=example.com&engine=null&topic=null", ["best funnel tools?"]),
             ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
             ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
             ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),

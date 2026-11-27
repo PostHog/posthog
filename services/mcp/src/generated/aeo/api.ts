@@ -755,7 +755,7 @@ export const AeoPromptsBulkSetTopicBody = () => zod.object({
 })
 
 /**
- * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'date_from', 'date_to' and 'branded' values.
+ * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'date_from', 'date_to', 'branded', 'engine' and 'topic' values.
  * @summary List the answers behind a cited page, site or search
  */
 export const AeoPromptsCitationsParams = () => zod.object({
@@ -779,6 +779,8 @@ export const aeoPromptsCitationsQueryIncludeAnswerTextDefault = false
 export const aeoPromptsCitationsQueryLimitMax = 100
 
 export const aeoPromptsCitationsQuerySearchMax = 1000
+
+export const aeoPromptsCitationsQueryTopicMax = 200
 
 export const aeoPromptsCitationsQueryUrlMax = 2048
 
@@ -813,10 +815,11 @@ export const AeoPromptsCitationsQueryParams = () => zod.object({
         ),
     engine: zod
         .string()
-        .min(1)
         .max(aeoPromptsCitationsQueryEngineMax)
-        .optional()
-        .describe("Only list answers from this answer engine, for example 'claude-web-search'."),
+        .nullish()
+        .describe(
+            "Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine."
+        ),
     include_answer_text: zod
         .boolean()
         .default(aeoPromptsCitationsQueryIncludeAnswerTextDefault)
@@ -836,6 +839,13 @@ export const AeoPromptsCitationsQueryParams = () => zod.object({
         .optional()
         .describe(
             "List the answers whose engine ran this web search. Case and repeated spaces are ignored, as in the overview's top_searches."
+        ),
+    topic: zod
+        .string()
+        .max(aeoPromptsCitationsQueryTopicMax)
+        .nullish()
+        .describe(
+            'Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.'
         ),
     url: zod
         .string()

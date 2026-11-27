@@ -41,14 +41,16 @@ export const ContentAutopilotSearchDetail = ({
     ...props
 }: ContentAutopilotSearchDetailLogicProps & { onOpenPrompt: (promptId: string) => void }): JSX.Element => (
     <BindLogic logic={contentAutopilotSearchDetailLogic} props={props}>
-        <SearchDetail branded={props.branded} onOpenPrompt={onOpenPrompt} />
+        <SearchDetail branded={props.branded} engine={props.engine} topic={props.topic} onOpenPrompt={onOpenPrompt} />
     </BindLogic>
 )
 
 const SearchDetail = ({
     branded,
+    engine,
+    topic,
     onOpenPrompt,
-}: Pick<ContentAutopilotSearchDetailLogicProps, 'branded'> & {
+}: Pick<ContentAutopilotSearchDetailLogicProps, 'branded' | 'engine' | 'topic'> & {
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
     const { detail, detailLoading, detailFailed, tab } = useValues(contentAutopilotSearchDetailLogic)
@@ -80,7 +82,7 @@ const SearchDetail = ({
         )
     }
 
-    const lookupWindow = { dateFrom: detail.window_from, dateTo: detail.window_to, branded }
+    const lookupWindow = { dateFrom: detail.window_from, dateTo: detail.window_to, branded, engine, topic }
     return (
         <div className="flex flex-col gap-2 px-3 py-2" data-attr="content-autopilot-search-detail">
             <div className="flex flex-wrap items-center gap-1">

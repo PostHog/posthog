@@ -99,8 +99,9 @@ export const contentAutopilotSearchDetailLogic: LogicWrapper<contentAutopilotSea
                             date_from: props.dateFrom,
                             date_to: props.dateTo,
                             branded: props.branded,
-                            engine: props.engine,
-                            topic: props.topic,
+                            // An unset filter is left out: the client would send null as the text 'null'.
+                            ...(props.engine !== null ? { engine: props.engine } : {}),
+                            ...(props.topic !== null ? { topic: props.topic } : {}),
                         }),
                 },
             ],

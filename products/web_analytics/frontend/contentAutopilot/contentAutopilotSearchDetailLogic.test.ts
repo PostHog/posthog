@@ -63,6 +63,13 @@ describe('contentAutopilotSearchDetailLogic', () => {
             date_from: '2026-10-01',
             date_to: '2026-10-30',
             branded: 'non_branded',
+            topic: 'Pricing',
+        })
+        expect(mockSearchDetail).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            search: 'acme pricing',
+            date_from: '2026-10-01',
+            date_to: '2026-10-30',
+            branded: 'non_branded',
             engine: 'openai-web-search',
             topic: 'Pricing',
         })

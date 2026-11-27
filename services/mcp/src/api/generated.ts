@@ -141282,11 +141282,11 @@ export namespace Schemas {
      */
     domain?: string;
     /**
-     * Only list answers from this answer engine, for example 'claude-web-search'.
-     * @minLength 1
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
+     * @nullable
      */
-    engine?: string;
+    engine?: string | null;
     /**
      * Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.
      */
@@ -141306,6 +141306,12 @@ export namespace Schemas {
      * @maxLength 1000
      */
     search?: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     /**
      * List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.
      * @minLength 1

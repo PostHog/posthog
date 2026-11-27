@@ -26,6 +26,8 @@ from posthog.permissions import (
 from posthog.rate_limit import (
     AEOPromptSuggestionsBurstRateThrottle,
     AEOPromptSuggestionsSustainedRateThrottle,
+    AEOSearchDetailBurstRateThrottle,
+    AEOSearchDetailSustainedRateThrottle,
     AEOTopicRelabelBurstRateThrottle,
     AEOTopicRelabelSustainedRateThrottle,
 )
@@ -1039,6 +1041,7 @@ class AEOCheckScopeQuerySerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_null=True,
+        allow_blank=True,
         max_length=64,
         help_text="Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.",
     )
@@ -1053,6 +1056,13 @@ class AEOCheckScopeQuerySerializer(serializers.Serializer):
             "under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic."
         ),
     )
+
+    # A client that serializes an unset filter sends it as the text 'null', which would match no check.
+    def validate_engine(self, value: str | None) -> str | None:
+        return None if value in ("", "null") else value
+
+    def validate_topic(self, value: str | None) -> str | None:
+        return None if value == "null" else value
 
 
 class AEOPromptSetOverviewQuerySerializer(AEOCheckScopeQuerySerializer):
@@ -1462,7 +1472,7 @@ class AEOPromptCitationSerializer(AEOPromptCheckSerializer):
         }
 
 
-class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
+class AEOPromptSetCitationsQuerySerializer(AEOCheckScopeQuerySerializer):
     url = serializers.CharField(
         required=False,
         max_length=2048,
@@ -1495,11 +1505,6 @@ class AEOPromptSetCitationsQuerySerializer(serializers.Serializer):
             "or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. "
             + BRANDED_PROMPT_HELP
         ),
-    )
-    engine = serializers.CharField(
-        required=False,
-        max_length=64,
-        help_text="Only list answers from this answer engine, for example 'claude-web-search'.",
     )
     include_answer_text = serializers.BooleanField(
         default=False,
@@ -1540,6 +1545,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "stats",
         "versions",
         "overview",
+        "search_detail",
         "rankings",
         "movers",
         "citations",
@@ -1751,7 +1757,12 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOPromptSetSearchDetailSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"], pagination_class=None)
+    @action(
+        detail=False,
+        methods=["get"],
+        pagination_class=None,
+        throttle_classes=[AEOSearchDetailBurstRateThrottle, AEOSearchDetailSustainedRateThrottle],
+    )
     def search_detail(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         query = request.validated_query_data
         with date_range_errors():
@@ -1841,7 +1852,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             "timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the "
             "prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches "
             "it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview "
-            "or the rankings, with the same 'date_from', 'date_to' and 'branded' values."
+            "or the rankings, with the same 'date_from', 'date_to', 'branded', 'engine' and 'topic' values."
         ),
         responses={
             200: AEOPromptCitationSerializer(many=True),
@@ -1864,7 +1875,8 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
                 url=data.get("url"),
                 domain=data.get("domain"),
                 search=data.get("search"),
-                engine=data.get("engine"),
+                engine=data["engine"],
+                topic=data["topic"],
                 branded=BrandedSegment(data["branded"]),
                 include_answer_text=data["include_answer_text"],
             )
