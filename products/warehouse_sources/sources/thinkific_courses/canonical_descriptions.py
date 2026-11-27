@@ -5,6 +5,26 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 _DOCS = "https://developers.thinkific.com/api/api-documentation/"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "bundle_courses": {
+        "description": "Courses in each bundle.",
+        "docs_url": f"{_DOCS}Bundles",
+        "columns": {"bundle_id": "ID of the bundle.", "id": "ID of the course."},
+    },
+    "bundle_enrollments": {
+        "description": "Enrollments for each bundle.",
+        "docs_url": f"{_DOCS}Bundles",
+        "columns": {"bundle_id": "ID of the bundle.", "id": "ID of the enrollment."},
+    },
+    "group_analysts": {
+        "description": "Users with the analyst role for each group.",
+        "docs_url": f"{_DOCS}Groups",
+        "columns": {"group_id": "ID of the group.", "user_id": "ID of the analyst."},
+    },
+    "related_products": {
+        "description": "Products that Thinkific lists as related to each product.",
+        "docs_url": f"{_DOCS}Products",
+        "columns": {"product_id": "ID of the parent product.", "id": "ID of the related product."},
+    },
     "courses": {
         "description": "Courses available in your Thinkific school.",
         "docs_url": f"{_DOCS}Courses",

@@ -189,6 +189,93 @@ class TestFanout:
         assert result.rows == [{"id": 60, "chapter_id": 6, "course_id": 11}]
 
 
+class TestBundleTables:
+    @parameterized.expand(
+        [
+            ("courses", "bundle_courses", None, None),
+            ("enrollments_backfill", "bundle_enrollments", None, None),
+            ("enrollments_incremental", "bundle_enrollments", "2026-04-01T10:00:00Z", "2026-03-31"),
+        ]
+    )
+    def test_uses_bundle_id_and_filters_only_child_pages(
+        self, _name: str, endpoint: str, watermark: str | None, expected_filter: str | None
+    ) -> None:
+        responses = [
+            _response(
+                [
+                    {"id": 8, "productable_type": "Course", "productable_id": 82},
+                    {"id": 9, "productable_type": "Bundle", "productable_id": 93},
+                ]
+            ),
+            _response([{"id": 71}], total_pages=2),
+            _response([{"id": 72}], total_pages=2),
+        ]
+        result = _driver().run(
+            endpoint,
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        child_path = f"/api/public/v1/bundles/93/{endpoint.removeprefix('bundle_')}"
+        assert result.paths == ["/api/public/v1/products", child_path, child_path]
+        assert result.params("page") == ["1", "1", "2"]
+        assert result.params("query[updated_after]") == [None, expected_filter, expected_filter]
+        assert result.rows == [{"id": 71, "bundle_id": 93}, {"id": 72, "bundle_id": 93}]
+
+
+class TestGroupAnalysts:
+    def test_expands_user_ids_and_continues_past_empty_groups(self) -> None:
+        result = _driver().run(
+            "group_analysts",
+            [
+                _response([{"id": 3}, {"id": 4}, {"id": 5}]),
+                ScriptedResponse(json={"group_analysts": [11, 12]}),
+                ScriptedResponse(json={"group_analysts": []}),
+                ScriptedResponse(json={"group_analysts": [11]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/public/v1/groups",
+            "/api/public/v1/groups/3/analysts",
+            "/api/public/v1/groups/4/analysts",
+            "/api/public/v1/groups/5/analysts",
+        ]
+        assert result.params("page") == ["1", None, None, None]
+        assert result.params("limit") == ["100", None, None, None]
+        assert result.rows == [
+            {"group_id": 3, "user_id": 11},
+            {"group_id": 3, "user_id": 12},
+            {"group_id": 5, "user_id": 11},
+        ]
+
+
+class TestRelatedProducts:
+    def test_preserves_the_parent_and_related_product_ids(self) -> None:
+        result = _driver().run(
+            "related_products",
+            [
+                _response([{"id": 21, "productable_id": 31}, {"id": 22, "productable_id": 32}]),
+                _response([{"id": 23, "productable_id": 33}]),
+                _response([{"id": 23, "productable_id": 33}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/api/public/v1/products",
+            "/api/public/v1/products/21/related",
+            "/api/public/v1/products/22/related",
+        ]
+        assert result.rows == [
+            {"id": 23, "productable_id": 33, "product_id": 21},
+            {"id": 23, "productable_id": 33, "product_id": 22},
+        ]
+
+
 class TestErrorHandling:
     @parameterized.expand([("unauthorized", 401, "Unauthorized"), ("forbidden", 403, "Forbidden")])
     def test_auth_error_raises_matchable_http_error(self, _name: str, status: int, reason: str) -> None:

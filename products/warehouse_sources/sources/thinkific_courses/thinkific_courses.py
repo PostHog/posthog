@@ -1,7 +1,7 @@
 import re
 import dataclasses
-from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from collections.abc import Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk import (
     PageNumberPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
+    SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
     make_tracked_session,
@@ -109,6 +110,11 @@ def _make_source_response(
     )
 
 
+def _group_analyst_pages(pages: Iterable[list[dict[str, Any]]]) -> Iterator[list[dict[str, Any]]]:
+    for page in pages:
+        yield [{"group_id": row["group_id"], "user_id": user_id} for row in page for user_id in row["group_analysts"]]
+
+
 def _fanout_source(
     config: ThinkificCoursesEndpointConfig,
     api_key: str,
@@ -117,6 +123,7 @@ def _fanout_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ThinkificCoursesResumeConfig],
+    incremental_date: str | None,
 ) -> SourceResponse:
     assert config.fanout is not None
 
@@ -143,8 +150,16 @@ def _fanout_source(
                 )
             )
 
+    is_group_analysts = endpoint == "group_analysts"
+    child_params: dict[str, Any] = {}
+    if is_group_analysts:
+        child_params["limit"] = None
+    elif incremental_date is not None:
+        previous_day = date.fromisoformat(incremental_date) - timedelta(days=1)
+        child_params["query[updated_after]"] = previous_day.isoformat()
+
     dependent_resource = cast(
-        Iterable[Any],
+        Iterable[list[dict[str, Any]]],
         build_dependent_resource(
             endpoint_configs=THINKIFIC_COURSES_ENDPOINTS,
             child_endpoint=endpoint,
@@ -158,12 +173,18 @@ def _fanout_source(
             # placeholder in a query string, which the single-entity heuristic would otherwise
             # mistake for a fetch-one-record endpoint and stop after a single page.
             parent_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
-            child_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
+            child_endpoint_extra={
+                "paginator": SinglePagePaginator() if is_group_analysts else _paginator(),
+                "data_selector": "$" if is_group_analysts else "items",
+            },
+            child_params_extra=child_params,
             parent_data_map=config.parent_data_map,
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
         ),
     )
+    if is_group_analysts:
+        return _make_source_response(config, lambda: _group_analyst_pages(dependent_resource))
     return _make_source_response(config, lambda: dependent_resource)
 
 
@@ -179,16 +200,22 @@ def thinkific_courses_source(
 ) -> SourceResponse:
     config = THINKIFIC_COURSES_ENDPOINTS[endpoint]
 
+    incremental_date = None
+    if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
+        incremental_date = _format_incremental_date(db_incremental_field_last_value)
+
     if config.fanout is not None:
-        return _fanout_source(config, api_key, subdomain, endpoint, team_id, job_id, resumable_source_manager)
+        return _fanout_source(
+            config, api_key, subdomain, endpoint, team_id, job_id, resumable_source_manager, incremental_date
+        )
 
     params: dict[str, Any] = {"limit": config.page_size}
-    if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
+    if incremental_date is not None:
         # Inclusive, day-granularity server-side filter on `updated_at`: re-fetch the whole boundary
         # day so updates that landed after the watermark within the same day aren't skipped. Re-pulled
         # rows are deduped by the primary key on merge. We deliberately use `updated_on_or_after`
         # rather than the exclusive `updated_after` to avoid that same-day gap.
-        params["query[updated_on_or_after]"] = _format_incremental_date(db_incremental_field_last_value)
+        params["query[updated_on_or_after]"] = incremental_date
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key, subdomain),
