@@ -15,27 +15,12 @@ from posthog.models.instance_setting import (
     set_instance_setting as set_instance_setting_raw,
 )
 from posthog.permissions import IsStaffUser
-from posthog.settings import (
-    CONSTANCE_CONFIG,
-    SECRET_SETTINGS,
-    SETTINGS_ALLOWING_API_OVERRIDE,
-    SKIP_ASYNC_MIGRATIONS_SETUP,
-)
+from posthog.settings import CONSTANCE_CONFIG, SETTINGS_ALLOWING_API_OVERRIDE, SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
 
-REDACTED = "<redacted>"
 RAW_VALUE_MAX_LENGTH = cast(int, InstanceSetting._meta.get_field("raw_value").max_length)
-UNSET = "<unset>"
-
-
-def _redact_if_secret(key: str, value: Any) -> Any:
-    if key not in SECRET_SETTINGS:
-        return value
-    if value is None or value == "":
-        return UNSET
-    return REDACTED
 
 
 def cast_str_to_desired_type(value: Any, target_type: type) -> Any:
@@ -93,7 +78,6 @@ class InstanceSettingHelper:
     value_type: str = ""
     description: str = ""
     editable: bool = False
-    is_secret: bool = False
 
     def __init__(self, **kwargs):
         for field in (
@@ -102,33 +86,29 @@ class InstanceSettingHelper:
             "value_type",
             "description",
             "editable",
-            "is_secret",
         ):
             setattr(self, field, kwargs.get(field, None))
 
 
 def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> InstanceSettingHelper:
     setting_config = setting_config or CONSTANCE_CONFIG[key]
-    is_secret = key in SECRET_SETTINGS
     value = get_instance_setting_raw(key)
 
     return InstanceSettingHelper(
         key=key,
-        value=value if not is_secret or not value else "*****",
+        value=value,
         value_type=re.sub(r"<class '(\w+)'>", r"\1", str(setting_config[2])),
         description=setting_config[1],
         editable=key in SETTINGS_ALLOWING_API_OVERRIDE,
-        is_secret=is_secret,
     )
 
 
 class InstanceSettingsSerializer(serializers.Serializer):
-    key = serializers.CharField(read_only=True)
-    value = serializers.JSONField()  # value can be bool, int, or str
-    value_type = serializers.CharField(read_only=True)
-    description = serializers.CharField(read_only=True)
-    editable = serializers.BooleanField(read_only=True)
-    is_secret = serializers.BooleanField(read_only=True)
+    key = serializers.CharField(read_only=True, help_text="Name of the setting.")
+    value = serializers.JSONField(help_text="Current value: a bool, int, string or list of ints.")
+    value_type = serializers.CharField(read_only=True, help_text="Python type of the value.")
+    description = serializers.CharField(read_only=True, help_text="What the setting controls.")
+    editable = serializers.BooleanField(read_only=True, help_text="Whether staff can change it from PostHog.")
 
     def validate_value(self, value: Any) -> Any:
         if self.instance is not None and self.instance.key == "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS":
@@ -213,8 +193,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
                         type="InstanceSetting",
                         field=key,
                         action="changed",
-                        before=_redact_if_secret(key, before_value),
-                        after=_redact_if_secret(key, new_value),
+                        before=before_value,
+                        after=new_value,
                     )
                 ],
             ),

@@ -1,5 +1,3 @@
-import { IconLock } from '@posthog/icons'
-
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
@@ -12,24 +10,12 @@ export interface MetricValue {
     value?: SystemStatusRow['value'] | number[]
     value_type?: InstanceSetting['value_type']
     emptyNullLabel?: string
-    isSecret?: boolean
 }
 
 export function RenderMetricValue(
     _: any,
-    { key, value, value_type, emptyNullLabel, isSecret }: MetricValue
+    { key, value, value_type, emptyNullLabel }: MetricValue
 ): JSX.Element | string {
-    if (value && isSecret) {
-        return (
-            <LemonTag
-                className="uppercase text-secondary bg-mark"
-                icon={isSecret ? <IconLock className="text-warning" /> : undefined}
-            >
-                Secret
-            </LemonTag>
-        )
-    }
-
     if (key && TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'

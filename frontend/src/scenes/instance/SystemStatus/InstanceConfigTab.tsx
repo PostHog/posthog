@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -74,7 +74,6 @@ export function InstanceConfigTab(): JSX.Element {
                     key: record.key,
                     emptyNullLabel: 'Unset',
                     value_type: record.value_type,
-                    isSecret: record.is_secret,
                 }
                 return instanceConfigMode === ConfigMode.View
                     ? RenderMetricValue(_, props)
@@ -105,15 +104,8 @@ export function InstanceConfigTab(): JSX.Element {
                 <div className="flex-1">
                     <h3>Instance configuration</h3>
                     <div>
-                        Changing these settings will take effect on your entire instance.{' '}
-                        <Link
-                            to="https://posthog.com/docs/self-host/configure/instance-settings"
-                            target="_blank"
-                            targetBlankIcon
-                        >
-                            Learn more
-                        </Link>
-                        .
+                        Changes apply to the whole instance within about a minute, without a deploy. Any staff user can
+                        change these values, and they are stored in plain text.
                     </div>
                 </div>
                 {instanceConfigMode === ConfigMode.View ? (
@@ -152,6 +144,15 @@ export function InstanceConfigTab(): JSX.Element {
                     </>
                 )}
             </div>
+
+            <LemonBanner type="info" className="mb-4">
+                Use instance settings only for values that need a live change, such as kill switches. Set everything
+                else with{' '}
+                <Link to="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
+                    environment variables
+                </Link>
+                . They are reviewed with your deployment, and they are the only place for secrets.
+            </LemonBanner>
 
             <LemonTable
                 dataSource={editableInstanceSettings}

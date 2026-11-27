@@ -5491,7 +5491,6 @@ export interface InstanceSetting {
     value_type: 'bool' | 'str' | 'int' | 'list[int]'
     description?: string
     editable: boolean
-    is_secret: boolean
 }
 
 export enum FunnelMathType {

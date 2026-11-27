@@ -10,17 +10,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.instance_settings import (
-    REDACTED,
-    UNSET,
     InstanceSettingHelper,
     InstanceSettingsSerializer,
-    _redact_if_secret,
     cast_str_to_desired_type,
     get_instance_setting as get_instance_setting_helper,
 )
 from posthog.models import ActivityLog
 from posthog.models.instance_setting import get_instance_setting, set_instance_setting
-from posthog.settings import CONSTANCE_CONFIG, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import CONSTANCE_CONFIG
 
 
 class TestCastStrToDesiredType(unittest.TestCase):
@@ -57,59 +54,17 @@ class TestCastStrToDesiredType(unittest.TestCase):
             cast_str_to_desired_type(value, target_type)
 
 
-class TestSecretSettingsCoverage(unittest.TestCase):
+class TestNoSecretInstanceSettings(unittest.TestCase):
     SENSITIVE_NAME_SUBSTRINGS = ("SECRET", "PASSWORD", "KEY", "TOKEN")
 
-    def test_api_overridable_keys_with_sensitive_names_are_in_secret_settings(self) -> None:
-        offenders = [
-            key
-            for key in SETTINGS_ALLOWING_API_OVERRIDE
-            if any(s in key for s in self.SENSITIVE_NAME_SUBSTRINGS) and key not in SECRET_SETTINGS
-        ]
+    def test_no_instance_setting_is_named_like_a_credential(self) -> None:
+        offenders = [key for key in CONSTANCE_CONFIG if any(s in key for s in self.SENSITIVE_NAME_SUBSTRINGS)]
         self.assertEqual(
             offenders,
             [],
-            (
-                f"Keys named like credentials must be redacted. Add {offenders} to SECRET_SETTINGS "
-                f"in posthog/settings/dynamic_settings.py, or rename them if they are not actually secrets."
-            ),
+            f"Instance settings are stored in plain text and editable by any staff user. Make {offenders} "
+            f"an environment variable in posthog/settings/ instead, or rename them if they are not secrets.",
         )
-
-    def test_every_secret_setting_exists_in_constance_config(self) -> None:
-        missing = [key for key in SECRET_SETTINGS if key not in CONSTANCE_CONFIG]
-        self.assertEqual(
-            missing,
-            [],
-            f"SECRET_SETTINGS references unknown keys {missing}; CONSTANCE_CONFIG is the source of truth.",
-        )
-
-    @parameterized.expand(
-        [
-            ("none", None, UNSET),
-            ("empty_string", "", UNSET),
-            ("nonempty_string", "hunter2", REDACTED),
-            ("integer", 42, REDACTED),
-            ("boolean", False, REDACTED),
-        ]
-    )
-    @patch("posthog.api.instance_settings.SECRET_SETTINGS", ["SOME_SECRET"])
-    def test_redact_if_secret_redacts_secret_keys(self, _name: str, value: object, expected: object) -> None:
-        self.assertEqual(_redact_if_secret("SOME_SECRET", value), expected)
-
-    @parameterized.expand(
-        [
-            ("string", "smtp.example.com"),
-            ("integer", 25),
-            ("boolean_true", True),
-            ("boolean_false", False),
-            ("empty_string", ""),
-            ("none", None),
-            ("list", [1, 2, 3]),
-        ]
-    )
-    @patch("posthog.api.instance_settings.SECRET_SETTINGS", ["SOME_SECRET"])
-    def test_redact_if_secret_passes_through_non_secret_keys(self, _name: str, value: object) -> None:
-        self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
 class TestListSettingValidation(SimpleTestCase):

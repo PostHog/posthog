@@ -29,18 +29,16 @@ READS: dict[str, Callable[[], str]] = {
 }
 
 
-class TestInstanceSettingsFallback(SimpleTestCase):
+class TestCredentialsSettingsFallback(SimpleTestCase):
     @parameterized.expand(
         [
             (f"{read}_{name}", read, *case)
             for read in READS
             for name, *case in [
-                # An operator's edit in the instance settings UI must win over the environment variable
-                # it defaults from, so with the service off the environment is never read directly.
-                ("unconfigured_reads_the_instance_setting", UNCONFIGURED, True, None, "edited", "edited"),
-                ("flag_off_reads_the_instance_setting", SERVICE_SETTINGS, False, None, "edited", "edited"),
-                ("service_value_wins", SERVICE_SETTINGS, True, "from-service", "edited", "from-service"),
-                ("missing_falls_back_to_the_instance_setting", SERVICE_SETTINGS, True, None, "edited", "edited"),
+                ("unconfigured_reads_the_setting", UNCONFIGURED, True, None, "from-settings", "from-settings"),
+                ("flag_off_reads_the_setting", SERVICE_SETTINGS, False, None, "from-settings", "from-settings"),
+                ("service_value_wins", SERVICE_SETTINGS, True, "from-service", "from-settings", "from-service"),
+                ("missing_falls_back_to_the_setting", SERVICE_SETTINGS, True, None, "from-settings", "from-settings"),
                 ("configured_nowhere", SERVICE_SETTINGS, True, None, "", ""),
             ]
         ]
@@ -52,7 +50,7 @@ class TestInstanceSettingsFallback(SimpleTestCase):
         service_settings: dict[str, Any],
         flag_on: bool,
         service_value: str | None,
-        instance_value: str,
+        settings_value: str,
         expected: str,
     ) -> None:
         response = (
@@ -61,13 +59,10 @@ class TestInstanceSettingsFallback(SimpleTestCase):
             else _missing(KEY)
         )
         with (
-            override_settings(**service_settings),
+            override_settings(**service_settings, **{KEY: settings_value}),
             mock.patch(FLAG, return_value=flag_on),
             mock.patch(POST, return_value=response) as post,
-            mock.patch.dict("os.environ", {KEY: "env-copy"}),
-            mock.patch.dict(instance_settings.CONSTANCE_CONFIG, {KEY: ("", "", str)}),
-            mock.patch.object(instance_settings, "get_instance_setting", return_value=instance_value),
-            mock.patch.object(instance_settings, "get_instance_settings", return_value={KEY: instance_value}),
+            mock.patch.dict("os.environ", {KEY: ""}),
         ):
             assert READS[read]() == expected
 
