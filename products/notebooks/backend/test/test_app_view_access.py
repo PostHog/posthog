@@ -169,6 +169,25 @@ class TestNotebookAppViewAccess(APIBaseTest):
                 setattr(self.organization, field, old)
                 self.organization.save(update_fields=[field])
 
+    @parameterized.expand([("object",), ("serialized",)])
+    def test_query_wrapped_table_shares_only_its_selected_column(self, encoding: str) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        query = {
+            "kind": "DataVisualizationNode",
+            "display": "ActionsTable",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "tableSettings": {"columns": [{"column": "Signups"}]},
+        }
+        attribute = json.dumps(query if encoding == "object" else json.dumps(query))
+        self.release.markdown = f'<SQLV2 nodeId="totals" runId="{run_id}" query={{{attribute}}} />'
+        self.release.save(update_fields=["markdown"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertContains(output, "<td>222</td>", html=True)
+        self.assertNotContains(output, "Oct 12")
+        self.assertNotContains(output, "<th>Week</th>", html=True)
+
     def test_chart_fallback_uses_pinned_rows_and_marks_an_incomplete_preview(self) -> None:
         self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" vizQuery={{"display":"ActionsBar"}} result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
         self.release.sql_rows = {
