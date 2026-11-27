@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -55,15 +57,19 @@ EMAIL_STATUS_KAFKA_COLUMNS = """
     reason String
 """.strip()
 
-# The queued row carries the recipient and the workflow, and the sent row the sending domain. Other rows
-# leave them empty. A scheduled row carries the recipient and the time the send is due, which a reschedule
-# moves by writing a new scheduled row.
-EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
+# The queued row carries the recipient and the workflow, and the sent row the sending domain and the id SES gave
+# the email. Other rows leave them empty. A scheduled row carries the recipient and the time the send is due,
+# which a reschedule moves by writing a new scheduled row.
+_EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380 = f"""
     {EMAIL_STATUS_KAFKA_COLUMNS},
     recipient String,
     function_id String,
     sending_domain LowCardinality(String),
     scheduled_at Nullable(DateTime64(6, 'UTC'))
+""".strip()
+EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
+    {_EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380},
+    provider_message_id String
 """.strip()
 
 
@@ -128,6 +134,10 @@ KAFKA_EMAIL_STATUS_TABLE_SQL = lambda: _kafka_email_status_table_sql(
 KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL = lambda: _kafka_email_status_table_sql(
     KAFKA_EMAIL_STATUS_EVENTS_TABLE, EMAIL_STATUS_EVENTS_KAFKA_COLUMNS, CONSUMER_GROUP_EMAIL_STATUS_EVENTS
 )
+# 0380 keeps the columns it installed, so a database that runs it late still has a storage table that matches.
+KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380: Callable[[], str] = lambda: _kafka_email_status_table_sql(
+    KAFKA_EMAIL_STATUS_EVENTS_TABLE, _EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380, CONSUMER_GROUP_EMAIL_STATUS_EVENTS
+)
 
 
 # Opens and clicks rank above delivered, so in this ReplacingMergeTree they would replace the delivery status.
@@ -160,6 +170,10 @@ AS {EMAIL_STATUS_MV_QUERY()}"""
 ALTER_EMAIL_STATUS_MV_QUERY_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_MV_TABLE} MODIFY QUERY {EMAIL_STATUS_MV_QUERY()}"
 
 
+# A reply names the SES id with no send time, so finding its send can only skip granules by this index.
+_PROVIDER_MESSAGE_ID_INDEX = "provider_message_id_idx provider_message_id TYPE bloom_filter(0.01) GRANULARITY 4"
+
+
 # A plain MergeTree, so no row replaces another. `created_at` leads the key because ClickHouse doesn't sort a
 # UUID by time. All rows of a message share a `created_at`, so they stay together.
 EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
@@ -167,7 +181,8 @@ EMAIL_STATUS_EVENTS_DATA_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {EMAIL_STATUS_EVENTS_DATA_TABLE}
 (
     {EMAIL_STATUS_EVENTS_KAFKA_COLUMNS}
-    {KAFKA_COLUMNS_WITH_PARTITION}
+    {KAFKA_COLUMNS_WITH_PARTITION},
+    INDEX {_PROVIDER_MESSAGE_ID_INDEX}
 )
 ENGINE = {MergeTreeEngine(EMAIL_STATUS_EVENTS_DATA_TABLE, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toYYYYMMDD(created_at)
@@ -190,27 +205,26 @@ ENGINE = {Distributed(data_table=EMAIL_STATUS_EVENTS_DATA_TABLE, cluster=setting
 )
 
 
-EMAIL_STATUS_EVENTS_MV_SQL = lambda: (
-    f"""
+_EMAIL_STATUS_EVENTS_MV_COLUMNS_0380 = (
+    "team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id, sending_domain, "
+    "scheduled_at"
+)
+
+
+def _email_status_events_mv_sql(columns: str) -> str:
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {EMAIL_STATUS_EVENTS_MV_TABLE}
 TO {EMAIL_STATUS_EVENTS_DATA_TABLE}
-AS SELECT
-    team_id,
-    message_id,
-    status,
-    version,
-    created_at,
-    status_at,
-    reason,
-    recipient,
-    function_id,
-    sending_domain,
-    scheduled_at,
-    _timestamp,
-    _offset,
-    _partition
+AS SELECT {columns}, _timestamp, _offset, _partition
 FROM {KAFKA_EMAIL_STATUS_EVENTS_TABLE}
 """
+
+
+EMAIL_STATUS_EVENTS_MV_SQL = lambda: _email_status_events_mv_sql(
+    f"{_EMAIL_STATUS_EVENTS_MV_COLUMNS_0380}, provider_message_id"
+)
+EMAIL_STATUS_EVENTS_MV_SQL_0380: Callable[[], str] = lambda: _email_status_events_mv_sql(
+    _EMAIL_STATUS_EVENTS_MV_COLUMNS_0380
 )
 
 
@@ -224,3 +238,13 @@ ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL = lambda: (
     f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_SCHEDULED_AT_SQL}"
 )
 ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL = lambda: f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_SCHEDULED_AT_SQL}"
+
+_ADD_PROVIDER_MESSAGE_ID_SQL = "ADD COLUMN IF NOT EXISTS provider_message_id String AFTER scheduled_at"
+# alter_sync = 2 waits until every replica has the column, because the view recreated next selects it on each replica.
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL = (
+    f"ALTER TABLE {EMAIL_STATUS_EVENTS_DATA_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}, "
+    f"ADD INDEX IF NOT EXISTS {_PROVIDER_MESSAGE_ID_INDEX} SETTINGS alter_sync = 2"
+)
+ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL = (
+    f"ALTER TABLE {EMAIL_STATUS_EVENTS_TABLE} {_ADD_PROVIDER_MESSAGE_ID_SQL}"
+)

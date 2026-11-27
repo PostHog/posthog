@@ -6,8 +6,8 @@ from products.messaging.backend.facade.clickhouse import (
     ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL,
     DROP_EMAIL_STATUS_EVENTS_MV_SQL,
     DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL,
-    EMAIL_STATUS_EVENTS_MV_SQL,
-    KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL,
+    EMAIL_STATUS_EVENTS_MV_SQL_0380,
+    KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380,
 )
 
 # The view goes first, so no row is read from the topic until the storage table has the column. The new Kafka
@@ -28,6 +28,6 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    run_sql_with_exceptions(KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
-    run_sql_with_exceptions(EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(EMAIL_STATUS_EVENTS_MV_SQL_0380(), node_roles=[NodeRole.AUX]),
 ]
