@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useContext, useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
@@ -30,6 +30,7 @@ import { NotebookWidgetSourceModal } from './NotebookWidgetSourceModal'
 import { NotebookWidgetTrustControls } from './NotebookWidgetTrustControls'
 import { getNotebookWidgetTrust, notebookWidgetTrustLogic } from './notebookWidgetTrustLogic'
 import { WidgetArtifactFrame } from './WidgetArtifactFrame'
+import { WidgetFrameSessionContext } from './widgetFrameSession'
 import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_OPTIONS, isWidgetModel, type WidgetModel } from './widgetModels'
 
 export type NotebookNodeGeneratedWidgetAttributes = {
@@ -144,6 +145,14 @@ function ExpandedWidget({
         persistNotebook: logicProps.persistNotebook,
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
+    const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
+    const previousFrameRevision = useRef(frameSession.revision)
+    useEffect(() => {
+        if (previousFrameRevision.current !== frameSession.revision) {
+            previousFrameRevision.current = frameSession.revision
+            setRuntimeError(null)
+        }
+    }, [frameSession.revision, setRuntimeError])
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -340,21 +349,27 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}-${frameSession.revision}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
-                                const frame = await loadWidgetFrame(
-                                    String(currentTeamId),
-                                    notebookShortId,
-                                    attributes.nodeId,
-                                    selectedVersionId,
+                                const frame = await frameSession.read(
                                     name,
                                     offset,
                                     limit,
-                                    runId,
-                                    signal
+                                    (pageOffset, pageLimit, pinnedRunId) =>
+                                        loadWidgetFrame(
+                                            String(currentTeamId),
+                                            notebookShortId,
+                                            attributes.nodeId,
+                                            selectedVersionId,
+                                            name,
+                                            pageOffset,
+                                            pageLimit,
+                                            pinnedRunId ?? runId,
+                                            signal
+                                        )
                                 )
                                 return applyReusableWidgetBinding(
                                     frame,

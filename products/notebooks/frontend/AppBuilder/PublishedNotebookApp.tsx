@@ -12,11 +12,13 @@ import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
+import { WidgetFrameSessionContext } from '../NotebookNodeGeneratedWidget/widgetFrameSession'
 import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
+import { viewerWidgetSession } from './viewerWidgetFrames'
 
 export default function PublishedNotebookApp({ shortId }: { shortId: string }): JSX.Element {
     const project = String(ApiConfig.getCurrentTeamId())
@@ -68,11 +70,16 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
             ) &&
                 layout.blocks.some(
                     (block) =>
-                        block.kind === 'cell' && block.display !== 'source' && !results.outputs[block.node_id || '']
+                        block.kind === 'cell' &&
+                        block.display !== 'source' &&
+                        !results.outputs[block.node_id || ''] &&
+                        !Object.values(results.outputs).some((output) =>
+                            output.widgetSlots.some((slot) => slot.node_id === block.node_id)
+                        )
                 ) && (
                     <p className="text-secondary">
-                        Filters apply to connected native SQL outputs. Other components show their published
-                        configuration.
+                        Filters update native SQL and widgets connected to it. Other components use their published
+                        results.
                     </p>
                 )}
             {error && (
@@ -86,29 +93,33 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 onChange={setActiveTab}
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
-            <NotebookAppCanvas
-                layout={layout}
-                activeTab={activeTab}
-                cells={cells}
-                staleNodeIds={{}}
-                variables={variables}
-                editing={false}
-                selectedId={null}
-                canInteract
-                onInput={changeInput}
-                renderOutput={(cell) =>
-                    cell.type === 'component' && cell.tagName === 'SQLV2' ? (
-                        <PublishedNotebookQuery
-                            cell={cell}
-                            sessionId={sessionId}
-                            current={results?.outputs[cell.id]}
-                            pinned={publishedResults[cell.id]}
-                            chartInputFilters={chartInputFilters}
-                        />
-                    ) : undefined
-                }
-                onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
-            />
+            <WidgetFrameSessionContext.Provider
+                value={(nodeId, versionId) => viewerWidgetSession(results?.outputs ?? {}, nodeId, versionId)}
+            >
+                <NotebookAppCanvas
+                    layout={layout}
+                    activeTab={activeTab}
+                    cells={cells}
+                    staleNodeIds={{}}
+                    variables={variables}
+                    editing={false}
+                    selectedId={null}
+                    canInteract
+                    onInput={changeInput}
+                    renderOutput={(cell) =>
+                        cell.type === 'component' && cell.tagName === 'SQLV2' ? (
+                            <PublishedNotebookQuery
+                                cell={cell}
+                                sessionId={sessionId}
+                                current={results?.outputs[cell.id]}
+                                pinned={publishedResults[cell.id]}
+                                chartInputFilters={chartInputFilters}
+                            />
+                        ) : undefined
+                    }
+                    onSource={(node) => router.actions.push(urls.notebook(shortId), {}, { node })}
+                />
+            </WidgetFrameSessionContext.Provider>
         </main>
     )
 }

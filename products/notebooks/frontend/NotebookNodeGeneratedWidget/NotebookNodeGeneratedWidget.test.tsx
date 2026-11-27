@@ -27,6 +27,7 @@ import type { WidgetStatusApi } from 'products/notebooks/frontend/generated/api.
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
 import { NOTEBOOK_FRAME_KEY_PREFIX } from './widgetArtifactBridge'
+import { WidgetFrameSessionContext } from './widgetFrameSession'
 
 jest.mock('scenes/notebooks/Notebook/migrations/migrate', () => {
     const actual = jest.requireActual('scenes/notebooks/Notebook/migrations/migrate')
@@ -526,11 +527,16 @@ describe('NotebookNodeGeneratedWidget', () => {
             start: jest.fn(),
             close: jest.fn(),
         }
-        const { container } = render(
-            <BindLogic logic={notebookLogic} props={logicProps}>
-                <MarkdownNotebookV2 />
-            </BindLogic>
+        const withRevision = (revision: string): JSX.Element => (
+            <WidgetFrameSessionContext.Provider
+                value={() => ({ revision, read: (_name, offset, limit, load) => load(offset, limit) })}
+            >
+                <BindLogic logic={notebookLogic} props={logicProps}>
+                    <MarkdownNotebookV2 />
+                </BindLogic>
+            </WidgetFrameSessionContext.Provider>
         )
+        const { container, rerender } = render(withRevision('initial'))
         await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).not.toBeNull())
         fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
         const iframe = (await screen.findByTitle('Widget')) as HTMLIFrameElement
@@ -567,6 +573,11 @@ describe('NotebookNodeGeneratedWidget', () => {
                 rows: [['Enterprise', 500]],
             }),
         })
+        await route({ data: { channel: 'posthog-canvas', type: 'error', message: 'Previous widget failed' } })
+        expect(await screen.findByText('Previous widget failed')).toBeTruthy()
+        rerender(withRevision('new filters'))
+        await waitFor(() => expect(screen.queryByText('Previous widget failed')).toBeNull())
+        expect(await screen.findByTitle('Widget')).not.toBe(iframe)
     })
 
     it.each([

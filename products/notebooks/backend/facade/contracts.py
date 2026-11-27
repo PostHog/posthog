@@ -48,10 +48,19 @@ class AppRelease:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AppWidgetSlot:
+    node_id: str
+    version_id: UUID
+    slot: str
+    run_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppViewerQuery:
     node_id: str
     query: str
     matches_defaults: bool
+    widget_slots: list[AppWidgetSlot] = field(default_factory=list)
 
 
 class NotebookRunBusy(Exception):

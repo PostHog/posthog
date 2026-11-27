@@ -308,6 +308,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 }
 
 export interface ApiMethodOptions {
+    parseJSON?: (text: string) => unknown
     signal?: AbortSignal
     headers?: Record<string, any>
     onRequestTiming?: (timing: ApiRequestTiming) => void
@@ -416,7 +417,8 @@ export async function getJSONFromSuccessResponse(
     response: Response,
     method: string,
     url: string,
-    timing?: ApiRequestTimingRecorder
+    timing?: ApiRequestTimingRecorder,
+    parseJSON: (text: string) => unknown = JSON.parse
 ): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
@@ -452,7 +454,7 @@ export async function getJSONFromSuccessResponse(
         return null
     }
     try {
-        return timing ? timing.parseJSON(text) : JSON.parse(text)
+        return timing ? timing.parseJSON(text, parseJSON) : parseJSON(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -6843,7 +6845,7 @@ const api = {
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         return await withRequestTiming(options, async (timing) => {
             const res = await api.getResponse(url, options, timing)
-            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing, options?.parseJSON)
         })
     },
 
@@ -6917,7 +6919,7 @@ const api = {
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         return await withRequestTiming(options, async (timing) => {
             const res = await api.createResponse(url, data, options, timing)
-            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing, options?.parseJSON)
         })
     },
 

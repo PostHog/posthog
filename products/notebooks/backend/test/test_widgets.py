@@ -32,6 +32,9 @@ from products.canvas.backend.facade.notebooks import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.notebooks.backend.app_releases import review_sources
+from products.notebooks.backend.app_viewer import plan_viewer_queries
+from products.notebooks.backend.facade.contracts import AppBlockSource, AppWidgetSlot
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
@@ -935,6 +938,56 @@ class TestWidgetData(APIBaseTest):
             }
         ]
 
+    def test_viewer_plan_follows_the_visible_widget_version_and_bound_source(self) -> None:
+        instance = self._mapping()
+        instance.input_bindings = {self.INPUT_NAME: {"source": "regions"}}
+        instance.save(update_fields=["input_bindings"])
+        self.notebook.content = markdown_content(
+            '<SQLV2 nodeId="source" code="SELECT {region} AS region" returnVariable="regions" />\n\n'
+            '<SQLV2 nodeId="other" code="SELECT 1" returnVariable="unrelated" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.variables = [{"name": "region", "type": "string", "value": "All"}]
+        block = {"kind": "cell", "node_id": self.NODE_ID}
+        self.notebook.app_published = {"blocks": [block, {"kind": "input", "variable": "region"}]}
+        self.notebook.save(update_fields=["content", "variables", "app_published"])
+        assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
+        run = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=self.notebook,
+            user=self.user,
+            node_id="source",
+            node_type=NotebookNodeRun.NodeType.HOGQL,
+            code="SELECT 'All' AS region LIMIT 50000",
+            status=NotebookNodeRun.Status.DONE,
+        )
+        markdown = (
+            f'<SQLV2 nodeId="source" code="SELECT {{region}} AS region" returnVariable="regions" runId="{run.id}" result={{{{}}}} />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.content = markdown_content(markdown)
+        self.notebook.save(update_fields=["content"])
+        [plan] = plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"})
+        assert plan.node_id == "source"
+        assert "Europe" in plan.query
+        assert plan.widget_slots == [
+            AppWidgetSlot(
+                node_id=self.NODE_ID, version_id=self._pinned_version(instance).id, slot=self.INPUT_NAME, run_id=run.id
+            )
+        ]
+        assert not plan.matches_defaults
+        visible = [AppBlockSource(id="card", kind="cell", node_id=self.NODE_ID)]
+        assert not review_sources(self.notebook, markdown, visible).problems
+        run.code = "SELECT 'previous' AS region"
+        run.save(update_fields=["code"])
+        assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
+        assert review_sources(self.notebook, markdown, visible).problems
+        run.code = "SELECT 'All' AS region LIMIT 50000"
+        run.save(update_fields=["code"])
+        block["display"] = "source"
+        self.notebook.save(update_fields=["app_published"])
+        assert plan_viewer_queries(self.team.id, self.notebook.pk, 0, {"region": "Europe"}) == []
+
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()
         self._mapping()
@@ -947,6 +1000,7 @@ class TestWidgetData(APIBaseTest):
             user=self.user,
         )
 
+        assert result.frame["sourceNodeId"] == "source"
         assert result.frame["includedRowCount"] == 100
         assert result.frame["truncated"] is True
         assert len(str(result.frame).encode()) < MAX_FRAME_BYTES
@@ -1089,6 +1143,34 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert error.exception.code == "frame_page_unavailable"
+
+        def authorize(candidate: NotebookNodeRun) -> None:
+            if candidate.pk != run.pk:
+                raise PermissionDenied()
+
+        with patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError()):
+            metadata = read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=authorize,
+                user=self.user,
+                run_id=run.id,
+                limit=0,
+            )
+        with self.assertRaises(PermissionDenied):
+            read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=MagicMock(side_effect=PermissionDenied()),
+                user=self.user,
+                run_id=run.id,
+                limit=0,
+            )
+        assert metadata.frame["runId"] == run.id
+        assert metadata.frame["rows"] == []
+        assert metadata.frame["columns"] and metadata.frame["totalRowCount"] == 150
 
     def test_frame_rejects_schema_drift(self) -> None:
         self._run()

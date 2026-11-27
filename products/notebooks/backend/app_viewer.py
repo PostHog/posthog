@@ -7,6 +7,11 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.exceptions import Conflict
 
 from products.notebooks.backend.app_releases import read_release
+from products.notebooks.backend.app_widget_sources import (
+    ApprovedWidgetSource,
+    approved_widget_sources,
+    widget_source_slots,
+)
 from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
@@ -34,10 +39,21 @@ def plan_viewer_queries(
         raise NotFound()
     if release.revision != revision:
         raise Conflict("A new version of this app is available. Reload the app and try again.")
-    return resolve_viewer_queries(release, inputs)
+    visible = {
+        block["node_id"]
+        for block in release.layout["blocks"]
+        if block["kind"] == "cell" and block.get("display") != "source"
+    }
+    slots = widget_source_slots(team_id, notebook_id, release.markdown, visible)
+    approved = approved_widget_sources(team_id, notebook_id, release.markdown, slots)
+    return resolve_viewer_queries(release, inputs, approved)
 
 
-def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[AppViewerQuery]:
+def resolve_viewer_queries(
+    release: AppRelease,
+    inputs: dict[str, NotebookVariableValue],
+    widget_sources: dict[str, ApprovedWidgetSource] | None = None,
+) -> list[AppViewerQuery]:
     allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
     if inputs.keys() - allowed:
         raise ValidationError("Choose a published app input.")
@@ -63,6 +79,10 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
             if dependent not in excluded:
                 excluded.add(dependent)
                 unsupported.append(by_id[dependent])
+    owners = get_dataframe_owners(cells)
+    approved = widget_sources or {}
+    visible = displayed.copy()
+    displayed.update(approved)
     displayed = (displayed & by_id.keys()) - excluded
     required = set(displayed)
     pending = list(displayed)
@@ -71,15 +91,21 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
             if upstream not in required:
                 required.add(upstream)
                 pending.append(upstream)
-    owners = get_dataframe_owners(cells)
     try:
         queries = _bound_queries(by_id, required, displayed, owners, variables)
         published = queries if variables == defaults else _bound_queries(by_id, required, displayed, owners, defaults)
     except (NotebookVariableError, ExposedHogQLError, SQLV2ReferenceError) as error:
         raise ValidationError("Could not prepare the published SQL for these inputs.") from error
+    slots = {node_id: source.slots for node_id, source in approved.items() if source.query == published.get(node_id)}
     return [
-        AppViewerQuery(node_id=node_id, query=query, matches_defaults=published.get(node_id) == query)
+        AppViewerQuery(
+            node_id=node_id,
+            query=query,
+            matches_defaults=published.get(node_id) == query,
+            widget_slots=slots.get(node_id, []),
+        )
         for node_id, query in queries.items()
+        if node_id in visible or node_id in slots
     ]
 
 

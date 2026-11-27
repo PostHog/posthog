@@ -249,10 +249,10 @@ export class ApiRequestTimingRecorder {
         }
     }
 
-    parseJSON(text: string): unknown {
+    parseJSON(text: string, parse: (text: string) => unknown = JSON.parse): unknown {
         const startedAt = this.clock.now()
         try {
-            return JSON.parse(text)
+            return parse(text)
         } finally {
             this.timing.json_parse_ms = this.clock.now() - startedAt
         }

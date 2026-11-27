@@ -303,6 +303,8 @@ export interface WidgetFrameColumnApi {
 }
 
 export interface WidgetFrameApi {
+    /** Notebook cell authorized for this version and dataframe slot. */
+    sourceNodeId?: string
     /** Logical dataframe name. */
     name: string
     /** Completed notebook run used for every page in this iframe load. */
@@ -985,10 +987,22 @@ export interface NotebookAppViewerRequestApi {
     variables: NotebookVariableApi[]
 }
 
+export interface NotebookAppWidgetSlotApi {
+    /**
+     * Completed source run approved for this published widget slot.
+     * @nullable
+     */
+    run_id?: string | null
+    node_id: string
+    version_id: string
+    slot: string
+}
+
 export interface NotebookAppViewerQueryApi {
     node_id: string
     query: string
     matches_defaults: boolean
+    widget_slots?: NotebookAppWidgetSlotApi[]
 }
 
 export interface NotebookAppReleaseApi {
@@ -2006,9 +2020,24 @@ export type NotebooksWidgetSnapshotFrameParams = {
 }
 
 export type NotebooksWidgetFrameParams = {
+    /**
+     * Maximum rows to return. Use zero to check the binding and schema only.
+     * @minimum 0
+     * @maximum 500
+     */
     limit?: number
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
     offset?: number
+    /**
+     * Completed run selected by the first page request.
+     */
     run_id?: string
+    /**
+     * Version requesting the data.
+     */
     version_id?: string
 }
 

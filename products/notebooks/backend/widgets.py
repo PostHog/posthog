@@ -273,7 +273,7 @@ def normalize_widget_inputs(inputs: list[str]) -> list[str]:
     return normalized
 
 
-def _widget_node_ids(content: object) -> set[str]:
+def widget_node_ids(content: object) -> set[str]:
     node_ids: set[str] = set()
     markdown = _get_markdown_notebook_markdown(content)
     if markdown is not None:
@@ -298,7 +298,7 @@ def _widget_node_ids(content: object) -> set[str]:
 def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
     if len(node_id) > MAX_WIDGET_NODE_ID_LENGTH:
         raise WidgetError("This widget identifier is invalid.", "invalid_node_id")
-    if node_id in _widget_node_ids(notebook.content):
+    if node_id in widget_node_ids(notebook.content):
         return
     raise WidgetError("This generated widget is no longer in the notebook.", "node_not_found")
 
@@ -1814,6 +1814,15 @@ def _bounded_rows(
     }
 
 
+def widget_source_name(instance: NotebookWidgetInstance, contract_item: dict) -> str:
+    slot = contract_item["slot"]
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    binding = bindings.get(slot)
+    if isinstance(binding, dict) and isinstance(binding.get("source"), str):
+        return binding["source"]
+    return str(contract_item.get("sourceName") or slot)
+
+
 def read_widget_frame(
     *,
     notebook: Notebook,
@@ -1833,13 +1842,9 @@ def read_widget_frame(
     )
     if contract_item is None:
         raise WidgetError("This dataframe is not available to this widget version.", "frame_not_allowed")
+    source_name = widget_source_name(instance, contract_item)
     bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
     binding = bindings.get(frame_name)
-    source_name = (
-        str(binding.get("source"))
-        if isinstance(binding, dict) and isinstance(binding.get("source"), str)
-        else str(contract_item.get("sourceName") or frame_name)
-    )
     owners = _dataframe_owners(notebook)
     node_id_for_frame = owners.get(source_name)
     if node_id_for_frame is None:
@@ -1867,6 +1872,20 @@ def read_widget_frame(
             f"Widget data is limited to {MAX_FRAME_TOTAL_ROWS:,} rows per dataframe.",
             "frame_row_limit",
         )
+    if limit == 0:
+        return WidgetFrameRead(
+            frame={
+                "sourceNodeId": node_id_for_frame,
+                **_bounded_rows(
+                    name=frame_name,
+                    run_id=run.id,
+                    columns=columns,
+                    candidates=[],
+                    total_row_count=total_row_count,
+                    offset=offset,
+                ),
+            }
+        )
     page_limit = min(max(limit, 1), MAX_FRAME_PAGE_ROWS, MAX_FRAME_TOTAL_ROWS - offset)
     if envelope.get("delivery") == DELIVERY_DIRECT and envelope.get("has_more"):
         rows = sync_direct_run(run)
@@ -1885,7 +1904,7 @@ def read_widget_frame(
         )
         # The cached SQL row ceiling cannot prove that the query result is complete.
         frame["truncated"] = frame["truncated"] or len(rows) >= RESULT_CACHE_ROWS
-        return WidgetFrameRead(frame=frame)
+        return WidgetFrameRead(frame={**frame, "sourceNodeId": node_id_for_frame})
     first_page = envelope.get("first_page")
     candidates: object
     requested_end = min(offset + page_limit, total_row_count)
@@ -1903,12 +1922,15 @@ def read_widget_frame(
         if isinstance(page, dict) and isinstance(page.get("row_count"), int):
             total_row_count = page["row_count"]
     return WidgetFrameRead(
-        frame=_bounded_rows(
-            name=frame_name,
-            run_id=run.id,
-            columns=columns,
-            candidates=candidates,
-            total_row_count=total_row_count,
-            offset=offset,
-        )
+        frame={
+            "sourceNodeId": node_id_for_frame,
+            **_bounded_rows(
+                name=frame_name,
+                run_id=run.id,
+                columns=columns,
+                candidates=candidates,
+                total_row_count=total_row_count,
+                offset=offset,
+            ),
+        }
     )

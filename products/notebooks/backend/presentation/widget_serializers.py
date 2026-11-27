@@ -266,12 +266,24 @@ class WidgetFrameQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=100, min_value=1, max_value=500, help_text="Maximum rows in this page.")
 
 
+class LiveWidgetFrameQuerySerializer(WidgetFrameQuerySerializer):
+    limit = serializers.IntegerField(
+        default=100,
+        min_value=0,
+        max_value=500,
+        help_text="Maximum rows to return. Use zero to check the binding and schema only.",
+    )
+
+
 class WidgetFrameColumnSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Column name.")
     type = serializers.CharField(help_text="Column type reported by the completed notebook run.")
 
 
 class WidgetFrameSerializer(serializers.Serializer):
+    sourceNodeId = serializers.CharField(
+        required=False, help_text="Notebook cell authorized for this version and dataframe slot."
+    )
     name = serializers.CharField(help_text="Logical dataframe name.")
     runId = serializers.UUIDField(help_text="Completed notebook run used for every page in this iframe load.")
     columns = WidgetFrameColumnSerializer(many=True, help_text="Dataframe columns in display order.")
