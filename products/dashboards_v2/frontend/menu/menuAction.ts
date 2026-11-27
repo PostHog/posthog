@@ -1,4 +1,4 @@
-export type MenuAction = {
+type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
      * find an action by it. Built in for a content tile: `download-image`, `copy-image`, `parts`, `background-color`, plus a chart's
@@ -23,13 +23,17 @@ export type MenuAction = {
      * always sits last, on its own.
      */
     group?: MenuGroup
-    /** Set with `disabledReason` on an entry that is waiting, not refused. It shows a spinner in place of the reason. */
-    loading?: boolean
     /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
     needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
     keepOpen?: boolean
 }
+
+/**
+ * `loading` marks an entry that is waiting, not refused, and shows a spinner in place of the reason. It always comes
+ * with the `disabledReason` that says what the entry waits for.
+ */
+export type MenuAction = MenuActionBase & ({ loading?: false } | { loading: true; disabledReason: string })
 
 /** In menu order, after the ungrouped actions. */
 export const MENU_GROUPS = [

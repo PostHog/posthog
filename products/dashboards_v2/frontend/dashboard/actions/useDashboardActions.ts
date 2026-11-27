@@ -35,7 +35,7 @@ export function useDashboardActions(): MenuAction[] {
             downloadLabel,
             copyLabel,
             dataAttrPrefix: 'dashboard-v2',
-            busy: downloadingImage,
+            making: downloadingImage,
             download: (format) => downloadImage(format),
             copy: () => copyImage(),
         })

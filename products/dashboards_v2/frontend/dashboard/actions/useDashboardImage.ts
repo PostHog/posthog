@@ -8,11 +8,23 @@ import { type Dashboard, activeGridTab, gridTabs } from '../document/dashboardTy
 import { findTile } from '../document/tileTree'
 import { type ImageFormat, copyDashboardImage, downloadDashboardImage } from './dashboardImage'
 
+type ImageExport = {
+    done: 'downloaded' | 'copied'
+    error: string
+    run: (root: HTMLElement, file: string) => Promise<void>
+}
+
+const TO_CLIPBOARD: ImageExport = {
+    done: 'copied',
+    error: 'Could not copy the image. Try again, or download it.',
+    run: (root) => copyDashboardImage(root),
+}
+
 function imageWords(
     dashboard: Dashboard,
     activeTabId: string | null,
     tileId: string | undefined,
-    done: 'downloaded' | 'copied'
+    done: ImageExport['done']
 ): { file: string; pending: string; success: string } {
     const tile = tileId ? findTile(dashboard, tileId) : null
     if (tile?.panel.title) {
@@ -56,7 +68,7 @@ export function useDashboardImage(
 } {
     const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
     const exportImage = useCallback(
-        async (tileId: string | undefined, format: ImageFormat | 'clipboard'): Promise<void> => {
+        async (tileId: string | undefined, { done, error, run }: ImageExport): Promise<void> => {
             const page = rootRef.current
             const root = tileId ? page?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(tileId)}"]`) : page
             if (!root) {
@@ -64,15 +76,11 @@ export function useDashboardImage(
             }
             setCapturing({ tileId })
             try {
-                const toClipboard = format === 'clipboard'
-                const words = imageWords(dashboard, activeTabId, tileId, toClipboard ? 'copied' : 'downloaded')
-                const image = toClipboard ? copyDashboardImage(root) : downloadDashboardImage(root, words.file, format)
-                await lemonToast.promise(image, {
+                const words = imageWords(dashboard, activeTabId, tileId, done)
+                await lemonToast.promise(run(root, words.file), {
                     pending: words.pending,
                     success: words.success,
-                    error: toClipboard
-                        ? 'Could not copy the image. Try again, or download it.'
-                        : 'Could not create the image. Try again.',
+                    error,
                 })
             } catch {
                 // The toast already says it failed.
@@ -83,9 +91,14 @@ export function useDashboardImage(
         [rootRef, dashboard, activeTabId]
     )
     const downloadImage = useCallback(
-        (format: ImageFormat, tileId?: string) => exportImage(tileId, format),
+        (format: ImageFormat, tileId?: string) =>
+            exportImage(tileId, {
+                done: 'downloaded',
+                error: 'Could not create the image. Try again.',
+                run: (root, file) => downloadDashboardImage(root, file, format),
+            }),
         [exportImage]
     )
-    const copyImage = useCallback((tileId?: string) => exportImage(tileId, 'clipboard'), [exportImage])
+    const copyImage = useCallback((tileId?: string) => exportImage(tileId, TO_CLIPBOARD), [exportImage])
     return { capturing, downloadImage, copyImage }
 }
