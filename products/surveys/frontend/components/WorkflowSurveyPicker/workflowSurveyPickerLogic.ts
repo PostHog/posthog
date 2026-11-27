@@ -74,6 +74,9 @@ export interface workflowSurveyPickerLogicActions {
     setLimitingSurveyId: (surveyId: string | null) => {
         surveyId: string | null
     }
+    setMissingSurveyId: (surveyId: string) => {
+        surveyId: string
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -101,6 +104,7 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
         setSearch: (search: string) => ({ search }),
         limitToWorkflowRecipients: (survey: SurveyApi) => ({ survey }),
         setLimitingSurveyId: (surveyId: string | null) => ({ surveyId }),
+        setMissingSurveyId: (surveyId: string) => ({ surveyId }),
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -109,12 +113,11 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
             null as string | null,
             {
                 loadSelectedSurvey: () => null,
-                loadSelectedSurveySuccess: (_, { selectedSurvey, payload }) =>
-                    !selectedSurvey && payload ? payload : null,
+                setMissingSurveyId: (_, { surveyId }) => surveyId,
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         surveys: [
             [] as SurveyApi[],
             {
@@ -149,6 +152,7 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
                     } catch (error) {
                         breakpoint()
                         if (error instanceof ApiError && error.status === 404) {
+                            actions.setMissingSurveyId(surveyId)
                             return null
                         }
                         throw error
