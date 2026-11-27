@@ -27,6 +27,11 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     NO_ACTIVE_DESTINATIONS_MESSAGE,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    coarsen_trigger_budget,
+    split_budget_bytes,
+    target_partition_bytes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     JOB_CREATION_TIMED_OUT_MESSAGE,
@@ -725,3 +730,55 @@ class TestCreateJobActivityPrepareRunOutputs:
         )
 
         assert result.source_templates_needed is expected
+
+    @parameterized.expand(
+        [
+            ("no_data_since_a_healthy_measurement", 0, False),
+            ("rows_written_since_the_measurement", 5, True),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_repartition_skipped_while_the_last_measurement_holds(
+        self,
+        _name: str,
+        rows_since_measurement: int,
+        expected: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
+        team = _team()
+        schema = _schema(team, None)
+        measured = ExternalDataJob.objects.create(
+            team=team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.COMPLETED, rows_synced=10
+        )
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=rows_since_measurement,
+        )
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type_config = {
+            "partition_measurement": {
+                "healthy": True,
+                "job_id": str(measured.id),
+                "phase": "post_load",
+                "budget": target_partition_bytes(),
+                "split_budget": split_budget_bytes(schema),
+                "coarsen_budget": coarsen_trigger_budget(schema, operator_requested=False),
+            }
+        }
+        schema.save()
+
+        result = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=False
+            )
+        )
+
+        assert result.repartition_needed is expected
