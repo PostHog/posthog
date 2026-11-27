@@ -16,6 +16,13 @@ HogQLX query tags also partition on every scope because their expanded queries a
 Unknown scopes still include effective default denials, even when no explicit access-control row exists.
 Saved action steps and cohort definitions reject insight selections and embedded query tags because their definitions are absent from the calling query's cache fingerprint.
 
+Canvas rows in `system.file_system` follow the public channel and object access rules of `system.canvases`.
+Queries that depend on the file system include the project's canvas visibility revision from the Postgres writer in their cache key.
+Canvas moves and channel visibility changes update that revision in the same transaction.
+A fresh calculation reads public canvas IDs from the writer after planning. If visibility changes between those reads,
+the result is written under a revision that subsequent requests cannot reach. A lagging replica cannot widen the writer's set.
+Completed async results carry the worker's revision and canvas grants. Polling checks both before returning the result.
+
 Keep row filtering on the parent when a junction already uses a predicate such as `account_id IN (SELECT id FROM system.accounts)`.
 That predicate applies the parent's team and object permissions, including its creator exemption.
 Adding a separate object-ID filter to the junction can hide child rows that the parent permits its creator to read.

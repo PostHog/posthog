@@ -76,7 +76,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import ExecutionMode, QueryAccessFingerprint, execution_mode_from_refresh
 from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -99,6 +99,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.canvas.backend.facade.query_status import file_system_result_access
 from products.customer_analytics.backend.facade.api import (
     get_activity_query_status_scopes,
     validate_account_activity_access,
@@ -543,6 +544,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        if access := file_system_result_access(query_status):
+            reader = QueryAccessFingerprint(
+                self.team, request.user, self.user_access_control if isinstance(request.user, User) else None
+            )
+            if access.grants_digest != reader.canvas_digest():
+                raise QueryNotFoundError()
         held_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
         required_scopes = get_activity_query_status_scopes(query_status.labels or [])
         if (

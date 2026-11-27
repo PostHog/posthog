@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from django.db import models
 from django.db.models import Q, QuerySet
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -24,6 +26,22 @@ from products.canvas.backend.facade.enums import (
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class CanvasVisibilityRevision(TeamScopedRootMixin):
+    team = models.OneToOneField(
+        "posthog.Team", primary_key=True, on_delete=models.DO_NOTHING, db_constraint=False, related_name="+"
+    )
+    revision = models.UUIDField()
+
+    class Meta:
+        db_table = "posthog_canvas_visibility_revision"
+
+
+@receiver(post_delete, sender="posthog.Team")
+def delete_canvas_visibility_revision(sender: type["Team"], instance: "Team", using: str, **kwargs) -> None:
+    # The child deletes bump the revision, so remove it after the team's cascade completes.
+    CanvasVisibilityRevision.objects.unscoped().using(using).filter(team_id=instance.pk).delete()
 
 
 class Canvas(FileSystemSyncMixin, TeamScopedRootMixin, UUIDModel):

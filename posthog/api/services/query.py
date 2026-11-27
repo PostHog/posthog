@@ -588,8 +588,14 @@ def _run_query_runner(
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
     )
-    if query_status is not None and labels is not None:
-        query_status.labels = [*labels, *(["chained"] if "chained" in (query_status.labels or []) else [])]
+    if query_status is not None:
+        result_labels = query_runner.query_result_status_labels()
+        if labels is not None or result_labels:
+            query_status.labels = [
+                *(labels or []),
+                *result_labels,
+                *(["chained"] if "chained" in (query_status.labels or []) else []),
+            ]
     return _with_raw_results(query_runner, result)
 
 
