@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.sources.sprig._config import SprigSourceConfig
@@ -33,9 +34,7 @@ def _response(body: dict[str, Any]) -> MagicMock:
     return response
 
 
-def _run(
-    script: list[ScriptedResponse], resume_state: SprigResumeConfig | None = None, endpoint: str = "Surveys"
-) -> DriveResult:
+def _run(script: Any, resume_state: SprigResumeConfig | None = None, endpoint: str = "Surveys") -> DriveResult:
     return SourceDriver(SprigSource(), SprigSourceConfig(api_key="key")).run(
         endpoint, script, resume_state=resume_state
     )
@@ -70,6 +69,8 @@ class TestGetResource:
             ("Responses", 1000),
             # The themes spec takes no `limit` param.
             ("Themes", None),
+            ("Studies", 50),
+            ("EventDefinitions", 50),
         ]
     )
     def test_resource_shape(self, endpoint: str, expected_limit: int | None) -> None:
@@ -127,7 +128,14 @@ class TestSprigSource:
 
         assert result.requests[0].param("cursor") == "saved-cursor"
 
-    @parameterized.expand([("Surveys", "/v1/surveys", "1000"), ("Themes", "/v1/themes", None)])
+    @parameterized.expand(
+        [
+            ("Surveys", "/v1/surveys", "1000"),
+            ("Themes", "/v1/themes", None),
+            ("Studies", "/v2/studies", "50"),
+            ("EventDefinitions", "/v2/events", "50"),
+        ]
+    )
     def test_resume_hook_saves_state_after_batch(self, endpoint: str, path: str, limit: str | None) -> None:
         result = _run(
             [
@@ -143,6 +151,120 @@ class TestSprigSource:
         assert result.rows == [{"id": 1}, {"id": 2}]
         # The terminal page has no cursor, so nothing is saved for it.
         assert result.saved_states == [SprigResumeConfig(next_cursor="next-1")]
+
+    @parameterized.expand(
+        [
+            ("Surveys", "Bearer key"),
+            ("Studies", "API-Key key"),
+            ("EventDefinitions", "API-Key key"),
+        ]
+    )
+    def test_auth_scheme_matches_api_version(self, endpoint: str, expected_authorization: str) -> None:
+        result = _run([ScriptedResponse(json={"data": [{"id": 1}], "cursor": None})], endpoint=endpoint)
+
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == expected_authorization
+
+    @parameterized.expand([("Studies", "createdAt"), ("EventDefinitions", None)])
+    def test_study_api_tables_are_full_refresh_with_no_assumed_order(
+        self, endpoint: str, partition_key: str | None
+    ) -> None:
+        result = _run([ScriptedResponse(json={"data": [{"id": 1}], "cursor": None})], endpoint=endpoint)
+
+        assert result.response is not None
+        assert result.response.sort_mode is None
+        assert result.response.partition_keys == ([partition_key] if partition_key else None)
+
+
+class TestStudyFanout:
+    @parameterized.expand(
+        [
+            ("Questions", "questions", "id", None),
+            ("Invitations", "invitations", "code", "SURVEY"),
+        ]
+    )
+    def test_walks_every_study_and_tags_rows_with_study_id(
+        self, endpoint: str, child_segment: str, row_key: str, expected_parent_type: str | None
+    ) -> None:
+        result = _run(
+            route(
+                {
+                    f"/v2/studies/s1/{child_segment}": [
+                        ScriptedResponse(json={"data": [{row_key: "a"}], "cursor": "c1"}),
+                        ScriptedResponse(json={"data": [{row_key: "b"}], "cursor": None}),
+                    ],
+                    f"/v2/studies/s2/{child_segment}": [
+                        ScriptedResponse(json={"data": [{row_key: "a"}], "cursor": None}),
+                    ],
+                    "/v2/studies": [
+                        ScriptedResponse(json={"data": [{"id": "s1"}], "cursor": "p1"}),
+                        ScriptedResponse(json={"data": [{"id": "s2"}], "cursor": None}),
+                    ],
+                }
+            ),
+            endpoint=endpoint,
+        )
+
+        assert result.raised is None
+        assert sorted((row["study_id"], row[row_key]) for row in result.rows) == [("s1", "a"), ("s1", "b"), ("s2", "a")]
+        assert all("_Studies_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == ["study_id", row_key]
+        assert result.saved_states == []
+
+        parent_requests = [r for r in result.requests if r.path == "/v2/studies"]
+        child_requests = [r for r in result.requests if r.path.endswith(child_segment)]
+        assert [r.param("type") for r in parent_requests] == [expected_parent_type] * 2
+        assert [r.param("cursor") for r in parent_requests] == [None, "p1"]
+        assert [r.param("cursor") for r in child_requests] == [None, "c1", None]
+        assert all(r.param("limit") == "50" for r in result.requests)
+        assert all(r.headers["authorization"] == "API-Key key" for r in result.requests)
+
+    @parameterized.expand(
+        [
+            ("questions_study_deleted", "Questions", "questions", 404),
+            ("questions_unrepresentable_study", "Questions", "questions", 409),
+            ("invitations_study_deleted", "Invitations", "invitations", 404),
+            ("invitations_not_a_survey", "Invitations", "invitations", 422),
+        ]
+    )
+    def test_documented_per_study_error_skips_that_study(
+        self, _label: str, endpoint: str, child_segment: str, status: int
+    ) -> None:
+        result = _run(
+            route(
+                {
+                    f"/v2/studies/bad/{child_segment}": [
+                        ScriptedResponse(status=status, json={"code": "ERROR", "message": "skipped"})
+                    ],
+                    f"/v2/studies/good/{child_segment}": [
+                        ScriptedResponse(json={"data": [{"id": "q1", "code": "q1"}], "cursor": None})
+                    ],
+                    "/v2/studies": [ScriptedResponse(json={"data": [{"id": "bad"}, {"id": "good"}], "cursor": None})],
+                }
+            ),
+            endpoint=endpoint,
+        )
+
+        assert result.raised is None
+        assert [row["study_id"] for row in result.rows] == ["good"]
+
+    @parameterized.expand(
+        [("questions_forbidden", "Questions", "questions"), ("invitations_forbidden", "Invitations", "invitations")]
+    )
+    def test_forbidden_child_fails_the_table(self, _label: str, endpoint: str, child_segment: str) -> None:
+        result = _run(
+            route(
+                {
+                    f"/v2/studies/s1/{child_segment}": [ScriptedResponse(status=403, json={})],
+                    "/v2/studies": [ScriptedResponse(json={"data": [{"id": "s1"}], "cursor": None})],
+                }
+            ),
+            endpoint=endpoint,
+        )
+
+        assert isinstance(result.raised, HTTPError)
+        assert "403 Client Error: Forbidden for url: https://api.sprig.com" in str(result.raised)
 
 
 class TestValidateCredentials:

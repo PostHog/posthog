@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { dayjs } from 'lib/dayjs'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -440,6 +441,165 @@ export const FlagChangeDetails: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(
             await within(canvasElement).findByRole('button', { name: /Release condition changes since launch/ })
+        )
+    },
+}
+
+const DAYS_FROM_OCT_19 = Array.from({ length: 15 }, (_, index) =>
+    dayjs('2026-10-19').add(index, 'day').format('YYYY-MM-DD')
+)
+
+const cumulative = (daily: number[]): number[] => {
+    let total = 0
+    return daily.map((count) => (total += count))
+}
+
+const dailyExposures = (
+    daily: Record<string, number[]>,
+    expected: Record<string, number>
+): ExperimentExposureQueryResponse =>
+    ({
+        kind: NodeKind.ExperimentExposureQuery,
+        timeseries: Object.entries(daily).map(([variant, counts]) => ({
+            variant,
+            days: DAYS_FROM_OCT_19,
+            exposure_counts: cumulative(counts),
+        })),
+        total_exposures: Object.fromEntries(
+            Object.entries(daily).map(([variant, counts]) => [variant, counts.reduce((sum, count) => sum + count, 0)])
+        ),
+        date_range: { date_from: '2026-10-19T00:00:00Z' },
+        sample_ratio_mismatch: { expected, p_value: 0.00001 },
+        last_refresh: '2026-11-03T10:00:00Z',
+    }) as ExperimentExposureQueryResponse
+
+const MISMATCH_STARTS_EXPOSURES = dailyExposures(
+    {
+        control: [198, 205, 201, 196, 203, 199, 202, 200, 197, 236, 240, 232, 238, 235, 241],
+        test: [101, 98, 100, 103, 97, 102, 99, 101, 100, 64, 62, 66, 60, 65, 63],
+        'test-2': [99, 102, 98, 101, 100, 97, 103, 99, 102, 100, 98, 102, 99, 101, 97],
+    },
+    { control: 3001, test: 1500.5, 'test-2': 1500.5 }
+)
+
+const MISMATCH_STARTS_FINDING: HealthPanelFinding = {
+    code: 'srm',
+    subcode: null,
+    reason: null,
+    severity: 'warning',
+    title: 'Users are not split across variants as configured',
+    detail: 'The distribution of users across variants doesn\'t match your configured rollout percentages (p < 0.001). The users first exposed before October 28, 2026 match the split. From that day on, "test" has 15.8% of the users first exposed, against 25% planned. A mismatch that starts on one day often follows a release, so check what changed in the code or tracking of "test" on that day.',
+    evidence: { p_value: 0.00001, share_off_split: 0.037, mismatch_started_on: '2026-10-28' },
+    actions: [],
+    check: 'srm',
+}
+
+export const MismatchStartingMidRun: Story = {
+    args: {
+        checks: [
+            ...READ_CHECKS.filter(({ key }) => key !== 'srm'),
+            {
+                ...found('srm', 'Split of users across variants'),
+                values: { p_value: 0.00001, compared_count: 6002 },
+                rule: SRM_RULE,
+            },
+        ],
+        findings: [MISMATCH_STARTS_FINDING],
+        exposures: MISMATCH_STARTS_EXPOSURES,
+        isDraft: false,
+        exposureChecks: 'ready',
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', {
+                name: /Users are not split across variants as configured/,
+            })
+        )
+    },
+}
+
+const SPLIT_CHANGE_FINDING: HealthPanelFinding = {
+    code: 'split_changed_mid_run',
+    subcode: 'rebalanced',
+    reason: null,
+    severity: 'warning',
+    title: 'The variant split changed after launch',
+    detail: 'The split changed from control 50% / test 25% / test-2 25% to control 34% / test 33% / test-2 33% on October 24, 2026 at 2:10 PM CEST. People exposed before the change may have switched variants, so the results mix two assignments.',
+    evidence: { change_count: 1, first_changed_at: '2026-10-24T12:10:00Z', last_changed_at: '2026-10-24T12:10:00Z' },
+    actions: [],
+    check: 'split_changed_mid_run',
+}
+
+const SPLIT_CHANGE_EXPOSURES = dailyExposures(
+    {
+        control: [202, 198, 205, 196, 201, 140, 136, 133, 138, 135, 131, 137, 134, 139, 136],
+        test: [99, 101, 98, 103, 100, 128, 132, 135, 130, 133, 136, 131, 134, 129, 132],
+        'test-2': [100, 97, 102, 99, 101, 131, 129, 134, 133, 128, 135, 132, 130, 133, 131],
+    },
+    { control: 2370, test: 2300.5, 'test-2': 2300.5 }
+)
+
+export const SplitChangedMidRun: Story = {
+    args: {
+        checks: [
+            ...READ_CHECKS,
+            {
+                ...found('split_changed_mid_run', 'Variant split changes since launch'),
+                rows: [
+                    {
+                        changed_at: '2026-10-24T12:10:00Z',
+                        before: 'control 50% / test 25% / test-2 25%',
+                        after: 'control 34% / test 33% / test-2 33%',
+                        before_exposure: false,
+                    },
+                ],
+            },
+        ],
+        findings: [SPLIT_CHANGE_FINDING],
+        exposures: SPLIT_CHANGE_EXPOSURES,
+        isDraft: false,
+        exposureChecks: 'ready',
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /The variant split changed after launch/ })
+        )
+    },
+}
+
+const MISMATCH_AFTER_SPLIT_CHANGE_FINDING: HealthPanelFinding = {
+    code: 'srm',
+    subcode: 'split_changed',
+    reason: null,
+    severity: 'warning',
+    title: 'Users are not split as configured after a split change',
+    detail: 'The distribution of users across variants doesn\'t match your current rollout percentages (p < 0.001). The variant split changed after launch while users were exposed, and some of them got their variants from another split, which can cause this. The users first exposed after the day of the change match the current split (p = 0.62). Follow the steps in "The variant split changed after launch" to fix the results.',
+    evidence: { p_value: 0.00001, share_off_split: 0.07, p_value_after_split_change: 0.62 },
+    actions: [],
+    check: 'srm',
+}
+
+export const MismatchAfterSplitChange: Story = {
+    args: {
+        ...SplitChangedMidRun.args,
+        checks: [
+            ...(SplitChangedMidRun.args?.checks ?? []).filter(({ key }) => key !== 'srm'),
+            {
+                ...found('srm', 'Split of users across variants'),
+                values: { p_value: 0.00001, compared_count: 6971 },
+                rule: SRM_RULE,
+            },
+        ],
+        findings: [MISMATCH_AFTER_SPLIT_CHANGE_FINDING, SPLIT_CHANGE_FINDING],
+    },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', {
+                name: /Users are not split as configured after a split change/,
+            })
         )
     },
 }

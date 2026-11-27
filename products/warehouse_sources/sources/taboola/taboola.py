@@ -83,6 +83,28 @@ def _to_date(value: Any) -> Optional[date]:
     return None
 
 
+def _targeting_rows(campaign_id: str, data: Any) -> list[dict[str, Any]]:
+    """One row per INCLUDE/EXCLUDE restriction of a campaign's targeting.
+
+    Multi-targeting endpoints wrap their restrictions in an outer `collection`, while postal
+    code targeting returns its single restriction directly. Restrictions with no values
+    (e.g. the default `ALL`) carry no targeting and are dropped.
+    """
+    if not isinstance(data, dict):
+        return []
+    if "type" in data:
+        restrictions = [data]
+    elif isinstance(data.get("collection"), list):
+        restrictions = [item for item in data["collection"] if isinstance(item, dict)]
+    else:
+        return []
+    return [
+        {**restriction, "campaign_id": campaign_id}
+        for restriction in restrictions
+        if restriction.get("type") is not None and restriction.get("collection")
+    ]
+
+
 def validate_credentials(client_id: str, client_secret: str) -> bool:
     """Confirm the credentials are valid by minting a token."""
     try:
@@ -164,15 +186,33 @@ def get_rows(
             yield items
         return
 
-    if config.kind == "campaign_items":
+    def campaign_ids_from_resume_point() -> tuple[list[str], int]:
         campaigns = results_of(fetch(f"{account_base}/campaigns/"))
         campaign_ids = [str(campaign["id"]) for campaign in campaigns if campaign.get("id") is not None]
 
         start_index = 0
         if resume_config is not None and resume_config.next_campaign_index is not None:
             start_index = resume_config.next_campaign_index
-            logger.debug(f"Taboola: resuming campaign_items from campaign index {start_index}")
+            logger.debug(f"Taboola: resuming {endpoint} from campaign index {start_index}")
+        return campaign_ids, start_index
 
+    if config.kind == "campaign_targeting":
+        campaign_ids, start_index = campaign_ids_from_resume_point()
+        for index in range(start_index, len(campaign_ids)):
+            campaign_id = campaign_ids[index]
+            rows = _targeting_rows(
+                campaign_id, fetch(f"{account_base}/campaigns/{_encode_path_segment(campaign_id)}{config.path}")
+            )
+            resumable_source_manager.save_state(TaboolaResumeConfig(next_campaign_index=index + 1))
+            if rows:
+                yield rows
+            else:
+                # Most campaigns have no targeting of a given type; let a shutdown hand off here.
+                resumable_source_manager.safe_point()
+        return
+
+    if config.kind == "campaign_items":
+        campaign_ids, start_index = campaign_ids_from_resume_point()
         for index in range(start_index, len(campaign_ids)):
             campaign_id = campaign_ids[index]
             items = results_of(fetch(f"{account_base}/campaigns/{_encode_path_segment(campaign_id)}/items/"))

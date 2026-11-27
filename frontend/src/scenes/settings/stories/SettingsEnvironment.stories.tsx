@@ -284,6 +284,11 @@ export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'enviro
 
 export const SettingsEnvironmentDangerZoneQuill: Story = withTodayRailNav(SettingsEnvironmentDangerZone)
 
+const BUSINESS_KNOWLEDGE_LIBRARIES = [
+    { id: 'library-learned', name: 'Learned', is_default: true, source_count: 9, repos: [] },
+    { id: 'library-public', name: 'Public docs', is_default: false, source_count: 12, repos: [] },
+]
+
 export const SettingsEnvironmentBusinessKnowledge: Story = {
     args: { sectionId: 'environment-business-knowledge' },
     decorators: [
@@ -335,6 +340,7 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                     learn_from_support_enabled: true,
                     support_enabled: false,
                 },
+                '/api/projects/:id/business_knowledge/libraries/': BUSINESS_KNOWLEDGE_LIBRARIES,
                 '/api/projects/:id/business_knowledge/repositories/status/': {
                     connected: false,
                     integration_id: null,
@@ -364,6 +370,7 @@ export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story 
                         knowledge_created: 7,
                     },
                 },
+                '/api/projects/:id/business_knowledge/libraries/': BUSINESS_KNOWLEDGE_LIBRARIES,
                 '/api/projects/:id/business_knowledge/repositories/status/': {
                     connected: false,
                     integration_id: null,

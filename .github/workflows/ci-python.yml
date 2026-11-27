@@ -70,6 +70,7 @@ jobs:
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
             schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
             warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
+            credentials_digest: ${{ steps.filter.outputs.credentials_digest || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -196,6 +197,10 @@ jobs:
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
+                        # Non-Python inputs of the content digest cross-check below
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
@@ -293,6 +298,21 @@ jobs:
                         - .github/actions/setup-uv/**
                         - tools/warehouse_sources_vendor_selection.py
                         - tools/test_warehouse_sources_vendor_selection.py
+                      # The Python content digest must match the TypeScript reference, and both
+                      # suites read one shared vector file. Backend CI's import-graph selection
+                      # runs test_canonical.py for Python edits, but it cannot see the TypeScript
+                      # module or the JSON fixture, so this group covers them.
+                      credentials_digest:
+                        - 'posthog/integrations/mirror/**'
+                        - 'posthog/dataclasses.py'
+                        - 'services/credentials-service/src/crypto/canonical.ts'
+                        - 'services/credentials-service/src/integrations/digest.ts'
+                        - 'services/credentials-service/tests/fixtures/content-digest-vectors.json'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'pytest.ini'
+                        - 'conftest.py'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
@@ -302,6 +322,10 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04-4)
+        # The CI report sections this job posts (complexity, touched typing) write a PR comment.
+        permissions:
+            contents: read
+            pull-requests: write
         # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
         # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
         # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s
@@ -317,11 +341,16 @@ jobs:
             RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
+            RUN_CREDENTIALS_DIGEST: ${{ needs.changes.outputs.credentials_digest }}
+            # From this day, an untyped function in a new file fails the job. Before it, the check only warns.
+            TOUCHED_TYPING_BLOCKING_FROM: '2026-12-07'
 
         steps:
+            # Depth 2 brings the merge commit's parents, so the touched-typing check can diff
+            # the merge commit against its first parent, which is master at merge time.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  fetch-depth: 2
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -415,6 +444,31 @@ jobs:
                       node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
                   else
                       echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
+
+            # Warn-only here. The last step of the job fails it for untyped functions in new files,
+            # so that failure does not skip the checks in between.
+            - name: Check typing of touched functions
+              if: github.event_name == 'pull_request'
+              shell: bash
+              # A crash here must not fail the job. Without a report the new-file step below skips.
+              continue-on-error: true
+              run: |
+                  if [ ! -f .github/scripts/check_touched_typing.py ]; then
+                      echo "check_touched_typing.py not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  python3 .github/scripts/check_touched_typing.py --base HEAD^1 --report touched-typing.json --github --blocking-from "$TOUCHED_TYPING_BLOCKING_FROM"
+
+            - name: Post CI report — touched typing
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-touched-typing-section.mjs ] && [ -f touched-typing.json ]; then
+                      node .github/scripts/post-touched-typing-section.mjs touched-typing.json
+                  else
+                      echo "Skipping the touched typing report section: script or findings not on this branch"
                   fi
 
             - parallel:
@@ -550,6 +604,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_granian_shared_socket.py bin/test/test_granian_preload.py -v --junitxml=junit-granian-shared-socket.xml
 
+                  - name: Run content digest cross-check tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_CREDENTIALS_DIGEST" = "true" ] || { echo "content digest inputs unchanged — skipping"; exit 0; }
+                        pytest posthog/integrations/mirror/test/test_canonical.py -v --junitxml=junit-content-digest.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -563,6 +623,7 @@ jobs:
                       junit-owners.xml
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent-*.xml
+                      junit-content-digest.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -579,6 +640,13 @@ jobs:
                   name: junit-results-granian-shared-socket
                   if-no-files-found: ignore
                   path: junit-granian-shared-socket.xml
+
+            # Not on merge-queue runs: a PR that went green while the check only warned must not be
+            # kicked from the queue by the blocking date passing in between.
+            - name: Fail on untyped functions in new files
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && hashFiles('touched-typing.json') != '' }}
+              shell: bash
+              run: python3 .github/scripts/check_touched_typing.py --enforce touched-typing.json
 
     # The whole-repo type check runs in its own job, beside code-quality instead of
     # inside it. mypy is CPU-bound and saturates both cores of the 2-vCPU runner, so

@@ -57,4 +57,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
         "columns": _COMMON_COLUMNS,
     },
+    "APPayments": {
+        "description": "A payment made to a vendor and applied to accounts payable bills.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "Locations": {
+        "description": "A location dimension value that can be assigned to transactions and lines.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "Departments": {
+        "description": "A department dimension value that can be assigned to transactions and lines.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": _COMMON_COLUMNS,
+    },
+    "GLBudgets": {
+        "description": "A general ledger budget, with its budget lines per account, period and dimension.",
+        "docs_url": "https://developer.sage.com/intacct/apis/intacct/1/intacct-openapi",
+        "columns": {**_COMMON_COLUMNS, "lines": "The budget lines, each with an account, reporting period and amount."},
+    },
 }

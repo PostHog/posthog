@@ -134,6 +134,7 @@ The warning clears once the live steps move to a verified sender.
 - The rate limit lock counts every in-flight run of the workflow, not only the raised batch's runs, so other runs of the same workflow can hold it longer.
 - Test-panel sends bypass the team bucket on purpose, matching the per-workflow rate limit.
 - Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue. A push notification retried while the workflow is on the email queue behaves the same way and waits at the priority of its own message category.
+- A send with files that could not reach SES is charged again when it retries, against both the team cap and the workflow pacing, so its first attempt counts once more than the email it sends. A retry after a failed download keeps its team cap charge and claims the workflow pacing again, unless an earlier retry after a failed ownership check saved its pacing claim.
 - Transactional sends are charged but never delayed, so a team whose transactional volume alone exceeds its tier can hold its own marketing at zero (see Transactional email below).
 - The bucket is a token bucket: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTL exceeds the refill period so this does not recur from idling.
 - A denied send parks until the bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.
