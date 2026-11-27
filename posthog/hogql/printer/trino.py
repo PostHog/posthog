@@ -1694,6 +1694,25 @@ class TrinoPrinter(PostgresPrinter):
         cache[id(node)] = (node, resolved)
         return resolved
 
+    def _boolean_array_items(self, node: ast.Expr) -> ast.BooleanType | None:
+        if isinstance(node, ast.Array):
+            item_types = [self._resolve_type(expr) for expr in node.exprs]
+        elif (
+            isinstance(node, ast.Call)
+            and node.name.lower() == "arraymap"
+            and node.args
+            and isinstance(node.args[0], ast.Lambda)
+            and isinstance(node.args[0].expr, ast.Expr)
+        ):
+            item_types = [self._resolve_type(node.args[0].expr)]
+        else:
+            return None
+        if not any(isinstance(item_type, ast.BooleanType) for item_type in item_types):
+            return None
+        resolved = node.type.resolve_constant_type(self.context) if node.type is not None else None
+        nullable = not isinstance(resolved, ast.ArrayType) or resolved.item_type.nullable
+        return ast.BooleanType(nullable=nullable)
+
     def _resolve_type_uncached(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
             if node.name.lower() == "tuplehammingdistance":
@@ -1701,6 +1720,9 @@ class TrinoPrinter(PostgresPrinter):
             return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in _BOOLEAN_PRINTED_FUNCTIONS:
             return ast.BooleanType()
+        boolean_items = self._boolean_array_items(node)
+        if boolean_items is not None:
+            return ast.ArrayType(item_type=boolean_items)
         offset = self._date_offset_of(node)
         if offset is not None:
             amount_type = self._resolve_type(offset.amount)
@@ -4902,18 +4924,25 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_element_at(self, container: ast.Expr, key: ast.Expr) -> str:
         container_type = self._resolve_type(container)
+        printed_key = self.visit(key)
         if not isinstance(container_type, ast.ArrayType):
-            return f"element_at({self.visit(container)}, {self.visit(key)})"
-        element = f"element_at({self.visit(container)}, {self._array_index(key)})"
+            return f"element_at({self.visit(container)}, {printed_key})"
+        element = f"element_at({self.visit(container)}, {self._array_index(key, printed_key)})"
+        if isinstance(container_type.item_type, ast.TupleType):
+            return element
         default = self._known_default_value(container_type.item_type)
         if default is None or default == "NULL":
             return element
+        key_type = self._resolve_type(key)
+        if key_type is None or isinstance(key_type, ast.UnknownType) or key_type.nullable:
+            default = f"IF({printed_key} IS NULL, NULL, {default})"
         return f"coalesce({element}, {default})"
 
-    def _array_index(self, index: ast.Expr) -> str:
+    @staticmethod
+    def _array_index(index: ast.Expr, printed_index: str) -> str:
         if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value != 0:
-            return self.visit(index)
-        return f"NULLIF({self.visit(index)}, 0)"
+            return printed_index
+        return f"NULLIF({printed_index}, 0)"
 
     def _constant_string(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):

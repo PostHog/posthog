@@ -411,6 +411,13 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ),
         ("[1, NULL][length(user_id)]", 'element_at(ARRAY[1, NULL], NULLIF(length("users"."user_id"), 0)) FROM'),
         ("[1, 2][-1]", "coalesce(element_at(ARRAY[1, 2], -1), 0)"),
+        (
+            "[1, 2][nullIf(length(user_id), 3)]",
+            'IF(nullif(length("users"."user_id"), 3) IS NULL, NULL, 0)',
+        ),
+        ("[empty(user_id)][1]", 'IS NULL OR "users"."user_id" = \'\')], 1), FALSE)'),
+        ("arrayMap(value -> empty(value), [user_id])[1]", "), 1), FALSE)"),
+        ("[tuple(empty(user_id), 1)][1]", "], 1) FROM"),
         ("indexOf([1, 2], 2)", "array_position(ARRAY[1, 2], 2)"),
         ("leftPad(user_id, 4, '0')", 'lpad("users"."user_id", 4,'),
         ("right(user_id, 2)", 'substr("users"."user_id", -(2))'),
