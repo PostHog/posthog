@@ -95,6 +95,7 @@ def failed_tool_scope_field() -> serializers.CharField:
 def group_scope_field(listed: str) -> serializers.CharField:
     return serializers.CharField(
         required=False,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
         help_text=f"Lists only {listed} belong to the group with this key. Send it with group_type_index.",
     )
 
