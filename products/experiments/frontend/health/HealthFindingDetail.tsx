@@ -2,6 +2,7 @@ import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-ge
 
 import { HealthCheckReadSection } from './HealthCheckReadSection'
 import { HealthCheckRuleSection } from './HealthCheckRuleSection'
+import { HealthFindingDailyChart } from './HealthFindingDailyChart'
 import { HealthFindingFixes } from './HealthFindingFixes'
 import { HealthFindingSeverityIcon } from './HealthFindingSeverityIcon'
 import type { HealthPanelCheck } from './healthPanelChecks'
@@ -12,6 +13,7 @@ import { useHealthFindingReporting } from './useHealthFindingReporting'
 export function HealthFindingDetail({
     finding,
     check,
+    splitCheck,
     units,
     exposures,
     checkedAt,
@@ -20,6 +22,7 @@ export function HealthFindingDetail({
     finding: HealthPanelFinding
     /** The check that reported the finding. Missing on an exposure answer cached before findings named their check. */
     check: HealthPanelCheck | null
+    splitCheck: HealthPanelCheck | undefined
     units: string
     exposures: ExperimentExposureQueryResponse | null
     checkedAt: string | null
@@ -53,7 +56,21 @@ export function HealthFindingDetail({
                     }}
                 />
             )}
-            {check && <HealthCheckReadSection check={check} units={units} exposures={exposures} />}
+            {check && (
+                <HealthCheckReadSection
+                    check={check}
+                    units={units}
+                    exposures={exposures}
+                    chart={
+                        <HealthFindingDailyChart
+                            finding={finding}
+                            splitCheck={splitCheck}
+                            exposures={exposures}
+                            units={units}
+                        />
+                    }
+                />
+            )}
             {check && <HealthCheckRuleSection check={check} units={units} checkedAt={checkedAt} />}
         </div>
     )

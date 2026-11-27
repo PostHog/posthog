@@ -950,7 +950,7 @@ def segments_for_test_file(path: str) -> frozenset[str]:
         return frozenset({"temporal"})
     if path.startswith(_CORE_IGNORED_PREFIXES):
         return frozenset()
-    if path.startswith(_POE_PREFIXES) or path == "posthog/api/test/dashboards/test_dashboard.py":
+    if path.startswith(_POE_PREFIXES):
         return frozenset({"core", "poe"})
     if path.startswith(("posthog/", "ee/")):
         return frozenset({"core"})

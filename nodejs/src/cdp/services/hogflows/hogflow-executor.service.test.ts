@@ -47,6 +47,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messa
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
+import { Admission, InFlightRegistry, admittedFiles, filesOf } from '../messaging/in-flight-registry'
 import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
@@ -172,13 +173,13 @@ class AttachmentStoreFake implements AttachmentStore {
         return Promise.reject(new Error('Sends in these tests reference files that are already stored'))
     }
 
-    load(teamId: number, files: EmailAttachmentMetadata[]): Promise<LoadedAttachment[]> {
+    load(teamId: number, admission: Admission): Promise<LoadedAttachment[]> {
         if (this.loadsBeforeOutage-- <= 0) {
             return Promise.reject(new AttachmentStoreUnavailableError(new Error('The bucket did not answer')))
         }
         try {
             return Promise.resolve(
-                files.map((file) => {
+                admittedFiles(admission).map((file) => {
                     const bytes = this.files.get(`${teamId}/${file.sha256}`)
                     if (!bytes) {
                         throw new AttachmentMissingError(file.sha256)
@@ -4116,16 +4117,31 @@ if (not res.success) { throw Error(res.error) }`,
                     })
                     .build()
 
+            const executeAsTheEmailWorker = async (
+                runner: HogFlowExecutorService,
+                invocation: CyclotronJobInvocationHogFlow
+            ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                const files = filesOf(invocation)
+                if (!files) {
+                    return await runner.execute(invocation)
+                }
+                const roomForAnySend = { budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }
+                const admission = new InFlightRegistry(roomForAnySend, () => 0).tryStart(files, () =>
+                    runner.execute(invocation)
+                )
+                return await (admission as Extract<typeof admission, { started: unknown }>).started
+            }
+
             const runUntilHeld = async (
                 runner: HogFlowExecutorService,
                 invocation: CyclotronJobInvocationHogFlow
             ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
-                let result = await runner.execute(invocation)
+                let result = await executeAsTheEmailWorker(runner, invocation)
                 for (let step = 0; step < 10 && !result.finished; step++) {
                     if ((result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now()) {
                         return result
                     }
-                    result = await runner.execute(result.invocation)
+                    result = await executeAsTheEmailWorker(runner, result.invocation)
                 }
                 return result
             }

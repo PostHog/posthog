@@ -3,12 +3,12 @@ import clsx from 'clsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { PromptConsensusCell, PromptConsensusMatrix } from './promptReport'
+import { formatShare } from './shares'
 
 type ConsensusRow = PromptConsensusMatrix['rows'][number]
 
@@ -30,7 +30,7 @@ const HeatCell = ({ cell, checks }: { cell: PromptConsensusCell; checks: number 
                 <span className={clsx('block rounded-sm px-2 py-1 text-right tabular-nums', heatClass(cell.share))} />
             }
         >
-            {cell.share === null ? '-' : percentage(cell.share, 0)}
+            {cell.share === null ? '-' : formatShare(cell.share)}
         </TooltipTrigger>
         <TooltipContent>{`${cell.checksCiting} of ${pluralize(checks, 'answer')} link to ${cell.domain}`}</TooltipContent>
     </Tooltip>

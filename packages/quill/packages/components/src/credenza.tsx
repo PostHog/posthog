@@ -32,6 +32,8 @@ interface CredenzaProps {
     open?: boolean
     defaultOpen?: boolean
     onOpenChange?: (open: boolean) => void
+    /** Keeps a click outside the dialog from closing it, as for a form with unsaved input. Escape and the close button still close it. The drawer ignores it. */
+    disablePointerDismissal?: boolean
     children?: React.ReactNode
 }
 
@@ -45,6 +47,7 @@ interface CredenzaRootProps {
 interface CredenzaContextValue {
     mode: CredenzaMode
     rootProps: CredenzaRootProps
+    disablePointerDismissal: boolean
 }
 
 const CredenzaContext = React.createContext<CredenzaContextValue | null>(null)
@@ -65,6 +68,7 @@ function useCredenzaState({
     open,
     defaultOpen = false,
     onOpenChange,
+    disablePointerDismissal = false,
 }: Omit<CredenzaProps, 'children'>): CredenzaContextValue {
     const [handle] = React.useState(createDrawerHandle)
     const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen)
@@ -98,8 +102,9 @@ function useCredenzaState({
                 onOpenChange: handleOpenChange,
                 onOpenChangeComplete: handleOpenChangeComplete,
             },
+            disablePointerDismissal,
         }),
-        [popupMode, viewportMode, handle, isOpen, handleOpenChange, handleOpenChangeComplete]
+        [popupMode, viewportMode, handle, isOpen, handleOpenChange, handleOpenChangeComplete, disablePointerDismissal]
     )
 }
 
@@ -120,9 +125,9 @@ const CredenzaTrigger = React.forwardRef<
 /** The root lives here rather than in `Credenza`, so a change of mode remounts the popup and not the triggers. */
 const CredenzaContent = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<'div'>>(
     function CredenzaContent(props, ref) {
-        const { mode, rootProps } = useCredenzaContext('CredenzaContent')
+        const { mode, rootProps, disablePointerDismissal } = useCredenzaContext('CredenzaContent')
         return mode === 'dialog' ? (
-            <Dialog {...rootProps}>
+            <Dialog {...rootProps} disablePointerDismissal={disablePointerDismissal}>
                 <DialogContent ref={ref} {...props} />
             </Dialog>
         ) : (

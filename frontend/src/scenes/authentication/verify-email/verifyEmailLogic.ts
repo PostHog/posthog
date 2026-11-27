@@ -234,6 +234,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
                             return false
                         }
+                        if (e.code === 'email_verification_code_undeliverable') {
+                            lemonToast.error(e.detail)
+                            return false
+                        }
                         lemonToast.error('Requesting a new code failed. Please try again later or contact support.')
                         return false
                     }

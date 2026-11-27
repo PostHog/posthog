@@ -1,3 +1,5 @@
+import time
+
 from celery import shared_task
 from structlog import get_logger
 
@@ -11,6 +13,7 @@ from products.workflows.backend.services.ses_tenant_state import sync_ses_tenant
 logger = get_logger(__name__)
 
 _RECONCILE_PAGE_SIZE = 500
+_RECONCILE_MIN_SECONDS_PER_TEAM = 1.5
 
 
 @shared_task(
@@ -54,7 +57,10 @@ def reconcile_ses_tenant_states() -> None:
     provider = SESProvider()
     synced = 0
     failed = 0
+    next_start = time.monotonic()
     for team_id in team_ids:
+        time.sleep(max(0.0, next_start - time.monotonic()))
+        next_start = time.monotonic() + _RECONCILE_MIN_SECONDS_PER_TEAM
         try:
             sync_ses_tenant_state(team_id, provider=provider, verify_team=False)
             synced += 1

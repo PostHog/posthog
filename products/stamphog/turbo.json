@@ -14,6 +14,8 @@
                 "backend/scopes.py",
                 "backend/activity_log_config.py",
                 "backend/activity_logging.py",
+                "backend/slack_actions.py",
+                "backend/slack_channel_messages.py",
                 "backend/apps.py"
             ],
             "outputs": [],

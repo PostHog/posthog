@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.trafficstars._config import TrafficStarsSourceConfig
 from products.warehouse_sources.sources.trafficstars.settings import (
+    DAILY_STATISTICS,
     ENDPOINTS,
     HISTORY_DAYS,
     INCREMENTAL_FIELDS,
@@ -52,7 +53,7 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
         self, schema_name: str, config: TrafficStarsSourceConfig | None = None
     ) -> timedelta | None:
         # Only the daily statistics are bounded by date; the lists return every row.
-        return timedelta(days=HISTORY_DAYS) if schema_name == "campaign_statistics_daily" else None
+        return timedelta(days=HISTORY_DAYS) if schema_name in DAILY_STATISTICS else None
 
     def resume_covers_run(
         self,
@@ -60,8 +61,8 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
         incremental_or_append: bool,
         schema_name: str | None = None,
     ) -> bool:
-        # The campaign list is one request, so a retry has nothing to continue from.
-        return schema_name != "campaigns"
+        # The campaign and country lists are one request each, so a retry has nothing to continue from.
+        return schema_name not in ("campaigns", "countries")
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -130,7 +131,7 @@ class TrafficStarsSource(ResumableSource[TrafficStarsSourceConfig, TrafficStarsR
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["traffic stars"],
             label="TrafficStars",
-            caption="Sync campaigns, creatives and daily campaign statistics from your TrafficStars advertiser account.",
+            caption="Sync campaigns, creatives, countries and daily statistics from your TrafficStars advertiser account.",
             docsUrl="https://posthog.com/docs/cdp/sources/trafficstars",
             iconPath="/static/services/trafficstars.png",
             releaseStatus=ReleaseStatus.ALPHA,

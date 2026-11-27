@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { type PanelQuery, timeRangeSchema, panelQuerySchema } from '../../dashboard/document/dashboardSchema'
-import type { TimeRange } from '../../dashboard/document/dashboardTypes'
+import { timeRangeSchema, type TimeRange } from '../../filters/time/timeRangeSchema'
+import { type PanelQuery, panelQuerySchema } from '../../query/querySchema'
 import { UNKNOWN_PANEL_SIZE, type PanelSpec } from '../core/panelSpec'
 import type { VizSpec } from './vizTypes'
 

@@ -31,10 +31,12 @@ from . import (
     baseline_record,
     baselines,
     ci_status,
+    comment_markdown,
     errors,
     gating,
     github_api,
     ledger_recheck,
+    review_decisions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -129,6 +131,12 @@ class RunFacts:
     changes_summary: str
     unresolved: int = 0
     awaiting_finalize: int = 0
+    # Set from the pull request's decisions in ledger mode, and 0 otherwise.
+    rejected: int = 0
+    accepted: int = 0
+    # Who rejected what, when exactly one change is rejected.
+    rejected_by: str = ""
+    rejected_identifier: str = ""
     hidden_by_quarantine: int = 0
     # 0 also when the stale-approval rule does not apply to the run.
     stale_approvals: int = 0
@@ -147,6 +155,21 @@ class StatusVerdict:
     description: str
 
 
+# GitHub keeps the first 140 characters of a status description. A partial run appends its note.
+_DESCRIPTION_LIMIT = 140 - len(" (partial run)")
+
+
+def _rejected_description(facts: RunFacts) -> str:
+    if facts.rejected > 1:
+        return f"{facts.rejected} changes rejected"
+    prefix = f"Rejected by {facts.rejected_by or 'a reviewer'}: "
+    room = _DESCRIPTION_LIMIT - len(prefix)
+    identifier = facts.rejected_identifier
+    if len(identifier) > room:
+        identifier = identifier[: room - 1] + "…"
+    return f"{prefix}{identifier}"
+
+
 def _review_verdict(facts: RunFacts) -> StatusVerdict:
     if facts.purpose == RunPurpose.OBSERVE:
         if facts.changes_summary:
@@ -156,11 +179,26 @@ def _review_verdict(facts: RunFacts) -> StatusVerdict:
         return StatusVerdict(state="success", description=gating.success_text(facts.hidden_by_quarantine))
     if facts.approved:
         return StatusVerdict(state="success", description="Visual changes approved")
+    if facts.rejected > 0:
+        return StatusVerdict(state="failure", description=_rejected_description(facts))
     if facts.unresolved > 0:
         if facts.clamped:
             return StatusVerdict(state="failure", description=CLAMPED_CHANGES_DESCRIPTION)
+        if facts.accepted > 0:
+            total = facts.accepted + facts.unresolved
+            need = "needs" if facts.unresolved == 1 else "need"
+            return StatusVerdict(
+                state="failure",
+                description=f"{facts.accepted} of {total} changes accepted, {facts.unresolved} {need} review",
+            )
         return StatusVerdict(state="failure", description=f"Visual changes detected: {facts.changes_summary}")
     if facts.awaiting_finalize > 0:
+        if facts.accepted == 1:
+            return StatusVerdict(state="failure", description="1 change accepted. Finalize the run to pass")
+        if facts.accepted > 1:
+            return StatusVerdict(
+                state="failure", description=f"All {facts.accepted} changes accepted. Finalize the run to pass"
+            )
         return StatusVerdict(
             state="failure",
             description=f"{facts.awaiting_finalize} approved change(s) not finalized. Finalize the run to pass this check",
@@ -236,18 +274,34 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
     decided_without_counts = (
         run.status in (RunStatus.PENDING, RunStatus.PROCESSING, RunStatus.FAILED) or bool(run.error_message) or tracking
     )
-    unresolved = awaiting = hidden = stale = 0
+    unresolved = awaiting = hidden = stale = rejected = accepted = 0
+    rejected_by = rejected_identifier = ""
     recheck: ledger_recheck.LedgerRecheck | None = None
     if not decided_without_counts:
         if run.purpose == RunPurpose.OBSERVE:
             # Drift fails a queue run before the quarantine count matters.
             hidden = 0 if summary else gating.count_hidden_by_quarantine(run, WRITER_DB)
+        elif not run.approved and review_decisions.decides_by_pull_request(run):
+            review = review_decisions.review_run(run)
+            rejections = review.rejections()
+            rejected = len(rejections)
+            unresolved = review.needs_review_count
+            awaiting = accepted = review.awaiting_finalize_count
+            if rejected == 1:
+                rejected_identifier = rejections[0].key.identifier
+                rejecter = rejections[0].by_id
+                if rejecter is not None:
+                    rejected_by = comment_markdown.approver_labels({rejecter}).get(rejecter, "")
+            if not (unresolved or awaiting or rejected):
+                hidden = gating.count_hidden_by_quarantine(run, WRITER_DB)
         elif not run.approved:
             unresolved = gating.count_unresolved(run, WRITER_DB)
             awaiting = 0 if unresolved else gating.count_awaiting_finalize(run, WRITER_DB)
             hidden = 0 if unresolved or awaiting else gating.count_hidden_by_quarantine(run, WRITER_DB)
         # A run that already fails on its review needs no stale count and no recheck.
-        passes_review = unresolved == 0 and awaiting == 0 and not (run.purpose == RunPurpose.OBSERVE and summary)
+        passes_review = (
+            unresolved == 0 and awaiting == 0 and rejected == 0 and not (run.purpose == RunPurpose.OBSERVE and summary)
+        )
         if _guards_stale_approvals(run, ledger_mode) and passes_review:
             stale = len(baseline_approvals.stale_approvals(run))
         if passes_review and stale == 0:
@@ -264,6 +318,10 @@ def _run_facts(run: Run, repo: Repo, ledger_mode: bool) -> RunFacts:
         changes_summary=summary,
         unresolved=unresolved,
         awaiting_finalize=awaiting,
+        rejected=rejected,
+        accepted=accepted,
+        rejected_by=rejected_by,
+        rejected_identifier=rejected_identifier,
         hidden_by_quarantine=hidden,
         stale_approvals=stale,
         ledger_recheck=recheck,
@@ -433,18 +491,36 @@ def pull_requests_applying(repo: Repo, approvals: list[BaselineApproval]) -> set
     return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
 
 
-def publish_after_approvals_close(repo: Repo, closed: list[BaselineApproval]) -> None:
-    """Publish again, once the caller's transaction commits, for the current runs that applied a closed approval.
+def _publish_after_close(repo: Repo, closed: list[BaselineApproval], finished_pull_requests: frozenset[int]) -> None:
+    made_over = baseline_approvals.open_approvals_made_over(closed)
+    # A run that applied an earlier approval of the same picture stayed fresh through the one that closed.
+    predecessors = baseline_approvals.same_picture_predecessors(closed) if closed else []
+    pull_requests = pull_requests_applying(repo, [*closed, *predecessors, *made_over])
+    pull_requests |= {(approval.pr_number, approval.run_type) for approval in made_over}
+    publish_for_pull_requests(
+        repo,
+        {(pr_number, run_type) for pr_number, run_type in pull_requests if pr_number not in finished_pull_requests},
+    )
+
+
+def publish_after_approvals_close(
+    repo: Repo, closed: list[BaselineApproval], finished_pull_requests: frozenset[int] = frozenset()
+) -> None:
+    """Publish again, once the caller's transaction commits, for the current runs that rest on a closed approval.
 
     A stack layer's approval can count through the open approval of the layer below it, so its passing
-    status rests on that approval staying open. Closing an approval without a ledger entry changes no
-    ledger hash, so nothing else publishes those runs again. The reads and posts run after the commit,
-    so none of them runs under the ledger lock.
+    status rests on that approval staying open. An open approval made over a closed approval's picture
+    rests on it too, also when its pull request's current run did not apply the closed approval. Closing
+    an approval without a ledger entry changes no ledger hash, so nothing else publishes those runs
+    again. The reads and posts run after the commit, so none of them runs under the ledger lock.
+
+    `finished_pull_requests` merged or closed with this change. Their heads gate nothing any more,
+    so they keep the status they have.
     """
     if not closed or not guards_stale_approvals(repo):
         return
     transaction.on_commit(
-        lambda: publish_for_pull_requests(repo, pull_requests_applying(repo, closed)), using=WRITER_DB, robust=True
+        lambda: _publish_after_close(repo, closed, finished_pull_requests), using=WRITER_DB, robust=True
     )
 
 
