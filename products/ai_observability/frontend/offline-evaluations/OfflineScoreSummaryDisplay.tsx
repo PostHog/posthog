@@ -8,6 +8,7 @@ import {
     formatOfflinePercentage,
     formatOfflineScore,
     offlineScoreMetricLabel,
+    offlineScorePassingRuleLabel,
     type OfflineScoreSummary,
 } from './offlineScoreTrends'
 
@@ -19,51 +20,61 @@ function SummaryMetric({
     title,
     passed,
 }: {
-    label: string
+    label?: string
     value: string
     percent: number | null
     color?: string
-    title?: string
+    title: string
     passed?: boolean | null
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            {percent !== null && (
-                <span className="inline-flex w-14 shrink-0 items-center" aria-hidden="true">
-                    <LemonProgress percent={percent} bgColor="var(--color-bg-fill-tertiary)" strokeColor={color} />
-                </span>
-            )}
-            <Tooltip title={title}>
-                <strong className="tabular-nums font-semibold" tabIndex={title ? 0 : undefined}>
+        <Tooltip title={title} className="whitespace-pre-line">
+            <div
+                className="flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-0.5"
+                tabIndex={0}
+                aria-description={title}
+            >
+                {percent !== null && (
+                    <div className="inline-flex w-14 shrink-0 items-center" aria-hidden="true">
+                        <LemonProgress percent={percent} bgColor="var(--color-bg-fill-tertiary)" strokeColor={color} />
+                    </div>
+                )}
+                <strong className="self-baseline tabular-nums font-semibold">
                     {value}
                     {passed != null && <span className="sr-only">{passed ? ' Passed' : ' Failed'}</span>}
                 </strong>
-            </Tooltip>
-            <span className="text-xs text-muted break-words min-w-0">{label}</span>
-        </div>
+                {label && <span className="text-xs text-muted break-words min-w-0">{label}</span>}
+            </div>
+        </Tooltip>
     )
 }
 
 export function OfflineSummaryMetrics({
     summary,
     compact = false,
+    showMetricLabel = true,
 }: {
     summary: OfflineScoreSummary
     compact?: boolean
+    showMetricLabel?: boolean
 }): JSX.Element {
-    const { scorer, mean, pass_rate, categories } = summary
-    if (!summary.status_counts.ok) {
+    const { scorer, mean, pass_count, fail_count, pass_rate, categories, status_counts } = summary
+    if (!status_counts.ok) {
         return <span className="text-sm text-muted">No successful results</span>
     }
 
     const numeric = scorer.kind === 'numeric'
     const passed = numeric ? offlineScorePasses(mean, scorer) : null
+    const ruleLabel = offlineScorePassingRuleLabel(scorer)
     const categoryMetric = (category: OfflineScoreSummary['categories'][number]): JSX.Element => (
         <SummaryMetric
             key={category.key}
             label={category.label}
             value={category.rate === null ? '—' : formatOfflinePercentage(category.rate)}
             percent={category.rate === null ? null : category.rate * 100}
+            title={[`${category.count} of ${status_counts.ok} scored items include “${category.label}”`, ruleLabel]
+                .filter(Boolean)
+                .join('\n')}
         />
     )
     if (scorer.kind === 'categorical') {
@@ -119,9 +130,13 @@ export function OfflineSummaryMetrics({
             </>
         )
     }
+    const passRateDetail =
+        pass_count != null && fail_count != null && pass_rate != null
+            ? `${pass_count} of ${pass_count + fail_count} scored items passed (${formatOfflinePercentage(pass_rate)})`
+            : null
     return (
         <SummaryMetric
-            label={offlineScoreMetricLabel(scorer)}
+            label={showMetricLabel ? offlineScoreMetricLabel(scorer) : undefined}
             passed={passed}
             value={formatOfflineScore(summary)}
             percent={
@@ -132,20 +147,13 @@ export function OfflineSummaryMetrics({
                       : pass_rate * 100
             }
             color={passed === false ? 'var(--danger)' : passed === true || !numeric ? 'var(--success)' : undefined}
-            title={
-                numeric && mean !== null
-                    ? [
-                          String(mean),
-                          passed === null
-                              ? ''
-                              : passed
-                                ? 'Mean meets the passing rule'
-                                : 'Mean does not meet the passing rule',
-                      ]
-                          .filter(Boolean)
-                          .join(' · ')
-                    : undefined
-            }
+            title={[
+                ruleLabel ?? 'No passing rule',
+                numeric && mean !== null && `Mean ${mean}${passed === null ? '' : passed ? ' · Passed' : ' · Failed'}`,
+                passRateDetail,
+            ]
+                .filter(Boolean)
+                .join('\n')}
         />
     )
 }

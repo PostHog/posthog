@@ -38,6 +38,13 @@ describe('AdventPictureCast', () => {
         logic.unmount()
     })
 
+    it('shows the share preview hogs as pictures, not as controls', () => {
+        const { container } = render(<AdventPictureCast graph={GRAPH} />)
+
+        expect(container.querySelectorAll('button')).toHaveLength(0)
+        expect(container.querySelector('[data-attr="advent-hog-1"] img')).not.toBeNull()
+    })
+
     it('keeps a landed hog in place while another door reveals, so it does not land again', () => {
         const revealing = GRAPH.doors.find((door) => door.id === 'door-3-lower')!
         const cast = (isRevealing: boolean): JSX.Element => (

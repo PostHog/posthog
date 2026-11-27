@@ -3,7 +3,7 @@ import { getCookie } from 'lib/api'
 import { getDashboardV2QueryBatchCreateUrl } from 'products/dashboards/frontend/generated/api'
 import type { QueryBatchRequestApi } from 'products/dashboards/frontend/generated/api.schemas'
 
-import type { TimeRange } from '../dashboard/document/dashboardTypes'
+import { type TimeRange } from '../filters/time/timeRangeSchema'
 import { type Frame, type QueryBatchLine, readNdjson } from './queryBatchLines'
 import { QueryBatchTimer, startBoardLoad } from './queryBatchTiming'
 import type { DataFrame, QueryRequest, QueryResult, RunQuery } from './queryTypes'

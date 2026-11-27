@@ -3,6 +3,7 @@ from datetime import timedelta
 from importlib import import_module
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
@@ -11,9 +12,13 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from loginas import settings as la_settings
+from parameterized import parameterized
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.request import Request
 
 from posthog.models import User
 from posthog.session.activity import (
+    client_attribution_properties,
     list_user_sessions,
     revoke_other_sessions,
     revoke_other_sessions_for_request,
@@ -22,6 +27,14 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+
+
+class _AcceptingTokenAuthentication(BaseAuthentication):
+    def __init__(self, user: User):
+        self.user = user
+
+    def authenticate(self, request):
+        return (self.user, None)
 
 
 class TestSessionActivity(BaseTest):
@@ -51,6 +64,61 @@ class TestSessionActivity(BaseTest):
         self.assertEqual(session_public_id(key), session_public_id(key))
         self.assertNotEqual(session_public_id(key), session_public_id("other-key"))
         self.assertNotIn(key, str(session_public_id(key)))
+
+    @parameterized.expand(
+        [
+            ("own_session", "user", False, False, {"$ip", "session_public_id"}),
+            ("another_users_session", "other", False, False, {"$ip"}),
+            ("anonymous_session", None, False, False, {"$ip"}),
+            ("token_request_carrying_the_users_session_cookie", "user", True, False, {"$ip"}),
+            ("self_hosted", "user", False, True, set()),
+        ]
+    )
+    def test_client_attribution_names_only_the_users_own_session(
+        self,
+        _name: str,
+        session_owner: str | None,
+        token_authenticated: bool,
+        self_hosted: bool,
+        expected_keys: set[str],
+    ):
+        user = self._make_user()
+        owner = {"user": user, "other": self._make_user()}.get(session_owner or "")
+        if owner is None:
+            store = self.engine.SessionStore()
+            store.create()
+            key = store.session_key
+        else:
+            key = self._login_session(owner)
+        request = self._request(user, key)
+        if token_authenticated:
+            request = Request(request, authenticators=[_AcceptingTokenAuthentication(user)])
+
+        with patch("posthog.session.activity.self_hosted_capture_reaches_posthog", return_value=self_hosted):
+            properties = client_attribution_properties(request, user)
+
+        expected = {"$ip": "127.0.0.1", "session_public_id": str(session_public_id(key))}
+        self.assertEqual(properties, {k: v for k, v in expected.items() if k in expected_keys})
+
+    def test_client_attribution_prefers_the_verified_mcp_client_ip(self):
+        user = self._make_user()
+        request = self._request(user, self._login_session(user))
+        request.verified_mcp_client_ip = "198.51.100.23"
+
+        self.assertEqual(client_attribution_properties(request, user)["$ip"], "198.51.100.23")
+
+    def test_client_attribution_saves_a_login_session_that_has_no_key_yet(self):
+        user = self._make_user()
+        request = RequestFactory().get("/")
+        request.session = self.engine.SessionStore()
+        request.session[SESSION_KEY] = str(user.pk)
+
+        properties = client_attribution_properties(request, user)
+
+        key = request.session.session_key
+        assert key
+        self.assertTrue(Session.objects.filter(session_key=key).exists())
+        self.assertEqual(properties["session_public_id"], str(session_public_id(key)))
 
     def test_list_returns_only_the_users_live_sessions(self):
         user = self._make_user()

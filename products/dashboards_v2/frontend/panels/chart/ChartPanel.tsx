@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { Suspense, useContext, useMemo } from 'react'
 
-import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import { FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
 import { useQueryFrames } from '../../query/useQueryFrames'
+import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading, PanelMessage } from '../core/PanelView'
 import { type ChartConfig, chartTargets, hasNoOwnRange } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './data/targetResults'
