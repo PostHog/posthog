@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { IntegrationType, LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
@@ -110,9 +111,9 @@ export function LinkedInAdsAccountIdPicker({
     integration,
     disabled,
 }: LinkedInAdsPickerProps): JSX.Element {
-    // integration_field inputs are not type-checked on save, so an API or MCP client can store this ID as a number.
+    // A stored config can hold this ID as a number, and the options are keyed by strings.
     const value = savedValue == null ? savedValue : String(savedValue)
-    const { linkedInAdsAccounts, linkedInAdsAccountsLoading } = useValues(
+    const { linkedInAdsAccounts, linkedInAdsAccountsLoading, linkedInAdsAccountsError } = useValues(
         linkedInAdsIntegrationLogic({ id: integration.id })
     )
     const { loadLinkedInAdsAccounts } = useActions(linkedInAdsIntegrationLogic({ id: integration.id }))
@@ -129,7 +130,7 @@ export function LinkedInAdsAccountIdPicker({
     })
 
     return (
-        <>
+        <LemonField.Pure error={linkedInAdsAccountsError}>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
                 value={value ? [value] : []}
@@ -151,6 +152,6 @@ export function LinkedInAdsAccountIdPicker({
                 }
                 loading={linkedInAdsAccountsLoading}
             />
-        </>
+        </LemonField.Pure>
     )
 }

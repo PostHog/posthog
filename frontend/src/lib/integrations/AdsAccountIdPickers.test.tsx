@@ -43,6 +43,25 @@ describe('ads account ID pickers', () => {
         expect(screen.getByText(label)).toBeInTheDocument()
     })
 
+    test('LinkedIn Ads picker shows why the account list failed to load', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/linkedin_ads_accounts': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', detail: 'LinkedIn is unavailable.' },
+                ],
+            },
+        })
+
+        render(
+            <Provider>
+                <LinkedInAdsAccountIdPicker integration={INTEGRATION} />
+            </Provider>
+        )
+
+        expect(await screen.findByText('LinkedIn is unavailable.')).toBeInTheDocument()
+    })
+
     test('Google Ads conversion action picker loads actions for a numeric saved customer ID', async () => {
         const requestedCustomerIds: (string | null)[] = []
         useMocks({

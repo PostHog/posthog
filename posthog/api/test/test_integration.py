@@ -9043,6 +9043,44 @@ class TestOauthTokenRefreshFailedResponse(APIBaseTest):
         assert response.json()["code"] == "integration_token_refresh_failed"
 
 
+@patch("posthog.models.integration.linkedin_ads.requests.request")
+class TestLinkedInAdsAccounts(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("without_elements", 200, {"paging": {"start": 0}}, 200, {"adAccounts": []}),
+            (
+                "rate_limited",
+                429,
+                {"status": 429, "message": "Resource level throttle limit reached"},
+                400,
+                {"detail": "LinkedIn didn't return your ad accounts. Try again in a few minutes."},
+            ),
+        ]
+    )
+    def test_lists_ad_accounts_from_an_unexpected_linkedin_response(
+        self,
+        mock_request: MagicMock,
+        _name: str,
+        linkedin_status: int,
+        linkedin_body: dict,
+        expected_status: int,
+        expected_body: dict,
+    ) -> None:
+        mock_request.return_value = MagicMock(status_code=linkedin_status, json=MagicMock(return_value=linkedin_body))
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="linkedin-ads",
+            integration_id="linkedin-ads-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/integrations/{integration.id}/linkedin_ads_accounts/")
+
+        assert response.status_code == expected_status
+        assert response.json().items() >= expected_body.items()
+
+
 @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
 @patch("tenacity.nap.time.sleep")
 @patch("posthog.models.integration.google_ads.requests.request")

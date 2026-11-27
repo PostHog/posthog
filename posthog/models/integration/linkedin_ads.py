@@ -73,4 +73,11 @@ class LinkedInAdsIntegration:
         )
 
         self._check_auth_error(response, "listing ad accounts")
+        if response.status_code != 200:
+            logger.warning(
+                "LinkedInAdsIntegration: Error listing ad accounts",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            raise ValidationError("LinkedIn didn't return your ad accounts. Try again in a few minutes.")
         return response.json()
