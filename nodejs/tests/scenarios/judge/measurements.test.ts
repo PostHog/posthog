@@ -233,6 +233,17 @@ describe('measurements', () => {
             ],
         ],
         [
+            'a role killed by another valve during its grace',
+            [{ exitedAt: at(7000), signal: 'SIGKILL' }],
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'cdp-cyclotron-worker-email died of a SIGKILL its terminate did not send',
+                },
+            ],
+        ],
+        [
             'a role whose exit never arrived',
             [{}],
             [{ value: null, censored: true, unmeasured: 'cdp-cyclotron-worker-email did not exit' }],
@@ -323,6 +334,19 @@ describe('measurements', () => {
                 },
             ],
             { converged: false },
+        ],
+        [
+            'leaves the count unmeasured when the final truth read failed after the run converged',
+            resent,
+            [
+                {
+                    key: 'total',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the truth could not be read: the edge did not answer',
+                },
+            ],
+            { unread: 'the edge did not answer' },
         ],
     ])('resent_invocations %s', (_story, truth, measured, overrides) => {
         expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth, ...overrides }))).toEqual(
