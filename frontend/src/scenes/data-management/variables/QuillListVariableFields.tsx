@@ -3,7 +3,7 @@ import { useId } from 'react'
 
 import { Field, FieldLabel, Switch, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
-import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
+import { QuillSortableChipInput } from 'lib/components/QuillSortableChipInput/QuillSortableChipInput'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { getListVariableValues } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
@@ -77,13 +77,11 @@ export function QuillListVariableFields({ variable, updateVariable }: QuillListV
             ) : (
                 <Field>
                     <FieldLabel htmlFor={`${id}-options`}>Options</FieldLabel>
-                    <TagsCombobox
+                    <QuillSortableChipInput
                         id={`${id}-options`}
                         value={getListVariableValues(variable)}
                         onChange={(values) => updateVariable({ ...variable, values })}
                         placeholder="Options..."
-                        customValueNoun="option"
-                        commitOnBlur
                     />
                 </Field>
             )}

@@ -90,6 +90,25 @@ export const SqlVariableEditQuillList: Story = {
         // The static options and the multi-select default both render as chips.
         await expect(canvas.getAllByText('starter').length).toBeGreaterThan(0)
         await expect(canvas.getByRole('switch', { name: 'Allow multiple selections' })).toBeChecked()
+
+        const dragHandleOrder = (): string[] =>
+            canvas.getAllByRole('button', { name: /^Drag .+ to reorder$/ }).map((el) => el.getAttribute('aria-label')!)
+        await expect(dragHandleOrder()).toEqual([
+            'Drag free to reorder',
+            'Drag starter to reorder',
+            'Drag scale to reorder',
+        ])
+        canvas.getByRole('button', { name: 'Drag free to reorder' }).focus()
+        await userEvent.keyboard(' ')
+        await userEvent.keyboard('{ArrowRight}')
+        await userEvent.keyboard(' ')
+        await waitFor(() =>
+            expect(dragHandleOrder()).toEqual([
+                'Drag starter to reorder',
+                'Drag free to reorder',
+                'Drag scale to reorder',
+            ])
+        )
     },
 }
 
