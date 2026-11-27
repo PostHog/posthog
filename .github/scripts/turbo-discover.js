@@ -1596,9 +1596,9 @@ function narrowedJsonTargetsShards(paths, durations) {
 
 // The run identity the selection telemetry event carries, from the runner's own env.
 function runContext() {
-    let prNumber = null
+    let pullRequest = null
     try {
-        prNumber = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request?.number ?? null
+        pullRequest = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request ?? null
     } catch {
         // Not a GitHub run, or no event payload: the fields stay null.
     }
@@ -1606,7 +1606,9 @@ function runContext() {
         event_type: process.env.GITHUB_EVENT_NAME ?? null,
         branch: process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
         sha: process.env.GITHUB_SHA ?? null,
-        pr_number: prNumber,
+        pr_number: pullRequest?.number ?? null,
+        pr_draft: pullRequest?.draft ?? null,
+        merge_queue: (process.env.GITHUB_HEAD_REF ?? '').startsWith('trunk-merge/'),
         run_id: process.env.GITHUB_RUN_ID ?? null,
     }
 }
@@ -1731,6 +1733,7 @@ function buildMatrix(products, durations, productsScaled = false) {
 
 // Exported for unit tests.
 module.exports = {
+    runContext,
     narrowedProducts,
     decideSelection,
     decideSelectionWithShadow,
