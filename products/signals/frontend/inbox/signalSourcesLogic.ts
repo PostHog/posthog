@@ -24,6 +24,10 @@ import {
     TeamType,
 } from '~/types'
 
+import {
+    defaultPollingSyncSettings,
+    type PollingSyncSettings,
+} from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
     engineeringAnalyticsCiSignalsConfigRetrieve,
@@ -36,6 +40,7 @@ import { visionScannersList, visionScannersPartialUpdate } from 'products/replay
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
+import type { IncrementalFieldTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from '../generated/api'
 import type {
@@ -2071,13 +2076,53 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 (schema) => !schema.should_sync || (fullRefresh && schema.sync_type !== 'full_refresh')
             )
             await Promise.all(
-                schemas.map((schema: ExternalDataSourceSchema) =>
-                    externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentProjectId()), schema.id, {
+                schemas.map(async (schema: ExternalDataSourceSchema) => {
+                    const syncSettings: PollingSyncSettings | null = fullRefresh
+                        ? { sync_type: 'full_refresh' }
+                        : schema.sync_type
+                          ? null
+                          : await defaultSyncSettings(schema, dwSourceType)
+                    await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentProjectId()), schema.id, {
                         should_sync: true,
-                        ...(fullRefresh ? { sync_type: 'full_refresh' } : {}),
+                        ...(syncSettings
+                            ? {
+                                  ...syncSettings,
+                                  incremental_field_type: syncSettings.incremental_field_type as
+                                      | IncrementalFieldTypeEnumApi
+                                      | undefined,
+                              }
+                            : {}),
                     })
-                )
+                })
             )
+        }
+
+        // A table left out when the source was connected has no sync type, and the API refuses to
+        // turn on a table without one. Pick the same default the new-source wizard picks. When the
+        // table's fields can't be read, full refresh needs no cursor, so it is always accepted.
+        async function defaultSyncSettings(
+            schema: ExternalDataSourceSchema,
+            dwSourceType: string
+        ): Promise<PollingSyncSettings> {
+            try {
+                const fields = await api.externalDataSchemas.incremental_fields(schema.id)
+                return defaultPollingSyncSettings(
+                    {
+                        ...fields,
+                        table: schema.name,
+                        should_sync: true,
+                        should_sync_default: true,
+                        sync_time_of_day: null,
+                        sync_type: null,
+                        incremental_field: null,
+                        incremental_field_type: null,
+                        primary_key_columns: schema.primary_key_columns,
+                    },
+                    dwSourceType
+                )
+            } catch {
+                return { sync_type: 'full_refresh' }
+            }
         }
 
         function failSignalSourceToggle(
@@ -2181,7 +2226,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
                     downstreamToggleStarted = true
                 } catch (error: any) {
-                    lemonToast.error(error?.detail || error?.message || completion.enableErrorMessage)
+                    failSignalSourceToggle(
+                        completion.sourceProduct,
+                        completion.sourceType as SignalSourceType,
+                        desiredEnabled,
+                        error?.detail || error?.message || completion.enableErrorMessage,
+                        'request_failed'
+                    )
                 } finally {
                     if (!downstreamToggleStarted) {
                         actions.completeDataWarehouseSourceToggle(source)

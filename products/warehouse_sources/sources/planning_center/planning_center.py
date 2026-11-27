@@ -16,12 +16,14 @@ from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     ClientConfig,
     Endpoint,
+    EndpointResource,
     IncrementalConfig,
     OffsetPaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
@@ -196,7 +198,9 @@ def _client_config(application_id: str, secret: str, product: str) -> ClientConf
     }
 
 
-def _source_response(config: PlanningCenterEndpointConfig, resource: Any, use_incremental: bool) -> SourceResponse:
+def _source_response(
+    config: PlanningCenterEndpointConfig, resource: Any, use_incremental: bool, supports_resume: bool = True
+) -> SourceResponse:
     # Rows arrive in ascending `updated_at` order only on an incremental read of a top-level endpoint
     # that sorts on `updated_at`. A fan-out restarts the order for each parent.
     ordered = use_incremental and config.orders_by_updated_at and config.fanout is None
@@ -210,6 +214,7 @@ def _source_response(config: PlanningCenterEndpointConfig, resource: Any, use_in
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         sort_mode="asc" if ordered else None,
+        supports_resume=supports_resume,
     )
 
 
@@ -315,9 +320,78 @@ def _fanout_source(
             initial_paginator_state=initial_paginator_state,
         ),
     )
-    # Added after the helper renames the parent id, so `service_type_id` is already on the row.
+    # Added after the helper renames the parent id, so the parent id is already on the row.
     resource.add_map(flatten_resource)
     return _source_response(config, resource, use_incremental)
+
+
+def _chained_source(
+    application_id: str,
+    secret: str,
+    config: PlanningCenterEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    chained = config.chained_fanout
+    assert chained is not None
+    middle_config = PLANNING_CENTER_ENDPOINTS[chained.parent_name]
+    root_fanout = middle_config.fanout
+    if root_fanout is None:
+        raise ValueError(f"'{chained.parent_name}' is not a fan-out endpoint")
+    root_config = PLANNING_CENTER_ENDPOINTS[root_fanout.parent_name]
+
+    def _resource(
+        endpoint_config: PlanningCenterEndpointConfig,
+        params: dict[str, Any],
+        include_from_parent: Optional[list[str]] = None,
+        ignore_not_found: bool = False,
+    ) -> EndpointResource:
+        endpoint: Endpoint = {
+            "path": endpoint_config.path,
+            "params": {**params, **_order_param(endpoint_config, use_incremental=False)},
+            "data_selector": "data",
+            "paginator": _paginator(),
+        }
+        if ignore_not_found:
+            endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+        resource: EndpointResource = {
+            "name": endpoint_config.name,
+            "table_name": endpoint_config.name,
+            "write_disposition": "replace",
+            "endpoint": endpoint,
+            "table_format": "delta",
+        }
+        if include_from_parent:
+            resource["include_from_parent"] = include_from_parent
+        return resource
+
+    middle_params = {
+        root_fanout.resolve_param: {"type": "resolve", "resource": root_config.name, "field": root_fanout.resolve_field}
+    }
+    child_params = {
+        param: {"type": "resolve", "resource": middle_config.name, "field": field_name}
+        for param, field_name in chained.resolve_fields.items()
+    }
+    resource = cast(
+        Resource,
+        build_chained_resource(
+            resources=[
+                _resource(root_config, {}),
+                _resource(middle_config, middle_params, root_fanout.include_from_parent),
+                # A plan deleted between its plans page and this fetch must not fail the run.
+                _resource(config, child_params, chained.include_from_parent, ignore_not_found=True),
+            ],
+            child_name=config.name,
+            parent_name=middle_config.name,
+            parent_field_renames=chained.parent_field_renames,
+            client_config=_client_config(application_id, secret, config.product),
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+    resource.add_map(flatten_resource)
+    # A chain of two fan-outs saves no checkpoint, so a shutdown restarts the walk.
+    return _source_response(config, resource, use_incremental=False, supports_resume=False)
 
 
 def planning_center_source(
@@ -331,6 +405,8 @@ def planning_center_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PLANNING_CENTER_ENDPOINTS[endpoint]
+    if config.chained_fanout is not None:
+        return _chained_source(application_id, secret, config, team_id, job_id)
     use_incremental = should_use_incremental_field and config.incremental
     build = _fanout_source if config.fanout is not None else _top_level_source
     return build(
@@ -358,7 +434,8 @@ def probe_status(application_id: str, secret: str, path: str, product: str) -> O
 
 def probe_endpoint_status(application_id: str, secret: str, endpoint: str) -> Optional[int]:
     config = PLANNING_CENTER_ENDPOINTS[endpoint]
-    # A fan-out child path holds an unbound parent id, so probe the parent list, which needs the same access.
-    if config.fanout is not None:
-        config = PLANNING_CENTER_ENDPOINTS[config.fanout.parent_name]
+    # A fan-out child path holds an unbound parent id, so probe the top-level ancestor list, which
+    # needs the same access.
+    while (parent := config.fanout or config.chained_fanout) is not None:
+        config = PLANNING_CENTER_ENDPOINTS[parent.parent_name]
     return probe_status(application_id, secret, config.path, config.product)

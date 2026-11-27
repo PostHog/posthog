@@ -3232,6 +3232,42 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
+const ScoutSendMessageSchema = () => {
+    const SignalsScoutSendMessageBody = orvalSchemas.SignalsScoutSendMessageBody()
+    const SignalsScoutSendMessageParams = orvalSchemas.SignalsScoutSendMessageParams()
+    return SignalsScoutSendMessageParams.omit({ project_id: true }).extend(SignalsScoutSendMessageBody.shape)
+}
+
+const scoutSendMessage = (): ToolBase<ReturnType<typeof ScoutSendMessageSchema>, Schemas.SendScoutMessageResponse> => ({
+    name: 'scout-send-message',
+    schema: ScoutSendMessageSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutSendMessageSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.route !== undefined) {
+            body['route'] = params.route
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.dedupe_key !== undefined) {
+            body['dedupe_key'] = params.dedupe_key
+        }
+        const result = await context.api.request<Schemas.SendScoutMessageResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/send_message/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutTrialArchiveSchema = () => {
     const SignalsScoutConfigTrialComparisonArchiveBody = orvalSchemas.SignalsScoutConfigTrialComparisonArchiveBody()
     const SignalsScoutConfigTrialComparisonArchiveParams = orvalSchemas.SignalsScoutConfigTrialComparisonArchiveParams()
@@ -4427,6 +4463,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
+    'scout-send-message': scoutSendMessage,
     'scout-trial-archive': scoutTrialArchive,
     'scout-trial-create': scoutTrialCreate,
     'scout-trial-get': scoutTrialGet,

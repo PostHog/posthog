@@ -75,10 +75,17 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
         },
+        WorkflowsAdventCalendar: {
+            import: () => import('./frontend/AdventCalendar/AdventCalendarScene'),
+            name: 'Advent calendar',
+            iconType: 'workflows',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
+        '/workflows/advent': ['WorkflowsAdventCalendar', 'workflowsAdventCalendar'],
         '/workflows/:tab': ['Workflows', 'workflows'],
         '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -136,6 +143,7 @@ export const manifest: ProductManifest = {
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
         workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
+        workflowsAdventCalendar: (): string => '/workflows/advent',
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
         workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',

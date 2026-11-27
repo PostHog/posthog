@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -27,6 +27,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.constants import AvailableFeature
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReference
 from posthog.models import OrganizationMembership, Team
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
@@ -2107,6 +2108,68 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         assert schema.should_sync is True
 
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_to_xmin_discovers_every_table_in_one_call_outside_transaction(
+        self, _mock_workflow_exists
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+            SourceSchema as _SourceSchema,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schemas = {
+            name: ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=False,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                sync_type_config={"primary_key_columns": ["id"]},
+            )
+            for name in ("orders", "users", "orders_view")
+        }
+
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        discovery_calls: list[tuple[list[str], int]] = []
+
+        def discover(_config, _team_id, names=None, api_version=None):
+            discovery_calls.append((sorted(names or []), len(connection.savepoint_ids)))
+            return [
+                _SourceSchema(
+                    name=name,
+                    supports_incremental=False,
+                    supports_append=False,
+                    supports_xmin=name != "orders_view",
+                )
+                for name in names or []
+            ]
+
+        with patch.object(PostgresSource, "get_schemas", side_effect=discover):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "sync_type": "xmin"} for schema in schemas.values()]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        detail = response.json()["detail"]
+        assert "orders_view (xmin replication is not available" in detail
+        assert discovery_calls == [(["orders", "orders_view", "users"], baseline_savepoint_depth)]
+        for name, schema in schemas.items():
+            schema.refresh_from_db()
+            expected = (
+                ExternalDataSchema.SyncType.FULL_REFRESH if name == "orders_view" else ExternalDataSchema.SyncType.XMIN
+            )
+            assert schema.sync_type == expected, name
+
     @parameterized.expand(
         [
             (
@@ -4098,7 +4161,13 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
+        other_source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
+        other_user = User.objects.create_user(email="other@example.com", first_name="Sam", password="test")
+        for user, ref in [(self.user, source.pk), (other_user, source.pk), (self.user, other_source.pk)]:
+            FileSystemShortcut.objects.create(
+                team=self.team, user=user, path="Stripe", type="data_source", ref=str(ref)
+            )
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
@@ -4106,6 +4175,9 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert list(
+            FileSystemShortcut.objects.filter(team=self.team, type="data_source").values_list("ref", flat=True)
+        ) == [str(other_source.pk)]
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.delete_discover_schemas_schedule"
@@ -11626,6 +11698,123 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         # Unrelated table NOT deleted
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
+
+    def _create_source_mid_first_sync(self) -> tuple[ExternalDataSource, ExternalDataSchema, DataWarehouseTable]:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        # A first sync creates the table before it links the schema to it.
+        schema = ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source_id=source.pk)
+        unlinked_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        return source, schema, unlinked_table
+
+    def test_destroy_locks_tables_before_schemas(self):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        statements = [query["sql"] for query in queries.captured_queries]
+
+        def first_index(predicate: t.Callable[[str], bool]) -> int:
+            return next((i for i, sql in enumerate(statements) if predicate(sql)), len(statements))
+
+        table_lock = first_index(lambda sql: "FOR UPDATE" in sql and 'FROM "posthog_datawarehousetable"' in sql)
+        schema_write = first_index(
+            lambda sql: (
+                sql.startswith('UPDATE "posthog_externaldataschema"')
+                or ("FOR UPDATE" in sql and 'FROM "posthog_externaldataschema"' in sql)
+            )
+        )
+        # The sync locks the table and then writes the schema row, so the other order deadlocks.
+        assert table_lock < schema_write
+
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        assert schema.deleted is True
+        assert unlinked_table.deleted is True
+
+    def test_destroy_cleans_up_a_table_the_sync_linked_while_destroy_waited(self):
+        source, schema, synced_table = self._create_source_mid_first_sync()
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=synced_table.name,
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="persons",
+        )
+        real_assert_can_write_schemas = ExternalDataSourceViewSet._assert_can_write_schemas
+        checks = 0
+
+        def link_table_after_destroy_read_schemas(viewset: Any, schemas: Any) -> None:
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                ExternalDataSchema.objects.filter(pk=schema.pk).update(table=synced_table)
+            real_assert_can_write_schemas(viewset, schemas)
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            autospec=True,
+            side_effect=link_table_after_destroy_read_schemas,
+        ):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        schema.refresh_from_db()
+        synced_table.refresh_from_db()
+        join.refresh_from_db()
+        assert (schema.deleted, schema.table_id) == (True, None)
+        assert synced_table.deleted is True
+        assert synced_table.deleted_at is not None
+        assert join.deleted is True
+
+    @parameterized.expand(
+        [
+            ("deadlock_once_is_retried", psycopg.errors.DeadlockDetected, 1, 204),
+            ("deadlock_twice_fails", psycopg.errors.DeadlockDetected, 2, 500),
+            ("other_operational_error_is_not_retried", psycopg.errors.LockNotAvailable, 1, 500),
+        ]
+    )
+    def test_destroy_retries_once_on_deadlock(
+        self, _name: str, cause: type[psycopg.Error], failures: int, expected_status: int
+    ):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+        real_soft_delete = ExternalDataSource.soft_delete
+        attempts = 0
+
+        def soft_delete_hitting_lock_error(source_instance: ExternalDataSource) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= failures:
+                raise OperationalError("lock error") from cause("lock error")
+            real_soft_delete(source_instance)
+
+        self.client.raise_request_exception = False
+        with patch.object(ExternalDataSource, "soft_delete", autospec=True, side_effect=soft_delete_hitting_lock_error):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == expected_status
+        source.refresh_from_db()
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        expect_deleted = expected_status == 204
+        assert (source.deleted, schema.deleted, unlinked_table.deleted) == (expect_deleted,) * 3
 
 
 class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):

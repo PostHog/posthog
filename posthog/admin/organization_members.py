@@ -1,3 +1,4 @@
+from django.db.models import QuerySet
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 
@@ -6,12 +7,17 @@ from posthog.models.organization import OrganizationMembership
 MEMBERS_SHOWN = 100
 
 
-def organization_members_table(organization_id) -> str:
-    memberships = (
+def organization_memberships(organization_id) -> QuerySet[OrganizationMembership]:
+    """Owners first, then admins, then members, each by email. Django admin and PostHog Admin list members this way."""
+    return (
         OrganizationMembership.objects.filter(organization_id=organization_id)
         .select_related("user")
         .order_by("-level", "user__email")
     )
+
+
+def organization_members_table(organization_id) -> str:
+    memberships = organization_memberships(organization_id)
     total = memberships.count()
     if not total:
         return "-"

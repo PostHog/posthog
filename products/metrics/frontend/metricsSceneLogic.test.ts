@@ -340,6 +340,12 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
             expect(metricsViewerLogic.values.language).toEqual('sql')
             expect(metricsViewerLogic.values.queryText).toEqual('SELECT 1')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { activeTab: 'sql' })
+            }).toFinishAllListeners()
+            expect(logic.values.activeTab).toEqual('viewer')
+            expect(metricsViewerLogic.values.language).toEqual('sql')
         })
 
         // The two URL encodings must never disagree: multi-series/formula state writes
@@ -398,10 +404,10 @@ describe('metricsSceneLogic', () => {
         it('keeps viewer params in the URL when switching tabs', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setMetricName('requests_total')
-                logic.actions.setActiveTab('sql')
+                logic.actions.setActiveTab('alerts')
             }).toFinishAllListeners()
 
-            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'sql' })
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'alerts' })
         })
 
         it('does not write metrics params onto another scene URL', async () => {

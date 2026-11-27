@@ -45,6 +45,7 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.facade import experiment_validation
+from products.experiments.backend.facade.api import RECALCULATION_REQUEST_TRIGGER_CHOICES, RECALCULATION_STATUS_CHOICES
 from products.experiments.backend.facade.contracts import (
     DEFAULT_LIST_LIMIT,
     FIRST_SESSION_HORIZON_HOURS,
@@ -88,7 +89,6 @@ from products.experiments.backend.facade.enums import (
     MetricSourceRole,
 )
 from products.experiments.backend.facade.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.models.experiment import ExperimentMetricsRecalculation
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -642,13 +642,6 @@ class _ExperimentHoldoutViewSerializer(ExperimentHoldoutSerializer):
     user_access_level = _ObjectAccessLevelField("experiment_holdout")
 
 
-class _FeatureFlagKeyField(serializers.CharField):
-    # The experiment service reads the key from the validated data under the source name, `get_feature_flag_key`.
-    # A read renders a contract, which holds the key as `feature_flag_key`.
-    def get_attribute(self, instance: ExperimentBasic) -> str:
-        return instance.feature_flag_key
-
-
 class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """Shared read-side fields for the full and list experiment serializers.
 
@@ -664,8 +657,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
     id = serializers.IntegerField(label="ID", read_only=True)
     start_date = serializers.DateTimeField(required=False, allow_null=True)
     end_date = serializers.DateTimeField(required=False, allow_null=True)
-    feature_flag_key = _FeatureFlagKeyField(
-        source="get_feature_flag_key",
+    feature_flag_key = serializers.CharField(
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
             "Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
@@ -801,14 +793,6 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Ser
     @extend_schema_field(serializers.BooleanField())
     def get_is_legacy(self, experiment: ExperimentBasic) -> bool:
         return experiment.is_legacy
-
-
-# The validated data names these fields by the sources of the serializer fields, or by the key that `validate()` sets.
-_UPDATE_FIELD_NAMES = {
-    "get_feature_flag_key": "feature_flag_key",
-    "_create_in_folder": "create_in_folder",
-    "feature_flag": "feature_flag_config",
-}
 
 
 def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
@@ -988,7 +972,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "this object, any version mismatch — fail with HTTP 409."
         ),
     )
-    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # The request field has the name that the other PostHog APIs use. The contracts name it `create_in_folder`.
+    _create_in_folder = serializers.CharField(
+        source="create_in_folder", required=False, allow_blank=True, write_only=True
+    )
     feature_flag_rule_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -1106,7 +1093,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return self._normalize_feature_flag_input(data)
 
     def _normalize_feature_flag_input(self, data: dict) -> dict:
-        """Validate the ``feature_flag`` config object and stash it under ``data["feature_flag"]`` for
+        """Validate the ``feature_flag`` config object and stash it under ``data["feature_flag_config"]`` for
         the service to consume in the flag's own write shape (``{filters, ensure_experience_continuity}``).
 
         Read from ``initial_data`` because the serializer's ``feature_flag`` field is read-only output
@@ -1133,7 +1120,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         if self.instance is None:
             # The service links an existing flag as-is (it may already serve traffic), so explicit
             # config here would be applied nowhere — reject instead of silently dropping it.
-            flag_key = data.get("get_feature_flag_key")
+            flag_key = data.get("feature_flag_key")
             if flag_key and FeatureFlag.objects.filter(key=flag_key, team_id=self.context["team_id"]).exists():
                 raise serializers.ValidationError(
                     {
@@ -1160,7 +1147,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         config_serializer.is_valid(raise_exception=True)
         config = dict(config_serializer.validated_data)
         self._assert_flag_variants_valid(config)
-        data["feature_flag"] = config
+        data["feature_flag_config"] = config
         return data
 
     def validate_parameters(self, value):
@@ -1270,11 +1257,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         ignored_fields = {"update_feature_flag_params", "tags", "version", "original_experiment"}
         expected_fields = {
             "name",
-            "get_feature_flag_key",
+            "feature_flag_key",
             "description",
             "type",
             "parameters",
-            "feature_flag",
+            "feature_flag_config",
             "running_time_calculation",
             "excluded_variants",
             "metrics",
@@ -1296,7 +1283,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "holdout_id",
             "filters",
             "scheduling_config",
-            "_create_in_folder",
+            "create_in_folder",
             "allow_unknown_events",
             "feature_flag_rule_id",
         }
@@ -1310,11 +1297,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         return CreateExperimentInput(
             name=self.validated_data["name"],
-            feature_flag_key=self.validated_data["get_feature_flag_key"],
+            feature_flag_key=self.validated_data["feature_flag_key"],
             description=self.validated_data.get("description", ""),
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
-            feature_flag_config=self.validated_data.get("feature_flag"),
+            feature_flag_config=self.validated_data.get("feature_flag_config"),
             running_time_calculation=self.validated_data.get("running_time_calculation"),
             excluded_variants=self.validated_data.get("excluded_variants"),
             metrics=self.validated_data.get("metrics"),
@@ -1336,7 +1323,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             holdout_id=self.validated_data.get("holdout_id"),
             filters=self.validated_data.get("filters"),
             scheduling_config=self.validated_data.get("scheduling_config"),
-            create_in_folder=self.validated_data.get("_create_in_folder"),
+            create_in_folder=self.validated_data.get("create_in_folder"),
             allow_unknown_events=self.validated_data.get("allow_unknown_events", False),
             serializer_context=self.context,
             feature_flag_rule_id=self.validated_data.get("feature_flag_rule_id"),
@@ -1344,10 +1331,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def to_update(self) -> ExperimentUpdate:
         """The validated request data of an update, as the facade takes it."""
-        values = {_UPDATE_FIELD_NAMES.get(key, key): value for key, value in self.validated_data.items()}
         return ExperimentUpdate(
-            fields_set=frozenset(values),
-            **values,
+            fields_set=frozenset(self.validated_data),
+            **self.validated_data,
             deprecated_flag_config_changed=getattr(self, "_deprecated_flag_config_changed", False),
         )
 
@@ -1868,7 +1854,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
+        choices=RECALCULATION_REQUEST_TRIGGER_CHOICES,
         required=False,
         default="manual",
         help_text=(
@@ -1883,7 +1869,7 @@ class ActiveRecalculationRunSerializer(serializers.Serializer):
 
     id = serializers.UUIDField(read_only=True, help_text="Identifier of the run that is still executing")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Status of the executing run (pending or in_progress)",
     )
@@ -1899,7 +1885,7 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
     experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
     status = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Status.choices,
+        choices=RECALCULATION_STATUS_CHOICES,
         read_only=True,
         help_text="Current status of the recalculation job",
     )

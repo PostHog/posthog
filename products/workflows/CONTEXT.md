@@ -82,6 +82,18 @@ _Avoid_: Library
 Broadcasts, transactional emails and workflows have no umbrella noun.
 _Avoid_: Sends, Campaigns
 
+### Calls to action in other products
+
+**Placement**:
+One spot in another product's page, or in the MCP, where a call to action to message people can show.
+Its key, such as `mcp.after_cohorts_create`, never changes once it ships.
+Each product area has one flag, and the flag's variant decides which of the area's placements an organization sees.
+_Avoid_: Slot, which names the code that hosts plug placements into
+
+**Attempt**:
+One showing of a call to action, with an ID made when it first shows.
+Every click from that showing reuses the ID, and the workflow or broadcast saved from it keeps it.
+
 ### Setup
 
 **Channel**:

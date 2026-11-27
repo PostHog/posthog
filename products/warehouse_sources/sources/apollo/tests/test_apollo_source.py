@@ -18,6 +18,23 @@ class TestApolloSource:
         assert any(key in observed_error for key in retryable_errors)
 
     @pytest.mark.parametrize(
+        "table, expected_incremental_fields",
+        [
+            ("contacts", ["updated_at"]),
+            ("accounts", []),
+            ("opportunities", []),
+        ],
+    )
+    def test_incremental_sync_is_offered_only_where_rows_carry_the_cursor(
+        self, table: str, expected_incremental_fields: list[str]
+    ) -> None:
+        [schema] = self.source.get_schemas(self.config, self.team_id, names=[table])
+
+        assert schema.supports_incremental is bool(expected_incremental_fields)
+        assert schema.supports_append is bool(expected_incremental_fields)
+        assert [f["field"] for f in schema.incremental_fields] == expected_incremental_fields
+
+    @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),

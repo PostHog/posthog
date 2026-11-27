@@ -1,14 +1,6 @@
 from contextvars import ContextVar
 from typing import TypedDict
 
-from django.db.models import TextChoices
-
-
-class DashboardSharingOutcome(TextChoices):
-    SHARED = "shared", "Shared"
-    SEPARATE = "separate", "Separate"
-    FALLBACK = "fallback", "Shared attempt failed"
-
 
 class SharingExecutionDebug(TypedDict):
     outcome: str
