@@ -68,6 +68,7 @@ test('a full run counts as passed only when its gate check succeeded and no queu
             false,
             true,
         ],
+        ['a failed queue attempt with no pass', { queue: queueEntry('FAILED', '2026-11-10T11:00:00Z') }, false, true],
         [
             'a failed queue attempt before a later pass',
             {

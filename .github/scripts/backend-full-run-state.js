@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 
-// Whether a full Backend CI run already passed on this pull request. turbo-discover then lets
-// later pushes run the selected subset instead of the full matrices.
+// Whether a full Backend CI run already passed on this pull request, and whether a failed merge
+// queue attempt asks for one. turbo-discover lets later pushes run the selected subset instead of
+// the full matrices after a pass, and runs a product cascade in full after a queue kick.
 //
 // A pass is the gate's Test results check, posted by GATE_APP_ID and concluded success with
 // FULL_RUN_EXTERNAL_ID, on any head the pull request has had: its current commits, plus the heads
 // that force-pushes replaced. Any other app can post a check with the same name and external id.
 // The check lives on a commit, not on the branch, so a rebase or a master merge keeps it.
 //
-// A failed Trunk merge queue attempt after the newest pass re-arms full runs, until the next full
-// run passes. Trunk's API reports only the pull request's current queue state and when it changed,
-// so a pull request that was enqueued again since its failure no longer shows the failure. The
-// merge queue still runs the full matrices, so a missed re-arm defers a failure to the queue.
+// A failed Trunk merge queue attempt after the newest pass, or with no pass at all, re-arms full
+// runs until the next full run passes. A pull request whose product cascades never run in full
+// has no pass, so the failure alone must re-arm, or the developer could not reproduce the queue
+// failure on the pull request. Trunk's API reports only the pull request's current queue state and
+// when it changed, so a pull request that was enqueued again since its failure no longer shows the
+// failure. The merge queue still runs the full matrices, so a missed re-arm defers a failure to
+// the queue.
 //
 // Input:  GH_TOKEN, TRUNK_API_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, BASE_REF
 // Output: key=value lines for GITHUB_OUTPUT on stdout. A failed read exits non-zero and prints
@@ -78,7 +82,7 @@ function fullRunState(pullRequest, queueEntry) {
     const queueFailedAt = FAILED_QUEUE_STATE.test(queueEntry?.state ?? '')
         ? newest([queueEntry.stateChangedAt ?? ''])
         : null
-    const rearmedByQueueKick = lastFullPassAt !== null && queueFailedAt !== null && queueFailedAt > lastFullPassAt
+    const rearmedByQueueKick = queueFailedAt !== null && (lastFullPassAt === null || queueFailedAt > lastFullPassAt)
     return { passed: lastFullPassAt !== null && !rearmedByQueueKick, rearmedByQueueKick }
 }
 
