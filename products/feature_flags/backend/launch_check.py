@@ -91,11 +91,27 @@ class _Side:
     def group_catch_all(self) -> int | None:
         return self._first_open_condition(for_persons=False)
 
+    def _reachable(self, conditions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        ended_group_types: set[int] = set()
+        reachable: list[Mapping[str, Any]] = []
+        for condition in conditions:
+            group_type = condition_aggregation(condition, self.flag_aggregation)
+            if group_type in ended_group_types:
+                continue
+            reachable.append(condition)
+            if not condition.get("properties") and (condition_rollout_percentage(condition) >= 100 or self.early_exit):
+                if group_type is None:
+                    break
+                ended_group_types.add(group_type)
+        return reachable
+
     def gives_false_ahead_of(self, index: int | None) -> bool:
         return (
             index is not None
             and self.early_exit
-            and any(condition_rollout_percentage(condition) < 100 for condition in self.conditions[:index])
+            and any(
+                condition_rollout_percentage(condition) < 100 for condition in self._reachable(self.conditions[:index])
+            )
         )
 
     def reaches_everyone(self) -> bool:
@@ -120,10 +136,9 @@ class _Side:
         )
 
     def is_staged(self) -> bool:
-        catch_all = self.person_catch_all
-        reachable = self.conditions if catch_all is None else self.conditions[: catch_all + 1]
         return self.has_enrollment or any(
-            condition.get("properties") or condition_rollout_percentage(condition) < 100 for condition in reachable
+            condition.get("properties") or condition_rollout_percentage(condition) < 100
+            for condition in self._reachable(self.conditions)
         )
 
 

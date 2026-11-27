@@ -165,6 +165,18 @@ class TestCheckLaunch(TestCase):
                 _not_qualified(LaunchReason.EARLY_EXIT, ReleasePath.CONDITIONS),
             ),
             (
+                "re_enabled_flag_with_partial_group_condition_shadowed",
+                _flag(_condition(100, aggregation=0), _condition(50, aggregation=0), _condition(100), active=False),
+                _flag(_condition(100, aggregation=0), _condition(50, aggregation=0), _condition(100)),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.ENABLED),
+            ),
+            (
+                "shadowed_zero_group_condition_ahead_under_early_exit",
+                _flag(_condition(50), early_exit=True),
+                _flag(_condition(100, aggregation=0), _condition(0, aggregation=0), _condition(100), early_exit=True),
+                _qualified(ReleasePath.CONDITIONS),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),

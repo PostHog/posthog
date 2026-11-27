@@ -43,6 +43,7 @@ from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -16868,6 +16869,39 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
                 },
             }
         ]
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_save_with_token_minted_during_impersonation_is_marked_impersonated(self, capture: MagicMock):
+        flag = self._flag(50)
+        application = OAuthApplication.objects.create(
+            name="Launch check app",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_launch_check_token",
+            expires=now() + timedelta(hours=1),
+            scope="feature_flag:write",
+            impersonated_by=User.objects.create_and_join(self.organization, "staff@example.com", None),
+        )
+        self.client.logout()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+                format="json",
+                headers={"authorization": f"Bearer {token.token}"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [event["properties"]["was_impersonated"] for event in self._launch_events(capture)] == [True]
 
     @parameterized.expand(
         [
