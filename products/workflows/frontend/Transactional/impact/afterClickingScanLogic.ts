@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -549,5 +550,13 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             },
         }
     }),
+    subscriptions(({ actions }) => ({
+        // The session list comes back empty while link tracking is off, so it's stale once tracking turns on.
+        linkTagging: (linkTagging: LinkTagging, oldLinkTagging: LinkTagging | undefined) => {
+            if (oldLinkTagging === 'off' && linkTagging === 'on') {
+                actions.loadSessions()
+            }
+        },
+    })),
     afterMount(({ actions }) => actions.loadSessions()),
 ])

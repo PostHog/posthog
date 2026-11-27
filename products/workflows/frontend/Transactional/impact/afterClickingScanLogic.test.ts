@@ -579,4 +579,25 @@ describe('afterClickingScanLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ scanState: state })
     })
+
+    it('loads the sessions again once link tracking turns on', async () => {
+        const trackingOff = {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, email_workflow_run_link_tag_enabled: false },
+        }
+        logic.unmount()
+        sessionsAnswer = [200, { sessions: [], has_more: false }]
+        teamLogic.actions.loadCurrentTeamSuccess(trackingOff as typeof MOCK_DEFAULT_TEAM)
+        logic = afterClickingScanLogic({ workflowId: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ scanState: { kind: 'link-tagging-off' } })
+
+        sessionsAnswer = [200, SESSIONS]
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ scanState: { kind: 'questions', sessionCount: 2, hasMore: false } })
+    })
 })
