@@ -72,9 +72,9 @@ actually bound — fix that before continuing.
 
 > **Modal sandboxes:** this single Caddy tunnel is enough for Slack. Modal sandboxes
 > reach PostHog over the public URL and work fine through Caddy, so you do **not** need a
-> separate `:8000` tunnel for the Slack flow. If you're _also_ testing Modal sandboxes,
-> keep your existing `gateway` (3308) and `mcp` (8787) tunnels — they're independent of
-> this one. See the [sandbox guide](./sandboxes-setup-guide.md#tunnel-gateway-api-and-mcp).
+> separate `:8000` tunnel for the Slack flow. Local task runs still need
+> `hogli tasks:funnel up` for the sandbox API and MCP — it's independent of this one. See the
+> [sandbox guide](./sandboxes-setup-guide.md#tailscale-funnel).
 
 ## Step 2 — create the Slack app
 
@@ -247,13 +247,8 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 `https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
 it is available every time you run `hogli start`.
 
-> **A tunnel `SITE_URL` breaks local sandbox agents.** It reaches the sandbox as
-> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
-> `host.docker.internal` to the local LLM gateway on 3308. Every other host falls through to
-> the production gateway, where a local run token does not authenticate. The agent starts, sends
-> its first prompt, and hangs until its inactivity window ends, with nothing in any log. Set
-> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` alongside the tunnel `SITE_URL`, or
-> keep `SITE_URL` on localhost and hand-write the integration row (Step 5).
+> **Local sandbox agents need `hogli tasks:setup`**, whatever `SITE_URL` is, or they hang
+> silently after their first prompt. See the [sandbox guide](./sandboxes-setup-guide.md#ai-gateway).
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and

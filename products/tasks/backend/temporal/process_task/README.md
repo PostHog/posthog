@@ -103,10 +103,10 @@ Memory does not cross projects, even for the same repository.
 
 ### Sandbox providers
 
-`backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns `DockerSandbox` when `SANDBOX_PROVIDER=docker` (requires `DEBUG=True`), otherwise `ModalSandbox`.
+`backend/services/sandbox.py` — Protocol-based abstraction. `get_sandbox_class()` returns a `ModalSandbox` subclass in separate `posthog-sandbox-modal-docker-*` apps when `SANDBOX_PROVIDER=MODAL_DOCKER`, `DockerSandbox` when `SANDBOX_PROVIDER=docker` (both require `DEBUG=True`), otherwise `ModalSandbox`.
 
-- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local dev. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds the published agent from `backend/sandbox/images/Dockerfile.sandbox-base` by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build local agent packages in a cached image layer.
-- **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
+- **DockerSandbox** (`backend/services/docker_sandbox.py`) — Local backup for foundational changes; does not reflect production. Internal port 47821 (host port is dynamically assigned), no auth token needed. Automatically rewrites `POSTHOG_API_URL` so the container can reach the host: `localhost`/`127.0.0.1` → `host.docker.internal`, port `8010` (Caddy) → `8000` (Django direct, since Caddy returns empty responses from inside Docker). `SANDBOX_API_URL` should not be set when using Docker — the auto-transform handles it. Builds the published agent from `backend/sandbox/images/Dockerfile.sandbox-base` by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build local agent packages in a cached image layer.
+- **ModalSandbox** (`backend/services/modal_sandbox.py`) — Production, and local development through `MODAL_DOCKER`. Port 8080, gVisor isolation, Modal connect tokens for authenticated access. Images from `ghcr.io/posthog/posthog-sandbox-base`.
 
 ### Agent server and runner
 
@@ -250,48 +250,21 @@ Desktop and backend use the same flag; a stale client cannot bypass the backend 
 
 |                   | DockerSandbox                                                  | ModalSandbox                                                                                         |
 | ----------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Use case          | Local development                                              | Production                                                                                           |
+| Use case          | Local backup for foundational changes                          | Production; local development via `MODAL_DOCKER`                                                     |
 | Internal port     | 47821                                                          | 8080                                                                                                 |
 | Host port         | Dynamically assigned                                           | N/A (cloud-routed)                                                                                   |
 | Isolation         | Standard Docker container                                      | gVisor kernel-level sandboxing                                                                       |
 | Auth              | No token needed                                                | Modal connect token                                                                                  |
-| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`                                                               |
+| Image source      | Local Dockerfile build                                         | `ghcr.io/posthog/posthog-sandbox-base`; local Dockerfiles under `DEBUG`                              |
 | Snapshots         | Docker commit/tag                                              | Modal `snapshot_directory()` for resume; `snapshot_filesystem()` for repository and published images |
-| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL` or ngrok)                                                               |
-| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev with Modal (ngrok URL); production uses `SITE_URL`                                |
+| URL rewriting     | Auto (`localhost` → `host.docker.internal`, `:8010` → `:8000`) | None (uses `SANDBOX_API_URL`, a Tailscale Funnel URL locally)                                        |
+| `SANDBOX_API_URL` | Not needed (auto-transform handles it)                         | Only for local dev (Funnel URL); production uses `SITE_URL`                                          |
 
-### Local development with Docker
+### Local development
 
-Docker is the recommended sandbox provider for local development. To use it, set `SANDBOX_PROVIDER=docker` and `DEBUG=1` in your `.env`.
+Local development uses Modal with `SANDBOX_PROVIDER=MODAL_DOCKER`: `hogli tasks:setup` writes the env and `hogli tasks:funnel up` exposes the local API and MCP through Tailscale Funnel. See the [sandboxes setup guide](../../../../../docs/internal/sandboxes-setup-guide.md).
 
-**Do not set `SANDBOX_API_URL`** when using Docker. The `DockerSandbox` automatically rewrites `POSTHOG_API_URL` inside the container:
-
-- `localhost` / `127.0.0.1` → `host.docker.internal` (Docker's host gateway)
-- Port `8010` (Caddy) → `8000` (Django directly) — Caddy returns empty responses when called from inside Docker
-
-The container is started with `--add-host host.docker.internal:host-gateway` so `host.docker.internal` resolves to the host machine. The internal agent-server port is 47821; the host port is dynamically assigned to avoid conflicts.
-
-Setting `SANDBOX_API_URL` is unnecessary with Docker — the auto-transform already does the right thing. If you need to override, use port 8000: `SANDBOX_API_URL=http://host.docker.internal:8000`.
-
-### Local development with Modal
-
-To use Modal sandboxes locally, set these environment variables:
-
-```bash
-MODAL_TOKEN_ID=your_token_id
-MODAL_TOKEN_SECRET=your_token_secret
-SANDBOX_API_URL=https://your-subdomain.ngrok.dev
-```
-
-Get tokens from [modal.com](https://modal.com).
-
-`SANDBOX_API_URL` is the URL the Modal sandbox uses to call back to your local PostHog instance. Since Modal runs in the cloud, it can't reach `localhost`. Use a tunnel like ngrok to expose your local Django server:
-
-```bash
-ngrok http 8000
-```
-
-Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:8010` so that the rest of the stack (feature flags, self-capture, etc.) continues to work against localhost.
+`SANDBOX_PROVIDER=docker` is a backup for foundational changes; see the DockerSandbox notes above.
 
 ### Images
 

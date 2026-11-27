@@ -3,7 +3,7 @@ name: debugging-signals-pipeline
 description: >
   Debug the signals pipeline locally end-to-end. Covers emitting test signals
   from fixtures, monitoring Temporal workflows via the REST API, reading sandbox
-  agent logs from object storage, inspecting Docker sandbox containers, and
+  agent logs from object storage, inspecting live sandboxes, and
   diagnosing common failures (stale ClickHouse embeddings, agentsh network
   denials, inactivity timeouts). Use when a signal isn't reaching the inbox,
   a signal-report-summary workflow fails, or a sandbox task run times out.
@@ -30,7 +30,7 @@ emit_signals_from_fixture
           → (if new report) signal-report-summary
             → fetch_signals_for_report_activity
             → report_safety_judge_activity
-            → select_repository_activity (spawns Docker sandbox)
+            → select_repository_activity (spawns a sandbox)
 ```
 
 ## Emitting test signals
@@ -132,7 +132,13 @@ Key things to look for in the log tail:
 - **`_posthog/progress`** events — show which setup step the sandbox reached
 - **`_posthog/console`** debug messages — show sandbox provisioning, cloning, agent startup
 
-## Inspecting Docker sandbox containers
+## Inspecting live sandboxes
+
+Local runs use Modal sandboxes (`SANDBOX_PROVIDER=MODAL_DOCKER`). Signals tasks land in the
+`posthog-sandbox-modal-docker-self-driving` app; read `/tmp/agent-server.log` from them as in
+[debugging-local-task-agent-runs](../debugging-local-task-agent-runs/SKILL.md) (Step 2).
+
+With the Docker provider (a backup for foundational changes):
 
 ```bash
 # List running sandbox containers
