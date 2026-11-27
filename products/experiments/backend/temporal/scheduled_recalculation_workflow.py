@@ -10,6 +10,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import SCHEDULED_RECALCULATION_WORKFLOW_NAME
     from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+        RUN_WAIT_TIMEOUT,
         check_experiment_exposures,
         discover_scheduled_recalculation_candidates,
         start_scheduled_recalculation,
@@ -26,7 +27,6 @@ MAX_CONCURRENT_EXPERIMENTS = 10
 SCHEDULE_INTERVAL = timedelta(hours=1)
 START_ACTIVITY_TIMEOUT = timedelta(minutes=2)
 START_ACTIVITY_MAX_ATTEMPTS = 2
-RUN_WAIT_TIMEOUT = timedelta(minutes=30)
 RUN_START_WINDOW = timedelta(minutes=20)
 
 WAIT_FOR_RUNS_PATCH = "scheduled-recalc-wait-for-runs-2026-10"

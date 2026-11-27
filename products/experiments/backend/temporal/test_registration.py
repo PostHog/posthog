@@ -14,6 +14,7 @@ from products.experiments.backend.temporal.registry import (
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
+    run_scheduled_recalculation,
     start_scheduled_recalculation,
     wait_for_scheduled_recalculation,
 )
@@ -68,6 +69,15 @@ def test_scheduled_workflows_registered_on_general_purpose_queue():
         start_scheduled_recalculation,
         wait_for_scheduled_recalculation,
     } <= set(general_purpose.activities)
+
+
+def test_scheduled_run_activity_registered_only_on_the_capped_queue():
+    # The capped worker's slot count is the cap on scheduled runs in flight. Another workflow or activity on that
+    # queue would take its slots, and a registration elsewhere would let a call without task_queue run uncapped.
+    bindings = [binding for binding in TEMPORAL.queues if run_scheduled_recalculation in binding.activities]
+    assert [(binding.queue_setting, binding.workflows, binding.activities) for binding in bindings] == [
+        ("EXPERIMENTS_SCHEDULED_RECALCULATION_TASK_QUEUE", (), (run_scheduled_recalculation,))
+    ]
 
 
 def test_calc_activity_registered_on_recalculation_and_activity_queues():

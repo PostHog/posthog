@@ -20,6 +20,7 @@ from products.experiments.backend.temporal.recalculation.workflow import Experim
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
+    run_scheduled_recalculation,
     start_scheduled_recalculation,
     wait_for_scheduled_recalculation,
 )
@@ -65,6 +66,9 @@ EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES: list[ActivityDefinition] = [
     check_experiment_exposures,
     start_scheduled_recalculation,
     wait_for_scheduled_recalculation,
+]
+EXPERIMENT_SCHEDULED_RECALCULATION_RUN_ACTIVITIES: list[ActivityDefinition] = [
+    run_scheduled_recalculation,
 ]
 EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES: list[ActivityDefinition] = [
     calculate_experiment_metric_for_recalculation,

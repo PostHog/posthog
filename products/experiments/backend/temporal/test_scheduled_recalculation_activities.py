@@ -1,3 +1,5 @@
+import asyncio
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -5,13 +7,15 @@ from uuid import uuid4
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models.scoping import team_scope
 
@@ -22,12 +26,17 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.models import (
+    ScheduledRecalculationRunInputs,
+    ScheduledRecalculationStartResult,
+)
+from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     SKIPPED_EVENT,
     _check_experiment_exposures_sync,
     _discover_scheduled_recalculation_candidates_sync,
     _start_scheduled_recalculation_sync,
+    run_scheduled_recalculation,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     SKIP_ACTIVE_RUN,
@@ -320,3 +329,90 @@ def test_start_picked_up_after_deadline_does_not_create_a_run(seconds_late):
     assert result.started is False
     assert result.skip_reason == SKIP_START_WINDOW_ELAPSED
     dispatch.assert_not_called()
+
+
+class _FakeRunWorkflow:
+    """Temporal client stand-in whose recalculation workflow closes only when the test releases it."""
+
+    def __init__(self, outcome: str) -> None:
+        self.outcome = outcome
+        self.waited_on: list[str] = []
+        self.waiting = asyncio.Event()
+        self.close = asyncio.Event()
+
+    def get_workflow_handle(self, workflow_id: str) -> "_FakeRunWorkflow":
+        self.waited_on.append(workflow_id)
+        return self
+
+    async def result(self) -> None:
+        if self.outcome == "not_found":
+            raise RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+        if self.outcome == "unavailable":
+            raise RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b"")
+        self.waiting.set()
+        await self.close.wait()
+
+
+_STARTED = ScheduledRecalculationStartResult(experiment_id=1, started=True, recalculation_id="started-run")
+_DISPATCH_UNCERTAIN = ScheduledRecalculationStartResult(
+    experiment_id=1, started=False, recalculation_id="started-run", skip_reason=SKIP_DISPATCH_UNCERTAIN
+)
+_ACTIVE_RUN = ScheduledRecalculationStartResult(
+    experiment_id=1, started=False, recalculation_id="active-run", skip_reason=SKIP_ACTIVE_RUN
+)
+
+
+@pytest.mark.parametrize(
+    "attempt, active_id, start_result, outcome, expected",
+    [
+        pytest.param(1, None, _STARTED, "closes", _STARTED, id="started_then_closed"),
+        pytest.param(
+            1, None, _DISPATCH_UNCERTAIN, "not_found", _DISPATCH_UNCERTAIN, id="dispatch_uncertain_never_started"
+        ),
+        pytest.param(2, "active-run", _STARTED, "closes", _ACTIVE_RUN, id="retry_waits_on_the_active_run"),
+        pytest.param(2, None, _STARTED, "closes", _STARTED, id="retry_without_an_active_run_starts_one"),
+        pytest.param(1, None, _STARTED, "never_closes", _STARTED, id="wait_times_out"),
+    ],
+)
+async def test_run_scheduled_recalculation_holds_the_slot_until_the_run_closes(
+    attempt: int,
+    active_id: str | None,
+    start_result: ScheduledRecalculationStartResult,
+    outcome: str,
+    expected: ScheduledRecalculationStartResult,
+) -> None:
+    run = _FakeRunWorkflow(outcome)
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+    start = AsyncMock(return_value=start_result)
+    with (
+        patch(f"{MODULE}._active_recalculation_id_sync", AsyncMock(return_value=active_id)),
+        patch(f"{MODULE}._start_scheduled_recalculation_sync", start),
+        patch(f"{MODULE}.async_connect", AsyncMock(return_value=run)),
+        patch(f"{MODULE}.RUN_WAIT_TIMEOUT", timedelta(0) if outcome == "never_closes" else timedelta(minutes=30)),
+    ):
+        task = asyncio.create_task(
+            env.run(run_scheduled_recalculation, ScheduledRecalculationRunInputs(experiment_id=1, hour=12))
+        )
+        if outcome == "closes":
+            waiting = asyncio.ensure_future(run.waiting.wait())
+            await asyncio.wait({task, waiting}, return_when=asyncio.FIRST_COMPLETED)
+            waiting.cancel()
+            assert not task.done()
+            run.close.set()
+        result = await asyncio.wait_for(task, timeout=5)
+
+    assert result == expected
+    assert run.waited_on == [metrics_recalculation_workflow_id(expected.recalculation_id or "")]
+    assert start.await_count == (0 if active_id else 1)
+
+
+async def test_run_scheduled_recalculation_fails_when_the_run_state_is_unknown() -> None:
+    with (
+        patch(f"{MODULE}._start_scheduled_recalculation_sync", AsyncMock(return_value=_STARTED)),
+        patch(f"{MODULE}.async_connect", AsyncMock(return_value=_FakeRunWorkflow("unavailable"))),
+        pytest.raises(RPCError),
+    ):
+        await ActivityEnvironment().run(
+            run_scheduled_recalculation, ScheduledRecalculationRunInputs(experiment_id=1, hour=12)
+        )
