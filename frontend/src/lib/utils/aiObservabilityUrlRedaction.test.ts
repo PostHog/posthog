@@ -28,6 +28,7 @@ describe('redactAIObservabilityUrls', () => {
                 $prev_pageview_pathname: reviews,
                 pathname: failure,
                 tool_pathname: tool,
+                slashed_url: '/project/1/ai-observability/traces?error=openai/api-key-invalid&date_from=-7d',
                 $elements_chain: `a:attr__href="${errors}";text="View"`,
                 $elements: [{ tag_name: 'a', attr__href: tools }],
                 $snapshot_data: [
@@ -40,6 +41,7 @@ describe('redactAIObservabilityUrls', () => {
         const captured = JSON.stringify(event)
         expect(captured).not.toContain(text)
         expect(captured).not.toContain(key)
+        expect(event?.properties.slashed_url).toBe('/project/1/ai-observability/traces?error=redacted&date_from=-7d')
         expect(event?.properties.pathname).toBe('/api/projects/1/ai_observability/errors/redacted/?date_from=-7d')
         expect(captured).not.toContain(encodeURIComponent(text))
         expect(event?.properties.$current_url).toBe(
