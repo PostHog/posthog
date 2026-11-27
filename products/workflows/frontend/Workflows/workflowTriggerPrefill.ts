@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { SOURCE_PREFILL_PARAM, parseBroadcastAudiencePrefill } from '../Broadcasts/broadcastAudiencePrefill'
 import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
-import { ATTEMPT_PREFILL_PARAM, messageAudienceAttempt } from '../MessageAudience/messageAudienceAttempts'
+import { ATTEMPT_PREFILL_PARAM } from '../MessageAudience/messageAudienceAttempts'
 import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDrafts'
 import { HogFlowTriggerSchema } from './hogflows/steps/types'
 import type { HogFlowAction } from './hogflows/types'
@@ -18,15 +18,15 @@ export function urlForNewWorkflowWithTrigger(
     config: WorkflowTriggerConfig,
     source?: string,
     email?: MessageDraft,
-    draftSource?: EmailDraftRequestApi
+    draftSource?: EmailDraftRequestApi,
+    attemptId?: string
 ): string {
-    const attempt = messageAudienceAttempt(source, 'workflow')
     return combineUrl(urls.workflowNew(), {
         [TRIGGER_PREFILL_PARAM]: JSON.stringify(config),
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
         ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
         ...(draftSource ? { [DRAFT_SOURCE_PARAM]: JSON.stringify(draftSource) } : {}),
-        ...(attempt ? { [ATTEMPT_PREFILL_PARAM]: attempt } : {}),
+        ...(attemptId ? { [ATTEMPT_PREFILL_PARAM]: attemptId } : {}),
     }).url
 }
 

@@ -117,6 +117,8 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
             null as CohortApi | null,
             {
                 emailRespondents: async (_, breakpoint) => {
+                    // The click on the entry point, before any outcome, so abandoned attempts count too.
+                    const attemptId = captureMessageAudienceClicked(SOURCE, 'broadcast')
                     const survey = values.survey as Survey
                     const filters = {
                         answerFilters: values.answerFilters,
@@ -157,7 +159,8 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
                             broadcastEmail: draftMessage({ kind: 'survey_responded' }),
                             draftSource: { source: 'survey', source_id: survey.id },
                         },
-                        'broadcast'
+                        'broadcast',
+                        attemptId
                     )
                     return cohort
                 },
@@ -166,10 +169,6 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
     })),
 
     listeners(() => ({
-        // The click on the entry point, before any outcome, so abandoned attempts count too.
-        emailRespondents: () => {
-            captureMessageAudienceClicked(SOURCE, 'broadcast')
-        },
         emailRespondentsFailure: () => {
             lemonToast.error("Couldn't save these respondents. Try again.")
         },

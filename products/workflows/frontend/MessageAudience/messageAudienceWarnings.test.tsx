@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { getContext } from 'kea'
-import { router } from 'kea-router'
+import { BindLogic, getContext } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
+import { emailCohortToastButton } from 'scenes/cohorts/cohortSavedToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -22,9 +23,13 @@ import {
 
 import { enrolledPeopleAudience } from 'products/early_access_features/frontend/enrolledPeopleAudience'
 
+import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
+import { BroadcastWizard } from '../Broadcasts/BroadcastWizard'
 import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
 import { MessageAudience, MessageAudienceDestination } from './messageAudience'
+import { ATTEMPT_PREFILL_PARAM } from './messageAudienceAttempts'
 import { MessageAudienceButton } from './MessageAudienceButton'
 import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
 
@@ -343,7 +348,7 @@ describe('message audience warnings', () => {
     } as EarlyAccessFeatureType
     const earlyAccess = enrolledPeopleAudience(earlyAccessFeature, 'early_access')
 
-    const openedEditor: Record<MessageAudienceDestination, () => Promise<Record<string, unknown>>> = {
+    const openedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
         workflow: async () => {
             render(<WorkflowScene id="new" tab="workflow" />)
             await waitFor(() => expect(draftRequests).toHaveLength(1))
@@ -353,34 +358,66 @@ describe('message audience warnings', () => {
             const { actions } = logic!.values.workflow
             const trigger = actions.find((action) => action.type === 'trigger')?.config
             const email = actions.find((action) => action.type === 'email_sandbox' || action.type === 'function_email')
-            const opened = {
+            return {
                 trigger: trigger?.type,
                 step: email?.type,
                 subject: (email?.config as Record<string, any> | undefined)?.inputs?.email?.value?.subject,
                 draftRequest: draftRequests[0],
             }
-            logic!.actions.saveWorkflow(logic!.values.workflow)
-            await waitFor(() => expect(createRequests).toHaveLength(1))
-            return { ...opened, entryAttemptId: createRequests[0].entry_attempt_id }
         },
         broadcast: async () => {
             const logic = broadcastWizardLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            const opened = { audience: logic.values.audienceProperties, name: logic.values.name }
-            logic.actions.ensureDraft()
-            await waitFor(() => expect(createRequests).toHaveLength(1))
-            return { ...opened, entryAttemptId: createRequests[0].entry_attempt_id }
+            return { audience: logic.values.audienceProperties, name: logic.values.name }
         },
     }
 
-    it.each<{
-        destination: MessageAudienceDestination
-        label: string
-        warning: string
-        path: string
-        opens: Record<string, unknown>
-    }>([
+    const savedAttempt: Record<MessageAudienceDestination, () => Promise<unknown>> = {
+        workflow: async () => {
+            const { container } = render(<WorkflowScene id="new" tab="workflow" />)
+            const save = await waitFor(() => {
+                const button = container.querySelector<HTMLElement>('[data-attr="workflow-save"]')
+                expect(button).toBeEnabled()
+                return button!
+            })
+            fireEvent.click(save)
+            await waitFor(() => expect(createRequests).toHaveLength(1))
+            return createRequests[0].entry_attempt_id
+        },
+        broadcast: async () => {
+            const { container } = render(
+                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                    <BroadcastWizard />
+                </BindLogic>
+            )
+            const content = await waitFor(() => {
+                const step = container.querySelector<HTMLElement>('[data-attr="broadcast-wizard-step-content"]')
+                expect(step).toBeEnabled()
+                return step!
+            })
+            fireEvent.click(content)
+            await waitFor(() => expect(createRequests).toHaveLength(1))
+            return createRequests[0].entry_attempt_id
+        },
+    }
+
+    const clickAttempts = (capture: jest.SpyInstance): unknown[] =>
+        capture.mock.calls
+            .filter(([event]) => event === 'message audience clicked')
+            .map(([, properties]) => properties.attempt_id)
+
+    const allowWorkflowEditing = (): void => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT!,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
+                [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
+            },
+        }
+    }
+
+    it.each<{ destination: MessageAudienceDestination; label: string; warning: string; path: string; opens: unknown }>([
         {
             destination: 'workflow',
             label: 'Build a custom workflow',
@@ -401,24 +438,12 @@ describe('message audience warnings', () => {
             opens: { audience: earlyAccess.properties, name: earlyAccess.broadcastName },
         },
     ])(
-        'asks before a $destination with no sender, and Continue opens it carrying the click attempt',
+        'asks before a $destination with no sender, and Continue opens it',
         async ({ label, warning, path, destination, opens }) => {
-            const capture = jest.spyOn(posthog, 'capture')
             useEnvironmentMocks({
-                [projectId()]: {
-                    senders: [],
-                    sandbox: { ...testSender, integration_id: 12 },
-                    draftRequests,
-                    createRequests,
-                },
+                [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests },
             })
-            window.POSTHOG_APP_CONTEXT = {
-                ...window.POSTHOG_APP_CONTEXT!,
-                resource_access_control: {
-                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
-                    [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
-                },
-            }
+            allowWorkflowEditing()
             router.actions.push('/project/997/early_access_features/1')
             render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
 
@@ -432,14 +457,59 @@ describe('message audience warnings', () => {
             fireEvent.click(screen.getByText('Continue'))
             await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument())
-            const clicks = capture.mock.calls.filter(([event]) => event === 'message audience clicked')
-            expect(clicks).toEqual([
-                [
-                    'message audience clicked',
-                    { source: 'early_access', destination, attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/) },
-                ],
-            ])
-            expect(await openedEditor[destination]()).toEqual({ ...opens, entryAttemptId: clicks[0][1]!.attempt_id })
+            expect(await openedEditor[destination]()).toEqual(opens)
+        }
+    )
+
+    it.each<{ destination: MessageAudienceDestination; label: string; path: string }>([
+        { destination: 'workflow', label: 'Build a custom workflow', path: urls.workflowNew() },
+        { destination: 'broadcast', label: 'Send a one-time email', path: urls.broadcastNew() },
+    ])('saves the $destination with the attempt of the click that opened it', async ({ destination, label, path }) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        useEnvironmentMocks({ [projectId()]: { senders: [verified], draftRequests, createRequests } })
+        allowWorkflowEditing()
+        router.actions.push('/project/997/early_access_features/1')
+        render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
+
+        fireEvent.click(screen.getByText('Email opted-in users'))
+        fireEvent.click(await screen.findByText(label))
+        await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
+        cleanup()
+
+        const [clicked] = clickAttempts(capture)
+        expect(clicked).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+        expect(await savedAttempt[destination]()).toEqual(clicked)
+    })
+
+    it('saves the attempt of the click whose broadcast opens when a second click lands during its checks', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
+        allowWorkflowEditing()
+        router.actions.push('/project/997/cohorts/7')
+        const button = emailCohortToastButton({ id: 7, name: 'Signups' }, 'cohort_saved')!
+
+        button.action()
+        button.action()
+        await waitFor(() =>
+            expect(router.values.location.pathname).toEqual(`/project/${projectId()}${urls.broadcastNew()}`)
+        )
+
+        const [opened, ignored] = clickAttempts(capture)
+        expect(ignored).not.toEqual(opened)
+        expect(await savedAttempt.broadcast()).toEqual(opened)
+    })
+
+    it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
+        'saves a %s opened from a hand-edited attempt link without the attempt',
+        async (destination) => {
+            useEnvironmentMocks({ [projectId()]: { senders: [verified], createRequests } })
+            const link =
+                destination === 'workflow'
+                    ? urlForNewWorkflowWithTrigger({ type: 'batch', filters: { properties: audience.properties } })
+                    : urlForNewBroadcastWithAudience({ properties: audience.properties })
+            router.actions.push(combineUrl(link, { [ATTEMPT_PREFILL_PARAM]: 'not-an-attempt' }).url)
+
+            expect(await savedAttempt[destination]()).toBeUndefined()
         }
     )
 })

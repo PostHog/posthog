@@ -750,13 +750,16 @@ export function createCohortDataNodeLogicKey(cohortId: number | 'new'): string {
     return `cohort_${cohortId}_persons`
 }
 
-export function urlForCohortWorkflow(cohort: CohortType): string {
+export function urlForCohortWorkflow(cohort: CohortType, attemptId: string): string {
     return urlForNewWorkflowWithTrigger(
         {
             type: 'batch',
             filters: { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }) },
         },
-        'cohort'
+        'cohort',
+        undefined,
+        undefined,
+        attemptId
     )
 }
 
