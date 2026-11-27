@@ -233,6 +233,9 @@ class ExperimentSubmissionSerializer(_StrictDataclassSerializer[ExperimentSubmis
         help_text="Expected number of distinct item/scorer-version results, including non-success statuses.",
     )
     suite_key = _identifier_field("Stable identifier for comparing executions of the same evaluation suite.")
+    experiment_scorer_version_id = _UUIDField(
+        required=False, allow_null=True, help_text="Exact experiment scorer version. Omit to use the suite default."
+    )
     dataset_source = _identifier_field(
         "Source of an external dataset. Hosted dataset provenance is derived from its revision."
     )

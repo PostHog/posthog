@@ -42,6 +42,7 @@ def source_inputs(endpoint: str) -> SourceInputs:
 PAGINATED_ENDPOINTS = {
     "backups": ("backups", "data", "backup_id", "paginationToken"),
     "restore_jobs": ("restore-jobs", "data", "restore_job_id", "paginationToken"),
+    "conversion_jobs": ("conversion-jobs", "data", "conversion_job_id", "paginationToken"),
     "assistants": ("assistant/assistants", "assistants", "name", "pagination_token"),
 }
 
@@ -82,6 +83,12 @@ class TestPineconeTransport(SimpleTestCase):
                 "restore_job_id",
                 {"restore_job_id": "fake-restore", "created_at": None, "status": "Pending"},
             ),
+            (
+                "conversion_jobs",
+                "data",
+                "conversion_job_id",
+                {"conversion_job_id": "fake-conversion", "created_at": "2026-10-07T10:30:00Z", "status": "InProgress"},
+            ),
         ]
     )
     def test_full_refresh_preserves_inventory_rows(
@@ -102,7 +109,9 @@ class TestPineconeTransport(SimpleTestCase):
             assert list(sync_items(response)) == [[row]]
             assert response.name == endpoint
             assert response.primary_keys == [primary_key]
-            assert response.partition_keys == ["created_at" if endpoint == "backups" else primary_key]
+            assert response.partition_keys == [
+                "created_at" if endpoint in ("backups", "conversion_jobs") else primary_key
+            ]
             assert response.sort_mode is None
             partitioned = append_partition_key_to_table(
                 table_from_py_list([row]),
@@ -117,7 +126,7 @@ class TestPineconeTransport(SimpleTestCase):
             request = http.calls[0].request
             assert request.headers["Api-Key"] == "fake-pinecone-key"
             assert request.headers["X-Pinecone-Api-Version"] == "2026-07"
-            expected_params = {"limit": ["100"]} if endpoint in ("backups", "restore_jobs") else {}
+            expected_params = {"limit": ["100"]} if endpoint in PAGINATED_ENDPOINTS else {}
             assert parse_qs(urlsplit(request.url or "").query) == expected_params
             assert len(http.calls) == 1
             redis.set.assert_not_called()
@@ -129,6 +138,7 @@ class TestPineconeTransport(SimpleTestCase):
             ("restore_jobs", "absent", {}),
             ("restore_jobs", "null", {"pagination": None}),
             ("restore_jobs", "empty_token", {"pagination": {"next": ""}}),
+            ("conversion_jobs", "null", {"pagination": None}),
             ("assistants", "absent", {}),
         ]
     )
@@ -251,6 +261,112 @@ class TestPineconeTransport(SimpleTestCase):
                 ("byoc-abc.svc.aped-1.pinecone.io", {"limit": ["100"]}),
             ]
             assert {call.request.headers["Api-Key"] for call in http.calls} == {"fake-pinecone-key"}
+
+    def test_backup_schedules_fan_out_over_non_pod_indexes_on_the_control_plane(self) -> None:
+        indexes = [
+            {"name": "serverless", "host": "serverless-abc.svc.aped-1.pinecone.io", "deployment": {}},
+            {"name": "pod", "host": "pod-abc.svc.us-east1-gcp.pinecone.io", "deployment": {"deployment_type": "pod"}},
+            {"name": "deleted index", "deployment": {"deployment_type": "byoc"}, "status": {"ready": False}},
+            {"name": "unscheduled", "deployment": {"deployment_type": "managed"}},
+        ]
+        schedule = {"schedule_id": "fake-schedule-1", "created_at": "2026-04-02T18:22:56Z", "enabled": True}
+        with responses.RequestsMock() as http:
+            http.add(responses.GET, "https://api.pinecone.io/indexes", json={"indexes": indexes})
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/indexes/serverless/backup-schedules",
+                json={"data": [schedule], "pagination": {"next": "schedule-token"}},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/indexes/serverless/backup-schedules",
+                json={"data": [{**schedule, "schedule_id": "fake-schedule-2"}], "pagination": None},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/indexes/deleted%20index/backup-schedules",
+                json={"error": {"code": "NOT_FOUND"}},
+                status=404,
+            )
+            http.add(responses.GET, "https://api.pinecone.io/indexes/unscheduled/backup-schedules", json={"data": []})
+            response = pipeline("backup_schedules")
+            assert list(sync_items(response)) == [
+                [{"index_name": "serverless", **schedule}],
+                [{"index_name": "serverless", **schedule, "schedule_id": "fake-schedule-2"}],
+            ]
+            assert response.primary_keys == ["index_name", "schedule_id"]
+            assert response.partition_keys == ["created_at"]
+            assert [
+                (urlsplit(call.request.url or "").hostname, urlsplit(call.request.url or "").path)
+                for call in http.calls
+            ] == [
+                ("api.pinecone.io", "/indexes"),
+                ("api.pinecone.io", "/indexes/serverless/backup-schedules"),
+                ("api.pinecone.io", "/indexes/serverless/backup-schedules"),
+                ("api.pinecone.io", "/indexes/deleted%20index/backup-schedules"),
+                ("api.pinecone.io", "/indexes/unscheduled/backup-schedules"),
+            ]
+            assert parse_qs(urlsplit(http.calls[2].request.url or "").query) == {
+                "limit": ["100"],
+                "paginationToken": ["schedule-token"],
+            }
+
+    def test_backup_schedule_history_fans_out_over_every_index_schedule(self) -> None:
+        indexes = [{"name": "first", "deployment": {}}, {"name": "second", "deployment": {}}]
+        history_row = {"backup_id": "fake-backup-1", "status": "Ready", "created_at": "2026-04-03T06:00:00Z"}
+        with responses.RequestsMock() as http:
+            http.add(responses.GET, "https://api.pinecone.io/indexes", json={"indexes": indexes})
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/indexes/first/backup-schedules",
+                json={"data": [{"schedule_id": "fake-daily", "enabled": False}, {"schedule_id": "fake-gone"}]},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/backup-schedules/fake-daily/history",
+                json={"data": [history_row], "pagination": {"next": "history-token"}},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/backup-schedules/fake-daily/history",
+                json={"data": [{**history_row, "backup_id": "fake-backup-2", "status": "Scheduled"}]},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/backup-schedules/fake-gone/history",
+                json={"error": {"code": "NOT_FOUND"}},
+                status=404,
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/indexes/second/backup-schedules",
+                json={"data": [{"schedule_id": "fake-weekly"}]},
+            )
+            http.add(
+                responses.GET,
+                "https://api.pinecone.io/backup-schedules/fake-weekly/history",
+                json={"data": [{**history_row, "backup_id": "fake-backup-3"}]},
+            )
+            response = pipeline("backup_schedule_history")
+            assert list(sync_items(response)) == [
+                [{"schedule_id": "fake-daily", **history_row}],
+                [{"schedule_id": "fake-daily", **history_row, "backup_id": "fake-backup-2", "status": "Scheduled"}],
+                [{"schedule_id": "fake-weekly", **history_row, "backup_id": "fake-backup-3"}],
+            ]
+            assert response.primary_keys == ["schedule_id", "backup_id"]
+            assert [urlsplit(call.request.url or "").path for call in http.calls] == [
+                "/indexes",
+                "/indexes/first/backup-schedules",
+                "/backup-schedules/fake-daily/history",
+                "/backup-schedules/fake-daily/history",
+                "/backup-schedules/fake-gone/history",
+                "/indexes/second/backup-schedules",
+                "/backup-schedules/fake-weekly/history",
+            ]
+            assert parse_qs(urlsplit(http.calls[3].request.url or "").query) == {
+                "limit": ["100"],
+                "paginationToken": ["history-token"],
+            }
 
     def test_assistant_files_fan_out_skips_deleted_assistants_and_signed_urls(self) -> None:
         host = "https://prod-1-data.ke.pinecone.io"

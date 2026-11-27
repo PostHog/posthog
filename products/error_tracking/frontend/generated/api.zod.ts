@@ -1565,6 +1565,19 @@ export const ErrorTrackingTagRulesCreateBody = /* @__PURE__ */ zod.object({
         .max(errorTrackingTagRulesCreateBodyDescriptionMax)
         .default(errorTrackingTagRulesCreateBodyDescriptionDefault)
         .describe('What the tag means. Shown with the tag. Defaults to empty.'),
+    color: zod
+        .union([
+            zod
+                .enum(['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'])
+                .describe(
+                    '\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+        ),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -1739,6 +1752,19 @@ export const ErrorTrackingTagRulesUpdateBody = /* @__PURE__ */ zod.object({
         .max(errorTrackingTagRulesUpdateBodyDescriptionMax)
         .optional()
         .describe('Replacement description. Omit to keep the existing description.'),
+    color: zod
+        .union([
+            zod
+                .enum(['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'])
+                .describe(
+                    '\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+        ),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),
@@ -1908,6 +1934,19 @@ export const ErrorTrackingTagRulesPartialUpdateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingTagRulesPartialUpdateBodyDescriptionMax)
         .optional()
         .describe('Replacement description. Omit to keep the existing description.'),
+    color: zod
+        .union([
+            zod
+                .enum(['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple'])
+                .describe(
+                    '\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.\n\n\* `blue` - Blue\n\* `teal` - Teal\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red\n\* `pink` - Pink\n\* `purple` - Purple'
+        ),
     filters: zod
         .object({
             type: zod.enum(['AND', 'OR']),

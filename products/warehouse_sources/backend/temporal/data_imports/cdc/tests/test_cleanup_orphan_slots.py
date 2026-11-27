@@ -265,6 +265,7 @@ def _restore_case(
     management="self_managed",
     retention_cap_mb=None,
     lag_mb=5000,
+    last_run_minutes_ago=5,
     schedule_state="missing",
     existing_reason=None,
     restored=True,
@@ -275,6 +276,7 @@ def _restore_case(
         management,
         retention_cap_mb,
         lag_mb,
+        last_run_minutes_ago,
         schedule_state,
         existing_reason,
         restored,
@@ -285,7 +287,7 @@ def _restore_case(
 
 
 @pytest.mark.parametrize(
-    "management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason",
+    "management, retention_cap_mb, lag_mb, last_run_minutes_ago, schedule_state, existing_reason, restored, dropped, expected_reason",
     [
         _restore_case("missing_schedule_is_restored_without_lag_blame"),
         _restore_case("capped_slot_is_kept_while_capture_catches_up", management="posthog", retention_cap_mb=10000),
@@ -314,14 +316,36 @@ def _restore_case(
             restored=False,
             expected_reason="critical_lag_self_managed",
         ),
-        _restore_case("lag_below_the_warning_threshold_skips_the_lookup", lag_mb=100, restored=False),
+        _restore_case("recent_capture_and_low_lag_skip_the_lookup", lag_mb=100, restored=False),
+        _restore_case("stale_capture_with_low_lag_is_restored", lag_mb=100, last_run_minutes_ago=3 * 24 * 60),
+        _restore_case("capture_that_never_ran_is_restored", lag_mb=100, last_run_minutes_ago=None),
+        _restore_case(
+            "stale_capture_with_an_existing_schedule_is_left_alone",
+            lag_mb=100,
+            last_run_minutes_ago=3 * 24 * 60,
+            schedule_state="present",
+            restored=False,
+        ),
     ],
 )
-def test_lagging_source_restores_a_missing_extraction_schedule(
-    team, management, retention_cap_mb, lag_mb, schedule_state, existing_reason, restored, dropped, expected_reason
+def test_sweeper_restores_a_missing_extraction_schedule(
+    team,
+    management,
+    retention_cap_mb,
+    lag_mb,
+    last_run_minutes_ago,
+    schedule_state,
+    existing_reason,
+    restored,
+    dropped,
+    expected_reason,
 ):
     source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
     schema = _create_cdc_schema(team, source)
+    if last_run_minutes_ago is not None:
+        last_run_at = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=last_run_minutes_ago)
+        schema.sync_type_config = {**schema.sync_type_config, "cdc_last_run_at": last_run_at.isoformat()}
+        schema.save()
     if existing_reason:
         schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
         schema.save()

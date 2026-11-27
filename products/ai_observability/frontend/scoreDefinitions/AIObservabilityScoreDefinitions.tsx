@@ -87,6 +87,11 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             },
         },
         {
+            title: 'Scope',
+            key: 'scope',
+            render: (_, scorer) => (scorer.scope === 'experiment' ? 'Experiment' : 'Item'),
+        },
+        {
             title: 'Kind',
             dataIndex: 'kind',
             key: 'kind',
@@ -191,6 +196,17 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
         <div className="space-y-4 @container/scorers">
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap pb-4 mb-4 border-b justify-between">
                 <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSelect<'all' | 'item' | 'experiment'>
+                        size="small"
+                        value={filters.scope ?? 'all'}
+                        options={[
+                            { value: 'all', label: 'All scopes' },
+                            { value: 'item', label: 'Item' },
+                            { value: 'experiment', label: 'Experiment' },
+                        ]}
+                        onChange={(scope) => setFilters({ scope: scope === 'all' ? undefined : scope })}
+                        data-attr="aio-scorer-scope-filter"
+                    />
                     <LemonInput
                         size="small"
                         type="search"

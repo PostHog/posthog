@@ -226,7 +226,7 @@ describe("isCredentialOriginAllowed", () => {
     });
     expect(
       isCredentialOriginAllowed(
-        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://llm.other-domain.io/v1/messages",
         "https://posthog.acme.internal",
       ),
     ).toBe(true);
@@ -250,7 +250,7 @@ describe("isCredentialOriginAllowed", () => {
     });
     expect(
       isCredentialOriginAllowed(
-        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://llm.other-domain.io/v1/messages",
         "https://us.posthog.com",
       ),
     ).toBe(false);
@@ -286,8 +286,8 @@ describe("validateAiGatewayUrl", () => {
     "https://ai-gateway.us.posthog.com/v1",
     "https://ai-gateway.us.posthog.com?x=1",
     "https://user:pw@ai-gateway.us.posthog.com",
-    "http://localhost:3308",
-    "https://127.0.0.1:3308",
+    "http://localhost:8080",
+    "https://127.0.0.1:8080",
     "not a url",
   ])("rejects %s", (raw) => {
     expect(validateAiGatewayUrl(raw)).toBeNull();
@@ -295,12 +295,12 @@ describe("validateAiGatewayUrl", () => {
 
   it("accepts loopback only under the dev override", () => {
     expect(
-      validateAiGatewayUrl("http://localhost:3308", { allowLoopback: true }),
-    ).toBe("http://localhost:3308");
+      validateAiGatewayUrl("http://localhost:8080", { allowLoopback: true }),
+    ).toBe("http://localhost:8080");
     expect(
-      validateAiGatewayUrl("http://[::1]:3308", { allowLoopback: true }),
-    ).toBe("http://[::1]:3308");
-    expect(validateAiGatewayUrl("http://[::1]:3308")).toBeNull();
+      validateAiGatewayUrl("http://[::1]:8080", { allowLoopback: true }),
+    ).toBe("http://[::1]:8080");
+    expect(validateAiGatewayUrl("http://[::1]:8080")).toBeNull();
     expect(
       validateAiGatewayUrl("https://gateway.example", { allowLoopback: true }),
     ).toBeNull();

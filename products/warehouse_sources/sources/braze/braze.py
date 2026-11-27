@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.braze.settings import (
     BRAZE_ENDPOINTS,
     DATA_SERIES_HISTORY_DAYS,
     DEFAULT_PROBE_TARGET,
+    EMAIL_HISTORY_START,
     BrazeDataSeriesConfig,
     BrazeDetailsConfig,
     BrazeEndpointConfig,
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     _is_host_safe,
+    format_datetime,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
@@ -47,6 +49,9 @@ class BrazeResumeConfig:
     # Old checkpoints stored the last-yielded cursor, so re-loading one re-fetches that
     # page and merge dedupes on primary key.
     cursor: int
+    # The `end_date` a date-range endpoint's offsets were counted in, so a resume on a later day
+    # pages the same range.
+    end_date: Optional[str] = None
 
 
 def normalize_base_url(url: str) -> str:
@@ -76,7 +81,27 @@ def _format_modified_after(value: Any) -> str:
 def _normalize_items(config: BrazeEndpointConfig, items: list[Any]) -> list[dict[str, Any]]:
     if config.wrap_scalar_as:
         return [{config.wrap_scalar_as: item} for item in items]
-    return [item for item in items if isinstance(item, dict)]
+    rows = [item for item in items if isinstance(item, dict)]
+    if config.timestamp_field:
+        for row in rows:
+            parsed = parse_datetime_value(row.get(config.timestamp_field))
+            if parsed is not None:
+                row[config.timestamp_field] = format_datetime(parsed, "iso_z")
+    return rows
+
+
+def _email_start_date(
+    should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any], end: date
+) -> date:
+    """The `start_date` an email list query sends with `end`.
+
+    Braze reads both dates as midnight UTC, so the range stops before `end`. An incremental run
+    re-reads its watermark day rather than skipping it.
+    """
+    watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
+    start = watermark if watermark is not None else EMAIL_HISTORY_START
+    # Braze rejects a start that isn't before the end.
+    return min(start, end - timedelta(days=1))
 
 
 class BrazeOffsetPaginator(BasePaginator):
@@ -487,23 +512,33 @@ def braze_source(
 
     config = BRAZE_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {}
+    paginator, state_key = _paginator_for(config)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_paginator_state = {state_key: resume.cursor} if resume is not None else None
+
+    params: dict[str, Any] = dict(config.params)
     if config.modified_after_param and should_use_incremental_field and db_incremental_field_last_value:
         params[config.modified_after_param] = _format_modified_after(db_incremental_field_last_value)
 
-    paginator, state_key = _paginator_for(config)
-
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = {state_key: resume.cursor}
+    end_date: Optional[str] = None
+    if config.date_range:
+        end = (
+            date.fromisoformat(resume.end_date)
+            if resume is not None and resume.end_date
+            else datetime.now(tz=UTC).date()
+        )
+        end_date = end.isoformat()
+        params["start_date"] = _email_start_date(
+            should_use_incremental_field, db_incremental_field_last_value, end
+        ).isoformat()
+        params["end_date"] = end_date
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; saved AFTER a page is yielded so a crash
         # never skips an undelivered page.
         if state and state.get(state_key) is not None:
-            resumable_source_manager.save_state(BrazeResumeConfig(cursor=int(state[state_key])))
+            resumable_source_manager.save_state(BrazeResumeConfig(cursor=int(state[state_key]), end_date=end_date))
 
     resource = _list_resource(
         api_key,

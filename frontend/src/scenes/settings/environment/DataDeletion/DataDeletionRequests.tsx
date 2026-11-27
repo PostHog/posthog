@@ -6,7 +6,6 @@ import { LemonBanner, LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip }
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type DataDeletionRequestApi, RequestStatusEnumApi } from '~/generated/core/api.schemas'
@@ -106,16 +105,6 @@ export function DataDeletionRequests(): JSX.Element {
                                     </Tooltip>
                                 )
                             },
-                        },
-                        {
-                            title: 'Matched events',
-                            dataIndex: 'count',
-                            render: (_, request) =>
-                                request.count === null ? (
-                                    <span className="text-secondary">Not counted yet</span>
-                                ) : (
-                                    <span translate="no">{humanFriendlyNumber(request.count)}</span>
-                                ),
                         },
                         {
                             title: 'Submitted',

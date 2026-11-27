@@ -22,12 +22,13 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import request_recalculation
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
-from products.experiments.backend.temporal.recalculation.dispatch import (
-    metrics_recalculation_workflow_id,
-    start_metrics_recalculation_workflow,
+from products.experiments.backend.recalculation.admission import (
+    MetricsRecalculationStartOutcome,
+    RecalculationWorkflowNotStarted,
+    start_metrics_recalculation,
 )
+from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
     SKIP_ACTIVE_RUN,
@@ -163,49 +164,42 @@ def _start_scheduled_recalculation_sync(
         )
 
     try:
-        payload = request_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.SCHEDULED)
-    except Exception:
-        logger.warning("scheduled_recalculation_request_failed", experiment_id=experiment_id, exc_info=True)
-        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
-
-    # The pre-check above and this create are separate, unsynchronized reads: a run can start
-    # between them. request_recalculation's own is_existing flag closes that window instead of
-    # relying on the two staying in step.
-    if payload.get("is_existing"):
-        return ScheduledRecalculationStartResult(
-            experiment_id=experiment_id, started=False, skip_reason=SKIP_ACTIVE_RUN
-        )
-    # Discovery selects only experiments younger than the age limit, so a rejected run is not expected here.
-    if payload["status"] != ExperimentMetricsRecalculation.Status.PENDING:
-        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
-
-    recalculation_id = str(payload["id"])
-    try:
-        start_metrics_recalculation_workflow(
-            recalculation_id,
-            team_id=experiment.team_id,
-            organization_id=str(experiment.team.organization_id),
-        )
-    except Exception:
-        # start_metrics_recalculation_workflow rolls the row back to FAILED itself, so an orphaned
-        # PENDING row cannot look active to every later scheduled run.
+        started = start_metrics_recalculation(experiment, None, ExperimentMetricsRecalculation.Trigger.SCHEDULED)
+    except RecalculationWorkflowNotStarted as error:
+        # The dispatch rolls the row back to FAILED itself, so an orphaned PENDING row cannot look
+        # active to every later scheduled run.
         logger.warning(
             "scheduled_recalculation_dispatch_failed",
             experiment_id=experiment_id,
-            recalculation_id=recalculation_id,
-            exc_info=True,
+            recalculation_id=error.recalculation_id,
+            exc_info=error.cause,
         )
         return ScheduledRecalculationStartResult(
             experiment_id=experiment_id,
             started=False,
-            recalculation_id=recalculation_id,
+            recalculation_id=error.recalculation_id,
             skip_reason=SKIP_DISPATCH_UNCERTAIN,
         )
+    except Exception:
+        logger.warning("scheduled_recalculation_request_failed", experiment_id=experiment_id, exc_info=True)
+        return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
 
-    capture_started(experiment, hour, recalculation_id)
-    return ScheduledRecalculationStartResult(
-        experiment_id=experiment_id, started=True, recalculation_id=recalculation_id
-    )
+    match started.outcome:
+        case MetricsRecalculationStartOutcome.REUSED:
+            # The pre-check above and this create are separate, unsynchronized reads: a run can start
+            # between them. The start's own reuse check closes that window instead of relying on the two
+            # staying in step.
+            return ScheduledRecalculationStartResult(
+                experiment_id=experiment_id, started=False, skip_reason=SKIP_ACTIVE_RUN
+            )
+        case MetricsRecalculationStartOutcome.REJECTED:
+            # Discovery selects only experiments younger than the age limit, so a rejected run is not expected here.
+            return ScheduledRecalculationStartResult(experiment_id=experiment_id, started=False)
+        case MetricsRecalculationStartOutcome.STARTED:
+            capture_started(experiment, hour, started.recalculation_id)
+            return ScheduledRecalculationStartResult(
+                experiment_id=experiment_id, started=True, recalculation_id=started.recalculation_id
+            )
 
 
 @temporalio.activity.defn

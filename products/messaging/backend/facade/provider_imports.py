@@ -121,6 +121,7 @@ class ImportStepProgress:
     # How many warnings and items didn't fit in the run's stored progress.
     warnings_omitted: int = 0
     items_omitted: int = 0
+    skipped: bool = False
 
 
 @frozen
@@ -288,4 +289,5 @@ def _step_progress(
         ),
         warnings_omitted=progress.get("warnings_omitted", 0),
         items_omitted=progress.get("items_omitted", 0) + len(stored_items) - len(items),
+        skipped=progress.get("skipped", False),
     )

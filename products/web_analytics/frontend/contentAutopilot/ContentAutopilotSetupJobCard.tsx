@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
 import type { AEOSetupJobApi, AEOSetupStepApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotSetupProgress } from './ContentAutopilotSetupProgress'
 
@@ -73,9 +74,9 @@ export const ContentAutopilotSetupJobCard = ({ job }: { job: AEOSetupJobApi }): 
             </div>
             <ContentAutopilotSetupProgress job={job} />
             {pollError ? (
-                <LemonBanner type="error" className="mt-4" action={{ children: 'Try again', onClick: retryJob }}>
+                <AiVisibilityBanner type="error" className="mt-4" action={{ children: 'Try again', onClick: retryJob }}>
                     {pollError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
             {!running || pollError ? (
                 <div className="mt-4 flex justify-end">

@@ -111,7 +111,7 @@ export interface ListVariable extends VariableBase {
 
 export interface DateVariable extends VariableBase {
     type: 'Date'
-    default_value: string
+    default_value: string | null
     value?: string
 }
 

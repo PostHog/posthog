@@ -1,21 +1,24 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { WidgetQuery } from '../dashboard/dashboardSchema'
-import { type ContentWidget, type Dashboard, GRID, type Tile } from '../dashboard/dashboardTypes'
-import type { ChartConfig } from '../widgets/chart/chartSpec'
-import { type StatOptions, statSpec } from '../widgets/chart/viz/stat/statSpec'
+import type { PanelQuery } from '../dashboard/document/dashboardSchema'
+import { type ContentPanel, type SavedPanel, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
+import type { ChartConfig } from '../panels/chart/chartSpec'
+import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
 
-const chartOf = (title: string, query: WidgetQuery, viz: ChartConfig['viz']): ContentWidget<ChartConfig> => ({
+// TODO(2026-11-25): Delete once the board list can open saved boards.
+// It stands in for a saved dashboard and shows every panel and layout case.
+
+const chartOf = (title: string, query: PanelQuery, viz: ChartConfig['viz']): ContentPanel<ChartConfig> => ({
     type: 'chart',
     title,
     config: { query, viz },
 })
-const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const chart = (title: string, sql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'hogql', query: sql }, viz)
-const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const metrics = (title: string, promql: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(title, { language: 'metrics', query: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql } }, viz)
-const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentWidget<ChartConfig> =>
+const traces = (title: string, service: string, viz: ChartConfig['viz']): ContentPanel<ChartConfig> =>
     chartOf(
         title,
         {
@@ -24,24 +27,24 @@ const traces = (title: string, service: string, viz: ChartConfig['viz']): Conten
         },
         viz
     )
-const stat = (title: string, sql: string, format?: StatOptions['format']): ContentWidget<ChartConfig> =>
+const stat = (title: string, sql: string, format?: StatOptions['format']): ContentPanel<ChartConfig> =>
     chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
-const line = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'line' })
-const bar = (title: string, sql: string): ContentWidget<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): ContentWidget => ({ type: 'markdown', config: { text: markdown } })
+const line = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'line' })
+const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'bar' })
+const text = (markdown: string): SavedPanel => ({ type: 'markdown', config: { text: markdown } })
 
-const tile = (id: string, x: number, y: number, w: number, h: number, widget: Tile['widget']): Tile => ({
+const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({
     id,
     place: { x, y, w, h },
-    widget,
+    panel,
 })
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
 
 const STAT_ROWS = statSpec.size.h
-const statRow = (prefix: string, y: number, cols: number, stats: ContentWidget<ChartConfig>[]): Tile[] => {
+const statRow = (prefix: string, y: number, cols: number, stats: ContentPanel<ChartConfig>[]): Tile[] => {
     const w = Math.floor(cols / stats.length)
-    return stats.map((widget, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, widget))
+    return stats.map((panel, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, panel))
 }
 
 // The SQL reads the dashboard's time range through `{filters}`.
@@ -154,6 +157,30 @@ const SQL = {
     createdByType: daily('event, count() as created', "event in ('insight created', 'dashboard created')", 'day, event'),
 }
 
+const SAMPLE = {
+    empty: `select toStartOfDay(timestamp) as day, count() as events from events where false group by day order by day -- sample: empty`,
+    emptyTotal: 'select count() as events from events where false -- sample: empty',
+    error: 'select missing_column from events -- sample: error',
+    slow: `${SQL.pageviewsOverTime} -- sample: slow`,
+    slowTotal: `${SQL.pageviews} -- sample: slow`,
+    stale: `${SQL.signupsOverTime} -- sample: stale`,
+    malformed: `${SQL.visitorsOverTime} -- sample: malformed`,
+}
+
+const RICH_MARKDOWN = [
+    '## Markdown',
+    '',
+    'Text tiles support **bold**, _italic_, `code` and [links](https://posthog.com/docs).',
+    '',
+    '- A list item',
+    '- Another item',
+    '',
+    '| Metric | Owner |',
+    '| --- | --- |',
+    '| Signups | Growth |',
+    '| Errors | Platform |',
+].join('\n')
+
 const REFRESHED_AT = '2026-11-19T09:00:00Z'
 
 const BIG_TILE_COUNT = 120
@@ -161,7 +188,7 @@ const BIG_TILE_COUNT = 120
 export const kitchenSinkDashboard: Dashboard = {
     version: 2,
     title: 'Dashboards v2',
-    description: 'Every widget, section and chart option on one dashboard.',
+    description: 'Every panel, section and chart option on one dashboard.',
     time: { from: 'now-14d', to: 'now' },
     allowFilters: true,
     filters: [{ id: 'browser', type: 'property', label: 'Browser', config: { key: '$browser', source: 'event' } }],
@@ -218,7 +245,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-q-multi', 0, 30, 24, 16, {
                         type: 'chart',
                         title: 'Several queries in one chart',
-                        description: 'HogQL, a trends query and PromQL, each named by its legend',
+                        description: 'HogQL, a trends query, PromQL and LogQL, each named by its legend',
                         config: {
                             targets: [
                                 {
@@ -246,11 +273,87 @@ export const kitchenSinkDashboard: Dashboard = {
                                     query: { language: 'promql', query: 'sum(rate(http_requests_total[5m]))' },
                                     legend: 'Requests per second (PromQL)',
                                 },
+                                {
+                                    refId: 'D',
+                                    query: {
+                                        language: 'logql',
+                                        query: 'sum(count_over_time({service_name="posthog-web-django", level="error"}[5m]))',
+                                    },
+                                    legend: 'Error log lines per 5 minutes (LogQL)',
+                                },
                             ],
                             viz: { type: 'line' },
                             time: { from: 'now-6h', to: 'now' },
                         },
                     }),
+                ]),
+            ],
+        },
+        {
+            id: 'tile-states',
+            title: 'Tile states',
+            tiles: [
+                tile(
+                    'ts-demo',
+                    0,
+                    0,
+                    24,
+                    4,
+                    text(
+                        '**Sample data.** A project that has not sent any events sees made-up charts instead of empty ones. ' +
+                            '[Show this tab with sample data](/dashboard-v2?tab=tile-states&sample_data=true) or [with real data](/dashboard-v2?tab=tile-states).'
+                    )
+                ),
+                section('ts-good', 0, 4, 24, 'Every panel type', [
+                    ...statRow('ts-good-stat', 0, 24, [
+                        stat('Number', SQL.signups, 'number'),
+                        stat('Currency', SQL.revenue, 'currency'),
+                        stat('Percentage', SQL.conversionRate, 'percentage'),
+                        stat('No format', SQL.visitors),
+                    ]),
+                    tile('ts-good-line', 0, STAT_ROWS, 8, 14, line('Line', SQL.signupsOverTime)),
+                    tile('ts-good-bar', 8, STAT_ROWS, 8, 14, bar('Bars by breakdown', SQL.sources)),
+                    tile('ts-good-stacked', 16, STAT_ROWS, 8, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
+                    tile('ts-good-markdown', 0, STAT_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
+                ]),
+                section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
+                    tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
+                    tile('ts-slow-stat', 12, 0, 6, STAT_ROWS, stat('Slow total', SAMPLE.slowTotal)),
+                    tile('ts-stale', 18, 0, 6, 12, { ...line('Stale result', SAMPLE.stale), refreshedAt: REFRESHED_AT }),
+                ]),
+                section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
+                    tile('ts-empty-line', 0, 0, 8, 12, line('Empty result', SAMPLE.empty)),
+                    tile('ts-empty-stat', 8, 0, 4, STAT_ROWS, stat('Empty total', SAMPLE.emptyTotal)),
+                    tile('ts-error-stat', 12, 0, 4, STAT_ROWS, stat('Failed total', SAMPLE.error)),
+                    tile('ts-error-line', 16, 0, 8, 12, line('Failed query', SAMPLE.error)),
+                    tile('ts-partial', 0, 12, 24, 14, {
+                        type: 'chart',
+                        title: 'One of two queries failed',
+                        config: {
+                            targets: [
+                                { refId: 'A', query: { language: 'hogql', query: SQL.pageviewsOverTime }, legend: 'Pageviews' },
+                                { refId: 'B', query: { language: 'hogql', query: SAMPLE.error }, legend: 'Broken' },
+                            ],
+                            viz: { type: 'line' },
+                        },
+                    }),
+                ]),
+                section('ts-broken', 0, 82, 24, 'Broken tiles', [
+                    tile('ts-throws', 0, 0, 8, 10, { ...line('Panel throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
+                    tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown panel type', config: {} }),
+                    tile('ts-unknown-viz', 16, 0, 8, 10, { type: 'chart', title: 'Unknown chart type', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'pie' } } }),
+                    tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'stat', options: { format: 'banana' } } } }),
+                    tile('ts-bad-markdown', 8, 10, 8, 10, { type: 'markdown', title: 'Invalid text config', config: { text: 42 } }),
+                    tile('ts-bad-chart', 16, 10, 8, 10, { type: 'chart', title: 'Chart with no query', config: { viz: { type: 'line' } } }),
+                ]),
+                section('ts-appearance', 0, 104, 24, 'Tile appearance', [
+                    tile('ts-headerless', 0, 0, 6, 8, { ...text('A tile with its header hidden.'), title: 'Hidden title', parts: { header: false } }),
+                    tile('ts-long-title', 6, 0, 6, 8, {
+                        ...stat('A very long title that is cut off at the edge of the tile instead of wrapping onto another line', SQL.visitors),
+                        description: 'Hover the icon to read the description.',
+                    }),
+                    tile('ts-tinted', 12, 0, 6, 8, { ...stat('Blue background', SQL.sessions), appearance: { backgroundColor: 'var(--color-blue-500)' } }),
+                    tile('ts-no-background', 18, 0, 6, 8, { ...text('No background and no border.'), appearance: { backgroundColor: 'transparent', border: false } }),
                 ]),
             ],
         },
