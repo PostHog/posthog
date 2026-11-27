@@ -41078,7 +41078,8 @@
                 "spend_without_conversions",
                 "striking_distance",
                 "keyword_tracking",
-                "conversion_mismatch"
+                "conversion_mismatch",
+                "search_settings"
             ],
             "type": "string"
         },

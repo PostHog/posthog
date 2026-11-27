@@ -64,6 +64,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     FlaggedAd,
     Keyword,
     KeywordTracking,
+    NetworkSpend,
     OrganicQueryStats,
     PolicyAds,
     PolicyTopic,
@@ -515,7 +516,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     any({primary_status}), any(toString({status_reasons})),
                     any(campaign_budget_amount_micros) / 1000000, any({recommended_budget}) / 1000000,
                     any(toString({budget_id})), any(toString({serving_status})), any({target_cpa}) / 1000000,
-                    any(toString({tracking_url_template}))
+                    any(toString({tracking_url_template})), any(toString({search_partners})),
+                    any(toString({display})), any(toString({geo_target_type}))
                 FROM {table} GROUP BY campaign_id
                 """,
                 source.campaignTable,
@@ -528,6 +530,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 serving_status=self._field(source.campaignTable, "campaign_status"),
                 target_cpa=self._field(source.campaignTable, "campaign_target_cpa_target_cpa_micros"),
                 tracking_url_template=self._field(source.campaignTable, "campaign_tracking_url_template"),
+                search_partners=self._field(source.campaignTable, "campaign_network_settings_target_search_network"),
+                display=self._field(source.campaignTable, "campaign_network_settings_target_content_network"),
+                geo_target_type=self._field(
+                    source.campaignTable, "campaign_geo_target_type_setting_positive_geo_target_type"
+                ),
             )
         }
         spend = {
@@ -542,6 +549,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 source.campaignStatsTable,
             )
         }
+        networks = self._network_spend(source.campaignStatsTable)
         shares = self._impression_shares(source.campaignImpressionShareTable)
         selected = self._selected_campaign_conversions(source.campaignConversionActionTable, actions)
         performance_max_terms = self._readable(source.performanceMaxSearchTermTable)
@@ -579,9 +587,32 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     # With conversions that match no campaign, a campaign without any may own some of them.
                     conversions_measured=not (has_unmatched_conversions and not conversions),
                     google_conversions=float(google_conversions or 0) if posthog_by_campaign is not None else None,
+                    targets_search_partners=_setting(definition[11]),
+                    targets_display=_setting(definition[12]),
+                    positive_geo_target_type=definition[13] or None,
+                    google_search_spend=networks.get((campaign_id, "SEARCH")),
+                    search_partners_spend=networks.get((campaign_id, "SEARCH_PARTNERS")),
+                    display_spend=networks.get((campaign_id, "CONTENT")),
                 )
             )
         return campaigns
+
+    def _network_spend(self, table: str) -> dict[tuple[str, str], NetworkSpend]:
+        if not self._has_field(table, "segments_ad_network_type"):
+            return {}
+        return {
+            (row[0], row[1]): NetworkSpend(cost=float(row[2] or 0), conversions=float(row[3] or 0))
+            for row in self._select(
+                """
+                SELECT toString(campaign_id), toString(segments_ad_network_type),
+                    sum(toFloat(metrics_cost_micros)) / 1000000, sum(toFloat(metrics_conversions))
+                FROM {table}
+                WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+                GROUP BY campaign_id, segments_ad_network_type
+                """,
+                table,
+            )
+        }
 
     @cached_property
     def _google_ads_sessions(self) -> GoogleAdsSessions:
@@ -1120,6 +1151,10 @@ def _posthog_conversions_failed() -> PostHogConversions:
         gap=MarketingAnalyticsRecommendationsDataGapKind.POSTHOG_CONVERSIONS_FAILED,
         gap_message=POSTHOG_CONVERSIONS_FAILED_GAP,
     )
+
+
+def _setting(value: str | None) -> bool | None:
+    return {"true": True, "false": False}.get((value or "").lower())
 
 
 def _unmatched_campaigns(matched_conversions: float, unmatched: dict[str, float]) -> tuple[str, ...]:

@@ -108,6 +108,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "campaign_primary_status_reasons": "String",
                 "campaign_budget_recommended_budget_amount_micros": "Int64",
                 "customer_id": "Int64",
+                "campaign_network_settings_target_search_network": "Bool",
             }
         rows = []
         for i in range(1, count + 1):
@@ -119,21 +120,27 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                     '"[""BUDGET_CONSTRAINED""]"' if constrained else '"[]"',
                     "300000000" if constrained else "0",
                     "1234567890",
+                    "true" if i == 1 else "false",
                 ]
             rows.append(",".join(row))
         campaigns = self._table(
             "campaign", campaign_columns, ",".join(campaign_columns) + "\n" + "\n".join(rows) + "\n"
         )
+        stats_columns = {
+            "campaign_id": "Int64",
+            "segments_date": "Date",
+            "metrics_cost_micros": "Int64",
+            "metrics_conversions": "Float64",
+        }
+        stats_rows = [f"{i},2026-01-15,1000000000,10" for i in range(1, count + 1)]
+        if has_status:
+            stats_columns["segments_ad_network_type"] = "String"
+            stats_rows = [f"{row},SEARCH" for row in stats_rows] + [
+                "1,2026-01-16,1000000000,10,SEARCH",
+                "1,2026-01-15,500000000,0,SEARCH_PARTNERS",
+            ]
         stats = self._table(
-            "campaign_stats",
-            {
-                "campaign_id": "Int64",
-                "segments_date": "Date",
-                "metrics_cost_micros": "Int64",
-                "metrics_conversions": "Float64",
-            },
-            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n"
-            + "".join(f"{i},2026-01-15,1000000000,10\n" for i in range(1, count + 1)),
+            "campaign_stats", stats_columns, ",".join(stats_columns) + "\n" + "\n".join(stats_rows) + "\n"
         )
 
         response = MarketingAnalyticsRecommendationsQueryRunner(
@@ -156,6 +163,9 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         ]
         assert budget == (
             [("Campaign 101", "Raise the daily budget from $100 to $300", "1234567890", "101")] if has_status else []
+        )
+        assert [rec.subject for rec in response.results if rec.rule == "search_settings"] == (
+            ["Campaign 1"] if has_status else []
         )
 
     def test_resolved_recommendations_leave_the_results_until_restored(self) -> None:

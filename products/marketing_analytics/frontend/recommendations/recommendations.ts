@@ -29,6 +29,7 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
     striking_distance: 'Striking distance',
     keyword_tracking: 'Keyword tracking',
     conversion_mismatch: 'Conversion counts differ',
+    search_settings: 'Search campaign settings',
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
@@ -49,6 +50,8 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
         'Visits from your Google Ads clicks have no utm_term, so conversion goals cannot be tied to the keyword that brought them.',
     conversion_mismatch:
         'Google Ads counts at least 3 times the conversions your PostHog goals count, because it may count other actions, or PostHog may not tie the visits to your campaigns.',
+    search_settings:
+        'Search campaigns that spend on search partners or the Display Network at 1.5 times or more the cost per conversion on Google Search, or that can show ads to people outside their locations.',
 }
 
 // Completes "Benchmark $40, ...".
@@ -83,6 +86,7 @@ const RULE_CATEGORIES: Record<
     policy_limited: 'fix',
     keyword_tracking: 'fix',
     conversion_mismatch: 'fix',
+    search_settings: 'waste',
 }
 
 export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, string> = {

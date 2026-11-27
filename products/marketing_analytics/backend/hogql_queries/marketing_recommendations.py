@@ -164,12 +164,23 @@ MIN_CONVERSION_MISMATCH_GOOGLE_CONVERSIONS = 20
 MIN_CONVERSION_MISMATCH_SPEND_SHARE = 0.05
 CONVERSION_MISMATCH_CAMPAIGNS_SHOWN = 3
 GOOGLE_ADS_ACCOUNT_LABEL = "Google Ads account"
+# Below this share of a Search campaign's spend, the search partners or Display share costs too little to switch off.
+MIN_NETWORK_SPEND_SHARE = 0.05
+NETWORK_CPA_MULTIPLE = 1.5
+PRESENCE_OR_INTEREST = "PRESENCE_OR_INTEREST"
 CAMPAIGN_PARAMETERS = frozenset(CAMPAIGN_PROPERTIES)
 BENCHMARK_LABELS = {
     BenchmarkSource.TARGET_CPA: "the campaign's target CPA",
     BenchmarkSource.CAMPAIGN: "the campaign's non-brand CPA",
     BenchmarkSource.ACCOUNT: "the account's non-brand CPA",
 }
+
+
+@frozen
+class NetworkSpend:
+    cost: float
+    # As Google Ads counts them, so networks are compared on the same count whatever the campaign CPA uses.
+    conversions: float
 
 
 @frozen
@@ -193,6 +204,12 @@ class CampaignStats:
     conversions_measured: bool = True
     # Set only when `conversions` counts PostHog goals, to compare with what Google Ads bids on.
     google_conversions: float | None = None
+    targets_search_partners: bool | None = None
+    targets_display: bool | None = None
+    positive_geo_target_type: str | None = None
+    google_search_spend: NetworkSpend | None = None
+    search_partners_spend: NetworkSpend | None = None
+    display_spend: NetworkSpend | None = None
 
 
 @frozen
@@ -870,7 +887,84 @@ class _Recommender:
                     )
                 )
         recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
+        recommendations.extend(
+            recommendation
+            for campaign in self.campaigns.values()
+            if (recommendation := self._search_settings(campaign))
+        )
         return recommendations
+
+    def _search_settings(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation | None:
+        if campaign.channel_type != "SEARCH" or campaign.primary_status in INACTIVE_STATUSES:
+            return None
+        search = campaign.google_search_spend
+        search_cpa = (
+            search.cost / search.conversions
+            if search and search.conversions >= MIN_CAMPAIGN_BENCHMARK_CONVERSIONS
+            else None
+        )
+        actions: list[str] = []
+        findings: list[str] = []
+        checkboxes: list[str] = []
+        savings, estimated = 0.0, False
+        for targeted, spend, label, checkbox in (
+            (
+                campaign.targets_search_partners,
+                campaign.search_partners_spend,
+                "search partners",
+                "Include Google search partners",
+            ),
+            (campaign.targets_display, campaign.display_spend, "the Display Network", "Include Google Display Network"),
+        ):
+            if not targeted or not spend or not search_cpa or spend.cost < MIN_NETWORK_SPEND_SHARE * campaign.cost:
+                continue
+            # Even one conversion would leave the network's CPA at or above the multiple.
+            if spend.cost < NETWORK_CPA_MULTIPLE * search_cpa * max(spend.conversions, 1):
+                continue
+            actions.append(f"turn off {label}")
+            findings.append(
+                f"Its ads on {label} cost {self._money(spend.cost / spend.conversions)} per conversion "
+                f"({self._money(spend.cost)} for {spend.conversions:,.1f}".removesuffix(".0")
+                + f"), against {self._money(search_cpa)} on Google Search."
+                if spend.conversions
+                else f"Its ads on {label} cost {self._money(spend.cost)} with no conversions, against "
+                f"{self._money(search_cpa)} per conversion on Google Search."
+            )
+            checkboxes.append(checkbox)
+            savings += spend.cost - spend.conversions * search_cpa
+            estimated = estimated or spend.conversions > 0
+        presence_or_interest = campaign.positive_geo_target_type == PRESENCE_OR_INTEREST and (
+            bool(findings) or campaign.cost >= MINOR_IMPACT_SHARE * self.search_cost
+        )
+        if presence_or_interest:
+            actions.append("show ads only to people in your locations")
+            findings.append(
+                f"It can {'also ' if findings else ''}show ads to people outside its locations who search for "
+                "them or show interest in them."
+            )
+        if not findings:
+            return None
+        action = " and ".join(actions)
+        steps = [self._open_campaign(campaign.name)]
+        if checkboxes:
+            steps.append(Step(text=f"Open its settings, expand Networks, clear {' and '.join(checkboxes)}, and save."))
+        if presence_or_interest:
+            steps.append(
+                Step(
+                    text="Open its settings, expand Locations, open Location options, under Include choose "
+                    "Presence: People in or regularly in your included locations, and save."
+                )
+            )
+        return self._campaign_recommendation(
+            MarketingAnalyticsRecommendationRule.SEARCH_SETTINGS,
+            campaign,
+            action[0].upper() + action[1:],
+            " ".join(findings),
+            savings * self.per_month if savings else None,
+            "save",
+            "estimated" if estimated else "measured",
+            steps=tuple(steps),
+        )
 
     def _budget_constrained(
         self, campaign: CampaignStats, benchmark: _Benchmark | None

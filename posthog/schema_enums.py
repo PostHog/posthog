@@ -2302,6 +2302,7 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     STRIKING_DISTANCE = "striking_distance"
     KEYWORD_TRACKING = "keyword_tracking"
     CONVERSION_MISMATCH = "conversion_mismatch"
+    SEARCH_SETTINGS = "search_settings"
 
 
 class MarketingAnalyticsRecommendationsConversionSourceKind(StrEnum):

@@ -303,6 +303,26 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
             },
         ],
     }),
+    recommendation({
+        rule: 'search_settings',
+        level: 'campaign',
+        subject: 'Search - Generic',
+        action: 'Turn off search partners and show ads only to people in your locations',
+        reason: 'Its ads on search partners cost $180 per conversion ($900 for 5), against $60 on Google Search. It can also show ads to people outside its locations who search for them or show interest in them.',
+        impact: 600,
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Generic',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            { text: 'Open its settings, expand Networks, clear Include Google search partners, and save.' },
+            {
+                text: 'Open its settings, expand Locations, open Location options, under Include choose Presence: People in or regularly in your included locations, and save.',
+            },
+        ],
+    }),
 ]
 
 const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
