@@ -298,6 +298,18 @@ describe('measurements', () => {
             [{ value: null, censored: true, unmeasured: 'the truth could not be read: the edge did not answer' }],
             { unread: 'the edge did not answer' },
         ],
+        [
+            'leaves unmeasured a run that did not converge, though no resend landed yet',
+            resent.slice(0, 1),
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the run did not converge, so a resend could still land after the final read',
+                },
+            ],
+            { converged: false },
+        ],
     ])('lease_reclaim_ms %s, from the exit of the role', (_story, truth, measured, overrides) => {
         const timeline = [terminated({ exitedAt: at(10_000), code: 0 })]
 
@@ -336,6 +348,19 @@ describe('measurements', () => {
             resent,
             [{ key: 'total', value: null, censored: true, unmeasured: 'sends were still landing' }],
             { unsettled: 'sends were still landing' },
+        ],
+        [
+            'leaves the count unmeasured when the run did not converge',
+            resent.slice(0, 1),
+            [
+                {
+                    key: 'total',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'the run did not converge, so a resend could still land after the final read',
+                },
+            ],
+            { converged: false },
         ],
     ])('resent_invocations %s', (_story, truth, measured, overrides) => {
         expect(measure([{ name: 'resent_invocations', params: {} }], evidence({ truth, ...overrides }))).toEqual(

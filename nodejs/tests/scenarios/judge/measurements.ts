@@ -193,8 +193,13 @@ export const roleExitMs: MeasurementDefinition = {
 
 const STOPS = new Set(['role.kill', 'role.terminate', 'role.freeze'])
 
-const unreadTruthOf = ({ unread, unsettled }: MeasureEvidence): string | undefined =>
-    unread !== undefined ? `the truth could not be read: ${unread}` : unsettled
+const unreadTruthOf = ({ unread, unsettled, converged }: MeasureEvidence): string | undefined =>
+    unread !== undefined
+        ? `the truth could not be read: ${unread}`
+        : (unsettled ??
+          (converged === false
+              ? 'the run did not converge, so a resend could still land after the final read'
+              : undefined))
 
 const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
