@@ -18,8 +18,8 @@ export interface messageAudienceOpenLogicActions {
         destination: MessageAudienceDestination,
         attemptId?: string
     ) => {
-        destination: MessageAudienceDestination
         attemptId: string | undefined
+        destination: MessageAudienceDestination
     }
     openFinished: () => {
         value: true
