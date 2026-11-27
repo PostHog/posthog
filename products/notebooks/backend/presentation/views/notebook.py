@@ -160,6 +160,7 @@ from products.notebooks.backend.presentation.reusable_widget_serializers import 
 )
 from products.notebooks.backend.presentation.widget_analytics import reusable_widget_origin
 from products.notebooks.backend.presentation.widget_serializers import (
+    LiveWidgetFrameQuerySerializer,
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
     WidgetFrameQuerySerializer,
@@ -323,6 +324,9 @@ class NotebookAppViewerRequestSerializer(serializers.Serializer):
 
 
 class NotebookAppWidgetSlotSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Completed source run approved for this published widget slot."
+    )
     node_id = serializers.CharField()
     version_id = serializers.UUIDField()
     slot = serializers.CharField()
@@ -1600,10 +1604,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 location=OpenApiParameter.PATH,
                 description="Allowed dataframe slot requested by the widget.",
             ),
-            OpenApiParameter("version_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("run_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            LiveWidgetFrameQuerySerializer,
         ],
     )
     @action(
@@ -1622,7 +1623,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     ) -> Response:
         if node_id is None or frame_name is None:
             raise Http404()
-        query = WidgetFrameQuerySerializer(data=request.query_params)
+        query = LiveWidgetFrameQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         self._require_query_access()
         if self._current_user() is None:

@@ -1,4 +1,3 @@
-from collections import defaultdict
 from uuid import UUID
 
 from rest_framework.exceptions import NotFound, ValidationError
@@ -8,9 +7,13 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.exceptions import Conflict
 
 from products.notebooks.backend.app_releases import read_release
-from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery, AppWidgetSlot
+from products.notebooks.backend.app_widget_sources import (
+    ApprovedWidgetSource,
+    approved_widget_sources,
+    widget_source_slots,
+)
+from products.notebooks.backend.facade.contracts import AppRelease, AppViewerQuery
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import NotebookWidgetInstance
 from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_serializers import NotebookVariableSerializer
 from products.notebooks.backend.sql_v2_state import (
@@ -26,7 +29,6 @@ from products.notebooks.backend.sql_v2_variables import (
     build_notebook_variables,
     substitute_hogql_variables,
 )
-from products.notebooks.backend.widgets import widget_node_ids, widget_source_name
 
 
 def plan_viewer_queries(
@@ -42,30 +44,15 @@ def plan_viewer_queries(
         for block in release.layout["blocks"]
         if block["kind"] == "cell" and block.get("display") != "source"
     }
-    visible_widgets = visible & widget_node_ids(build_markdown_notebook_content(release.markdown))
-    instances = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .filter(notebook_id=notebook_id, node_id__in=visible_widgets)
-        .select_related("pinned_version", "widget__current_version")
-    )
-    widget_sources: dict[str, list[AppWidgetSlot]] = defaultdict(list)
-    for instance in instances:
-        version = instance.pinned_version or instance.widget.current_version
-        if version is None:
-            continue
-        for item in version.input_contract:
-            if isinstance(item, dict) and isinstance(item.get("slot"), str):
-                source = widget_source_name(instance, item)
-                widget_sources[source].append(
-                    AppWidgetSlot(node_id=instance.node_id, version_id=version.id, slot=item["slot"])
-                )
-    return resolve_viewer_queries(release, inputs, widget_sources)
+    slots = widget_source_slots(team_id, notebook_id, release.markdown, visible)
+    approved = approved_widget_sources(team_id, notebook_id, release.markdown, slots)
+    return resolve_viewer_queries(release, inputs, approved)
 
 
 def resolve_viewer_queries(
     release: AppRelease,
     inputs: dict[str, NotebookVariableValue],
-    widget_sources: dict[str, list[AppWidgetSlot]] | None = None,
+    widget_sources: dict[str, ApprovedWidgetSource] | None = None,
 ) -> list[AppViewerQuery]:
     allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
     if inputs.keys() - allowed:
@@ -93,8 +80,9 @@ def resolve_viewer_queries(
                 excluded.add(dependent)
                 unsupported.append(by_id[dependent])
     owners = get_dataframe_owners(cells)
-    slots_by_node = {owners[name]: slots for name, slots in (widget_sources or {}).items() if name in owners}
-    displayed.update(slots_by_node)
+    approved = widget_sources or {}
+    visible = displayed.copy()
+    displayed.update(approved)
     displayed = (displayed & by_id.keys()) - excluded
     required = set(displayed)
     pending = list(displayed)
@@ -108,14 +96,16 @@ def resolve_viewer_queries(
         published = queries if variables == defaults else _bound_queries(by_id, required, displayed, owners, defaults)
     except (NotebookVariableError, ExposedHogQLError, SQLV2ReferenceError) as error:
         raise ValidationError("Could not prepare the published SQL for these inputs.") from error
+    slots = {node_id: source.slots for node_id, source in approved.items() if source.query == published.get(node_id)}
     return [
         AppViewerQuery(
             node_id=node_id,
             query=query,
             matches_defaults=published.get(node_id) == query,
-            widget_slots=slots_by_node.get(node_id, []),
+            widget_slots=slots.get(node_id, []),
         )
         for node_id, query in queries.items()
+        if node_id in visible or node_id in slots
     ]
 
 

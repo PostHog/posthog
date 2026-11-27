@@ -982,6 +982,11 @@ export interface NotebookAppViewerRequestApi {
 }
 
 export interface NotebookAppWidgetSlotApi {
+    /**
+     * Completed source run approved for this published widget slot.
+     * @nullable
+     */
+    run_id?: string | null
     node_id: string
     version_id: string
     slot: string
@@ -2009,9 +2014,24 @@ export type NotebooksWidgetSnapshotFrameParams = {
 }
 
 export type NotebooksWidgetFrameParams = {
+    /**
+     * Maximum rows to return. Use zero to check the binding and schema only.
+     * @minimum 0
+     * @maximum 500
+     */
     limit?: number
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
     offset?: number
+    /**
+     * Completed run selected by the first page request.
+     */
     run_id?: string
+    /**
+     * Version requesting the data.
+     */
     version_id?: string
 }
 

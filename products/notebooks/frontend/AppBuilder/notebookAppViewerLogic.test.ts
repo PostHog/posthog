@@ -7,6 +7,7 @@ import { promiseResolveReject } from 'lib/utils/async'
 
 import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { HogQLQueryResponse, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -68,6 +69,8 @@ describe('published viewer refreshes', () => {
         const plans = Array.from({ length: 6 }, (_, i) => ({
             node_id: String(i),
             query: 'SELECT ' + i,
+            widget_slots:
+                i === 0 ? [{ node_id: 'card', version_id: 'build', slot: 'source', run_id: 'published' }] : [],
             matches_defaults: false,
         }))
         jest.spyOn(notebookApi, 'notebooksAppReleaseRetrieve').mockResolvedValue({
@@ -84,6 +87,15 @@ describe('published viewer refreshes', () => {
         const pending = new Map<string, { signal: AbortSignal; finish: () => void }>()
         jest.spyOn(queryRunner, 'performQuery').mockImplementation((query, options, _refresh, id) => {
             expect(query.tags?.productKey).toBe(ProductKey.NOTEBOOKS)
+            if (isHogQLQuery(query)) {
+                const widget = query.query === 'SELECT 0'
+                expect(query.limit).toBe(widget ? 5000 : undefined)
+                if (widget) {
+                    expect(options?.parseJSON?.('{"results":[[9007199254740993]]}')).toEqual({
+                        results: [['9007199254740993']],
+                    })
+                }
+            }
             const { promise, resolve, reject } = promiseResolveReject<HogQLQueryResponse>()
             pending.set(id!, { signal: options!.signal!, finish: () => resolve({ columns: ['n'], results: [[1]] }) })
             options!.signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {

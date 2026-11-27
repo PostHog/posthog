@@ -245,11 +245,16 @@ export async function pollForResults(
                 await api.queryStatus.get(
                     queryId,
                     true,
-                    onResultPollTiming && {
-                        onRequestTiming: (timing) => {
-                            pollTiming = timing
-                        },
-                    }
+                    methodOptions?.parseJSON || onResultPollTiming
+                        ? {
+                              parseJSON: methodOptions?.parseJSON,
+                              onRequestTiming: onResultPollTiming
+                                  ? (timing) => {
+                                        pollTiming = timing
+                                    }
+                                  : undefined,
+                          }
+                        : undefined
                 )
             ).query_status
             if (statusResponse.complete) {

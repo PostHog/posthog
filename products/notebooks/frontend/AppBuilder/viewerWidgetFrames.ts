@@ -10,14 +10,23 @@ export function viewerWidgetSession(
     const frames = viewerWidgetFrames(outputs, widgetId, versionId)
     return {
         revision: JSON.stringify(
-            Array.from(frames, ([name, { sourceNodeId, output }]) => [name, sourceNodeId, output.generation])
+            Array.from(frames, ([name, { sourceNodeId, runId, output }]) => [
+                name,
+                sourceNodeId,
+                runId,
+                output.generation,
+            ])
         ),
         read: async (slot, offset, limit, load) => {
             const viewer = frames.get(slot)
             if (!viewer) {
                 return await load(offset, limit)
             }
-            return viewerWidgetPage(await load(0, 1), viewer.sourceNodeId, viewer.output, offset, limit)
+            const frame = await load(0, 0, viewer.runId)
+            if (frame.runId !== viewer.runId) {
+                throw new Error('The widget source run changed. Refresh the app to load the new binding.')
+            }
+            return viewerWidgetPage(frame, viewer.sourceNodeId, viewer.output, offset, limit)
         },
     }
 }
@@ -26,12 +35,12 @@ export function viewerWidgetFrames(
     outputs: Record<string, ViewerOutput>,
     widgetId: string,
     versionId: string | null | undefined
-): Map<string, { sourceNodeId: string; output: ViewerOutput }> {
-    const frames = new Map<string, { sourceNodeId: string; output: ViewerOutput }>()
+): Map<string, { sourceNodeId: string; runId: string; output: ViewerOutput }> {
+    const frames = new Map<string, { sourceNodeId: string; runId: string; output: ViewerOutput }>()
     for (const [sourceNodeId, output] of Object.entries(outputs)) {
         for (const binding of output.widgetSlots) {
-            if (binding.node_id === widgetId && binding.version_id === versionId) {
-                frames.set(binding.slot, { sourceNodeId, output })
+            if (binding.node_id === widgetId && binding.version_id === versionId && binding.run_id) {
+                frames.set(binding.slot, { sourceNodeId, runId: binding.run_id, output })
             }
         }
     }
@@ -98,4 +107,18 @@ function validateWidgetColumns(columns: WidgetFrameApi['columns'], result: Viewe
     ) {
         throw new Error('The filtered columns changed. Update the widget input to use this result.')
     }
+}
+
+export function parseWidgetQueryResponse(text: string): unknown {
+    if (!/\d{16}/.test(text)) {
+        return JSON.parse(text)
+    }
+    // Consume quoted JSON strings whole so digits inside strings and object keys stay untouched.
+    const tokens = /"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g
+    const exact = text.replace(tokens, (token) =>
+        token[0] !== '"' && /^-?\d{16,}$/.test(token) && !Number.isSafeInteger(Number(token))
+            ? '"' + token + '"'
+            : token
+    )
+    return JSON.parse(exact)
 }

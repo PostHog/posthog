@@ -19,6 +19,7 @@ import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/
 import { notebooksAppQueriesCreate, notebooksAppReleaseRetrieve } from '../generated/api'
 import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
+import { parseWidgetQueryResponse } from './viewerWidgetFrames'
 
 export interface ViewerProps {
     shortId: string
@@ -44,7 +45,7 @@ function exposedVariables(release: NotebookAppReleaseApi): NotebookVariable[] {
 }
 
 async function executeViewerQuery(
-    query: string,
+    plan: NotebookAppViewerQueryApi,
     project: string,
     controller: AbortController,
     force: boolean
@@ -58,8 +59,17 @@ async function executeViewerQuery(
     controller.signal.addEventListener('abort', cancel, { once: true })
     try {
         return await performQuery<HogQLQuery>(
-            { kind: NodeKind.HogQLQuery, query, tags: { productKey: ProductKey.NOTEBOOKS } },
-            { signal: controller.signal, queryTelemetry: 'metadata' },
+            {
+                kind: NodeKind.HogQLQuery,
+                query: plan.query,
+                ...(plan.widget_slots?.length ? { limit: 5000 } : {}),
+                tags: { productKey: ProductKey.NOTEBOOKS },
+            },
+            {
+                signal: controller.signal,
+                queryTelemetry: 'metadata',
+                parseJSON: plan.widget_slots?.length ? parseWidgetQueryResponse : undefined,
+            },
             force ? 'force_blocking' : 'blocking',
             queryId
         )
@@ -83,7 +93,8 @@ async function resolveViewerOutputs(
         if (!force && !previous && plan.matches_defaults) {
             continue
         }
-        if (!force && previous?.query === plan.query) {
+        const needsWidgetRows = !!plan.widget_slots?.length && !previous?.widgetSlots.length
+        if (!force && !needsWidgetRows && previous?.query === plan.query) {
             outputs[plan.node_id] = { ...previous, widgetSlots: plan.widget_slots ?? [] }
             continue
         }
@@ -91,7 +102,7 @@ async function resolveViewerOutputs(
             queries.run({
                 abortController: controller,
                 fn: async () => {
-                    const result = await executeViewerQuery(plan.query, project, controller, force)
+                    const result = await executeViewerQuery(plan, project, controller, force)
                     outputs[plan.node_id] = {
                         query: plan.query,
                         result,

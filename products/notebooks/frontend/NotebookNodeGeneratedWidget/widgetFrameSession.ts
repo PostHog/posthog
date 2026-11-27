@@ -8,7 +8,7 @@ export interface WidgetFrameSession {
         slot: string,
         offset: number,
         limit: number,
-        load: (offset: number, limit: number) => Promise<WidgetFrameApi>
+        load: (offset: number, limit: number, runId?: string) => Promise<WidgetFrameApi>
     ) => Promise<WidgetFrameApi>
 }
 

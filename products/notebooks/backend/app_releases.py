@@ -6,6 +6,7 @@ from django.db.models import QuerySet
 from rest_framework.exceptions import ValidationError
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
+from products.notebooks.backend.app_widget_sources import widget_source_slots
 from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
@@ -97,6 +98,16 @@ def review_sources(notebook: Notebook, markdown: str, blocks: list[AppBlockSourc
             markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS, group_anchored_prose=True
         )
     }
+    displayed = {block.node_id for block in blocks if block.kind == "cell" and block.display != "source"}
+    if any(node_id in sources and sources[node_id].tag_name == "Widget" for node_id in displayed):
+        widget_sources = widget_source_slots(notebook.team_id, notebook.id, markdown, displayed)
+        blocks = [
+            *blocks,
+            *(
+                AppBlockSource(id=node_id, node_id=node_id, kind="cell")
+                for node_id in widget_sources.keys() - displayed
+            ),
+        ]
     variables = {variable["name"] for variable in notebook.variables or []}
     result_ids = {
         block.node_id
