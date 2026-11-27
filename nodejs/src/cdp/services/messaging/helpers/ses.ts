@@ -9,7 +9,7 @@ import { type EmailStatus, type EmailStatusReason } from '../email-status.servic
 import { removeWorkflowRunTag } from './link-tags'
 import { SesBounce, SesEventRecord, sanitizeSesField } from './ses-events'
 import { SnsEnvelope, SnsEnvelopeVerifier } from './sns-envelope'
-import { unquoteMailbox } from './suppressed-recipients'
+import { parseAddressList, unquoteMailbox } from './suppressed-recipients'
 import {
     EmailTrackingCodeSigner,
     MESSAGE_CREATED_HEADER_NAME,
@@ -169,9 +169,10 @@ const sesRecipientsNotSentToCounter = new Counter({
 export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
     const sentTo = mailboxAddresses(rec.mail.destination)
     const kept = recipients.flatMap((r) => {
-        const parsed = addressparser(r.emailAddress, { flatten: true })
-        const address = parsed.length === 1 ? unquoteMailbox(parsed[0].address).trim() : ''
-        return address !== '' && sentTo.has(address.toLowerCase()) ? [{ ...r, emailAddress: address }] : []
+        const parsed = parseAddressList(r.emailAddress)
+        return parsed.length === 1 && sentTo.has(parsed[0].email.toLowerCase())
+            ? [{ ...r, emailAddress: parsed[0].email }]
+            : []
     })
     if (kept.length < recipients.length) {
         sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)

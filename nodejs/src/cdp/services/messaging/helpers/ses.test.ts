@@ -1363,6 +1363,12 @@ describe('SesWebhookHandler', () => {
                 update('delivered', '2025-10-03T12:01:00Z'),
             ],
             ['a hard bounce', {}, bounce('Permanent'), update('bounced', '2025-10-03T12:02:00Z', 'hard')],
+            [
+                'a hard bounce reported with the display name',
+                {},
+                bounce('Permanent', '"Jane Doe" <To@Example.com>'),
+                update('bounced', '2025-10-03T12:02:00Z', 'hard'),
+            ],
             ['a soft bounce', {}, bounce('Transient'), update('bounced', '2025-10-03T12:02:00Z', 'soft')],
             [
                 'an undetermined bounce',
