@@ -11431,16 +11431,16 @@ Note: engageapi.pendo.io is a Postman-published doc; I pulled the raw collection
 
 ## Pennylane — gaps
 
-Today (18): `bank_accounts`, `billing_subscriptions`, `categories`, `category_groups`, `commercial_documents`, `customer_invoices`, `customers`, `fiscal_years`, `journals`, `ledger_accounts`, `ledger_entries`, `ledger_entry_lines`, `products`, `purchase_requests`, `quotes`, `supplier_invoices`, `suppliers`, `transactions`
+Today (22): `bank_accounts`, `billing_subscriptions`, `categories`, `category_groups`, `commercial_documents`, `customer_contacts`, `customer_invoice_lines`, `customer_invoice_payments`, `customer_invoices`, `customers`, `fiscal_years`, `journals`, `ledger_accounts`, `ledger_entries`, `ledger_entry_lines`, `products`, `purchase_requests`, `quotes`, `supplier_invoice_lines`, `supplier_invoices`, `suppliers`, `transactions`
 
 Diffed against: <https://pennylane.readme.io/llms.txt>
 
-- [ ] `Customer invoice lines (GET /customer_invoices/{customer_invoice_id}/invoice_lines)` — line items per customer invoice for revenue by product and VAT rate; fan-out per invoice (high)
-- [ ] `Supplier invoice lines (GET /supplier_invoices/{supplier_invoice_id}/invoice_lines)` — line items per supplier invoice for spend analysis; fan-out per invoice (high)
-- [ ] `Customer invoice payments (GET /customer_invoices/{customer_invoice_id}/payments)` — payment records per customer invoice for collection timing; fan-out per invoice (high)
+- [x] `Customer invoice lines (GET /customer_invoices/{customer_invoice_id}/invoice_lines)` — line items per customer invoice for revenue by product and VAT rate; fan-out per invoice (high)
+- [x] `Supplier invoice lines (GET /supplier_invoices/{supplier_invoice_id}/invoice_lines)` — line items per supplier invoice for spend analysis; fan-out per invoice (high)
+- [x] `Customer invoice payments (GET /customer_invoices/{customer_invoice_id}/payments)` — payment records per customer invoice for collection timing; fan-out per invoice (high)
 - [ ] `Trial balance (GET /trial_balance)` — debit, credit and balance per ledger account for a period, a core accounting report (medium)
 - [ ] `Customer invoice installments (GET /customer_invoices/{customer_invoice_id}/installments)` — scheduled payment installments per invoice, for expected cash flow (medium)
-- [ ] `Customer contacts (GET /customers/{customer_id}/contacts)` — contact people per synced customer; fan-out per customer (medium)
+- [x] `Customer contacts (GET /customers/{customer_id}/contacts)` — contact people per synced customer; fan-out per customer (medium)
 - [ ] `Bank establishments (GET /bank_establishments)` — lookup of the banks behind the bank accounts we sync (medium)
 - [ ] `Customer invoice comments (GET /customer_invoices/{customer_invoice_id}/comments)` — comments on customer invoices; fan-out per invoice (low)
 - [ ] `Customer invoice templates (GET /customer_invoice_templates)` — lookup for invoice template references (low)
