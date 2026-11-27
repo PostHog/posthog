@@ -1399,7 +1399,16 @@ describe('cloud controller', () => {
         expect(cloud.billable()).toEqual([])
     })
 
-    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, string, string]>([
+    it.each<
+        [
+            string,
+            Partial<FakeCloudOptions>,
+            (fake: FakeCloud) => void,
+            string,
+            string,
+            { printed?: string; published?: Record<string, unknown> }?,
+        ]
+    >([
         [
             'an idle reader under the idle limit and a T0 minute above it',
             { readerAcu: IDLE_THEN_PROMOTED },
@@ -1612,10 +1621,19 @@ describe('cloud controller', () => {
         ],
         [
             'a failover request the runner dates two days before the run',
-            { card: { intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString() } },
+            {
+                card: {
+                    intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString(),
+                    eventFields: { acu_peak: 9, acu_after_t0_max: [4], acu_pre_t0_above_idle: ['x'] },
+                },
+            },
             () => undefined,
             'invalid',
             'falls outside the run',
+            {
+                printed: 'falls outside the run, so the reader was not judged.',
+                published: { acu_peak: null, acu_after_t0_max: null, acu_pre_t0_above_idle: null },
+            },
         ],
         [
             'a failover entry without the instant of its request',
@@ -1652,7 +1670,7 @@ describe('cloud controller', () => {
             'invalid',
             'the runner exited 2 after it saved a passed scorecard',
         ],
-    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason) => {
+    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason, also = {}) => {
         const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
         arrange(cloud)
 
@@ -1665,6 +1683,10 @@ describe('cloud controller', () => {
                 new Date(t0Minute + Number(minute) * 60_000).toISOString()
             )
         )
+        if (also.printed !== undefined) {
+            expect(out).toContainEqual(expect.stringContaining(also.printed))
+        }
+        expect(published()).toMatchObject(also.published ?? {})
         if (status === 'passed') {
             expect(published()).toMatchObject({
                 acu_pre_t0_max: 2,

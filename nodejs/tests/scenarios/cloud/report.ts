@@ -144,8 +144,20 @@ const minuteMaximaFrom = (t0Minute: number, after: { at: number; max: number }[]
         (_, i) => after.find(({ at }) => at === t0Minute + i * MINUTE_MS)?.max ?? null
     )
 
+// The controller alone writes these, from CloudWatch, so a runner scorecard that carries them never shows through.
+const CAPACITY_KEYS = [
+    'acu_pre_t0_max',
+    'acu_t0_minute_max',
+    'acu_peak',
+    'acu_seconds_to_peak',
+    'acu_after_t0_max',
+    'acu_pre_t0_above_idle',
+] as const
+
+const UNJUDGED = Object.fromEntries(CAPACITY_KEYS.map((key) => [key, null]))
+
 type Judged = {
-    scalars: Record<string, number | string[] | (number | null)[] | null>
+    scalars: Record<(typeof CAPACITY_KEYS)[number], number | string[] | (number | null)[] | null>
     readerAtT0: number | null
     reason?: string
 }
@@ -352,6 +364,7 @@ export async function report(
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,
         t0_at: t0 ?? null,
+        ...UNJUDGED,
         ...judged?.scalars,
         acu_gaps: capacity?.gaps.map(iso) ?? [],
         teardown_clean: end.teardownClean,
@@ -365,9 +378,11 @@ export async function report(
         controller.print(
             readerAtT0 !== null
                 ? `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
-                : capacity
-                  ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
-                  : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
+                : !t0InRun
+                  ? `The runner's ${FAILOVER_VALVE} request (${t0}) falls outside the run, so the reader was not judged.`
+                  : capacity
+                    ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
+                    : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
         )
     }
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)
