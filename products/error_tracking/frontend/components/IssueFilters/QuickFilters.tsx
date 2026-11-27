@@ -53,13 +53,13 @@ export const ErrorTrackingQuickFilters = (): JSX.Element => {
                     render={
                         <Button
                             variant="outline"
-                            size={quickFilters.length === 0 ? 'default' : 'icon'}
+                            size="icon"
+                            aria-label="Configure quick filters"
                             onClick={openModal}
                         />
                     }
                 >
                     <IconGear />
-                    {quickFilters.length === 0 ? 'Configure quick filters' : null}
                 </TooltipTrigger>
                 <TooltipContent>Configure quick filters</TooltipContent>
             </Tooltip>
