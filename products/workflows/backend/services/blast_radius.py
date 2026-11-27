@@ -114,10 +114,6 @@ def _count_audience(
     return get_person_audience_count_v2(team, filters, total=total)
 
 
-def _as_pair(result: BlastRadiusResult) -> tuple[int, int]:
-    return result.affected, result.total
-
-
 def _cached_count_audience(
     team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None, *, refresh: bool
 ) -> BlastRadiusResult:
@@ -126,15 +122,13 @@ def _cached_count_audience(
     )
     # One deadline for the audience lock and the person-total lock inside it, so a request never waits on both in turn.
     wait_until = monotonic() + COUNTING_WAIT_SECONDS
-    affected, total = _shared_count(
-        f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}",
-        lambda: _as_pair(
-            _count_audience(team, filters, group_type_index, dedupe_key, refresh=refresh, wait_until=wait_until)
-        ),
+    # v2 stores the result object. Pods on the previous release keep their tuples under the old key.
+    return _shared_count(
+        f"workflows:audience_count:v2:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}",
+        lambda: _count_audience(team, filters, group_type_index, dedupe_key, refresh=refresh, wait_until=wait_until),
         refresh=refresh,
         wait_until=wait_until,
     )
-    return BlastRadiusResult(affected=affected, total=total)
 
 
 def _top_level_cohort_ids(filters: dict) -> list[int | str]:
