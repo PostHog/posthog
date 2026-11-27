@@ -13035,10 +13035,10 @@ Today (13): `billing_coupons`, `billing_customers`, `billing_meters`, `billing_p
 
 Diffed against: <https://docs.schematichq.com/llms.txt>
 
-- [ ] `Feature usage (GET /feature-usage)` — Current usage against entitlement per company and feature, the core metering view (high)
-- [ ] `Feature usage history (GET /feature-usage-history)` — Usage over time per company and feature, for trends and overage analysis (high)
-- [ ] `Events (GET /events)` — Raw usage events sent to Schematic, the source behind metered features (medium)
-- [ ] `Billing credits (GET /billing/credits)` — Credit definitions used in credit-based pricing (medium)
+- [x] `Feature usage (GET /feature-usage)` — Current usage against entitlement per company and feature, the core metering view (high)
+- [x] `Feature usage history (GET /feature-usage-history)` — Usage over time per company and feature, for trends and overage analysis (high)
+- [ ] `Events (GET /events)` — Raw usage events sent to Schematic, the source behind metered features (medium). Skipped: the endpoint has no server-side time filter and no sort parameter, and it keeps 365 days of events, including every flag check, so each sync would read the full year again. `feature_usage_history` gives the daily totals.
+- [x] `Billing credits (GET /billing/credits)` — Credit definitions used in credit-based pricing (medium)
 - [ ] `Company credit grants (GET /billing/credits/grants/company/list)` — Credits granted to each company, with balance and expiry (medium)
 - [ ] `Credit bundles (GET /billing/credits/bundles)` — Purchasable credit packs (low)
 - [ ] `Plan credit grants (GET /billing/credits/plan-grants)` — Credits that each plan grants, a link between plans and credits (low)
@@ -13834,10 +13834,10 @@ Today (12): `candidates`, `departments`, `hiring_processes`, `job_hiring_team`, 
 
 Diffed against: <https://developers.smartrecruiters.com/llms.txt>
 
-- [ ] `Candidate status history (GET /candidates/{id}/status/history)` — stage transitions per candidate for time-in-stage and funnel analysis; fan-out over candidates (high)
-- [ ] `Interviews (GET /interviews)` — interview schedule and outcome per application (high)
-- [ ] `Reviews (GET /reviews)` — reviewer scores per candidate and job; needs candidateId and jobId so fan-out over applications (medium)
-- [ ] `Audit events (GET /audit-events)` — admin change log; needs ADMINISTRATOR role (medium)
+- [x] `Candidate status history (GET /candidates/{id}/status/history)` — stage transitions per candidate for time-in-stage and funnel analysis; fan-out over candidates (high)
+- [x] `Interviews (GET /interviews)` — interview schedule and outcome per application (high)
+- [x] `Reviews (GET /reviews)` — reviewer scores per candidate and job; needs candidateId and jobId so fan-out over applications (medium)
+- [x] `Audit events (GET /audit-events)` — admin change log; needs ADMINISTRATOR role (medium)
 - [ ] `Candidate properties (GET /configuration/candidate-properties)` — lookup for custom candidate fields and their values (medium)
 - [ ] `Job properties (GET /configuration/job-properties)` — lookup for custom job fields and their values (medium)
 - [ ] `Access groups (GET /configuration/access-groups)` — lookup for access groups; users we sync carry access and role data (low)
