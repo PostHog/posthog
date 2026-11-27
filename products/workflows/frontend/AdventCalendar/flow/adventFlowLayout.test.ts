@@ -18,13 +18,17 @@ function answered(days: number[]): Record<number, string> {
     )
 }
 
-const STATES: Record<string, { progress: AdventProgress; today: number }> = {
+const LEAF_REACH = 26
+
+const STATES = {
     'nothing open': { progress: { opened: [], answers: {} }, today: 1 },
     'the first week open': { progress: { opened: DAYS.slice(0, 6), answers: answered(DAYS.slice(0, 6)) }, today: 7 },
     'every door open': { progress: { opened: DAYS, answers: answered(DAYS) }, today: ADVENT_LAST_DAY },
-}
+} satisfies Record<string, { progress: AdventProgress; today: number }>
 
-function layoutOf(state: string, orientation: AdventFlowOrientation, shares: AdventPollShares = {}): AdventFlowLayout {
+type State = keyof typeof STATES
+
+function layoutOf(state: State, orientation: AdventFlowOrientation, shares: AdventPollShares = {}): AdventFlowLayout {
     const { progress, today } = STATES[state]
     return adventFlowLayout(buildAdventGraph(progress, today, REWARDS), shares, orientation)
 }
@@ -58,8 +62,8 @@ const onRun = (point: Point, [from, to]: [Point, Point]): boolean =>
 
 const segments = (points: Point[]): [Point, Point][] => points.slice(1).map((point, index) => [points[index], point])
 
-const cases: [AdventFlowOrientation, string][] = ORIENTATIONS.flatMap((orientation) =>
-    Object.keys(STATES).map((state): [AdventFlowOrientation, string] => [orientation, state])
+const cases: [AdventFlowOrientation, State][] = ORIENTATIONS.flatMap((orientation) =>
+    (Object.keys(STATES) as State[]).map((state): [AdventFlowOrientation, State] => [orientation, state])
 )
 
 describe('adventFlowLayout', () => {
@@ -122,6 +126,19 @@ describe('adventFlowLayout', () => {
         }
     )
 
+    it.each(cases)('walks an edge once its source and its target door are open in %s with %s', (orientation, state) => {
+        const layout = layoutOf(state, orientation)
+        const isOpen = (id: string): boolean =>
+            id === 'trigger' || layout.nodes.find((node) => node.id === id)?.door?.status === 'open'
+
+        expect(layout.edges.map((edge) => [edge.id, edge.walked])).toEqual(
+            layout.edges.map((edge) => [
+                edge.id,
+                isOpen(edge.source) && (edge.target === 'exit' || isOpen(edge.target)),
+            ])
+        )
+    })
+
     it.each(ORIENTATIONS)('moves nothing when doors open and questions get answered in %s', (orientation) => {
         const before = layoutOf('nothing open', orientation)
         const after = layoutOf('every door open', orientation)
@@ -145,7 +162,7 @@ describe('adventFlowLayout', () => {
                 !hover ||
                 (hover.side === 'right'
                     ? hover.rect.x > tile.x + tile.width
-                    : hover.rect.x + hover.rect.width < tile.x - tile.width / 3)
+                    : hover.rect.x + hover.rect.width <= tile.x - LEAF_REACH)
         )
 
         expect([sideOf('door-1'), sideOf('door-8'), sideOf('trigger')]).toEqual(['right', 'left', undefined])
