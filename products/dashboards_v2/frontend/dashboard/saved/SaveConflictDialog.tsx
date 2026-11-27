@@ -11,7 +11,7 @@ import {
     DialogTitle,
 } from '@posthog/quill'
 
-import { dashboardSceneLogic } from './dashboardSceneLogic'
+import { savedDashboardLogic } from './savedDashboardLogic'
 
 function ChangeList({ title, changes }: { title: string; changes: string[] }): JSX.Element {
     return (
@@ -30,9 +30,9 @@ function ChangeList({ title, changes }: { title: string; changes: string[] }): J
     )
 }
 
-export function BoardConflictDialog(): JSX.Element | null {
-    const { conflictChanges } = useValues(dashboardSceneLogic)
-    const { keepTheirVersion, keepMyVersion } = useActions(dashboardSceneLogic)
+export function SaveConflictDialog(): JSX.Element | null {
+    const { conflictChanges } = useValues(savedDashboardLogic)
+    const { keepTheirVersion, keepMyVersion } = useActions(savedDashboardLogic)
     if (!conflictChanges) {
         return null
     }

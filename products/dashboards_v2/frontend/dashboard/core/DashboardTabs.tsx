@@ -18,9 +18,9 @@ import {
 
 import { hasDangerousScheme } from 'lib/utils/url'
 
-import { useGridDrag } from '../grid/drag/gridDrag'
+import { useGridDrag } from '../../grid/drag/gridDrag'
+import { type DashboardTab, isGridTab } from '../document/dashboardTypes'
 import { useDashboard } from './dashboardContext'
-import { type DashboardTab, isGridTab } from './document/dashboardTypes'
 
 type TabDraft = {
     id: string

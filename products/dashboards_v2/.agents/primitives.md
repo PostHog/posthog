@@ -43,13 +43,13 @@ Leave out what you do not need. With no `filters`, `timeRange`, `refresh` or `hi
 
 ### One tile on its own
 
-Render `PanelCard` with the panel and the panel types that can draw it. No dashboard, grid or controller is needed.
+Render `ContentTile` with the panel and the panel types that can draw it. No dashboard, grid or controller is needed.
 A tile's menu takes two lists: `actions` for what the tile does to itself, and `placementActions` for where it sits, such as moving or removing it. A tile on its own passes only `actions`, or neither for no menu.
-Wrap it in `FiltersContext` or `PanelHostContext` only when the page has filters, a refresh or sample data to pass down.
+Wrap it in `FiltersContext` or `PanelHostContext` only when the page has filters or a refresh to pass down.
 
 ```tsx
 <FiltersContext.Provider value={{ time: { from: 'now-30d', to: 'now' }, filters: [] }}>
-  <PanelCard panel={signupsChart} panels={[createChartPanel({ runQuery: myRunner })]} />
+  <ContentTile panel={signupsChart} panels={[createChartPanel({ runQuery: myRunner })]} />
 </FiltersContext.Provider>
 ```
 

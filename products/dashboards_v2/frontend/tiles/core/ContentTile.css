@@ -1,4 +1,4 @@
-.dash-PanelCard {
+.dash-ContentTile {
     /* Anchors the menu button of a tile without a header. */
     position: relative;
     width: 100%;
@@ -6,19 +6,19 @@
 }
 
 /* Mixed into the card's own background, so a theme color reads in light and dark mode. */
-.dash-PanelCard--tinted {
+.dash-ContentTile--tinted {
     background-color: color-mix(in oklab, var(--dv2-tile-background-color) 8%, var(--card));
 }
 
-.dash-PanelCard--no-background {
+.dash-ContentTile--no-background {
     background-color: transparent;
 }
 
-.dash-PanelCard--no-border > .quill-card__footer {
+.dash-ContentTile--no-border > .quill-card__footer {
     border-top: 0;
 }
 
-:is(.dash-PanelCard--no-background, .dash-PanelCard--no-border) {
+:is(.dash-ContentTile--no-background, .dash-ContentTile--no-border) {
     box-shadow: none;
 
     /* Without an outline the tile is hard to find while editing, so it shows one on hover. */
@@ -28,7 +28,7 @@
     }
 }
 
-.dash-PanelCard__float-toolbar {
+.dash-ContentTile__float-toolbar {
     position: absolute;
     top: 4px;
     right: 4px;
@@ -36,14 +36,14 @@
 }
 
 /* A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in. */
-.dash-PanelCard > .quill-card__header {
+.dash-ContentTile > .quill-card__header {
     padding-bottom: 0;
     border-bottom: 0;
 }
 
 /* A touch screen has no hover, so a tile without a background always shows its outline while editing. */
 @media (hover: none) {
-    .TileGrid--editable :is(.dash-PanelCard--no-background, .dash-PanelCard--no-border) {
+    .TileGrid--editable :is(.dash-ContentTile--no-background, .dash-ContentTile--no-border) {
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }
