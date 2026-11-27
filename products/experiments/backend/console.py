@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.facade import staff
-from products.experiments.backend.facade.contracts import StaffExperiment, StaffRecalculation
+from products.experiments.backend.facade.contracts import StaffExperiment, StaffRecalculation, StaffSavedMetric
 from products.experiments.backend.facade.enums import RecalculationStartOutcome, TerminalMarkOutcome
 
 EXPERIMENTS = Owner(name="Experiments", crest="experiments")
@@ -37,8 +37,25 @@ def _recalculations_url(**params: object) -> str:
     return f"{RECALCULATIONS_TOOL_URL}?{urlencode(params)}"
 
 
-def _experiment_place(experiment_id: int, *steps: RecordLink) -> ToolPlace | None:
-    experiment = staff.get_experiment(experiment_id)
+def _experiment(request: HttpRequest, experiment_id: int) -> StaffExperiment | None:
+    # The breadcrumb, the page, its live blocks and its operations all read the same records.
+    return ConsoleTool.once_per_request(
+        request, ("experiment", str(experiment_id)), lambda: staff.get_experiment(experiment_id)
+    )
+
+
+def _saved_metric(request: HttpRequest, saved_metric_id: int) -> StaffSavedMetric | None:
+    return ConsoleTool.once_per_request(
+        request, ("saved_metric", str(saved_metric_id)), lambda: staff.get_saved_metric(saved_metric_id)
+    )
+
+
+def _recalculation(request: HttpRequest, run_id: str) -> StaffRecalculation | None:
+    return ConsoleTool.once_per_request(request, ("recalculation", run_id), lambda: staff.get_recalculation(run_id))
+
+
+def _experiment_place(request: HttpRequest, experiment_id: int, *steps: RecordLink) -> ToolPlace | None:
+    experiment = _experiment(request, experiment_id)
     if experiment is None:
         return None
     return ToolPlace.under(
@@ -305,10 +322,10 @@ class ExperimentsTool(ConsoleTool):
     def place(self, request: HttpRequest) -> ToolPlace | None:
         experiment_id = _int_param(request, "experiment")
         if experiment_id is not None:
-            return _experiment_place(experiment_id)
+            return _experiment_place(request, experiment_id)
         saved_metric_id = _int_param(request, "saved_metric")
         if saved_metric_id is not None:
-            saved_metric = staff.get_saved_metric(saved_metric_id)
+            saved_metric = _saved_metric(request, saved_metric_id)
             if saved_metric is None:
                 return None
             return ToolPlace.under(
@@ -325,10 +342,10 @@ class ExperimentsTool(ConsoleTool):
     def page(self, request: HttpRequest) -> Page:
         experiment_id = _int_param(request, "experiment")
         if experiment_id is not None:
-            return self._experiment_page(experiment_id)
+            return self._experiment_page(request, experiment_id)
         saved_metric_id = _int_param(request, "saved_metric")
         if saved_metric_id is not None:
-            return self._saved_metric_page(saved_metric_id)
+            return self._saved_metric_page(request, saved_metric_id)
         team_id = _int_param(request, "team")
         if team_id is not None:
             return self._team_page(team_id)
@@ -359,8 +376,8 @@ class ExperimentsTool(ConsoleTool):
             )
         )
 
-    def _experiment_page(self, experiment_id: int) -> Page:
-        experiment = staff.get_experiment(experiment_id)
+    def _experiment_page(self, request: HttpRequest, experiment_id: int) -> Page:
+        experiment = _experiment(request, experiment_id)
         if experiment is None:
             return Page(blocks=(Notice(text=f"No experiment has the ID {experiment_id}."),))
         blocks: list[Notice | Table | Live] = [
@@ -452,8 +469,8 @@ class ExperimentsTool(ConsoleTool):
             return Cell(text="Not migrated", tone=Tone.DESTRUCTIVE)
         return Cell(text=f"#{migrated_to_id}", href=_experiments_url(saved_metric=migrated_to_id))
 
-    def _saved_metric_page(self, saved_metric_id: int) -> Page:
-        saved_metric = staff.get_saved_metric(saved_metric_id)
+    def _saved_metric_page(self, request: HttpRequest, saved_metric_id: int) -> Page:
+        saved_metric = _saved_metric(request, saved_metric_id)
         if saved_metric is None:
             return Page(blocks=(Notice(text=f"No shared metric has the ID {saved_metric_id}."),))
         blocks = [
@@ -492,7 +509,7 @@ class ExperimentsTool(ConsoleTool):
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
         saved_metric_id = _int_param(request, "saved_metric")
         if saved_metric_id is not None and _int_param(request, "experiment") is None:
-            saved_metric = staff.get_saved_metric(saved_metric_id)
+            saved_metric = _saved_metric(request, saved_metric_id)
             if saved_metric is None or not saved_metric.is_legacy:
                 return []
             return [
@@ -511,7 +528,7 @@ class ExperimentsTool(ConsoleTool):
         experiment_id = _int_param(request, "experiment")
         if experiment_id is None:
             return []
-        experiment = staff.get_experiment(experiment_id)
+        experiment = _experiment(request, experiment_id)
         if experiment is None:
             return []
         operations = []
@@ -561,14 +578,23 @@ class ExperimentRecalculationsTool(ConsoleTool):
     def place(self, request: HttpRequest) -> ToolPlace | None:
         run_id = _uuid_param(request, "run")
         if run_id is not None:
-            run = staff.get_recalculation(run_id)
+            run = _recalculation(request, run_id)
             if run is None:
                 return None
             return _experiment_place(
-                run.experiment_id, RecordLink(label="Recalculation", href=_recalculations_url(run=run.id))
+                request,
+                run.experiment_id,
+                RecordLink(label="Recalculations", href=_recalculations_url(experiment=run.experiment_id)),
+                RecordLink(label="Recalculation", href=_recalculations_url(run=run.id)),
             )
         experiment_id = _int_param(request, "experiment")
-        return _experiment_place(experiment_id) if experiment_id is not None else None
+        if experiment_id is None:
+            return None
+        return _experiment_place(
+            request,
+            experiment_id,
+            RecordLink(label="Recalculations", href=_recalculations_url(experiment=experiment_id)),
+        )
 
     def page(self, request: HttpRequest) -> Page:
         run_id = _uuid_param(request, "run")
@@ -588,7 +614,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
         return Page(blocks=(heading, runs))
 
     def _run_page(self, request: HttpRequest, run_id: str) -> Page:
-        run = staff.get_recalculation(run_id)
+        run = _recalculation(request, run_id)
         if run is None:
             return Page(blocks=(Notice(text=f"No recalculation has the ID {run_id}."),))
         summary = self.live(request, "run")
@@ -610,7 +636,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
         run_id = _uuid_param(request, "run")
         # A live block holds one table, so the failures refresh as their own block on the same schedule.
         if key in ("run", "run-failures") and run_id is not None:
-            run = staff.get_recalculation(run_id)
+            run = _recalculation(request, run_id)
             if run is None:
                 return None
             return Live(
@@ -627,7 +653,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
         run_id = _uuid_param(request, "run")
         if run_id is None:
             return []
-        run = staff.get_recalculation(run_id)
+        run = _recalculation(request, run_id)
         if run is None:
             return []
         operations = []
@@ -656,7 +682,7 @@ class ExperimentRecalculationsTool(ConsoleTool):
                 ),
             ]
         # A recalculation needs a start date, so a run of a draft experiment offers no new run.
-        experiment = staff.get_experiment(run.experiment_id)
+        experiment = _experiment(request, run.experiment_id)
         if experiment is None or not experiment.is_launched:
             return operations
         # Retrying failures reruns the latest finished run's failures, so it lives on the experiment page only.
