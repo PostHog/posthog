@@ -39,12 +39,19 @@ async function matchesCondition(
     return result.result
 }
 
+function fitsInputLimit(text: string): boolean {
+    if (text.length <= MAX_NOTEBOOK_VARIABLE_VALUE_CHARS) {
+        return true
+    }
+    if (text.length > 2 * MAX_NOTEBOOK_VARIABLE_VALUE_CHARS) {
+        return false
+    }
+    return Array.from(text).length <= MAX_NOTEBOOK_VARIABLE_VALUE_CHARS
+}
+
 function inputValue(type: NotebookVariable['type'], value: SelectedValue): NotebookVariableValue {
     const text = String(value)
-    if (
-        text.length > 2 * MAX_NOTEBOOK_VARIABLE_VALUE_CHARS ||
-        (text.length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS && Array.from(text).length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS)
-    ) {
+    if (!fitsInputLimit(text)) {
         return null
     }
     switch (type) {

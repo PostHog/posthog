@@ -9,7 +9,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 
 from posthog.exceptions import Conflict
 from posthog.models import Team, User
@@ -99,6 +99,10 @@ class NotebookAppSelectionSerializer(serializers.Serializer):
             attrs["condition_bytecode"] = to_bytecode(attrs["condition"]) if attrs["condition"] else []
         except ExposedHogQLError as error:
             raise serializers.ValidationError({"condition": str(error)}) from error
+        except (BaseHogQLError, RecursionError) as error:
+            raise serializers.ValidationError(
+                {"condition": "Could not compile this condition. Try a simpler expression."}
+            ) from error
         return attrs
 
 
