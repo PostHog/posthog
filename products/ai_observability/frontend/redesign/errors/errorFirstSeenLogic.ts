@@ -67,6 +67,9 @@ export interface errorFirstSeenLogicActions {
     firstSeenRequested: (keys: string[]) => {
         keys: string[]
     }
+    firstSeenWanted: (keys: string[]) => {
+        keys: string[]
+    }
 }
 
 export type errorFirstSeenLogicType = MakeLogicType<errorFirstSeenLogicValues, errorFirstSeenLogicActions>
@@ -79,6 +82,7 @@ export const errorFirstSeenLogic = kea<errorFirstSeenLogicType>([
     })),
     actions({
         firstSeenParamsChanged: true,
+        firstSeenWanted: (keys: string[]) => ({ keys }),
         firstSeenRequested: (keys: string[]) => ({ keys }),
         firstSeenFailed: (keys: string[]) => ({ keys }),
         firstSeenLoaded: (entries: CellEntry<ErrorFirstSeen>[]) => ({ entries }),
@@ -119,6 +123,8 @@ export const errorFirstSeenLogic = kea<errorFirstSeenLogicType>([
             // A reload shows the page again once it lands, and its first seen is read again with it.
             reload: reader.pageReloading,
             loadErrorsPageFailure: reader.pageFailed,
+            // A key off the page, such as the one a direct link opens in the drawer, is read with the selection on screen.
+            firstSeenWanted: ({ keys }) => reader.read(keys, firstSeenParams(values.selectionParams)),
             loadErrorsPageSuccess: async ({ page, payload }) => {
                 if (payload) {
                     await reader.pageLoaded(
