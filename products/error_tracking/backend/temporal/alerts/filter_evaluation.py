@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
+from products.error_tracking.backend.temporal.alerts.lifecycle_extras import EVENT_EXTRA_KEYS, NUMERIC_EXTRA_KEYS
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 from common.hogvm.python.execute import execute_bytecode
@@ -29,22 +30,6 @@ def filters_are_configured(filters: Mapping[str, Any]) -> bool:
     # Empty filters still carry trivially-true compiled bytecode, so look at the
     # configured predicate keys instead.
     return any(filters.get(key) for key in ("events", "actions", "properties", "filter_test_accounts"))
-
-
-# Only the spike measurements are numbers. Other extras, such as a release version
-# like "1.10", must stay strings to compare as the internal event does.
-NUMERIC_EXTRA_KEYS = frozenset({"computed_baseline", "current_bucket_value"})
-
-# Extras an event's producer always emits, null included. Extras cross Temporal without their nulls, so they are
-# restored here, and an exception property of the same name cannot stand in for a missing one.
-EVENT_EXTRA_KEYS: dict[str, tuple[str, ...]] = {
-    "$error_tracking_issue_reopened": (
-        "reopen_reason",
-        "reopened_by_release_version",
-        "reopened_by_release_project",
-        "reopened_by_release_id",
-    ),
-}
 
 
 def _coerce_numeric(value: str) -> object:

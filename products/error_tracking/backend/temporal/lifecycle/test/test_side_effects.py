@@ -13,6 +13,7 @@ from posthog.models import Team
 from products.cdp.backend.filters import compile_filters_bytecode
 from products.cdp.backend.internal_events import InternalEventEvent
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee
+from products.error_tracking.backend.temporal.alerts.lifecycle_extras import REOPEN_EXTRA_KEYS
 from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
@@ -383,6 +384,8 @@ def test_reopened_internal_event_says_why_the_issue_reopened(
     properties = sent_events[0].properties
     release_keys = {key for key in properties if key.startswith("reopen")}
     assert {key: properties[key] for key in release_keys} == expected_properties
+    # Alert and Inbox filters forward and restore exactly these keys.
+    assert release_keys == set(REOPEN_EXTRA_KEYS)
 
 
 @pytest.mark.parametrize(
