@@ -340,6 +340,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "needs a title",
             ),
             (
+                "header_operation_without_a_form",
+                lambda: Operation(key="log-in", label="Log in", handler=lambda request, obj, form: None, header=True),
+                "needs a form",
+            ),
+            (
                 "panel_key_that_would_shadow_related_lists",
                 lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"key": "related"})),
                 "URL segment of related lists",
@@ -1036,6 +1041,30 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == expected
+
+    @parameterized.expand(
+        [
+            ("record_type_without_a_list", "/admin/console/teams/?q=hedgebox", "/admin/console/?q=hedgebox"),
+            ("record_type_with_a_list", "/admin/console/deletion-requests/", "/admin/console/tools/deletion-requests/"),
+            ("related_lists", "/admin/console/teams/{team}/related/", "/admin/console/teams/{team}/"),
+            (
+                "panel_with_a_ticket",
+                "/admin/console/teams/{team}/{panel}/?ticket=t-1",
+                "/admin/console/teams/{team}/?ticket=t-1#panel-{panel}",
+            ),
+            ("results", "/admin/console/results/", "/admin/console/"),
+        ]
+    )
+    def test_a_console_url_cut_short_leads_to_its_nearest_page(self, _name: str, path: str, expected: str) -> None:
+        names = {"team": self.team.pk, "panel": console.panels_for("team")[0].key}
+
+        response = self.client.get(path.format(**names), follow=True)
+
+        assert response.redirect_chain[-1][0] == expected.format(**names)
+        assert response.status_code == 200
+
+    def test_a_url_cut_after_an_unknown_panel_stays_missing(self) -> None:
+        assert self.client.get(f"/admin/console/teams/{self.team.pk}/no-such-panel/").status_code == 404
 
     @parameterized.expand(
         [
@@ -2053,7 +2082,8 @@ class TestAdminConsoleLogInAsUser(BaseTest):
     def test_a_support_ticket_fills_in_the_reason(self) -> None:
         record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
         operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
-        assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+        assert record_page.content.decode().count(f'href="{escape(operation_url)}"') == 1
+        assert 'id="panel-log-in-as"' in record_page.content.decode()
         assert operation_url in [link.href for link in record_page.context["record_links"]]
 
         form = self.client.get(operation_url).context["form"]

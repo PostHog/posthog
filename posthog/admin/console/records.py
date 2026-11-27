@@ -10,7 +10,6 @@ from posthog.admin.console.panels import Fact
 from posthog.admin.dagster_links import dagster_run_url
 from posthog.admin.organization_members import organization_memberships
 from posthog.dataclasses import frozen
-from posthog.helpers.impersonation import Impersonation
 from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -76,6 +75,8 @@ class RecordType:
     label: ClassVar[str]
     # A Django path converter for the primary key, so a malformed key is a 404 before any query runs.
     pk_converter: ClassVar[str]
+    # The key of the tool that lists every record of this type. Its plural URL opens that tool, or the lookup.
+    list_tool: ClassVar[str | None] = None
 
     def queryset(self) -> QuerySet:
         raise NotImplementedError
@@ -340,26 +341,13 @@ class UserRecord(RecordType):
 
     def links(self, obj: Model) -> list[RecordLink]:
         assert isinstance(obj, User)
-        links = []
-        # The most used staff action on a user, so it sits in the header and not in a panel further down.
-        if Impersonation.refusal(obj) is None:
-            links.append(
-                RecordLink(
-                    label="Log in as user",
-                    href=reverse(
-                        self.operation_url_name,
-                        kwargs={"pk": obj.pk, "panel_key": "log-in-as", "operation_key": "log-in"},
-                    ),
-                )
-            )
-        links.append(
+        return [
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_user_change", args=[obj.pk]),
                 title="The raw User row, with every field",
             )
-        )
-        return links
+        ]
 
     def relations(self) -> tuple[Relation, ...]:
         return (
@@ -392,6 +380,7 @@ class DeletionRequestRecord(RecordType):
     plural = "deletion-requests"
     label = "Deletion request"
     pk_converter = "uuid"
+    list_tool = "deletion-requests"
 
     def queryset(self) -> QuerySet:
         return DataDeletionRequest.objects.select_related("approved_by", "criteria_updated_by")
@@ -434,6 +423,7 @@ class OAuthApplicationRecord(RecordType):
     plural = "oauth-applications"
     label = "OAuth application"
     pk_converter = "uuid"
+    list_tool = "oauth-applications"
 
     def queryset(self) -> QuerySet:
         return OAuthApplication.objects.select_related("organization", "provisioning_review")

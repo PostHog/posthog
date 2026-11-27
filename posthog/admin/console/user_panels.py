@@ -274,6 +274,7 @@ class UserImpersonationPanel(Panel):
                 form_class=LogInAsUserForm,
                 description="You see PostHog as this user until you log out or the session times out.",
                 reason_from_ticket=True,
+                header=True,
             )
         ]
 
