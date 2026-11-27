@@ -91,7 +91,7 @@ describe('find-affected-stories', () => {
             assert.equal(unboundedChangeReason(lazyScene, libGraph, null), null)
         })
 
-        const runCliAgainstChange = (changedFile) => {
+        const runCliAgainstChange = (changedFile, graphModules = modules) => {
             const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'story-selection-'))
             const git = (...args) =>
                 execFileSync(
@@ -118,7 +118,7 @@ describe('find-affected-stories', () => {
                 git('add', '.')
                 git('commit', '-q', '-m', 'change')
                 const graphPath = path.join(repo, 'module-graph.json')
-                fs.writeFileSync(graphPath, JSON.stringify({ modules }))
+                fs.writeFileSync(graphPath, JSON.stringify({ modules: graphModules }))
                 const stdout = execFileSync(
                     process.execPath,
                     [
@@ -139,7 +139,7 @@ describe('find-affected-stories', () => {
         }
 
         test('the CLI runs every story for a change to a module the preview imports statically', () => {
-            assert.deepEqual(runCliAgainstChange(button), {
+            assert.deepEqual(runCliAgainstChange(button, [...modules, { reasons: [] }]), {
                 mode: 'full',
                 reason: `changed file is loaded by the Storybook preview for every story: ${button}`,
                 total_story_count: 1,
