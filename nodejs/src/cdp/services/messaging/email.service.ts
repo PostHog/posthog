@@ -206,8 +206,23 @@ class MessageTooLargeError extends Error {
     }
 }
 
+class SesNotReachedError extends Error {
+    constructor(message: string) {
+        super(`SES could not be reached (${message}), so the email was not sent`)
+        this.name = 'SesNotReachedError'
+    }
+}
+
 const isAttachmentLoadFailure = (error: unknown): boolean =>
     error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+
+const isRetryableBeforeSes = (error: unknown): boolean =>
+    isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
+
+const withoutSendClaims = (metadata: CyclotronJobInvocationHogFunction['queueMetadata']): Record<string, any> => {
+    const { teamBudgetClaimed: _teamBudget, workflowRateClaimed: _workflowRate, ...unclaimed } = metadata ?? {}
+    return unclaimed
+}
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
@@ -235,7 +250,7 @@ function describeAttachmentFailure(
     if (isAttachmentLoadFailure(error)) {
         return {
             reason: EMAIL_ATTACHMENT_UNAVAILABLE,
-            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded, so it was not sent after ${tries} ${tries === 1 ? 'try' : 'tries'}.`,
         }
     }
     return null
@@ -297,6 +312,8 @@ function notSentError(outcome: SesSendOutcomeOf<'not_sent'>): Error {
             return new SESThrottleError(outcome.errorName, pickThrottleRetryDelayMs(), outcome.message)
         case 'before_deadline':
             return new EmailSendDeadlineError(outcome.cause)
+        case 'before_connect':
+            return new SesNotReachedError(outcome.message)
     }
 }
 
@@ -999,7 +1016,7 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
-                isAttachmentLoadFailure(error) &&
+                isRetryableBeforeSes(error) &&
                 !isTest &&
                 attachmentLoadRetries(invocation) < MAX_ATTACHMENT_LOAD_RETRIES
             ) {
@@ -1008,11 +1025,13 @@ export class EmailService {
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = {
-                    ...invocation.queueMetadata,
-                    attachmentLoadRetries: retries,
-                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
-                }
+                result.invocation.queueMetadata = isAttachmentLoadFailure(error)
+                    ? {
+                          ...invocation.queueMetadata,
+                          attachmentLoadRetries: retries,
+                          ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                      }
+                    : { ...withoutSendClaims(invocation.queueMetadata), attachmentLoadRetries: retries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
                     'warn',
