@@ -849,6 +849,10 @@
         -moz-column-gap: calc(0.25rem * 4);
         column-gap: calc(0.25rem * 4);
     }
+    .gap-x-6 {
+        -moz-column-gap: calc(0.25rem * 6);
+        column-gap: calc(0.25rem * 6);
+    }
     .gap-y-0\.5 {
         row-gap: calc(0.25rem * 0.5);
     }
@@ -860,6 +864,9 @@
     }
     .gap-y-2 {
         row-gap: calc(0.25rem * 2);
+    }
+    .gap-y-4 {
+        row-gap: calc(0.25rem * 4);
     }
     .self-start {
         align-self: flex-start;
@@ -1836,6 +1843,11 @@
     @container (width >= 48rem) {
         .\@3xl\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
     @container (width >= 48rem) {
