@@ -188,6 +188,7 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
     measure: (evidence) =>
         webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
             const answered = triggers.flatMap(({ answer }) => answer.attemptsMs ?? []).sort((a, b) => a - b)
+            const incompleteness = triggers.some(untimedAttempt) ? { incomplete: true as const } : {}
             return (
                 [
                     ['p50', 0.5],
@@ -195,12 +196,10 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
                 ] as const
             ).map(([percentile, share]) => ({
                 key: `${percentile}_${scale}x`,
+                ...incompleteness,
                 ...(answered.length === 0
                     ? { value: null, censored: true as const, unmeasured: 'cdp-api answered no trigger in this step' }
-                    : {
-                          value: nearestRank(answered, share),
-                          ...(triggers.some(untimedAttempt) ? { incomplete: true as const } : {}),
-                      }),
+                    : { value: nearestRank(answered, share) }),
             }))
         }),
 }
