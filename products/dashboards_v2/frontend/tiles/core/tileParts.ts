@@ -1,5 +1,5 @@
-import type { SavedPanel, ContentPanelParts } from '../dashboard/document/dashboardTypes'
-import type { PanelSlots } from '../panels/core/panelDefinition'
+import type { SavedPanel, ContentPanelParts } from '../../dashboard/document/dashboardTypes'
+import type { PanelSlots } from '../../panels/core/panelDefinition'
 
 /**
  * Whether a content tile has anything to put in a part. The header has the title and the panel type's header actions.

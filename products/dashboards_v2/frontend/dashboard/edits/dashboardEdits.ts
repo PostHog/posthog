@@ -1,7 +1,6 @@
 import { type FilterEdit, applyFilterEdit } from '../../filters/filterEdits'
 import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../../grid/layout/gridTiles'
 import { bottomOf } from '../../grid/layout/placeTiles'
-import { type PresentationEdit, applyPresentationEdit } from '../../presentation/presentationEdits'
 import { linkTabSchema } from '../document/dashboardSchema'
 import {
     type Dashboard,
@@ -19,6 +18,7 @@ import {
     panelSize,
 } from '../document/dashboardTypes'
 import { allTiles, changeTileEverywhere, changeTilesWhere, findTile } from '../document/tileTree'
+import { type PresentationEdit, applyPresentationEdit } from './presentationEdits'
 
 export type LayoutEdit =
     /** `resized` names the tile a person resized, so a section keeps the height they chose. */

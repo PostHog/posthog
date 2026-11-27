@@ -14,24 +14,25 @@ import {
 } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
-// TODO(2026-11-25): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
-// oxlint-disable-next-line no-restricted-imports
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getJSHeapMemory } from 'lib/utils/dom'
 
-import { FilterBar } from '../filters/bar/FilterBar'
-import { type ActiveFilters, FiltersContext, appliedFilters } from '../filters/filtersContext'
-import { TimeRangePicker } from '../filters/time/TimeRangePicker'
-import type { DropTarget } from '../grid/drag/dropTargets'
-import { GridDragContext, type GridDragState } from '../grid/drag/gridDrag'
-import { stackTiles } from '../grid/layout/gridTiles'
-import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
-import { PanelHostContext } from '../panels/core/panelHostContext'
-import { sizeOfPanels } from '../panels/core/panelSpec'
-import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
-import { TileSlideshow } from '../tiles/TileSlideshow'
-import { type ImageFormat, downloadDashboardImage } from './actions/dashboardImage'
-import { useDashboardRefresh } from './actions/useDashboardRefresh'
+import { FilterBar } from '../../filters/bar/FilterBar'
+import { type ActiveFilters, FiltersContext, appliedFilters } from '../../filters/filtersContext'
+import { TimeRangePicker } from '../../filters/time/TimeRangePicker'
+import type { DropTarget } from '../../grid/drag/dropTargets'
+import { GridDragContext, type GridDragState } from '../../grid/drag/gridDrag'
+import { stackTiles } from '../../grid/layout/gridTiles'
+import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../../grid/tileMounting'
+import { PanelHostContext } from '../../panels/core/panelHostContext'
+import { sizeOfPanels } from '../../panels/core/panelSpec'
+import { TileSlideshow } from '../../tiles/TileSlideshow'
+import { useDashboardImage } from '../actions/useDashboardImage'
+import { useDashboardRefresh } from '../actions/useDashboardRefresh'
+import { type Dashboard, GRID, activeGridTab } from '../document/dashboardTypes'
+import { everyTile } from '../document/tileTree'
+import { withFolds } from '../edits/dashboardEdits'
+import { useUndoShortcut } from '../edits/useUndoShortcut'
+import { type DashboardLoadTrigger, createDashboardTiming } from '../timing/dashboardTiming'
 import {
     type DashboardAction,
     type DashboardController,
@@ -40,10 +41,7 @@ import {
 } from './dashboardContext'
 import { DashboardErrorBoundary } from './DashboardErrorBoundary'
 import { DashboardTabs } from './DashboardTabs'
-import { type Dashboard, GRID, activeGridTab, gridTabs } from './document/dashboardTypes'
-import { everyTile, findTile } from './document/tileTree'
-import { withFolds } from './edits/dashboardEdits'
-import { type DashboardLoadTrigger, createDashboardTiming } from './timing/dashboardTiming'
+import { DashboardTileGrid } from './DashboardTileGrid'
 import { useStableController } from './useStableController'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
@@ -55,53 +53,8 @@ export type DashboardViewProps = DashboardController & {
      * same primitives can be compared across products. Keep it stable: it is an analytics property value.
      */
     surface: string
-    /**
-     * Shows each panel's sample data instead of running its queries, while there is no real data to show, such as in
-     * a project that has not sent any events yet.
-     */
-    sampleData?: boolean
     /** Rendered above the tabs, inside the dashboard, so it can use the dashboard's own controls. */
     header?: ReactNode
-}
-
-function isTyping(target: EventTarget | null): boolean {
-    return (
-        target instanceof Element &&
-        !!target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor')
-    )
-}
-
-/** The image's file name and the toasts while it is drawn. */
-function imageWords(
-    dashboard: Dashboard,
-    activeTabId: string | null,
-    tileId: string | undefined
-): { file: string; pending: string; success: string } {
-    const tile = tileId ? findTile(dashboard, tileId) : null
-    if (tile?.panel.title) {
-        const title = tile.panel.title
-        return {
-            file: `${dashboard.title} ${title}`,
-            pending: `Drawing "${title}"`,
-            success: `Image of "${title}" downloaded`,
-        }
-    }
-    if (tile) {
-        return {
-            file: `${dashboard.title} tile`,
-            pending: 'Drawing the tile',
-            success: 'Image of the tile downloaded',
-        }
-    }
-    const tab = activeGridTab(dashboard, activeTabId).title
-    if (gridTabs(dashboard).length > 1) {
-        return {
-            file: `${dashboard.title} ${tab}`,
-            pending: `Drawing every tile on the "${tab}" tab`,
-            success: `Image of the "${tab}" tab downloaded`,
-        }
-    }
-    return { file: dashboard.title, pending: 'Drawing every tile', success: 'Image downloaded' }
 }
 
 /** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
@@ -113,7 +66,7 @@ export function DashboardView(props: DashboardViewProps): JSX.Element {
     )
 }
 
-function DashboardViewContent({ header, surface, sampleData = false, ...props }: DashboardViewProps): JSX.Element {
+function DashboardViewContent({ header, surface, ...props }: DashboardViewProps): JSX.Element {
     const controller = useStableController(props)
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
@@ -128,32 +81,8 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
     const rootRef = useRef<HTMLDivElement>(null)
     const [slideshowTileId, showSlideshow] = useState<string | null>(null)
     const refresh = useDashboardRefresh(controller.refresh)
-    // A capture mounts what it shows, so the image has no placeholders: the whole tab, or with `tileId` that tile only.
-    const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
+    const { capturing, downloadImage } = useDashboardImage(rootRef, controller.dashboard, controller.activeTabId)
     const downloadingImage = capturing !== null
-    const downloadImage = useCallback(
-        async (format: ImageFormat, tileId?: string): Promise<void> => {
-            const page = rootRef.current
-            const root = tileId ? page?.querySelector<HTMLElement>(`[data-dv2-tile="${CSS.escape(tileId)}"]`) : page
-            if (!root) {
-                return
-            }
-            setCapturing({ tileId })
-            try {
-                const words = imageWords(controller.dashboard, controller.activeTabId, tileId)
-                await lemonToast.promise(downloadDashboardImage(root, words.file, format), {
-                    pending: words.pending,
-                    success: words.success,
-                    error: 'Could not create the image. Try again.',
-                })
-            } catch {
-                // The toast already says it failed.
-            } finally {
-                setCapturing(null)
-            }
-        },
-        [controller]
-    )
 
     const state = useMemo<DashboardState>(() => {
         const { activeTabId, disabledReasonFor: hostReason, onEdit: hostOnEdit, ...rest } = controller
@@ -215,10 +144,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
         })
     )
     useEffect(() => () => timing.dispose(), [timing])
-    const panelHost = useMemo(
-        () => ({ refresh: refresh.count, sampleData, timing }),
-        [refresh.count, sampleData, timing]
-    )
+    const panelHost = useMemo(() => ({ refresh: refresh.count, timing }), [refresh.count, timing])
 
     const { activeTab, can, history } = state
     const savedFilters = controller.dashboard.filters
@@ -256,28 +182,7 @@ function DashboardViewContent({ header, surface, sampleData = false, ...props }:
         }
     }, [timing, refresh.count, activeFilters, activeTab.id])
 
-    const undoable = can('undo') ? history : undefined
-    useEffect(() => {
-        if (!undoable) {
-            return
-        }
-        const onKeyDown = (event: KeyboardEvent): void => {
-            const key = event.key.toLowerCase()
-            if (isTyping(event.target) || !(event.metaKey || event.ctrlKey) || (key !== 'z' && key !== 'y')) {
-                return
-            }
-            event.preventDefault()
-            if (key === 'y' || event.shiftKey) {
-                if (can('redo')) {
-                    undoable.onRedo()
-                }
-            } else {
-                undoable.onUndo()
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [undoable, can])
+    useUndoShortcut(history, can)
 
     return (
         <DashboardStateContext.Provider value={state}>
