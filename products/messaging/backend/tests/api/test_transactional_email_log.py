@@ -575,6 +575,161 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [e["event"] for e in body["after"]] == ["$pageview"]
 
+    def _clicked_send(self, *, distinct_id: str | None = "jane") -> tuple[str, datetime]:
+        message_id = self._send(
+            3 * 24 * 60,
+            "jane@example.com",
+            [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("clicked", 300, ""), ("clicked", 900, "")],
+        )
+        queued_at = NOW - timedelta(days=3)
+        if distinct_id:
+            self._record_distinct_id(message_id, distinct_id, "jane@example.com", queued_at + timedelta(seconds=1))
+        return message_id, queued_at
+
+    def _email_event(
+        self, event: str, message_id: str, at: datetime, link_url: str | None = None, distinct_id: str = "jane"
+    ) -> str:
+        return _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=at,
+            properties={"$workflow_invocation_id": message_id, **({"$link_url": link_url} if link_url else {})},
+        )
+
+    def _visit(self, session_id: str, url: str, at: datetime, distinct_id: str = "anonymous-visitor") -> None:
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=at,
+            properties={
+                "$session_id": session_id,
+                "$current_url": url,
+                "$browser": "Chrome",
+                "$device_type": "Desktop",
+                "$geoip_city_name": "Berlin",
+            },
+        )
+
+    def _clicks(self, message_id: str) -> list[tuple[str | None, str | None, str | None]]:
+        response = self.client.get(self._url(f"{message_id}/activity/"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [
+            (click["link_url"], (click["session"] or {}).get("session_id"), click["no_session_reason"])
+            for click in response.json()["clicks"]
+        ]
+
+    def test_shows_each_click_with_its_link_and_the_session_it_started(self, _flag):
+        message_id, queued_at = self._clicked_send()
+        delivered = self._email_event("$workflows_email_delivered", message_id, queued_at + timedelta(seconds=2))
+        opened = self._email_event("$workflows_email_opened", message_id, queued_at + timedelta(seconds=60))
+        billing = self._email_event(
+            "$workflows_email_link_clicked",
+            message_id,
+            queued_at + timedelta(seconds=300),
+            "https://example.com/billing",
+        )
+        faq = self._email_event(
+            "$workflows_email_link_clicked",
+            message_id,
+            queued_at + timedelta(seconds=900),
+            "https://help.other-docs.com/faq",
+        )
+        self._email_event(
+            "$workflows_email_link_clicked",
+            str(UUIDT()),
+            queued_at + timedelta(seconds=900),
+            "https://example.com/files",
+        )
+        self._visit(
+            "billing-visit",
+            f"https://example.com/billing?ph_workflow_run={message_id}",
+            queued_at + timedelta(seconds=303),
+        )
+        self._visit("billing-visit", "https://example.com/billing/done", queued_at + timedelta(seconds=400))
+        self._visit("unrelated-visit", "https://example.com/billing", queued_at + timedelta(seconds=302))
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(f"{message_id}/activity/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(e["event"], e["uuid"]) for e in body["email_events"]] == [
+            ("$workflows_email_delivered", delivered),
+            ("$workflows_email_opened", opened),
+            ("$workflows_email_link_clicked", billing),
+            ("$workflows_email_link_clicked", faq),
+        ]
+        assert [
+            (datetime.fromisoformat(c["at"]), c["link_url"], c["event_uuid"], c["no_session_reason"])
+            for c in body["clicks"]
+        ] == [
+            (queued_at + timedelta(seconds=300), "https://example.com/billing", billing, None),
+            (queued_at + timedelta(seconds=900), "https://help.other-docs.com/faq", faq, "off_site"),
+        ]
+        session = body["clicks"][0]["session"]
+        assert datetime.fromisoformat(session.pop("landed_at")) == queued_at + timedelta(seconds=303)
+        assert session == {
+            "session_id": "billing-visit",
+            "landing_url": f"https://example.com/billing?ph_workflow_run={message_id}",
+            "duration_seconds": 97,
+            "pageview_count": 2,
+            "device_type": "Desktop",
+            "browser": "Chrome",
+            "city": "Berlin",
+        }
+        assert body["clicks"][1]["session"] is None
+
+    def test_gives_each_session_to_the_click_that_started_it(self, _flag):
+        message_id, queued_at = self._clicked_send()
+        self._visit(
+            "second-visit", f"https://example.com/b?ph_workflow_run={message_id}", queued_at + timedelta(seconds=905)
+        )
+        self._visit(
+            "first-visit", f"https://example.com/a?ph_workflow_run={message_id}", queued_at + timedelta(seconds=301)
+        )
+        self._visit(
+            "same-click-again",
+            f"https://example.com/a?ph_workflow_run={message_id}",
+            queued_at + timedelta(seconds=320),
+        )
+        self._visit("much-later", f"https://example.com/a?ph_workflow_run={message_id}", queued_at + timedelta(hours=5))
+        flush_persons_and_events()
+
+        assert self._clicks(message_id) == [(None, "first-visit", None), (None, "second-visit", None)]
+
+    @parameterized.expand(
+        [
+            ("tagged link without a visit", True, True, "not_found"),
+            ("link tagging off", False, True, "link_tagging_off"),
+            ("engagement events off", True, False, "link_unknown"),
+        ]
+    )
+    def test_says_why_a_click_started_no_session(self, _flag, _name, link_tagging, with_click_event, reason):
+        self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging
+        self.team.workflows_config.save()
+        message_id, queued_at = self._clicked_send()
+        if with_click_event:
+            for seconds in (300, 900):
+                self._email_event(
+                    "$workflows_email_link_clicked",
+                    message_id,
+                    queued_at + timedelta(seconds=seconds),
+                    "https://app.example.com/billing",
+                )
+        flush_persons_and_events()
+
+        link = "https://app.example.com/billing" if with_click_event else None
+        assert self._clicks(message_id) == [(link, None, reason), (link, None, reason)]
+
+    def test_finds_the_session_a_click_started_when_the_send_named_no_distinct_id(self, _flag):
+        message_id, queued_at = self._clicked_send(distinct_id=None)
+        self._visit("visit", f"https://example.com/a?ph_workflow_run={message_id}", queued_at + timedelta(seconds=301))
+        flush_persons_and_events()
+
+        assert self._clicks(message_id) == [(None, "visit", None), (None, None, "link_unknown")]
+
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])
         self._send(20, "b@example.com", [("sent", 1, ""), ("bounced", 2, "hard")], domain="other.example.com")
