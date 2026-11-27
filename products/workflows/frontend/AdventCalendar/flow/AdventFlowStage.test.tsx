@@ -141,6 +141,18 @@ describe('AdventFlowStage', () => {
         expect([focusInCard, document.activeElement === door(2)]).toEqual(['advent-door-card-close', true])
     })
 
+    it('closes a pinned card when the phone column scrolls under it', () => {
+        seed([1, 2], { 2: 'tim' })
+        renderStage({ width: 375, height: 700 })
+
+        act(() => fireEvent.click(door(2) as HTMLElement))
+        const isPinned = !!card()
+        act(() => fireEvent.scroll(document.querySelector('.AdventFlowStage__track') as HTMLElement))
+        waitForTheCardToClose()
+
+        expect([isPinned, card()]).toEqual([true, null])
+    })
+
     it.each([
         ['row', 'a desktop stage', { width: 1200, height: 830 }],
         ['column', 'a phone', { width: 375, height: 700 }],
