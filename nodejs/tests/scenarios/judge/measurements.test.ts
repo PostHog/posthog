@@ -640,22 +640,41 @@ describe('measurements', () => {
             'reads recovery when a timer wakes late before a slow probe under the bar in the remainder',
             (second) =>
                 second < 700
-                    ? 1050
+                    ? 990
                     : second === 879
                       ? { startsLateMs: 885, latencyMs: 1 }
                       : second === 880
-                        ? { startsLateMs: 890, latencyMs: 1999 }
+                        ? { startsLateMs: 890, latencyMs: 1970 }
                         : 10,
             [{ ...VALVE, releasedAt: isoAt(885.39) }],
             [
-                { key: 'baseline', value: 1050 },
-                { key: 'bar', value: 2100 },
-                { key: 't0', value: 1050 },
+                { key: 'baseline', value: 990 },
+                { key: 'bar', value: 1980 },
+                { key: 't0', value: 10 },
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
                 { key: 'recovery_seconds', value: 0 },
             ],
             (second) => second !== 881 && second !== 882,
+        ],
+        [
+            'reads recovery over a short remainder that follows a gap in the probes before it',
+            (second) =>
+                second === 878
+                    ? { startsLateMs: 490, latencyMs: 10 }
+                    : second === 880
+                      ? { startsLateMs: 100, latencyMs: 10 }
+                      : 10,
+            [{ ...VALVE, releasedAt: isoAt(880.3) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 879,
         ],
         [
             'leaves recovery unknown when the writer idles long enough to hide a timed-out write in the remainder',

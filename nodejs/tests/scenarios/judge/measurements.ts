@@ -206,8 +206,7 @@ const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...seri
 const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
 
 function longestIdle(writer: readonly WriterSample[], from: number, to: number): number {
-    const endsBefore = writer.map(committedAt).filter((end) => end < from)
-    let probedUntil = endsBefore.length > 0 ? maxOf(endsBefore) : from
+    let probedUntil = from
     let longest = 0
     for (const sample of byTime(writer)) {
         if (sample.at >= to || committedAt(sample) <= probedUntil) {

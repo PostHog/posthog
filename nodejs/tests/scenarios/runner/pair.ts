@@ -148,13 +148,13 @@ function unjudgedRunOf(name: string, { verdict }: JudgedRun): string | undefined
     return result === null ? `the ${name} run judged no no_loss` : undefined
 }
 
-function uncarriedLoadOf(control: JudgedRun, faulted: JudgedRun): string | undefined {
+function uncarriedLoadOf(control: JudgedRun, faulted: JudgedRun, minOffered: number): string | undefined {
     if (control.units === undefined || faulted.units === undefined) {
         return 'the offered load of a run was not recorded'
     }
     const { offeredUnits, targetUnits } = control.units
-    return offeredUnits < targetUnits
-        ? `the control offered ${offeredUnits} of its ${targetUnits} units, so it may not have carried the faulted run's load`
+    return offeredUnits < minOffered * targetUnits
+        ? `the control offered ${offeredUnits} of its ${targetUnits} units, under minOffered ${minOffered}, so it may not have carried the faulted run's load`
         : undefined
 }
 
@@ -166,7 +166,11 @@ function unobservedFaultOf({ verdict, drive }: JudgedRun): string | undefined {
     return unobserved.length === 0 ? undefined : `the fault evidence is missing: ${unobserved.join('; ')}`
 }
 
-function attributionOf(control: JudgedRun, faulted: FaultedRun): Pick<Pair, 'attribution' | 'reason'> {
+function attributionOf(
+    control: JudgedRun,
+    faulted: FaultedRun,
+    minOffered: number
+): Pick<Pair, 'attribution' | 'reason'> {
     const unjudgedControl = unjudgedRunOf('control', control)
     if (unjudgedControl !== undefined) {
         const skipped = 'missing' in faulted ? `; the faulted run did not run: ${faulted.missing}` : ''
@@ -182,7 +186,7 @@ function attributionOf(control: JudgedRun, faulted: FaultedRun): Pick<Pair, 'att
         return { attribution: 'unjudged', reason: `the faulted run did not run: ${faulted.missing}` }
     }
     const unjudgedFaulted =
-        unobservedFaultOf(faulted) ?? unjudgedRunOf('faulted', faulted) ?? uncarriedLoadOf(control, faulted)
+        unobservedFaultOf(faulted) ?? unjudgedRunOf('faulted', faulted) ?? uncarriedLoadOf(control, faulted, minOffered)
     if (unjudgedFaulted !== undefined) {
         return { attribution: 'unjudged', reason: unjudgedFaulted }
     }
@@ -204,7 +208,7 @@ export function pairOf(loaded: LoadedCard, judgedControl: JudgedRun, judgedFault
     const control = withEvidenceOf(judgedControl)
     const faulted = 'missing' in judgedFaulted ? judgedFaulted : withEvidenceOf(judgedFaulted)
     return {
-        ...attributionOf(control, faulted),
+        ...attributionOf(control, faulted, loaded.card.drive.minOffered),
         controlRunId: control.verdict.runId,
         faultedRunId: 'missing' in faulted ? null : faulted.verdict.runId,
         runs: [

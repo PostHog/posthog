@@ -158,17 +158,17 @@ describe('pairOf', () => {
         ],
         [
             'a control that offered fewer units than the faulted run',
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 85 } },
             BREACHED,
             'unjudged',
-            /^the control offered 92 of its 100 units, so it may not have carried the faulted run's load$/,
+            /^the control offered 85 of its 100 units, under minOffered 0\.9, so it may not have carried the faulted run's load$/,
         ],
         [
-            'a control that offered as many units as the faulted run, but not all it targeted',
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
-            { ...BREACHED, units: { targetUnits: 100, offeredUnits: 92 } },
+            'a control that offered as many units as the faulted run, but under the minOffered of those it targeted',
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 85 } },
+            { ...BREACHED, units: { targetUnits: 100, offeredUnits: 85 } },
             'unjudged',
-            /^the control offered 92 of its 100 units, so it may not have carried the faulted run's load$/,
+            /^the control offered 85 of its 100 units, under minOffered 0\.9, so it may not have carried the faulted run's load$/,
         ],
         [
             'a faulted run that held no_loss',
@@ -179,6 +179,14 @@ describe('pairOf', () => {
         ],
     ])('attributes %s', (_story, control, faulted, attribution, reason) => {
         expect(pairOf(CARD, control, faulted)).toMatchObject({ attribution, reason: expect.stringMatching(reason) })
+    })
+
+    it('judges a pair whose control fell short only by units in flight at the cutoff its card allows for', () => {
+        const allowing = { ...CARD, card: { ...CARD.card, drive: { ...CARD.card.drive, minOffered: 0.999 } } }
+
+        expect(
+            pairOf(allowing, { ...CLEAN, units: { targetUnits: 10_000, offeredUnits: 9_995 } }, BREACHED)
+        ).toMatchObject({ attribution: 'fault' })
     })
 
     it("records each run's admission, queue growth, drain, fault dose and no_loss result", () => {
