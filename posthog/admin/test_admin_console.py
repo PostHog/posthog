@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import replace
@@ -64,6 +65,7 @@ from posthog.admin.console.results import (
     CACHE_ALIAS as RESULTS_CACHE_ALIAS,
     KEY_COOKIE,
     KEY_PREFIX as RESULTS_KEY_PREFIX,
+    OperationResult,
     ResultCodec,
 )
 from posthog.admin.console.tools import (
@@ -94,7 +96,7 @@ from posthog.admin.console.tools import (
 )
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
-from posthog.admin.console.views import _offered_operations
+from posthog.admin.console.views import OperationTarget, _offered_operations
 from posthog.csp_middleware import CSPMiddleware
 from posthog.helpers.impersonation import Impersonation
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
@@ -804,6 +806,25 @@ class TestAdminConsolePaging(SimpleTestCase):
 
     def test_an_empty_list_has_no_pager(self) -> None:
         assert paginate(RequestFactory().get("/"), [], noun="team").paging is None
+
+
+class TestAdminConsoleResultCodec(SimpleTestCase):
+    def test_a_result_stored_by_a_newer_pod_opens_without_the_fields_this_pod_lacks(self) -> None:
+        target = OperationTarget(
+            kicker="This runs on",
+            title="Hedgebox",
+            badge="Team",
+            subtitle="",
+            back_url="/",
+            breadcrumbs=(),
+            is_record=True,
+        )
+        page = Page(blocks=(Notice(text="Rolled 2 keys."),))
+        result = OperationResult(actor_id=1, operation_label="Roll keys", target=target, page=page)
+        stored = json.loads(ResultCodec.dumps(result))
+        stored["page"]["blocks"][0]["added_in_a_later_release"] = "ignored"
+
+        assert ResultCodec.loads(json.dumps(stored).encode()) == result
 
 
 class TestAdminConsoleFormField(SimpleTestCase):
