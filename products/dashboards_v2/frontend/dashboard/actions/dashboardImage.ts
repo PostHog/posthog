@@ -13,8 +13,8 @@ import { TILE_PLACEHOLDER_CLASS } from '../../tiles/core/TileContextMenu'
 export type ImageFormat = 'png' | 'webp'
 
 export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
-    { format: 'png', label: 'PNG' },
-    { format: 'webp', label: 'WebP' },
+    { format: 'png', label: '.png' },
+    { format: 'webp', label: '.webp' },
 ]
 
 const LEFT_OUT = `.TileActions, .${INTERACTIVE_ONLY_CLASS}, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]`
