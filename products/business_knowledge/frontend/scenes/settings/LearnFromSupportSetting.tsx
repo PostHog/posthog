@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 import { LearnedLibrariesSetting } from './LearnedLibrariesSetting'
 import { LearnFromPastTicketsSetting } from './LearnFromPastTicketsSetting'
-import { QuillLearnedLibrariesSetting } from './QuillLearnedLibrariesSetting'
 import { QuillRetryText } from './QuillRetryText'
 
 export function LearnFromSupportSetting(): JSX.Element {
@@ -62,7 +61,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                         </Button>
                     ) : null}
                 </div>
-                <QuillLearnedLibrariesSetting />
+                <LearnedLibrariesSetting />
                 <LearnFromPastTicketsSetting />
             </div>
         )

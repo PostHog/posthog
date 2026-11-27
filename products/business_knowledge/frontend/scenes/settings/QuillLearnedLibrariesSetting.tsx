@@ -2,19 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { Checkbox, Heading, Skeleton, Text } from '@posthog/quill'
 
-import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 import { learnedLibrariesLogic } from './learnedLibrariesLogic'
 import { QuillRetryText } from './QuillRetryText'
 
-export function QuillLearnedLibrariesSetting(): JSX.Element | null {
+export function QuillLearnedLibrariesSetting(): JSX.Element {
     const { libraries, librariesLoading, libraryRows } = useValues(learnedLibrariesLogic)
     const { setReceivesLearnedSources, loadLibraries } = useActions(learnedLibrariesLogic)
-    const { settings } = useValues(businessKnowledgeSettingsLogic)
-
-    // The choice only matters while learning is on.
-    if (!settings?.learn_from_support_enabled) {
-        return null
-    }
 
     return (
         <div className="flex flex-col items-start gap-2 max-w-xl">

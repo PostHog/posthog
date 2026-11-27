@@ -2,17 +2,23 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 import { learnedLibrariesLogic } from './learnedLibrariesLogic'
+import { QuillLearnedLibrariesSetting } from './QuillLearnedLibrariesSetting'
 
 export function LearnedLibrariesSetting(): JSX.Element | null {
     const { libraries, librariesLoading, libraryRows } = useValues(learnedLibrariesLogic)
     const { setReceivesLearnedSources, loadLibraries } = useActions(learnedLibrariesLogic)
     const { settings } = useValues(businessKnowledgeSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    // The choice only matters while learning is on.
     if (!settings?.learn_from_support_enabled) {
         return null
+    }
+    if (todayRailNav) {
+        return <QuillLearnedLibrariesSetting />
     }
 
     return (
