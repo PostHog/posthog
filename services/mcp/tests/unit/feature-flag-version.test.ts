@@ -111,6 +111,7 @@ describe('evaluateFeatureFlags', () => {
             flags: {
                 'flag-on': flag('flag-on', true, undefined, { message: 'Example invitation' }),
                 'flag-off': flag('flag-off', false, undefined, { message: 'Off' }),
+                'flag-legacy': flag('flag-legacy', true, '', { message: 'Legacy variant' }),
                 'xpm-mcp-placement': flag('xpm-mcp-placement', true, 'after_cohorts_create', {
                     label: 'Email the people in this cohort',
                 }),
@@ -121,14 +122,22 @@ describe('evaluateFeatureFlags', () => {
     })
 
     it('returns the values and payloads of the requested flags without reporting an exposure', async () => {
-        const result = await evaluateFeatureFlags(['flag-on', 'flag-off', 'xpm-mcp-placement'], 'user-123', {
-            organization: 'org-abc',
-        })
+        const result = await evaluateFeatureFlags(
+            ['flag-on', 'flag-off', 'flag-legacy', 'xpm-mcp-placement'],
+            'user-123',
+            { organization: 'org-abc' }
+        )
 
         expect({ flags: result.flags, payloads: result.payloads }).toEqual({
-            flags: { 'flag-on': true, 'flag-off': false, 'xpm-mcp-placement': 'after_cohorts_create' },
+            flags: {
+                'flag-on': true,
+                'flag-off': false,
+                'flag-legacy': '',
+                'xpm-mcp-placement': 'after_cohorts_create',
+            },
             payloads: {
                 'flag-on': { message: 'Example invitation' },
+                'flag-legacy': { message: 'Legacy variant' },
                 'xpm-mcp-placement': { label: 'Email the people in this cohort' },
             },
         })
@@ -136,7 +145,7 @@ describe('evaluateFeatureFlags', () => {
             {
                 distinct_id: 'user-123',
                 groups: { organization: 'org-abc' },
-                flag_keys_to_evaluate: ['flag-on', 'flag-off', 'xpm-mcp-placement'],
+                flag_keys_to_evaluate: ['flag-on', 'flag-off', 'flag-legacy', 'xpm-mcp-placement'],
             },
         ])
         expect(await flagCalledEvents()).toEqual([])
