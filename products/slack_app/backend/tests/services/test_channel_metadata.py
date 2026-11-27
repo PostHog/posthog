@@ -19,6 +19,7 @@ def _slack(
     channel: dict | None = None, error: Exception | None = None, missing_scopes: frozenset = frozenset()
 ) -> MagicMock:
     slack = MagicMock()
+    slack.integration.integration_id = "T01"
     slack.missing_scopes.return_value = missing_scopes
     slack.client.usergroups_list.return_value = {"usergroups": [{"id": "S0123", "handle": "team-replay"}]}
     if error is not None:
@@ -82,6 +83,34 @@ class TestRefreshChannelMetadata:
 
         channel = SlackChannel.objects.get(slack_channel_id="C01")
         assert channel.owner_groups == [{"id": "S0123", "handle": expected_handle}]
+
+    def test_a_failed_group_lookup_keeps_the_handle_stored_before(self) -> None:
+        cache.clear()
+        SlackChannel.objects.create(
+            slack_workspace_id="T01",
+            slack_channel_id="C01",
+            owner_groups=[{"id": "S0123", "handle": "team-replay"}],
+        )
+        slack = _slack({"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}})
+        slack.client.usergroups_list.side_effect = TimeoutError()
+
+        assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+
+        assert SlackChannel.objects.get(slack_channel_id="C01").owner_groups == [
+            {"id": "S0123", "handle": "team-replay"}
+        ]
+
+    def test_channels_of_one_workspace_share_one_group_lookup(self) -> None:
+        cache.clear()
+        slack = _slack({"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}})
+
+        for channel_id in ("C01", "C02"):
+            refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id=channel_id)
+
+        assert slack.client.usergroups_list.call_count == 1
+        assert SlackChannel.objects.get(slack_channel_id="C02").owner_groups == [
+            {"id": "S0123", "handle": "team-replay"}
+        ]
 
     @pytest.mark.parametrize(
         "channel",
