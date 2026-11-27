@@ -224,10 +224,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
 
-    // Retention must be deployed before enabling writes for all teams.
-    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
-    pub issue_change_log_enabled: bool,
-
     // `off` or `log`. See `team_db_slots`.
     #[envconfig(from = "CYMBAL_TEAM_DB_SLOTS_MODE", default = "off")]
     pub team_db_slots_mode: String,

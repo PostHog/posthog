@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonCheckbox, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonCheckbox, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
@@ -41,12 +42,14 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
     }
     if (setupContextError && !setupContext) {
         return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
-            >
-                Couldn't load setup. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            <div data-attr="content-autopilot-setup-context-error">
+                <AiVisibilityBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadSetupContext, loading: setupContextLoading }}
+                >
+                    Couldn't load setup. Try again, and if it keeps happening contact support.
+                </AiVisibilityBanner>
+            </div>
         )
     }
     if (!setupContext) {
@@ -75,10 +78,10 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
 
             {consentMissing ? (
                 <div className="mt-4" data-attr="content-autopilot-setup-consent-banner">
-                    <LemonBanner type="warning">
+                    <AiVisibilityBanner type="warning">
                         Automatic setup needs AI data processing approved for your organization. An admin can approve it
                         in organization settings. You can still add prompts yourself below.
-                    </LemonBanner>
+                    </AiVisibilityBanner>
                 </div>
             ) : null}
 
@@ -126,9 +129,9 @@ export const ContentAutopilotSetupCard = (): JSX.Element => {
             </div>
 
             {startError ? (
-                <LemonBanner type="error" className="mt-4">
+                <AiVisibilityBanner type="error" className="mt-4">
                     {startError}
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : null}
 
             <p className="m-0 mt-6 text-xs text-secondary">

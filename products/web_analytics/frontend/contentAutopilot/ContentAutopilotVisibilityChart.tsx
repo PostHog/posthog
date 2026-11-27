@@ -1,15 +1,14 @@
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptVisibilityMetric } from './promptReport'
 import type { EngineVisibilityChart } from './visibilityChart'
@@ -39,6 +38,18 @@ const TITLES: Record<PromptVisibilityMetric, string> = {
     position: 'Average position when cited',
 }
 
+const EMPTY: Record<PromptVisibilityMetric, string> = {
+    mentioned: 'No answers in this date range.',
+    cited: 'No answers in this date range.',
+    position: 'No answer in this date range cites you, so there is no position to show.',
+}
+
+const OPTIONS: { value: PromptVisibilityMetric; label: string }[] = [
+    { value: 'mentioned', label: 'Visibility' },
+    { value: 'cited', label: 'Cited' },
+    { value: 'position', label: 'Position' },
+]
+
 /** One line per answer engine for the chosen metric, with a way to open the same numbers as an insight. */
 export const ContentAutopilotVisibilityChart = ({
     chart,
@@ -60,36 +71,51 @@ export const ContentAutopilotVisibilityChart = ({
         () => chart.series.map(({ engine, label, color, data }) => ({ key: engine, label, color, data })),
         [chart]
     )
+    const hasData = chart.series.some(({ data }) => data.some(Number.isFinite))
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader
-                description={description}
-                title={TITLES[metric]}
-                actions={
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonSegmentedButton
-                            size="xsmall"
-                            value={metric}
-                            onChange={onMetricChange}
-                            options={[
-                                { value: 'mentioned', label: 'Visibility' },
-                                { value: 'cited', label: 'Cited' },
-                                { value: 'position', label: 'Position' },
-                            ]}
-                            data-attr={`${dataAttr}-metric`}
-                        />
-                        <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
-                    </div>
-                }
-            />
-            <div className="h-72 min-w-0 flex flex-col p-2" data-attr={dataAttr}>
-                <TimeSeriesLineChart
-                    series={series}
-                    labels={chart.labels}
-                    theme={theme}
-                    config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
-                />
+        <AiVisibilityCard
+            title={TITLES[metric]}
+            description={description}
+            actions={
+                <>
+                    <ToggleGroup
+                        variant="outline"
+                        aria-label="Chart metric"
+                        value={[metric]}
+                        onValueChange={(next: string[]) => {
+                            // Clicking the chosen metric again empties the group, which keeps the current metric.
+                            if (next[0]) {
+                                onMetricChange(next[0] as PromptVisibilityMetric)
+                            }
+                        }}
+                        data-attr={`${dataAttr}-metric`}
+                    >
+                        {OPTIONS.map(({ value, label }) => (
+                            <ToggleGroupItem key={value} value={value}>
+                                {label}
+                            </ToggleGroupItem>
+                        ))}
+                    </ToggleGroup>
+                    <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
+                </>
+            }
+        >
+            <div className="flex h-72 min-w-0 flex-col" data-attr={dataAttr}>
+                {hasData ? (
+                    <TimeSeriesLineChart
+                        series={series}
+                        labels={chart.labels}
+                        theme={theme}
+                        config={metric === 'position' ? POSITION_CONFIG : RATE_CONFIG}
+                    />
+                ) : (
+                    <Empty className="flex-1">
+                        <EmptyHeader>
+                            <EmptyDescription>{EMPTY[metric]}</EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                )}
             </div>
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }

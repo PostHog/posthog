@@ -249,7 +249,7 @@ describe('EmailTrackingService', () => {
                 [
                     'an unclosed anchor before a closed one',
                     '<a href="https://example.com/a">a<a href="https://example.com/b">b</a>',
-                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b">b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b" ses:tags="phl:1">b</a>',
                 ],
                 [
                     'a named anchor after a link',
@@ -262,9 +262,19 @@ describe('EmailTrackingService', () => {
                     '<a name="top">a<a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
                 [
+                    'an unquoted ses:tags value holding a double quote',
+                    '<a href="https://example.com/a" ses:tags=campaign:blue"suffix>a</a>',
+                    '<a href="https://example.com/a" ses:tags="campaign:blue&quot;suffix;phl:0">a</a>',
+                ],
+                [
+                    'a self-closed SVG link before an SVG shape',
+                    '<svg><a href="https://example.com/a"/><rect width="100" height="100"/></svg>',
+                    '<svg><a href="https://example.com/a"/><rect width="100" height="100"/></svg>',
+                ],
+                [
                     'an anchor that never closes',
                     '<a href="https://example.com/a">a',
-                    '<a href="https://example.com/a">a',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a',
                 ],
                 [
                     'a quoted > in the href',
@@ -300,6 +310,21 @@ describe('EmailTrackingService', () => {
                     'a non-breaking space inside an unquoted value, before a quote',
                     `<a href="https://example.com" title=a\u00a0b='c>Bob's</a>`,
                     `<a href="https://example.com" title=a\u00a0b='c ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
+                    'ses:tags quoted in a title before the href',
+                    `<a title="a > ses:tags='x'" href="https://example.com/a">a</a>`,
+                    `<a title="a > ses:tags='x'" href="https://example.com/a" ses:tags="phl:0">a</a>`,
+                ],
+                [
+                    'an uppercase Outlook conditional',
+                    '<!--[IF mso]><a href="https://example.com/a">a</a><![endif]-->',
+                    '<!--[IF mso]><a href="https://example.com/a" ses:tags="phl:0">a</a><![endif]-->',
+                ],
+                [
+                    'a comment that only starts like an Outlook conditional',
+                    '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b">b</a>',
+                    '<!--[if this link is old <a href="https://example.com/old">old</a> --><a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
                 [
                     'a tag that only starts with a',
@@ -352,6 +377,168 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track>x</a>',
                     invocation,
                     '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link closes with a space',
+                    '<a href="https://example.com/reset">x</a >',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-track>x</a >',
+                ],
+                [
+                    'a sensitive template whose link closes in uppercase across a line break',
+                    '<a href="https://example.com/reset">x</A\n>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-track>x</A\n>',
+                ],
+                [
+                    'a sensitive template whose link closes with a slash',
+                    '<a href="https://example.com/reset">x</a/>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-track>x</a/>',
+                ],
+                [
+                    'a sensitive template whose link holds a comment with a spaced end tag',
+                    `<a href="https://example.com/first">First<!-- </a > <a href="sample --></a><a href='https://example.com/second'><span title="Second">Second</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/first" ses:no-track>First<!-- </a > <a href="sample --></a><a href='https://example.com/second' ses:no-track><span title="Second">Second</span></a>`,
+                ],
+                [
+                    'a sensitive template whose link holds a comment with a plain end tag',
+                    `<a href="https://example.com/first">First<!-- </a> <a href="sample --></a><a href='https://example.com/second'><span title="Second">Second</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/first" ses:no-track>First<!-- </a> <a href="sample --></a><a href='https://example.com/second' ses:no-track><span title="Second">Second</span></a>`,
+                ],
+                [
+                    'a sensitive template with a commented-out link opener before a link',
+                    '<!-- <a href="https://example.com/old"> --><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<!-- <a href="https://example.com/old"> --><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template with a link inside an Outlook conditional comment',
+                    '<!--[if mso]><a href="https://example.com/reset">x</a><![endif]-->',
+                    sensitiveInvocation,
+                    '<!--[if mso]><a href="https://example.com/reset" ses:no-track>x</a><![endif]-->',
+                ],
+                [
+                    'a sensitive template with a link inside an Outlook downlevel-revealed comment',
+                    '<!--[if !mso]><!--><a href="https://example.com/reset">x</a><!--<![endif]-->',
+                    sensitiveInvocation,
+                    '<!--[if !mso]><!--><a href="https://example.com/reset" ses:no-track>x</a><!--<![endif]-->',
+                ],
+                [
+                    'a sensitive template whose link has a quoted > before its href',
+                    '<a title="a > b" href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a title="a > b" href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template with a quoted <!-- before a link and a comment',
+                    '<span title="<!--">x</span><a href="https://example.com/reset">x</a><!-- footer -->',
+                    sensitiveInvocation,
+                    '<span title="<!--">x</span><a href="https://example.com/reset" ses:no-track>x</a><!-- footer -->',
+                ],
+                [
+                    'a sensitive template whose comment opens with <!--!> and holds a style tag',
+                    '<!--!><style>--><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<!--!><style>--><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with an empty comment before a link',
+                    '<!--><!---><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<!--><!---><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose doctype quotes a style tag',
+                    '<!DOCTYPE html SYSTEM "<style>"><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<!DOCTYPE html SYSTEM "<style>"><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with a CDATA section holding a style tag outside SVG',
+                    '<![CDATA[<style>]]><a href="https://example.com/reset">x</a><style></style>',
+                    sensitiveInvocation,
+                    '<![CDATA[<style>]]><a href="https://example.com/reset" ses:no-track>x</a><style></style>',
+                ],
+                [
+                    'a sensitive template with a processing instruction holding a quote',
+                    '<?php echo "<b title="; ?><a href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<?php echo "<b title="; ?><a href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link names ses:no-track with a Kelvin sign',
+                    '<a href="https://example.com/reset" ses:no-tracK>x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-tracK ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link title quotes a spaced end tag',
+                    '<a href="https://example.com/reset" title="Example > </a >">x</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" title="Example > </a >" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link holds a child title quoting a link',
+                    `<a href="https://example.com/reset"><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
+                    sensitiveInvocation,
+                    `<a href="https://example.com/reset" ses:no-track><span title="</a ><a href='https://example.com/x'>">x</span></a>`,
+                ],
+                [
+                    'a sensitive template with tag-like text in a style block',
+                    `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset">x</a>`,
+                    sensitiveInvocation,
+                    `<style>a::after { content: '<span title="'; }</style><a href="https://example.com/reset" ses:no-track>x</a>`,
+                ],
+                [
+                    'a sensitive template whose link holds a quoted end tag before a second link',
+                    '<a href="https://example.com/a"><span title="</a>">a</span><a href="https://example.com/reset">b</a>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/a" ses:no-track><span title="</a>">a</span><a href="https://example.com/reset" ses:no-track>b</a>',
+                ],
+                [
+                    'a sensitive template whose last link never closes after a quoted end tag',
+                    '<a href="https://example.com/reset">Reset<span title="</a>"> now</span>',
+                    sensitiveInvocation,
+                    '<a href="https://example.com/reset" ses:no-track>Reset<span title="</a>"> now</span>',
+                ],
+                [
+                    'a sensitive template with a link between self-closed and closed SVG titles',
+                    '<svg><title/></svg><a href="https://example.com/reset">x</a><svg><title>Logo</title></svg>',
+                    sensitiveInvocation,
+                    '<svg><title/></svg><a href="https://example.com/reset" ses:no-track>x</a><svg><title>Logo</title></svg>',
+                ],
+                [
+                    'a sensitive template whose style ends in an unquoted value with a slash',
+                    `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset">x</a>`,
+                    sensitiveInvocation,
+                    `<style id=theme/>a::after { content: "<span title='"; }</style><a title="1 > 0" href="https://example.com/reset" ses:no-track>x</a>`,
+                ],
+                [
+                    'a sensitive template with a literal style tag in xmp text before a link',
+                    '<xmp><style></xmp><a href="https://example.com/reset">x</a><style>a { color: red; }</style>',
+                    sensitiveInvocation,
+                    '<xmp><style></xmp><a href="https://example.com/reset" ses:no-track>x</a><style>a { color: red; }</style>',
+                ],
+                [
+                    'a sensitive template with a literal style tag in SVG CDATA before a link',
+                    '<svg><![CDATA[<style>]]></svg><a href="https://example.com/reset">x</a><style>a { color: red; }</style>',
+                    sensitiveInvocation,
+                    '<svg><![CDATA[<style>]]></svg><a href="https://example.com/reset" ses:no-track>x</a><style>a { color: red; }</style>',
+                ],
+                [
+                    'a sensitive template whose link names ses:no-track only in a title',
+                    '<a title="ses:no-track" href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a title="ses:no-track" href="https://example.com/reset" ses:no-track>x</a>',
+                ],
+                [
+                    'a sensitive template whose link already carries ses:no-track',
+                    '<a SES:NO-TRACK href="https://example.com/reset">x</a>',
+                    sensitiveInvocation,
+                    '<a SES:NO-TRACK href="https://example.com/reset">x</a>',
                 ],
             ])('translates the %s opt-out into ses:no-track', (_name, anchor, inv, translated) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
@@ -511,6 +698,16 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
+                [
+                    'an empty unquoted href after a valid one',
+                    '<a href="https://example.com/a" href=>x</a>',
+                    'https://example.com/a',
+                ],
+                [
+                    'a title quoting an href after a >',
+                    `<a href="https://example.com/a" title="x > href='https://example.org/'">x</a>`,
+                    'https://example.com/a',
+                ],
             ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
                 const html = addTrackingToEmail(
                     `<body>${anchor}</body>`,
@@ -523,6 +720,15 @@ describe('EmailTrackingService', () => {
 
                 expect(res.status).toBe(302)
                 expect(res.headers.location).toBe(expected)
+            })
+
+            it('should leave a bare href ahead of the rewritten one, as browsers read the first', () => {
+                const html = addTrackingToEmail(
+                    '<body><a href href="https://example.com/a">x</a></body>',
+                    { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
+                    signer
+                )
+                expect(html).toMatch(/^<body><a href href="[^"]+\/public\/m\/redirect[^"]+">x<\/a>/)
             })
 
             it('should redirect tracked links on a sensitive template that opts in while leaving opted-out links direct', async () => {
@@ -1365,24 +1571,66 @@ describe('EmailTrackingService', () => {
                 expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
             })
 
-            it('resets the mark of a notification a redelivered batch skips, even when that batch fails its flush', async () => {
-                const snsMessageId = new UUIDT().toString()
-                const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
-                await postBounce({ functionId: hogFunction.id, snsMessageId })
-                const batch = queuedSesNotifications()
-                await consumer.processBatch(batch)
-                await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
-                jest.spyOn(
-                    consumer['emailTrackingService']['hogFunctionMonitoringService'],
-                    'flush'
-                ).mockRejectedValueOnce(new Error('broker unavailable'))
+            it.each([
+                {
+                    eventType: 'Bounce',
+                    postNotification: (snsMessageId: string) =>
+                        postBounce({ functionId: hogFunction.id, snsMessageId }),
+                    minTtl: 24 * 60 * 60,
+                    maxTtl: 25 * 60 * 60,
+                    metrics: bounceMetrics,
+                },
+                {
+                    eventType: 'Delivery',
+                    postNotification: (snsMessageId: string) =>
+                        postEnvelope({
+                            Type: 'Notification',
+                            MessageId: snsMessageId,
+                            TopicArn: sesTopicArn,
+                            Message: JSON.stringify({
+                                eventType: 'Delivery',
+                                mail: {
+                                    timestamp: '2024-01-01T00:00:00.000Z',
+                                    source: 'sender@example.com',
+                                    messageId: 'ses-message-id',
+                                    destination: ['recipient@example.com'],
+                                },
+                                delivery: { timestamp: '2024-01-01T00:00:00.000Z' },
+                            }),
+                        }),
+                    minTtl: 59 * 60,
+                    maxTtl: 60 * 60,
+                    metrics: [],
+                },
+            ])(
+                'keeps the $eventType mark TTL when a redelivery fails its flush',
+                async ({ postNotification, minTtl, maxTtl, metrics }) => {
+                    const snsMessageId = new UUIDT().toString()
+                    const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
+                    expect((await postNotification(snsMessageId)).status).toBe(200)
+                    const batch = queuedSesNotifications()
+                    const redeliveredBefore = await queuedAtStage('redelivered')
+                    await consumer.processBatch(batch)
+                    const writtenTtl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) =>
+                        client.ttl(mark)
+                    )
+                    expect(writtenTtl).toBeGreaterThan(minTtl)
+                    expect(writtenTtl).toBeLessThanOrEqual(maxTtl)
+                    await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
+                    jest.spyOn(
+                        consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                        'flush'
+                    ).mockRejectedValueOnce(new Error('broker unavailable'))
 
-                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+                    await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
 
-                const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
-                expect(ttl).toBeGreaterThan(60 * 60 - 60)
-                expect(recordedMetrics()).toEqual(bounceMetrics)
-            })
+                    const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
+                    expect(ttl).toBeGreaterThan(minTtl)
+                    expect(ttl).toBeLessThanOrEqual(maxTtl)
+                    expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
+                    expect(recordedMetrics()).toEqual(metrics)
+                }
+            )
 
             const marksUnavailable = async (): Promise<number> =>
                 (

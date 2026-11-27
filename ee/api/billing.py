@@ -702,7 +702,19 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     payment_actions = {"activate", "authorize", "authorize_status"}
 
+    @classmethod
+    def as_view(cls, actions=None, **initkwargs):
+        # Billing limits are also updated with a PATCH to the list route. Binding it here keeps every other route
+        # answering PATCH with a 405.
+        if actions and actions.get("get") == "list":
+            actions = {**actions, "patch": "update_limits"}
+        return super().as_view(actions, **initkwargs)
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        if self.action == "update_limits":
+            # The router passes an action's permission_classes only to that action's own route, so the list route
+            # takes them here.
+            self.permission_classes = self.update_limits.kwargs["permission_classes"]
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
@@ -788,7 +800,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         url_path="/",
         permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
     )
-    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def update_limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         distinct_id = None if self.request.user.is_anonymous else self.request.user.distinct_id
         license = get_cached_instance_license()
         if not license:

@@ -94,6 +94,18 @@ class _TypedPathViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response({"ok": True})
 
 
+def _ordered_viewset(docs_order: int | None) -> type[viewsets.ViewSet]:
+    class OrderedViewSet(viewsets.ViewSet):
+        scope_object = "project"
+        schema_docs_order = docs_order
+
+        @extend_schema(responses={200: _XInternalMarkerSerializer})
+        def list(self, request: Request, **kwargs: Any) -> Response:
+            return Response({"ok": True})
+
+    return OrderedViewSet
+
+
 class TestAPIDocsSchema(APIBaseTest):
     @parameterized.expand([("duplicate", False, True), ("not_a_duplicate", True, False)])
     def test_org_path_sharing_a_project_suffix(self, _name: str, opted_out: bool, deprecated: bool) -> None:
@@ -109,6 +121,24 @@ class TestAPIDocsSchema(APIBaseTest):
         operation = schema["paths"]["/api/organizations/{organization_id}/thing/"]["get"]
         assert operation.get("deprecated", False) is deprecated
         assert operation["operationId"] == ("org_thing_list" if deprecated else "thing_list")
+
+    def test_docs_order_sorts_operations_within_their_path_prefix(self) -> None:
+        routes = [
+            ("api/projects/<str:parent_lookup_team_id>/messages/", None),
+            ("api/projects/<str:parent_lookup_team_id>/messaging/attachments/", 2),
+            ("api/projects/<str:parent_lookup_team_id>/messaging/send/", 1),
+            ("api/projects/<str:parent_lookup_team_id>/messaging_templates/", None),
+        ]
+        patterns = [path(route, _ordered_viewset(order).as_view({"get": "list"})) for route, order in routes]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        assert list(schema["paths"]) == [
+            "/api/projects/{project_id}/messages/",
+            "/api/projects/{project_id}/messaging/send/",
+            "/api/projects/{project_id}/messaging/attachments/",
+            "/api/projects/{project_id}/messaging_templates/",
+        ]
 
     def test_retired_project_environments_route_is_not_in_schema(self) -> None:
         self.client.logout()

@@ -1,13 +1,13 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import type { AEOPromptStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotAnswerOutcomeChart } from './ContentAutopilotAnswerOutcomeChart'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
@@ -31,9 +31,9 @@ const ViewAllButton = ({
     onClick: () => void
     'data-attr': string
 }): JSX.Element => (
-    <LemonButton size="small" type="tertiary" onClick={onClick} data-attr={dataAttr}>
+    <Button onClick={onClick} data-attr={dataAttr}>
         {label}
-    </LemonButton>
+    </Button>
 )
 
 /** The prompt's report at a glance: answers over time, each engine's results, tone, who gets cited and what the
@@ -75,68 +75,64 @@ export const ContentAutopilotPromptOverview = ({
                 data-attr="content-autopilot-prompt-visibility-tile"
             />
             <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-2 gap-4">
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="By engine" />
+                <AiVisibilityCard title="By engine">
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompt-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
-                </PagePerformanceCard>
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="How the answers speak about you"
-                        description="Scored on the sentences that name you, so praise of another tool doesn't count."
-                        actions={
-                            <ViewAllButton
-                                label="View sentiment"
-                                onClick={() => onOpenTab('sentiment')}
-                                data-attr="content-autopilot-prompt-overview-sentiment-more"
-                            />
-                        }
-                    />
-                    <div className="p-3" data-attr="content-autopilot-prompt-overview-sentiment">
-                        <ContentAutopilotSentimentBar summary={sentiment} />
-                    </div>
-                </PagePerformanceCard>
-            </div>
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader
-                    title="Cited sites by engine"
-                    description="Share of each engine's answers that link to the site."
+                </AiVisibilityCard>
+                <AiVisibilityCard
+                    title="How the answers speak about you"
+                    description="Scored on the sentences that name you, so praise of another tool doesn't count."
                     actions={
                         <ViewAllButton
-                            label="View sources"
-                            onClick={() => onOpenTab('sources')}
-                            data-attr="content-autopilot-prompt-overview-sources-more"
+                            label="View sentiment"
+                            onClick={() => onOpenTab('sentiment')}
+                            data-attr="content-autopilot-prompt-overview-sentiment-more"
                         />
                     }
-                />
-                <div className="p-3 overflow-x-auto" data-attr="content-autopilot-prompt-overview-consensus">
+                >
+                    <div data-attr="content-autopilot-prompt-overview-sentiment">
+                        <ContentAutopilotSentimentBar summary={sentiment} />
+                    </div>
+                </AiVisibilityCard>
+            </div>
+            <AiVisibilityCard
+                title="Cited sites by engine"
+                description="Share of each engine's answers that link to the site."
+                actions={
+                    <ViewAllButton
+                        label="View sources"
+                        onClick={() => onOpenTab('sources')}
+                        data-attr="content-autopilot-prompt-overview-sources-more"
+                    />
+                }
+            >
+                <div className="overflow-x-auto" data-attr="content-autopilot-prompt-overview-consensus">
                     <ContentAutopilotPromptConsensus matrix={consensus} />
                 </div>
-            </PagePerformanceCard>
+            </AiVisibilityCard>
             {stats.top_words.length ? (
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="Words the engines searched for"
-                        actions={
-                            <ViewAllButton
-                                label="View searches"
-                                onClick={() => onOpenTab('searches')}
-                                data-attr="content-autopilot-prompt-overview-searches-more"
-                            />
-                        }
-                    />
+                <AiVisibilityCard
+                    title="Words the engines searched for"
+                    actions={
+                        <ViewAllButton
+                            label="View searches"
+                            onClick={() => onOpenTab('searches')}
+                            data-attr="content-autopilot-prompt-overview-searches-more"
+                        />
+                    }
+                >
                     <div
-                        className="p-3 flex flex-wrap items-center gap-1"
+                        className="flex flex-wrap items-center gap-1"
                         data-attr="content-autopilot-prompt-overview-searches"
                     >
                         {stats.top_words.map((word) => (
-                            <LemonTag key={word.word} size="small">
-                                {word.word} <span className="text-muted">{word.count}</span>
-                            </LemonTag>
+                            <AiVisibilityTag key={word.word}>
+                                {word.word} <span className="text-muted-foreground">{word.count}</span>
+                            </AiVisibilityTag>
                         ))}
                     </div>
-                </PagePerformanceCard>
+                </AiVisibilityCard>
             ) : null}
         </div>
     )

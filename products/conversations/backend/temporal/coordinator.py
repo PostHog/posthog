@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from products.conversations.backend.models import Ticket
 
 with workflow.unsafe.imports_passed_through():
+    from django.db import transaction
     from django.db.models import Q
     from django.utils import timezone
 
@@ -28,7 +29,13 @@ with workflow.unsafe.imports_passed_through():
     from products.business_knowledge.backend.logic import has_ready_sources
     from products.conversations.backend.models import Ticket
     from products.conversations.backend.models.constants import Channel, Status
-    from products.conversations.backend.temporal.ai_reply.constants import MAX_CLARIFICATION_ROUNDS
+    from products.conversations.backend.temporal.ai_reply.constants import (
+        CUSTOMER_REPLY_RERUN_PATCH,
+        MAX_CLARIFICATION_ROUNDS,
+        MAX_CUSTOMER_REPLY_RERUNS,
+        RERUN_MODE_UNTIL_TEAM_REPLY,
+        TRIGGER_CUSTOMER_REPLY,
+    )
     from products.conversations.backend.temporal.pipeline import SupportReplyInput, SupportReplyWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -48,8 +55,9 @@ SETTLE_EXEMPT_CHANNELS: tuple[str, ...] = (Channel.EMAIL,)
 # Scan window. Keyed on last_message_at (the same axis the settle gate uses), so a ticket stays
 # eligible until SETTLE after its *last* customer message, regardless of how long ago it was created
 # — a late follow-up can't push the settle deadline past the scan window and silently drop the
-# ticket. Only needs to exceed SETTLE + interval + a little slack for a slow tick.
-TICKET_LOOKBACK_MINUTES = 5
+# ticket. It must exceed SETTLE + interval + slack for a slow tick, and outlast a run, because a
+# customer message that arrives during a run starts the next run only after that run finishes.
+TICKET_LOOKBACK_MINUTES = 10
 
 # Fanout caps so public ticket volume can't directly turn into unbounded sandbox/LLM work.
 # A single opted-in team that gets flooded with externally-created tickets can only spend
@@ -64,6 +72,7 @@ MASTER_FLAG = "product-support-ai-suggestion-orgs"
 # Set to 0 locally to skip the BK readiness check entirely.
 MIN_READY_BK_SOURCES = 0
 
+BLOCKED_RESULTS = ("blocked_unsafe", "blocked_unsafe_reply")
 SKIPPED_TEAM_REPLIED = "skipped_team_replied"
 SKIPPED_CHANNEL_EXCLUDED = "skipped_channel_excluded"
 
@@ -85,15 +94,66 @@ class EligibleTicket:
     team_id: int
     ticket_id: str
     clarification_round: int = 0
+    # Names the later customer message that starts this run, so one message starts one run.
+    rerun_key: str = ""
 
 
-def _child_workflow_id(ticket_id: str, clarification_round: int = 0) -> str:
+def _child_workflow_id(ticket_id: str, clarification_round: int = 0, rerun_key: str = "") -> str:
+    # A completed run blocks its id, so a later-message run and the follow-up to its question need their own.
+    if rerun_key and clarification_round >= 1:
+        return f"support-reply-{ticket_id}-c{rerun_key}-r{clarification_round}"
+    if rerun_key:
+        return f"support-reply-{ticket_id}-c{rerun_key}"
     # Round 0 keeps the pre-clarify id so in-flight runs and ALLOW_DUPLICATE_FAILED_ONLY
     # still collide across the deploy. Later rounds must use a new id or a completed
     # round-0 run would block the follow-up forever.
     if clarification_round >= 1:
         return f"support-reply-{ticket_id}-r{clarification_round}"
     return f"support-reply-{ticket_id}"
+
+
+def _parse_iso(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def customer_reply_rerun_key(
+    *,
+    triage: dict,
+    last_customer: datetime | None,
+    first_customer: datetime | None,
+    last_human: datetime | None,
+    settle_cutoff: datetime,
+    settle_exempt: bool,
+) -> str | None:
+    """Return the key for a run on the latest customer message, or None when no run is due.
+
+    A run is due when the previous run finished before the customer's latest message, the
+    message has settled, no teammate has replied, and the ticket is under its run limit.
+    """
+    previous_run_started = _parse_iso(triage.get("started_at"))
+    if previous_run_started is None or triage.get("status") != "done":
+        return None
+    # A safety gate stopped the previous run. Another run would give the same sender another try at it.
+    if triage.get("result") in BLOCKED_RESULTS:
+        return None
+    if last_customer is None or last_customer <= previous_run_started:
+        return None
+    if last_human is not None and (first_customer is None or last_human > first_customer):
+        return None
+    if not settle_exempt and last_customer > settle_cutoff:
+        return None
+    key = str(int(last_customer.timestamp()))
+    dispatched = triage.get("rerun_keys")
+    dispatched_keys = [k for k in dispatched if isinstance(k, str)] if isinstance(dispatched, list) else []
+    if key not in dispatched_keys and len(dispatched_keys) >= MAX_CUSTOMER_REPLY_RERUNS:
+        return None
+    return key
 
 
 def _awaiting_clarification_round(ticket: Ticket) -> tuple[bool, int]:
@@ -154,6 +214,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     candidates: list[tuple[int, str, datetime, bool, int, bool]] = []
     untriaged_ticket_ids: set[str] = set()
     forwarded_ticket_ids: set[str] = set()
+    rerun_triage_by_ticket: dict[str, dict] = {}
+    asking_rerun_key_by_ticket: dict[str, str] = {}
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
     master_flag_by_org: dict[str, bool] = {}
@@ -177,6 +239,23 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             continue
 
         is_untriaged = not ticket.ai_triage
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
+        # A failed run keeps `in_progress`, and only the first-draft path retries it under its id.
+        if (
+            settings_dict.get("ai_rerun_mode") == RERUN_MODE_UNTIL_TEAM_REPLY
+            and triage.get("status") == "done"
+            and _parse_iso(triage.get("started_at")) is not None
+        ):
+            rerun_triage_by_ticket[str(ticket.id)] = triage
+        dispatched_keys = triage.get("rerun_keys")
+        if (
+            triage.get("status") == "awaiting_clarification"
+            and triage.get("trigger") == TRIGGER_CUSTOMER_REPLY
+            and isinstance(dispatched_keys, list)
+            and dispatched_keys
+            and isinstance(dispatched_keys[-1], str)
+        ):
+            asking_rerun_key_by_ticket[str(ticket.id)] = dispatched_keys[-1]
         allowed_channels = settings_dict.get("ai_resolution_channels")
         if allowed_channels is not None and ticket.channel_source not in allowed_channels:
             if is_untriaged:
@@ -268,6 +347,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
     for team_id, ticket_id_str, created_at, awaiting, clarification_round, settle_exempt in candidates:
+        rerun_key = ""
+        rerun_triage = rerun_triage_by_ticket.get(ticket_id_str)
         if awaiting:
             last_customer = latest_customer_msg.get(ticket_id_str)
             last_ai = latest_ai_msg.get(ticket_id_str)
@@ -278,6 +359,19 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 continue
             if not settle_exempt and last_customer > settle_cutoff:
                 continue
+            rerun_key = asking_rerun_key_by_ticket.get(ticket_id_str, "")
+        elif rerun_triage is not None:
+            due_key = customer_reply_rerun_key(
+                triage=rerun_triage,
+                last_customer=latest_customer_msg.get(ticket_id_str),
+                first_customer=first_customer_msg.get(ticket_id_str),
+                last_human=latest_human_msg.get(ticket_id_str),
+                settle_cutoff=settle_cutoff,
+                settle_exempt=settle_exempt,
+            )
+            if due_key is None:
+                continue
+            rerun_key = due_key
         else:
             first_customer = first_customer_msg.get(ticket_id_str)
             earliest_team = earliest_non_customer_msg.get(ticket_id_str)
@@ -316,11 +410,32 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 team_id=team_id,
                 ticket_id=ticket_id_str,
                 clarification_round=clarification_round,
+                rerun_key=rerun_key,
             )
         )
 
     _record_skipped_tickets(skipped_ticket_ids_by_result, now=now)
+    _record_rerun_keys(eligible)
     return eligible
+
+
+def _record_rerun_keys(eligible: list[EligibleTicket]) -> None:
+    """Remember each message that started a run, so the per-ticket run limit can count them."""
+    for item in eligible:
+        if not item.rerun_key:
+            continue
+        with transaction.atomic():
+            ticket = Ticket.objects.select_for_update().filter(team_id=item.team_id, id=item.ticket_id).first()
+            if ticket is None:
+                continue
+            triage = dict(ticket.ai_triage) if isinstance(ticket.ai_triage, dict) else {}
+            stored = triage.get("rerun_keys")
+            keys = [k for k in stored if isinstance(k, str)] if isinstance(stored, list) else []
+            if item.rerun_key in keys:
+                continue
+            triage["rerun_keys"] = [*keys, item.rerun_key]
+            ticket.ai_triage = triage
+            ticket.save(update_fields=["ai_triage"])
 
 
 def _record_skipped_tickets(skipped_ticket_ids_by_result: dict[str, list[str]], *, now: datetime) -> None:
@@ -385,14 +500,24 @@ class SupportReplyCoordinatorWorkflow:
             # leaves no AI note for the DB dedupe to catch), while a succeeded/escalated run stays
             # de-duped — the success case also leaves an AI note that the DB gate catches first.
             child_id = _child_workflow_id(ticket.ticket_id, ticket.clarification_round)
+            child_input = SupportReplyInput(
+                team_id=ticket.team_id,
+                ticket_id=ticket.ticket_id,
+                clarification_round=ticket.clarification_round,
+            )
+            # The patch comes first: a history from an older worker must replay under the first-draft id.
+            if workflow.patched(CUSTOMER_REPLY_RERUN_PATCH) and ticket.rerun_key:
+                child_id = _child_workflow_id(ticket.ticket_id, ticket.clarification_round, ticket.rerun_key)
+                child_input = SupportReplyInput(
+                    team_id=ticket.team_id,
+                    ticket_id=ticket.ticket_id,
+                    clarification_round=ticket.clarification_round,
+                    trigger=TRIGGER_CUSTOMER_REPLY,
+                )
             try:
                 await workflow.start_child_workflow(
                     SupportReplyWorkflow.run,
-                    SupportReplyInput(
-                        team_id=ticket.team_id,
-                        ticket_id=ticket.ticket_id,
-                        clarification_round=ticket.clarification_round,
-                    ),
+                    child_input,
                     id=child_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,

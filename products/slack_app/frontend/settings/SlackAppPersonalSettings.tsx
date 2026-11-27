@@ -13,7 +13,6 @@ import {
 import { urls } from 'scenes/urls'
 
 import type { SlackThreadJoinModeEnumApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
-import { SlackAppInstallPicker } from './SlackAppInstallPicker'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 const UNTAGGED_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi; label: string }[] = [
@@ -74,22 +73,11 @@ function SettingRow({
 }
 
 export function SlackAppPersonalSettings(): JSX.Element {
-    const { settings, settingsLoading, slackIntegrations, integrationsLoading, personalSettingsDisabledReason } =
-        useValues(slackAppSettingsLogic)
+    const { settings, settingsLoading, personalSettingsDisabledReason } = useValues(slackAppSettingsLogic)
     const { updatePersonalSettings } = useActions(slackAppSettingsLogic)
 
-    if ((integrationsLoading || settingsLoading) && !settings) {
+    if (settingsLoading && !settings) {
         return <LemonSkeleton className="h-60" />
-    }
-    if (!slackIntegrations?.length) {
-        return (
-            <LemonBanner
-                type="info"
-                action={{ children: 'Go to integrations', to: urls.settings('environment-integrations') }}
-            >
-                Connect Slack to this project to change how PostHog works for you in Slack.
-            </LemonBanner>
-        )
     }
     if (!settings) {
         return <LemonBanner type="error">Couldn't load your Slack settings. Refresh the page to try again.</LemonBanner>
@@ -100,31 +88,28 @@ export function SlackAppPersonalSettings(): JSX.Element {
 
     if (!personal.slack_user_id) {
         return (
-            <div className="flex flex-col gap-2">
-                <SlackAppInstallPicker />
-                <LemonBanner
-                    type="info"
-                    action={{
-                        children: 'Link Slack account',
-                        to: urls.settings('user-personal-integrations', 'personal-integrations-slack'),
-                    }}
-                >
-                    Link your Slack account in {workspaceName} to change how PostHog works for you there.
-                </LemonBanner>
-            </div>
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'Link Slack account',
+                    to: urls.settings('user-personal-integrations', 'personal-integrations-slack'),
+                }}
+            >
+                Link your Slack account in {workspaceName} to change how PostHog works for you there.
+            </LemonBanner>
         )
     }
 
-    const changedAdvancedCount = Number(personal.thread_join_mode !== 'allow') + Number(!personal.feature_tips_enabled)
+    const changedAdvancedCount =
+        Number(personal.thread_join_mode !== 'allow') +
+        Number(!personal.feature_tips_enabled) +
+        Number(personal.chatgpt_apps_enabled === true)
 
     return (
         <div className="flex flex-col gap-4 max-w-200">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-secondary m-0">
-                    Linked to your Slack account in <strong className="text-primary">{workspaceName}</strong>.
-                </p>
-                <SlackAppInstallPicker />
-            </div>
+            <p className="text-secondary m-0">
+                Linked to your Slack account in <strong className="text-primary">{workspaceName}</strong>.
+            </p>
 
             <SettingsGroup title="Defaults">
                 <SettingRow label="Default project" description="The project PostHog uses when you tag it.">
@@ -222,6 +207,21 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         data-attr="slack-app-settings-thread-join"
                                     />
                                 </SettingRow>
+                                {personal.chatgpt_apps_enabled !== null ? (
+                                    <SettingRow
+                                        label="ChatGPT apps"
+                                        description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
+                                    >
+                                        <LemonSwitch
+                                            checked={personal.chatgpt_apps_enabled}
+                                            onChange={(checked) =>
+                                                updatePersonalSettings({ chatgpt_apps_enabled: checked })
+                                            }
+                                            disabledReason={personalSettingsDisabledReason}
+                                            data-attr="slack-app-settings-chatgpt-apps"
+                                        />
+                                    </SettingRow>
+                                ) : null}
                                 <SettingRow
                                     label="Feature tips"
                                     description="Short tips about things PostHog can do in Slack."

@@ -21,19 +21,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import Table
-from posthog.hogql.database.schema.metrics import (
-    MetricAttributesTable,
-    MetricNamesTable,
-    MetricSamplesTable,
-    MetricSeriesTable,
-    MetricsTable,
-)
+from posthog.hogql.database.schema.metrics import tables_outside_metrics
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
@@ -61,56 +52,16 @@ _SQL_ROW_LIMIT = min(_RAW_ROW_LIMIT, MAX_SELECT_RETURNED_ROWS)
 CLAUSE_COLUMN = "clause"
 
 
-# A FROM source that reads no table itself: its own FROM clauses are checked where they appear.
-_SUBQUERY_TYPES = (
-    ast.SelectQueryType,
-    ast.SelectSetQueryType,
-    ast.SelectQueryAliasType,
-    ast.CTETableType,
-    ast.CTETableAliasType,
-)
-_METRICS_TABLE_CLASSES: tuple[type[Table], ...] = (
-    MetricsTable,
-    MetricSamplesTable,
-    MetricNamesTable,
-    MetricSeriesTable,
-    MetricAttributesTable,
-)
-
-
-class _TableCollector(TraversingVisitor):
-    """Collects every FROM and JOIN source of a resolved query that is not a metrics table.
-
-    It reads the resolved types, not the raw AST: the resolver applies the CTE scope rules and
-    expands HogQLX tags, so a CTE name or a tag cannot hide another table.
-    """
-
-    def __init__(self) -> None:
-        self.other_tables: list[str] = []
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        table_type = node.type
-        while isinstance(table_type, ast.TableAliasType):
-            table_type = table_type.table_type
-        if not isinstance(table_type, _SUBQUERY_TYPES) and not (
-            isinstance(table_type, ast.TableType) and isinstance(table_type.table, _METRICS_TABLE_CLASSES)
-        ):
-            name = ".".join(str(part) for part in node.table.chain) if isinstance(node.table, ast.Field) else None
-            self.other_tables.append(name or "a table that is not a metrics table")
-        super().visit_join_expr(node)
-
-
 def _assert_reads_only_metrics_tables(team: Team, query: ast.SelectQuery | ast.SelectSetQuery) -> None:
     context = HogQLContext(
         team_id=team.pk, team=team, database=Database.create_for(team=team), enable_select_queries=True
     )
-    collector = _TableCollector()
-    collector.visit(resolve_types(query, context, dialect="clickhouse"))
-    if collector.other_tables:
+    other_tables = tables_outside_metrics(query, context)
+    if other_tables:
         raise ExposedHogQLError(
             f"A SQL metrics insight can only read the metrics tables "
             f"({', '.join(f'posthog.{table}' for table in sorted(METRICS_SQL_TABLES))}), "
-            f"not {collector.other_tables[0]}."
+            f"not {other_tables[0]}."
         )
 
 

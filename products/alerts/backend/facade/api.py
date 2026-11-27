@@ -14,7 +14,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -187,6 +187,22 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     return rows | native_source_config_values(
         team_ids=team_ids, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=rest
     )
+
+
+def insight_alerts_prefetch(*, to_attr: str, insight_path: str = "") -> Prefetch:
+    """A `Prefetch` loading each insight's alerts with the joins the alert serializer reads.
+
+    `insight_path` is the relation from the queryset's model to the insight, such as `insight` for
+    dashboard tiles, and stays empty for an insight queryset. The alerts land in a list on each
+    insight's `to_attr`. The serializer emits each alert's threshold and subscribed users, so without
+    the joins every alert in a response costs two more queries.
+    """
+    # Sets no team filter of its own: the prefetch is scoped by the queryset it is attached to, and an
+    # alert always belongs to its insight's team.
+    # nosemgrep: idor-lookup-without-team
+    queryset = AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related("subscribed_users")
+    lookup = f"{insight_path}__alertconfiguration_set" if insight_path else "alertconfiguration_set"
+    return Prefetch(lookup, queryset=queryset, to_attr=to_attr)
 
 
 def enabled_alerts_created_by(*, team_ids: Collection[int], user_id: int) -> list[contracts.CreatedAlert]:

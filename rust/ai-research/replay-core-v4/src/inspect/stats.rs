@@ -2,6 +2,7 @@
 //! [`fold_session`].
 
 use super::features::SurfacingFeatures;
+use super::json_ld::MAX_JSON_LD_ROOT_TYPES;
 use super::sketch::DistinctSketch;
 
 /// Fingerprints a block or session row keeps. A session row with this many has visited this many pages or more.
@@ -97,6 +98,9 @@ pub struct BlockStats {
     /// The longest of those lines.
     pub max_written_event_bytes: u64,
 
+    pub json_ld_events: u32,
+    pub json_ld_root_types: Vec<String>,
+
     /// The surfacing features of the block's events.
     pub surfacing: SurfacingFeatures,
 }
@@ -141,6 +145,11 @@ impl BlockStats {
             MAX_URL_FINGERPRINTS,
         );
         union(&mut self.window_ids, &later.window_ids, MAX_WINDOW_IDS);
+        union(
+            &mut self.json_ld_root_types,
+            &later.json_ld_root_types,
+            MAX_JSON_LD_ROOT_TYPES,
+        );
         self.image_ref_sketch.merge(&later.image_ref_sketch);
         self.surfacing.merge(&later.surfacing);
         self.touch_input |= later.touch_input;
@@ -189,7 +198,8 @@ impl BlockStats {
             image_bytes,
             images_inline,
             image_urls,
-            written_jsonl_bytes
+            written_jsonl_bytes,
+            json_ld_events
         );
     }
 }
@@ -206,7 +216,7 @@ pub fn fold_session(mut blocks: Vec<BlockStats>) -> BlockStats {
 }
 
 /// Appends the values of `later` that `values` does not hold, up to `cap` values in all.
-fn union(values: &mut Vec<String>, later: &[String], cap: usize) {
+pub(crate) fn union(values: &mut Vec<String>, later: &[String], cap: usize) {
     for value in later {
         if values.len() >= cap {
             break;
@@ -253,6 +263,8 @@ mod tests {
                 .collect(),
             written_jsonl_bytes: 500,
             max_written_event_bytes: first as u64 / 10,
+            json_ld_events: 1,
+            json_ld_root_types: vec!["WebSite".to_owned(), format!("Page{}", first / 1_000)],
             ..BlockStats::default()
         }
     }
@@ -298,6 +310,11 @@ mod tests {
         // Windows 1 to 20, 3 to 22 and 64 to 83: the first 32 distinct, in the order the session first saw them.
         let windows: Vec<String> = (1..=22).chain(64..=73).map(|w| format!("w{w}")).collect();
         assert_eq!(session.window_ids, windows);
+        assert_eq!(session.json_ld_events, 3);
+        assert_eq!(
+            session.json_ld_root_types,
+            ["WebSite", "Page1", "Page3", "Page64"]
+        );
         assert_eq!(
             (session.first_ts_ms, session.last_ts_ms),
             (Some(1_000), Some(65_000))
