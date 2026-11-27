@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.expo._config import ExpoSourceConfig
 from products.warehouse_sources.sources.expo.expo import (
+    EXPO_GRAPHQL_URL,
     PROJECT_NOT_FOUND_ERROR,
     ExpoResumeConfig,
     expo_source,
@@ -56,6 +57,17 @@ class ExpoSource(ResumableSource[ExpoSourceConfig, ExpoResumeConfig]):
             # Expo's GraphQL error when the project ID is wrong or the project was deleted.
             "Expo API error: Experience with id": unknown_project,
             PROJECT_NOT_FOUND_ERROR: unknown_project,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_run_query` POSTs, and the shared session only retries GET/HEAD/OPTIONS, so a 5xx from
+        # Expo surfaces as a plain `HTTPError`. It is a transient outage that a later Temporal
+        # attempt clears. Match the full status text so a 4xx on the same URL is still reported.
+        return {
+            f"500 Server Error: Internal Server Error for url: {EXPO_GRAPHQL_URL}",
+            f"502 Server Error: Bad Gateway for url: {EXPO_GRAPHQL_URL}",
+            f"503 Server Error: Service Unavailable for url: {EXPO_GRAPHQL_URL}",
+            f"504 Server Error: Gateway Timeout for url: {EXPO_GRAPHQL_URL}",
         }
 
     @property

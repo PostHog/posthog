@@ -359,11 +359,18 @@ class TestGetRows:
         assert result.paths == [expected_path]
         assert result.saved_states == []
 
-    def test_too_many_applications_is_rejected(self) -> None:
+    @parameterized.expand(
+        [
+            ("business_transactions", "/controller/rest/applications"),
+            ("database_health_rule_violations", "/controller/rest/databases/servers"),
+        ]
+    )
+    def test_too_many_parents_is_rejected_as_non_retryable(self, endpoint: str, parent_path: str) -> None:
         many = [{"id": i} for i in range(appdynamics_module.MAX_APPLICATIONS + 1)]
-        result = _driver().run("business_transactions", [ScriptedResponse(json=many)])
+        result = _driver().run(endpoint, [ScriptedResponse(json=many)])
         assert isinstance(result.raised, AppdynamicsError)
-        assert result.paths == ["/controller/rest/applications"]
+        assert result.paths == [parent_path]
+        assert any(key in str(result.raised) for key in AppdynamicsSource().get_non_retryable_errors())
 
     def test_metric_data_fan_out_budget_is_enforced(self) -> None:
         # Max applications × max metric paths × the 7-day metric window blows the aggregate
@@ -385,25 +392,53 @@ class TestGetRows:
         assert isinstance(result.raised, AppdynamicsError)
         assert result.paths == ["/controller/rest/applications"]
 
-    def test_fan_out_injects_application_id_and_bookmarks_next_app(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "applications",
+                "business_transactions",
+                "/controller/rest/applications",
+                "/controller/rest/applications/{}/business-transactions",
+                "application_id",
+                [2],
+            ),
+            (
+                "database_servers",
+                "database_health_rule_violations",
+                "/controller/rest/databases/servers",
+                "/controller/rest/databases/servers/healthrule-violations/{}",
+                "server_id",
+                [1, 2, 2],
+            ),
+        ]
+    )
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_fan_out_injects_parent_id_and_bookmarks_next_parent(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        parent_column: str,
+        bookmarks: list[int],
+    ) -> None:
         result = _driver().run(
-            "business_transactions",
+            endpoint,
             [
                 ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
-                ScriptedResponse(json=[{"id": 10, "name": "bt-1"}]),
-                ScriptedResponse(json=[{"id": 10, "name": "bt-2"}]),
+                ScriptedResponse(json=[{"id": 10, "name": "first"}]),
+                ScriptedResponse(json=[{"id": 10, "name": "second"}]),
             ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
         )
 
         assert result.raised is None
-        assert [row["application_id"] for row in result.rows] == [1, 2]
-        # bookmark points at the NEXT application, saved once per non-final application
-        assert [state.application_id for state in result.saved_states] == [2]
-        assert result.paths == [
-            "/controller/rest/applications",
-            "/controller/rest/applications/1/business-transactions",
-            "/controller/rest/applications/2/business-transactions",
-        ]
+        assert [row[parent_column] for row in result.rows] == [1, 2]
+        assert "application_id" not in result.rows[0] or parent_column == "application_id"
+        # Windowed streams also bookmark each finished window; the parent bookmark always moves forward.
+        assert [state.application_id for state in result.saved_states] == bookmarks
+        assert result.paths == [parent_path, child_path.format(1), child_path.format(2)]
 
     def test_fan_out_resumes_from_bookmarked_application(self) -> None:
         result = _driver().run(
@@ -460,6 +495,61 @@ class TestGetRows:
         assert rows[0]["application_id"] == 7
         assert rows[0]["metricId"] == 42
         assert rows[0]["value"] == 12
+
+    @time_machine.travel("2024-01-31T00:30:00Z", tick=False)
+    def test_metric_data_v2_snaps_windows_to_full_hours(self) -> None:
+        # The v2 method returns incomplete data for partial-hour ranges, so both bounds move to an hour.
+        watermark = FROZEN_NOW_MS - 13 * 60 * 60 * 1000 - 60 * 1000  # 2024-01-30T10:59:00Z
+        result = _driver().run(
+            "metric_data_v2",
+            [ScriptedResponse(json=[{"id": 7}]), ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.paths[1] == "/controller/rest/applications/7/metric-data-v2"
+        assert result.params("start-time")[1:] == [str(FROZEN_NOW_MS - 14 * 60 * 60 * 1000)]
+        assert result.params("end-time")[1:] == [str(FROZEN_NOW_MS)]
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_audit_history_reads_one_day_per_request_with_iso_bounds(self) -> None:
+        entry = {"timeStamp": FROZEN_NOW_MS - 1000, "userName": "user1", "action": "LOGIN"}
+        result = _driver().run(
+            "controller_audit_history",
+            [
+                ScriptedResponse(json=[]),
+                ScriptedResponse(json=[entry, entry, {**entry, "action": "OBJECT_CREATED"}]),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=FROZEN_NOW_MS - 2 * MILLIS_PER_DAY,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/controller/ControllerAuditHistory"] * 2
+        # A literal `+` would decode as a space, so this also proves the offset is percent-encoded.
+        assert result.params("startTime") == ["2024-01-29T00:00:00.001+0000", "2024-01-30T00:00:00.001+0000"]
+        assert result.params("endTime") == ["2024-01-30T00:00:00.001+0000", "2024-01-31T00:00:00.000+0000"]
+        assert result.params("output") == [None, None]
+        audit_ids = [row["audit_id"] for row in result.rows]
+        assert audit_ids[0] == audit_ids[1] != audit_ids[2]
+        # Each window's cursor is staged before its rows, so the empty first window still persists.
+        assert [state.window_start for state in result.committed_states] == [
+            FROZEN_NOW_MS - MILLIS_PER_DAY + 1,
+            FROZEN_NOW_MS,
+        ]
+
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
+    def test_audit_history_resumes_from_the_saved_window(self) -> None:
+        resumed_from = FROZEN_NOW_MS - 6 * 60 * 60 * 1000
+        result = _driver().run(
+            "controller_audit_history",
+            [ScriptedResponse(json=[])],
+            resume_state=AppdynamicsResumeConfig(window_start=resumed_from),
+        )
+
+        assert result.raised is None
+        assert result.params("startTime") == ["2024-01-30T18:00:00.000+0000"]
 
     @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_window_that_cannot_be_split_further_warns_and_keeps_its_rows(self) -> None:
@@ -574,7 +664,7 @@ class TestGetRows:
 class TestAppdynamicsSourceResponse:
     @parameterized.expand(list(APPDYNAMICS_ENDPOINTS.keys()))
     def test_source_response_shape(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+        result = _driver().run(endpoint, always(ScriptedResponse(json=[])))
         assert result.raised is None
         response = result.response
         assert response is not None
