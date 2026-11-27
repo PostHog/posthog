@@ -358,8 +358,12 @@ def _registrable(raw: str) -> str | None:
 
 
 def parse_competitors(text: str, *, own_domain: str | None) -> list[SuggestedCompetitor]:
+    return _competitors_from(_answer_parts(text).competitors, own_domain=own_domain)
+
+
+def _competitors_from(items: list[Any], *, own_domain: str | None) -> list[SuggestedCompetitor]:
     competitors: list[SuggestedCompetitor] = []
-    for item in _answer_parts(text).competitors:
+    for item in items:
         if not isinstance(item, dict):
             continue
         domain = _registrable(visible(str(item.get("domain") or "")))
@@ -509,18 +513,8 @@ def _research_object(text: str) -> dict[str, Any]:
 
 def parse_research(text: str, *, own_domain: str | None) -> SiteResearch:
     value = _research_object(text)
-    competitors: list[SuggestedCompetitor] = []
     found = value.get("competitors")
-    for item in found if isinstance(found, list) else []:
-        if not isinstance(item, dict):
-            continue
-        domain = _registrable(visible(str(item.get("domain") or "")))
-        if domain is None or domain == own_domain or any(c.domain == domain for c in competitors):
-            continue
-        name = _plain(visible(str(item.get("name") or "")), BRAND_NAME_MAX_LENGTH).strip()
-        competitors.append(SuggestedCompetitor(name=name or catalog.placeholder_name(domain), domain=domain))
-        if len(competitors) >= MAX_SUGGESTED_COMPETITORS:
-            break
+    competitors = _competitors_from(found if isinstance(found, list) else [], own_domain=own_domain)
     return SiteResearch(
         brand=_plain(visible(str(value.get("brand") or "")), BRAND_NAME_MAX_LENGTH).strip(),
         category=_plain(visible(str(value.get("category") or "")), PROMPT_TOPIC_MAX_LENGTH * 2).strip(),
