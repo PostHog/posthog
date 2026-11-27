@@ -701,6 +701,53 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "each visit goes to the link it landed on",
+                True,
+                [
+                    ("https://example.com/billing", "billing-visit", None),
+                    ("https://example.com/docs", "docs-visit", None),
+                    ("https://help.other-docs.com/faq", None, "off_site"),
+                ],
+            ),
+            (
+                "unknown links leave close clicks unresolved",
+                False,
+                [(None, None, "link_unknown")] * 3,
+            ),
+        ]
+    )
+    def test_matches_close_clicks_to_their_visits(self, _flag, _name, with_click_events, expected):
+        message_id = self._send(
+            3 * 24 * 60,
+            "jane@example.com",
+            [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 300, ""), ("clicked", 330, ""), ("clicked", 360, "")],
+        )
+        queued_at = NOW - timedelta(days=3)
+        self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
+        if with_click_events:
+            for seconds, link in (
+                (300, "https://example.com/billing"),
+                (330, "https://example.com/docs"),
+                (360, "https://help.other-docs.com/faq"),
+            ):
+                self._email_event(
+                    "$workflows_email_link_clicked", message_id, queued_at + timedelta(seconds=seconds), link
+                )
+        self._visit(
+            "billing-visit",
+            f"https://example.com/billing?ph_workflow_run={message_id}",
+            queued_at + timedelta(seconds=303),
+        )
+        self._visit(
+            "docs-visit", f"https://example.com/docs/?ph_workflow_run={message_id}", queued_at + timedelta(seconds=335)
+        )
+        flush_persons_and_events()
+
+        assert self._clicks(message_id) == expected
+
+    @parameterized.expand(
+        [
             ("tagged link without a visit", True, True, "not_found"),
             ("link tagging off", False, True, "link_tagging_off"),
             ("engagement events off", True, False, "link_unknown"),
