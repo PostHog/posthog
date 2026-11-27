@@ -7,10 +7,8 @@ from django.http import HttpRequest
 
 from django_structlog import signals
 
-from posthog.models.activity_logging.utils import activity_storage
-
 _STARTED_AT_ATTR = "_structlog_started_at"
-REQUEST_CREDENTIAL_ATTR = "_activity_credential"
+REQUEST_CREDENTIAL_RESOLVER_ATTR = "_activity_credential_resolver"
 
 CREDENTIAL_QUERY_PARAMS = frozenset({"personal_api_key", "token", "access_token", "api_key"})
 _REDACTED = "<redacted>"
@@ -55,8 +53,8 @@ def add_request_duration(request: HttpRequest, log_kwargs: dict[str, Any], **kwa
 @receiver(signals.bind_extra_request_finished_metadata)
 @receiver(signals.bind_extra_request_failed_metadata)
 def add_request_credential(request: HttpRequest, log_kwargs: dict[str, Any], **kwargs: Any) -> None:
-    # request_failed fires before ActivityLoggingMiddleware clears its storage, and request_finished after.
-    credential = getattr(request, REQUEST_CREDENTIAL_ATTR, None) or activity_storage.get_credential()
+    resolve_credential = getattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, None)
+    credential = resolve_credential() if resolve_credential is not None else None
     if credential is not None:
         log_kwargs["credential_type"] = credential.type
         log_kwargs["credential_id"] = credential.id

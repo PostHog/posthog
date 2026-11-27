@@ -78,7 +78,7 @@ from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_HEADER,
     new_events_schema_for_request,
 )
-from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS, REQUEST_CREDENTIAL_ATTR
+from posthog.request_log_signal_handlers import CREDENTIAL_QUERY_PARAMS, REQUEST_CREDENTIAL_RESOLVER_ATTR
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1712,17 +1712,24 @@ class ActivityLoggingMiddleware:
         activity_storage.set_ip_address(pop_mcp_client_ip(request) or get_ip_address(request) or None)
 
         session_key = _session_key(request)
-        session_credential = activity_storage.get_credential()
+        entry_resolver = activity_storage.get_credential_resolver()
+        entry_credential = activity_storage.get_credential()
+
+        def request_credential() -> ActivityCredential | None:
+            # Logout and rotation change the key but keep this resolver, so log the session that authenticated
+            # the request. A login or a bearer authentication class replaces the resolver with its own credential.
+            if activity_storage.get_credential_resolver() is entry_resolver and _session_key(request) != session_key:
+                return entry_credential
+            return activity_storage.get_credential()
+
+        setattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, request_credential)
         try:
             response = self.get_response(request)
             _buffer_mcp_intent(request, response)
         finally:
-            credential = activity_storage.get_credential()
-            # Logout and session rotation change the key, so log the session that authenticated the request.
-            if (credential is None or credential.type == "session") and _session_key(request) != session_key:
-                credential = session_credential
+            credential = request_credential()
             # django-structlog writes request_finished above this middleware, after the cleanup below.
-            setattr(request, REQUEST_CREDENTIAL_ATTR, credential)
+            setattr(request, REQUEST_CREDENTIAL_RESOLVER_ATTR, lambda: credential)
             # Clean up activity storage after request
             activity_storage.clear_all()
 
