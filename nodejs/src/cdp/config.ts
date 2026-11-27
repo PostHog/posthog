@@ -75,6 +75,11 @@ export type CdpConfig = ClickhouseConfig & {
     // How long the matcher holds an event batch to look it up together with the batches after it.
     // 0 looks up every batch alone. It can only merge as many batches as CONSUMER_MAX_BACKGROUND_TASKS.
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: number
+    // Sends the conversion watcher and waiting run lookups of a batch as one statement instead of two.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP: boolean
+    // Sends the lookups as named prepared statements, so each connection plans them once. Through PgBouncer this
+    // needs max_prepared_statements above 0.
+    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS: boolean
     // Whether the matcher checks an event against the workflows' filters before looking it up:
     //   "off"     - every event of a team with a waiting or goal workflow is looked up.
     //   "shadow"  - every event is still looked up, and the metrics count what "on" would skip.
@@ -422,6 +427,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS: 0,
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP: false,
+        CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST: 'off',
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'off',
 
