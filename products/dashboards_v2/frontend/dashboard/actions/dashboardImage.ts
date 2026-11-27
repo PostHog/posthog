@@ -6,10 +6,10 @@ import {
 import { downloadFile } from 'lib/utils/dom'
 import { slugify } from 'lib/utils/strings'
 
+import { TILE_PLACEHOLDER_CLASS } from '../../menu/ActionContextMenu'
 import type { MenuAction } from '../../menu/menuAction'
 import { INTERACTIVE_ONLY_CLASS } from '../../tiles/core/ContentTile'
 import { DESCRIPTION_ICON_CLASS } from '../../tiles/core/DescriptionIcon'
-import { TILE_PLACEHOLDER_CLASS } from '../../tiles/core/TileContextMenu'
 
 export type ImageFormat = 'png' | 'webp'
 
