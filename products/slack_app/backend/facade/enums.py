@@ -60,6 +60,15 @@ class SlackReplyDefault(LabeledStrEnum):
     THREAD_JOIN_MODE = "thread_join_mode", "Others in a person's threads"
 
 
+class SlackChatGPTAppsMode(LabeledStrEnum):
+    """Whether Slack runs on a person's ChatGPT plan may use the apps connected to that plan. The values
+    match ``ChatGPTAppsMode``, and the labels differ from it for the reason ``SlackUntaggedMode`` gives."""
+
+    OFF = "off", "Apps off"
+    UNTIL_JOIN = "until_join", "Apps on until someone else joins"
+    ALWAYS = "always", "Apps always on"
+
+
 class SlackSetupEntry(LabeledStrEnum):
     SLACK_PAGE = "slack_page", "The Slack page in PostHog"
     OTHER = "other", "Another place, such as a channel picker"

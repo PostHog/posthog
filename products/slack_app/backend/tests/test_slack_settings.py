@@ -6,7 +6,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import ChatGPTAppsMode, SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_settings import chatgpt_apps_mode_from_stored
 
 
 class TestSlackSettings:
@@ -141,3 +142,19 @@ class TestSlackSettings:
         self.integration_a.delete()
         row.refresh_from_db()
         assert (row.default_integration_id, row.untagged_question_mode) == (None, UntaggedFollowupMode.NEVER)
+
+
+@pytest.mark.parametrize(
+    ("stored_mode", "legacy_enabled", "expected"),
+    [
+        (None, None, ChatGPTAppsMode.OFF),
+        (None, True, ChatGPTAppsMode.ALWAYS),
+        ("until_join", True, ChatGPTAppsMode.UNTIL_JOIN),
+        ("off", True, ChatGPTAppsMode.OFF),
+        ("retired-mode", None, ChatGPTAppsMode.OFF),
+    ],
+    ids=["never_picked", "switch_turned_on_before_modes", "mode_wins_over_switch", "mode_off", "unknown_mode"],
+)
+def test_chatgpt_apps_mode_keeps_what_the_old_switch_said(stored_mode, legacy_enabled, expected):
+    row = {"chatgpt_apps_mode": stored_mode, "chatgpt_apps_enabled": legacy_enabled}
+    assert chatgpt_apps_mode_from_stored(row) == expected

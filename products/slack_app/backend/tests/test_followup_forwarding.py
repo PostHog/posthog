@@ -1,4 +1,4 @@
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -249,21 +250,22 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         [
             ("setting_unavailable", False, None, None),
             ("never_picked", True, None, True),
-            ("turned_off", True, False, True),
-            ("turned_on", True, True, None),
+            ("off", True, "off", True),
+            ("until_someone_joins", True, "until_join", None),
+            ("always", True, "always", None),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_a_codex_model_from_the_saved_default_bills_the_mentioners_plan(
-        self, _name, setting_flag, apps_enabled, apps_disabled, mock_slack_cls, mock_execute_workflow
+        self, _name, setting_flag, apps_mode, apps_disabled, mock_slack_cls, mock_execute_workflow
     ):
         UserIntegration.objects.create(
             user=self.user, kind="slack", integration_id="U_ALICE", config={"slack_team_id": "T_SLACK"}
         )
-        if apps_enabled is not None:
+        if apps_mode is not None:
             SlackSettings.objects.create(
-                slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=apps_enabled
+                slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_mode=apps_mode
             )
         # Slack leaves the triple empty when a saved default exists, so the runtime is only
         # known once `create_run` applies that default.
@@ -1707,8 +1709,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         UserIntegration.objects.create(
             user=self.user, kind="slack", integration_id="U_OWNER", config={"slack_team_id": "T_SLACK"}
         )
-        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_enabled=True)
-        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_BOB", chatgpt_apps_enabled=True)
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", chatgpt_apps_mode="always")
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_BOB", chatgpt_apps_mode="always")
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
         preference_patch: AbstractContextManager[object]
@@ -1753,6 +1755,146 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state["codex_subscription_user_id"] == self.user.id
         assert new_run.state["slack_actor_user_id"] == bob.id
         assert new_run.state["codex_apps_disabled"] is True
+
+    @parameterized.expand(
+        [
+            ("owner_alone_keeps_the_apps", False, None),
+            ("a_join_turns_them_off_for_good", True, True),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_until_join_keeps_the_owners_apps_only_while_nobody_else_joined(
+        self, _name, others_joined, apps_disabled, mock_slack_cls, mock_execute_workflow
+    ):
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        mapping = self._create_mapping(mentioning_user="U_OWNER")
+        if others_joined:
+            mapping.others_joined_at = timezone.now()
+            mapping.save()
+        self._own_plan_with_apps_mode("until_join")
+        mock_slack_cls.return_value = MagicMock()
+
+        with self._own_plan_patches():
+            forward_posthog_code_followup_activity(
+                inputs=_make_inputs(self.integration.id, self.user.id),
+                channel="C123",
+                thread_ts="1234.5678",
+                slack_user_id="U_OWNER",
+                event_text="<@BOT> fix the tests",
+                user_message_ts="1234.5679",
+            )
+
+        new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        assert new_run.state["codex_model_access"] == "own-subscription"
+        assert new_run.state.get("codex_apps_disabled") is apps_disabled
+
+    @parameterized.expand(
+        [
+            ("owner_stays_on_the_live_run", "U_OWNER", "accepted", True, False),
+            ("joiner_moves_the_thread_to_a_run_without_apps", "U_BOB", "accepted", False, True),
+            ("joiner_is_held_when_the_run_cannot_stop", "U_BOB", "refused", False, False),
+        ]
+    )
+    @patch("products.tasks.backend.facade.cancellation.cancel_task_run")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_a_join_takes_a_live_run_off_the_owners_apps(
+        self,
+        _name,
+        speaker,
+        cancel_outcome,
+        delivered_live,
+        resumed,
+        mock_slack_cls,
+        mock_resolve,
+        mock_execute_workflow,
+        mock_signal,
+        mock_cancel,
+    ):
+        self.task_run.state = {
+            **self.task_run.state,
+            "runtime_adapter": "codex",
+            "codex_model_access": "own-subscription",
+            "codex_subscription_user_id": self.user.id,
+        }
+        self.task_run.save()
+        mapping = self._create_mapping(mentioning_user="U_OWNER")
+        self._own_plan_with_apps_mode("until_join")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        def cancel(run_id, *_args, **_kwargs):
+            # An accepted cancel marks the run, so the task can take a new run beside it.
+            if cancel_outcome == "accepted":
+                run = self.TaskRun.objects.get(id=run_id)
+                run.state = {**run.state, "cancel_requested_at": timezone.now().isoformat()}
+                run.save()
+            return cancel_outcome, None
+
+        mock_cancel.side_effect = cancel
+
+        with self._own_plan_patches():
+            result = forward_posthog_code_followup_activity(
+                inputs=_make_inputs(self.integration.id, self.user.id),
+                channel="C123",
+                thread_ts="1234.5678",
+                slack_user_id=speaker,
+                event_text="<@BOT> what is in the inbox?",
+                user_message_ts="1234.5679",
+            )
+
+        assert result is True
+        assert mock_signal.called is delivered_live
+        mapping.refresh_from_db()
+        assert (mapping.others_joined_at is not None) is (speaker == "U_BOB")
+        if resumed:
+            new_run = self.TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+            assert new_run.state["codex_apps_disabled"] is True
+        else:
+            mock_execute_workflow.assert_not_called()
+        if speaker == "U_BOB" and not resumed:
+            replies = [c.kwargs.get("text", "") for c in mock_slack.client.chat_postMessage.call_args_list]
+            assert any("couldn't turn off the ChatGPT apps" in text for text in replies)
+
+    def _own_plan_with_apps_mode(self, mode: str) -> None:
+        UserIntegration.objects.create(
+            user=self.user, kind="slack", integration_id="U_OWNER", config={"slack_team_id": "T_SLACK"}
+        )
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_OWNER", chatgpt_apps_mode=mode)
+
+    def _own_plan_patches(self) -> AbstractContextManager[object]:
+        stack = ExitStack()
+        stack.enter_context(
+            patch(
+                "products.slack_app.backend.temporal.activities.task_creation._run_preference_state",
+                return_value={"runtime_adapter": "codex", "model": "gpt-5.5", "provider": "openai"},
+            )
+        )
+        stack.enter_context(
+            patch(
+                "products.tasks.backend.facade.api.unattended_model_access_state",
+                side_effect=lambda user, runtime_adapter: (
+                    {"codex_model_access": "own-subscription"}
+                    if user == self.user and runtime_adapter == "codex"
+                    else {}
+                ),
+            )
+        )
+        stack.enter_context(
+            patch("products.slack_app.backend.feature_flags.is_slack_app_byos_enabled", return_value=True)
+        )
+        stack.enter_context(
+            patch(
+                "products.slack_app.backend.feature_flags.is_slack_app_chatgpt_apps_setting_enabled", return_value=True
+            )
+        )
+        return stack
 
     @parameterized.expand(
         [

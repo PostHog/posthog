@@ -4,7 +4,7 @@ import { LemonBanner, LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonSwi
 
 import { urls } from 'scenes/urls'
 
-import type { SlackReplyDefaultEnumApi } from '../generated/api.schemas'
+import type { SlackChatGPTAppsModeEnumApi, SlackReplyDefaultEnumApi } from '../generated/api.schemas'
 import { SlackAppSettingRow } from './SlackAppSettingRow'
 import { SlackAppSettingsGroup } from './SlackAppSettingsGroup'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
@@ -17,6 +17,12 @@ import {
 } from './slackReplyModeOptions'
 
 const WORKSPACE_DEFAULT = 'workspace_default'
+
+const CHATGPT_APPS_OPTIONS: { value: SlackChatGPTAppsModeEnumApi; label: string }[] = [
+    { value: 'off', label: 'Off' },
+    { value: 'until_join', label: 'On until someone else joins' },
+    { value: 'always', label: 'Always on' },
+]
 
 export function SlackAppPersonalSettings(): JSX.Element {
     const { settings, settingsLoading, personalSettingsDisabledReason } = useValues(slackAppSettingsLogic)
@@ -100,14 +106,16 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         data-attr="slack-app-settings-auto-model"
                     />
                 </SlackAppSettingRow>
-                {personal.chatgpt_apps_enabled !== null ? (
+                {personal.chatgpt_apps_mode !== null ? (
                     <SlackAppSettingRow
                         label="ChatGPT apps"
-                        description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
+                        description="Your ChatGPT plan is connected. Choose when tasks you start from Slack can use the apps on it. With Always on, people who join your threads can use them too. Applies to new tasks."
                     >
-                        <LemonSwitch
-                            checked={personal.chatgpt_apps_enabled}
-                            onChange={(checked) => updatePersonalSettings({ chatgpt_apps_enabled: checked })}
+                        <LemonSelect
+                            className="w-64"
+                            value={personal.chatgpt_apps_mode}
+                            onChange={(value) => updatePersonalSettings({ chatgpt_apps_mode: value })}
+                            options={CHATGPT_APPS_OPTIONS}
                             disabledReason={personalSettingsDisabledReason}
                             data-attr="slack-app-settings-chatgpt-apps"
                         />

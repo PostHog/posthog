@@ -203,11 +203,11 @@ class TestSlackAppSettings(APIBaseTest):
             ("no_plan", False, True, True, None),
             ("setting_flag_off", True, False, True, None),
             ("plan_runs_off", True, True, False, None),
-            ("plan_slack_runs_use", True, True, True, False),
+            ("plan_slack_runs_use", True, True, True, "off"),
         ]
     )
     def test_chatgpt_apps_setting_shows_only_for_a_plan_slack_tasks_use(
-        self, _name: str, has_plan: bool, setting_flag: bool, byos: bool, expected: bool | None
+        self, _name: str, has_plan: bool, setting_flag: bool, byos: bool, expected: str | None
     ) -> None:
         self._link_slack_user()
 
@@ -220,14 +220,15 @@ class TestSlackAppSettings(APIBaseTest):
             patch("products.slack_app.backend.logic.settings_page.is_slack_app_byos_enabled", return_value=byos),
         ):
             response = self.client.get(self._url())
-            assert response.json()["personal"]["chatgpt_apps_enabled"] is expected
+            assert response.json()["personal"]["chatgpt_apps_mode"] == expected
             if expected is None:
                 return
 
-            changed = self.client.patch(self._url("personal/"), {"chatgpt_apps_enabled": True}, format="json")
+            changed = self.client.patch(self._url("personal/"), {"chatgpt_apps_mode": "until_join"}, format="json")
 
-        assert changed.json()["personal"]["chatgpt_apps_enabled"] is True
-        assert SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id="U123").chatgpt_apps_enabled
+        assert changed.json()["personal"]["chatgpt_apps_mode"] == "until_join"
+        row = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id="U123")
+        assert row.chatgpt_apps_mode == "until_join"
 
     def test_workspace_reply_defaults_apply_until_a_person_picks_their_own(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)

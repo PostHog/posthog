@@ -154,11 +154,14 @@ export const SlackAppSettingsPersonalPartialUpdateBody = /* @__PURE__ */ zod.obj
         .boolean()
         .optional()
         .describe('Whether PostHog sends this person short tips about Slack app features.'),
-    chatgpt_apps_enabled: zod
-        .boolean()
+    chatgpt_apps_mode: zod
+        .enum(['off', 'until_join', 'always'])
+        .describe(
+            '\* `off` - Apps off\n\* `until_join` - Apps on until someone else joins\n\* `always` - Apps always on'
+        )
         .optional()
         .describe(
-            "Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change."
+            "Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan: off, on until someone else joins the thread, or always on. Applies to tasks started after the change.\n\n\* `off` - Apps off\n\* `until_join` - Apps on until someone else joins\n\* `always` - Apps always on"
         ),
 })
 

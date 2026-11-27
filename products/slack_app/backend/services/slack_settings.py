@@ -10,8 +10,9 @@ layer with zero translation.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 from django.db import models, transaction
@@ -20,7 +21,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
-from products.slack_app.backend.models import ChannelWelcomeMode, ThreadJoinMode, UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, ChatGPTAppsMode, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 _Mode = TypeVar("_Mode", bound=models.TextChoices)
@@ -212,31 +213,41 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
-def resolve_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str | None) -> bool:
+def resolve_chatgpt_apps_mode(slack_workspace_id: str, slack_user_id: str | None) -> ChatGPTAppsMode:
     """Whether Slack runs on this user's ChatGPT plan may use the apps connected to that plan.
 
-    Off until the user turns it on. People who join the user's threads talk to the same run,
+    Off until the user picks otherwise. People who join the user's threads talk to the same run,
     so the apps would answer them with the plan owner's data.
     """
     if not slack_user_id:
-        return False
+        return ChatGPTAppsMode.OFF
 
     from products.slack_app.backend.models import SlackSettings
 
-    return bool(
+    row = (
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
-        .values_list("chatgpt_apps_enabled", flat=True)
+        .values("chatgpt_apps_mode", "chatgpt_apps_enabled")
         .first()
+    )
+    return chatgpt_apps_mode_from_stored(row or {})
+
+
+def chatgpt_apps_mode_from_stored(row: Mapping[str, Any]) -> ChatGPTAppsMode:
+    """The mode a settings row stores. A row from before the mode existed keeps what its switch said."""
+    if row.get("chatgpt_apps_mode") is None and row.get("chatgpt_apps_enabled"):
+        return ChatGPTAppsMode.ALWAYS
+    return mode_from_stored(
+        row.get("chatgpt_apps_mode"), ChatGPTAppsMode, unset=ChatGPTAppsMode.OFF, unknown=ChatGPTAppsMode.OFF
     )
 
 
-def set_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+def set_chatgpt_apps_mode(slack_workspace_id: str, slack_user_id: str, mode: ChatGPTAppsMode) -> None:
     from products.slack_app.backend.models import SlackSettings
 
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=slack_user_id,
-        defaults={"chatgpt_apps_enabled": enabled},
+        defaults={"chatgpt_apps_mode": mode.value},
     )
 
 
@@ -497,11 +508,12 @@ __all__ = [
     "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
-    "resolve_chatgpt_apps_enabled",
+    "chatgpt_apps_mode_from_stored",
+    "resolve_chatgpt_apps_mode",
     "resolve_channel_welcome_mode",
     "resolve_untagged_question_mode",
     "set_auto_model_choice",
-    "set_chatgpt_apps_enabled",
+    "set_chatgpt_apps_mode",
     "set_untagged_followup_mode",
     "set_untagged_question_mode",
     "set_channel_welcome_mode",

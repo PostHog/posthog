@@ -39,6 +39,7 @@ from products.slack_app.backend.logic.feature_tips.state import parse_state, set
 from products.slack_app.backend.logic.workspace_setup import can_change_workspace_settings
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
+    ChatGPTAppsMode,
     SlackChannelSettings as SlackChannelSettingsRow,
     SlackSettings as SlackSettingsRow,
     ThreadJoinMode,
@@ -56,11 +57,12 @@ from products.slack_app.backend.services.reaction_settings import (
     with_every_kind,
 )
 from products.slack_app.backend.services.slack_settings import (
+    chatgpt_apps_mode_from_stored,
     mode_from_stored,
     resolve_external_channels_enabled,
     set_auto_model_choice,
     set_channel_welcome_mode,
-    set_chatgpt_apps_enabled,
+    set_chatgpt_apps_mode,
     set_external_channels_enabled,
     set_personal_default_integration,
     set_thread_join_mode,
@@ -128,6 +130,7 @@ _SETTINGS_COLUMNS = (
     "feature_tips",
     "chatgpt_apps_enabled",
     "channel_welcome_mode",
+    "chatgpt_apps_mode",
 )
 
 
@@ -199,8 +202,8 @@ def _personal_settings(
         inherited_settings=tuple(setting for setting in SlackReplyDefault if personal_row.get(setting.value) is None),
         auto_model_choice=bool(personal_row.get("auto_model_choice")),
         feature_tips_enabled=parse_state(personal_row.get("feature_tips")).opted_out_at is None,
-        chatgpt_apps_enabled=(
-            bool(personal_row.get("chatgpt_apps_enabled"))
+        chatgpt_apps_mode=(
+            chatgpt_apps_mode_from_stored(personal_row).value
             if slack_user_id and _chatgpt_plan_runs_slack_tasks(integration, user)
             else None
         ),
@@ -377,11 +380,9 @@ def update_personal_settings(
         _capture_change(
             integration, user, scope="personal", setting="feature_tips", enabled=change.feature_tips_enabled
         )
-    if change.chatgpt_apps_enabled is not UNSET:
-        set_chatgpt_apps_enabled(slack_workspace_id, slack_user_id, change.chatgpt_apps_enabled)
-        _capture_change(
-            integration, user, scope="personal", setting="chatgpt_apps", enabled=change.chatgpt_apps_enabled
-        )
+    if change.chatgpt_apps_mode is not UNSET:
+        set_chatgpt_apps_mode(slack_workspace_id, slack_user_id, ChatGPTAppsMode(change.chatgpt_apps_mode))
+        _capture_change(integration, user, scope="personal", setting="chatgpt_apps", value=change.chatgpt_apps_mode)
 
 
 def _organization_id(integration: WorkspaceIntegration) -> UUID:

@@ -100145,6 +100145,20 @@ export namespace Schemas {
       Allow: 'allow',
     } as const;
 
+    /**
+     * * `off` - Apps off
+     * * `until_join` - Apps on until someone else joins
+     * * `always` - Apps always on
+     */
+    export type SlackChatGPTAppsModeEnum = typeof SlackChatGPTAppsModeEnum[keyof typeof SlackChatGPTAppsModeEnum];
+
+
+    export const SlackChatGPTAppsModeEnum = {
+      Off: 'off',
+      UntilJoin: 'until_join',
+      Always: 'always',
+    } as const;
+
     export interface PatchedSlackAppPersonalSettingsUpdate {
       /** Replaces this person's reaction choices. A reaction left out inherits the workspace choice. */
       reactions?: SlackAppReactionChoices;
@@ -100176,8 +100190,12 @@ export namespace Schemas {
       auto_model_choice?: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled?: boolean;
-      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Applies to tasks started after the change. */
-      chatgpt_apps_enabled?: boolean;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan: off, on until someone else joins the thread, or always on. Applies to tasks started after the change.
+       *
+       * * `off` - Apps off
+       * * `until_join` - Apps on until someone else joins
+       * * `always` - Apps always on */
+      chatgpt_apps_mode?: SlackChatGPTAppsModeEnum;
     }
 
     /**
@@ -123488,11 +123506,12 @@ export namespace Schemas {
       auto_model_choice: boolean;
       /** Whether PostHog sends this person short tips about Slack app features. */
       feature_tips_enabled: boolean;
-      /**
-         * Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan. Null when this person has no ChatGPT plan that Slack tasks can use.
-         * @nullable
-         */
-      chatgpt_apps_enabled: boolean | null;
+      /** Whether Slack tasks on this person's ChatGPT plan can use the apps connected to that plan: off, on until someone else joins the thread, or always on. Null when this person has no ChatGPT plan that Slack tasks can use.
+       *
+       * * `off` - Apps off
+       * * `until_join` - Apps on until someone else joins
+       * * `always` - Apps always on */
+      chatgpt_apps_mode: SlackChatGPTAppsModeEnum | null;
     }
 
     export interface SlackAppRepositoryOptions {
