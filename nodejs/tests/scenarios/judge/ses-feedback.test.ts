@@ -149,12 +149,49 @@ describe('SES feedback per ramp step', () => {
                 key,
                 value: key === 'p50_1x' ? 30 : 60,
                 censored: true,
-                unmeasured: '1 SES feedback post in this step got no status, so its latency leaves it out',
+                unmeasured:
+                    '1 SES feedback post in this step got no status or no whole answer, so its latency leaves it out',
             })),
             ...[
                 ['p50_2x', 5],
                 ['p99_2x', 7],
             ].map(([key, value]) => ({ key, value, censored: undefined, unmeasured: undefined })),
+        ])
+    })
+
+    it('counts a rejection whose body could not be read and leaves its latency out', () => {
+        const unread = posted('run-1', 2000, 5000, 429)
+        unread.detail.feedback!.bodyUnread = true
+
+        const measured = measure(BOTH, evidence([posted('run-1', 1000, 30), unread]))
+
+        expect(
+            measured
+                .filter(({ key }) => key?.endsWith('_1x'))
+                .map(({ name, key, value, censored, unmeasured }) => ({
+                    row: `${name}.${key}`,
+                    value,
+                    censored,
+                    unmeasured,
+                }))
+        ).toEqual([
+            ...['p50_1x', 'p99_1x'].map((key) => ({
+                row: `ses_feedback_ms.${key}`,
+                value: 30,
+                censored: true,
+                unmeasured:
+                    '1 SES feedback post in this step got no status or no whole answer, so its latency leaves it out',
+            })),
+            ...[
+                ['posted_1x', 2],
+                ['errors_1x', 0],
+                ['rejected_1x', 1],
+            ].map(([key, value]) => ({
+                row: `ses_feedback_posts.${key}`,
+                value,
+                censored: undefined,
+                unmeasured: undefined,
+            })),
         ])
     })
 

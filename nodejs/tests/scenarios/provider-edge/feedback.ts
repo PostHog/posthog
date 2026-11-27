@@ -186,7 +186,7 @@ export function notificationOf(message: SesMessage, event: FeedbackEvent, signer
 export async function postFeedback(
     url: string,
     envelope: Record<string, string>
-): Promise<{ status: number; error?: string }> {
+): Promise<{ status: number; error?: string; bodyUnread?: true }> {
     try {
         const response = await internalFetch(url, {
             method: 'POST',
@@ -198,13 +198,17 @@ export async function postFeedback(
             body: JSON.stringify(envelope),
         })
         const answered = response.status >= 200 && response.status < 300
+        let bodyUnread = false
         const body = await response.text().catch((error: unknown) => {
             if (answered) {
                 throw error
             }
+            bodyUnread = true
             return `the body could not be read: ${String(error)}`
         })
-        return answered ? { status: response.status } : { status: response.status, error: body }
+        return answered
+            ? { status: response.status }
+            : { status: response.status, error: body, ...(bodyUnread ? { bodyUnread: true as const } : {}) }
     } catch (error) {
         return { status: 0, error: String(error) }
     }

@@ -452,6 +452,7 @@ describe('provider edge SES feedback', () => {
                 sesMessageId: expect.any(String),
                 postedAt: expect.any(String),
                 durationMs: expect.any(Number),
+                ...(cut ? { bodyUnread: true } : {}),
             },
         ])
     })
