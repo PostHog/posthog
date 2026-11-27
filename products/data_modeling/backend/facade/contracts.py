@@ -647,5 +647,4 @@ class ViewCadenceSnapshot:
     """The cadence each node runs at, per DAG, in the DAGs that read one warehouse table."""
 
     team_id: int
-    table_id: UUID | None
     cadences_by_dag: dict[str, dict[str, timedelta | None]]

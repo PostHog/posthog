@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -119,38 +119,37 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
 
 
-def snapshot_view_cadences_for_table(team_id: int, table_id: uuid.UUID | None) -> ViewCadenceSnapshot:
-    """The cadence each node runs at now, in every DAG that reads this warehouse table."""
+def snapshot_view_cadences_for_table(
+    team_id: int, table_id: uuid.UUID | None, *, skip_dag_ids: Collection[str] = ()
+) -> ViewCadenceSnapshot:
+    """The cadence each node runs at now, in every DAG that reads this warehouse table and is not skipped."""
     try:
-        cadences_by_dag = _scheduled_cadences_of_dags_reading(team_id, table_id)
+        dag_ids = {str(dag_id) for dag_id in dag_ids_reading_warehouse_table(team_id, table_id)} if table_id else set()
+        unseen_dag_ids = dag_ids - set(skip_dag_ids)
+        cadences_by_dag = scheduled_cadences_by_dag(team_id, unseen_dag_ids) if unseen_dag_ids else {}
     except Exception as error:
         logger.exception("View cadence snapshot failed", team_id=team_id, table_id=str(table_id))
         capture_exception(error)
         cadences_by_dag = {}
-    return ViewCadenceSnapshot(team_id=team_id, table_id=table_id, cadences_by_dag=cadences_by_dag)
+    return ViewCadenceSnapshot(team_id=team_id, cadences_by_dag=cadences_by_dag)
 
 
-def reschedule_views_if_cadence_changed(before: ViewCadenceSnapshot) -> None:
-    """Reconcile, after commit and best-effort, only the DAGs where a node's cadence moved since the snapshot."""
+def reschedule_views_if_cadence_changed(team_id: int, snapshots: Iterable[ViewCadenceSnapshot]) -> None:
+    """Reconcile once, after commit and best-effort, each DAG where a node's cadence moved since its first snapshot."""
+    before: dict[str, dict[str, timedelta | None]] = {}
+    for snapshot in snapshots:
+        for dag_id, cadences in snapshot.cadences_by_dag.items():
+            before.setdefault(dag_id, cadences)
+    if not before:
+        return
     try:
-        after = _scheduled_cadences_of_dags_reading(before.team_id, before.table_id)
-        changed_dag_ids = [
-            dag_id for dag_id, cadences in after.items() if cadences != before.cadences_by_dag.get(dag_id)
-        ]
-        for dag in DAG.objects.select_related("team").filter(team_id=before.team_id, id__in=changed_dag_ids):
+        after = scheduled_cadences_by_dag(team_id, before)
+        changed_dag_ids = [dag_id for dag_id, cadences in after.items() if cadences != before[dag_id]]
+        for dag in DAG.objects.select_related("team").filter(team_id=team_id, id__in=changed_dag_ids):
             maybe_reconcile_dag(dag)
     except Exception as error:
-        logger.exception("View reschedule check failed", team_id=before.team_id, table_id=str(before.table_id))
+        logger.exception("View reschedule check failed", team_id=team_id)
         capture_exception(error)
-
-
-def _scheduled_cadences_of_dags_reading(
-    team_id: int, table_id: uuid.UUID | None
-) -> dict[str, dict[str, timedelta | None]]:
-    if table_id is None:
-        return {}
-    dag_ids = dag_ids_reading_warehouse_table(team_id, table_id)
-    return scheduled_cadences_by_dag(team_id, dag_ids) if dag_ids else {}
 
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:

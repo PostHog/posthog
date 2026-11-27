@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
 from django.db import OperationalError, connection
@@ -35,6 +35,8 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.models import HogFunction
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -1922,6 +1924,73 @@ class TestExternalDataSource(APIBaseTest):
         schema_two.refresh_from_db()
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
+
+    def test_bulk_update_schemas_reschedules_a_shared_view_once(self):
+        source = self._create_external_data_source()
+        dag = DAG.get_or_create_default(self.team)
+        view = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_node = Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.MAT_VIEW)
+        set_declared_target(view_node, timedelta(minutes=15))
+        schemas = []
+        for name in ("Customers", "Invoices"):
+            table = DataWarehouseTable.objects.create(name=f"stripe_{name.lower()}", team=self.team)
+            schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=name,
+                    team_id=self.team.pk,
+                    source=source,
+                    table=table,
+                    should_sync=True,
+                    sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+                    sync_frequency_interval=timedelta(hours=24),
+                )
+            )
+            source_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                name=name,
+                type=NodeType.TABLE,
+                properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+
+        async def no_existing_schedules(*_args, **_kwargs):
+            async def empty():
+                return
+                yield
+
+            return empty()
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        reconcile = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=True,
+            ),
+            patch(f"{service}.sync_connect"),
+            patch(f"{service}.update_schedule"),
+            patch(f"{service}.trigger_schedule"),
+            patch(f"{reconcile}.async_connect", new=AsyncMock(return_value=Mock(list_schedules=no_existing_schedules))),
+            patch(f"{reconcile}.a_create_schedule", new=AsyncMock()) as create_tier_schedule,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={
+                    "schemas": [
+                        {"id": str(schemas[0].id), "sync_frequency": "1hour"},
+                        {"id": str(schemas[1].id), "sync_frequency": "15min"},
+                    ]
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        created_tier_ids = [create_call.kwargs["id"] for create_call in create_tier_schedule.call_args_list]
+        assert created_tier_ids == [f"{dag.id}:{int(timedelta(minutes=15).total_seconds())}"]
 
     @parameterized.expand(
         [
