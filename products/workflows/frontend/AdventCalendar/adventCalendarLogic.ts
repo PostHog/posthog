@@ -32,6 +32,7 @@ import {
     AdventProgress,
     buildAdventGraph,
     EMPTY_ADVENT_PROGRESS,
+    mergeAdventProgress,
     openDoors,
 } from './adventGraph'
 import { adventToday } from './adventToday'
@@ -67,6 +68,14 @@ function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
     return {
         opened: [...new Set(opened.filter(isAdventDay))].filter((day) => unanswered === undefined || day < unanswered),
         answers: answered,
+    }
+}
+
+function storedProgressByUser(): unknown {
+    try {
+        return JSON.parse(window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? 'null')
+    } catch {
+        return null
     }
 }
 
@@ -215,6 +224,7 @@ export interface adventCalendarLogicActions {
     ) => {
         day: number
         optionId: string | null
+        stored: unknown
         userUuid: string
     }
     preloadImages: () => {
@@ -293,7 +303,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
     actions({
         activateDoor: (doorId: string) => ({ doorId }),
         answerDoor: (doorId: string, optionId: string) => ({ doorId, optionId }),
-        openDoor: (userUuid: string, day: number, optionId: string | null) => ({ userUuid, day, optionId }),
+        openDoor: (userUuid: string, day: number, optionId: string | null) => ({
+            userUuid,
+            day,
+            optionId,
+            stored: storedProgressByUser(),
+        }),
         refreshClock: () => {
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
@@ -325,16 +340,20 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, AdventProgress>,
             { persist: true, storageKey: PROGRESS_STORAGE_KEY },
             {
-                openDoor: (stored, { userUuid, day, optionId }) => {
-                    const state = cleanProgressByUser(stored)
-                    const progress = state[userUuid] ?? EMPTY_ADVENT_PROGRESS
-                    return {
-                        ...state,
-                        [userUuid]: {
-                            opened: [...progress.opened, day],
-                            answers: optionId ? { ...progress.answers, [day]: optionId } : progress.answers,
-                        },
-                    }
+                openDoor: (state, { userUuid, day, optionId, stored }) => {
+                    const latest = cleanProgressByUser(stored)
+                    const cached = cleanProgressByUser(state)
+                    const change = { opened: [day], answers: optionId ? { [day]: optionId } : {} }
+                    const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
+                    return Object.fromEntries(
+                        [...uuids].map((uuid) => [
+                            uuid,
+                            [cached[uuid], uuid === userUuid ? change : undefined].reduce<AdventProgress>(
+                                (merged, next) => (next ? mergeAdventProgress(merged, next) : merged),
+                                latest[uuid] ?? EMPTY_ADVENT_PROGRESS
+                            ),
+                        ])
+                    )
                 },
             },
         ],

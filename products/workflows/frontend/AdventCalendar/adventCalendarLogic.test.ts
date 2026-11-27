@@ -157,6 +157,26 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-4-upper')?.status).toBe('ready')
     })
 
+    it('keeps the progress another tab saved when this tab saves an answer', () => {
+        const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        window.localStorage.setItem(
+            KEY,
+            JSON.stringify({
+                [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
+                [other]: { opened: [1], answers: {} },
+            })
+        )
+
+        logic.actions.answerDoor('door-2', 'james')
+
+        expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
+            [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
+            [other]: { opened: [1], answers: {} },
+        })
+    })
+
     it('keeps the opened doors of each account apart in one browser', () => {
         logic.actions.activateDoor('door-1')
 
