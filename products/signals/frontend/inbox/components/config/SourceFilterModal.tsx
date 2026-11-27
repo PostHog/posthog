@@ -89,7 +89,7 @@ export function SourceFilterModal({
             onClose={handleClose}
             title={`Filter ${sourceLabel} ${noun}s`}
             description={`Set a rule each ${sourceLabel} ${noun} must pass before the agent reads it. ${noun.charAt(0).toUpperCase()}${noun.slice(1)}s that don't pass are skipped before any AI work starts. Leave it empty to let every ${noun} through.`}
-            width={1040}
+            width={catalog.preview_supported ? 1040 : 760}
             hasUnsavedInput={sourceFilterChanged}
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -191,22 +191,24 @@ export function SourceFilterModal({
                                 )}
                             </LemonField>
                         </div>
-                        <div className="min-w-0 flex-1 @3xl:border-l @3xl:pl-4">
-                            {previewWaitsForEdit ? (
-                                <LemonBanner type="info">
-                                    {`The preview checks the current ${sourceLabel} fields, but this filter was saved on older ones. Edit the filter to preview it.`}
-                                </LemonBanner>
-                            ) : (
-                                <SourceFilterPreviewPanel
-                                    result={previewResult}
-                                    loading={previewLoading}
-                                    requestError={previewRequestError}
-                                    onRetry={retryPreview}
-                                    sourceLabel={sourceLabel}
-                                    noun={noun}
-                                />
-                            )}
-                        </div>
+                        {catalog.preview_supported && (
+                            <div className="min-w-0 flex-1 @3xl:border-l @3xl:pl-4">
+                                {previewWaitsForEdit ? (
+                                    <LemonBanner type="info">
+                                        {`The preview checks the current ${sourceLabel} fields, but this filter was saved on older ones. Edit the filter to preview it.`}
+                                    </LemonBanner>
+                                ) : (
+                                    <SourceFilterPreviewPanel
+                                        result={previewResult}
+                                        loading={previewLoading}
+                                        requestError={previewRequestError}
+                                        onRetry={retryPreview}
+                                        sourceLabel={sourceLabel}
+                                        noun={noun}
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </Form>

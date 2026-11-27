@@ -173,6 +173,19 @@ describe('sourceFilterModalLogic', () => {
         expect(preview.values.previewInput).toEqual({ expression: "project_name = 'Web'", scopeIds: [] })
     })
 
+    it('sends nothing to the preview for a source it cannot preview', () => {
+        logic = sourceFilterModalLogic({
+            sourceConfig: linearConfig({}),
+            catalog: { ...catalog, preview_supported: false },
+            onClose,
+        })
+        logic.mount()
+        const preview = sourceFilterPreviewLogic({ sourceConfig: logic.props.sourceConfig, catalog })
+
+        logic.actions.setSourceFilterValue('expression', 'priority = 1')
+        expect(preview.values.previewInput).toBeNull()
+    })
+
     it('reports a failed Linear connection load and recovers on retry', async () => {
         integrationsFail = true
         mountWith({})

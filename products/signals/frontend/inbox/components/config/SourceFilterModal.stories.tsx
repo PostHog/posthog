@@ -185,3 +185,12 @@ export const WithPickedTeams: Story = {
         }),
     },
 }
+
+export const SourceWithoutPreview: Story = {
+    args: {
+        catalog: { ...CATALOG, preview_supported: false },
+        sourceConfig: linearConfig({
+            hogql_filter: { expression: "NOT has(label_names, 'internal')", catalog_version: 2 },
+        }),
+    },
+}

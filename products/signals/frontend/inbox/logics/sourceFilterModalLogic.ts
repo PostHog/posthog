@@ -253,7 +253,7 @@ export type sourceFilterModalLogicType = MakeLogicType<
 >
 
 function updatePreview(logic: sourceFilterModalLogicType): void {
-    if (logic.values.previewWaitsForEdit) {
+    if (!logic.props.catalog.preview_supported || logic.values.previewWaitsForEdit) {
         return
     }
     const { expression, teamScope, teamIds } = logic.values.sourceFilter
