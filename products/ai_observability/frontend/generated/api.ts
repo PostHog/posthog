@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiObservabilityErrorsListParams,
+    AiObservabilityErrorsRetrieveParams,
     AiObservabilityInstrumentationChecklistRetrieveParams,
     AiObservabilityOfflineExperimentsItemsDestroyParams,
     AiObservabilityOfflineExperimentsItemsListParams,
@@ -63,6 +65,8 @@ import type {
     DatasetsListParams,
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
+    ErrorGroupDetailApi,
+    ErrorListApi,
     EvalSuggestionAcceptApi,
     EvalSuggestionApi,
     EvalSuggestionDismissApi,
@@ -267,6 +271,73 @@ export const llmAnalyticsPersonalSpendList = async (
     options?: RequestInit
 ): Promise<PersonalSpendAnalysisResponseApi[]> => {
     return apiMutator<PersonalSpendAnalysisResponseApi[]>(getLlmAnalyticsPersonalSpendListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityErrorsListUrl = (projectId: string, params?: AiObservabilityErrorsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/errors/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/errors/`
+}
+
+/**
+ * The errors of the project's AI events in a date range, grouped by normalized message, a page at a time.
+ * Each error says how it moved from the period of the same length before the range.
+ */
+export const aiObservabilityErrorsList = async (
+    projectId: string,
+    params?: AiObservabilityErrorsListParams,
+    options?: RequestInit
+): Promise<ErrorListApi> => {
+    return apiMutator<ErrorListApi>(getAiObservabilityErrorsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityErrorsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityErrorsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/errors/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/errors/${id}/`
+}
+
+/**
+ * One error over a date range, as the errors list shows it, with its occurrences in the period before the
+ * range. Send the filters of the list it came from, so the two agree.
+ */
+export const aiObservabilityErrorsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityErrorsRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorGroupDetailApi> => {
+    return apiMutator<ErrorGroupDetailApi>(getAiObservabilityErrorsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

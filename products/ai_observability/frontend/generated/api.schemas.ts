@@ -219,6 +219,103 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
+export type TraceMetricChangeToneApi = (typeof TraceMetricChangeToneApi)[keyof typeof TraceMetricChangeToneApi]
+
+export const TraceMetricChangeToneApi = {
+    Good: 'good',
+    Bad: 'bad',
+    Neutral: 'neutral',
+} as const
+
+export type ErrorTrendApi = (typeof ErrorTrendApi)[keyof typeof ErrorTrendApi]
+
+export const ErrorTrendApi = {
+    Increasing: 'increasing',
+    Decreasing: 'decreasing',
+    Steady: 'steady',
+} as const
+
+export interface ErrorListItemApi {
+    /** The error's id, to read it on its own or ask when it was first seen. */
+    key: string
+    /** The normalized error message every occurrence in the group shares. */
+    message: string
+    /** How many events raised the error in the date range. */
+    occurrences: number
+    /** How far occurrences moved from the period of the same length before the date range, such as `+40%` or `was 0`. Null when the range has no previous period. */
+    changeLabel: string | null
+    /** `bad` when the error is increasing, `good` when it is decreasing, `neutral` otherwise. */
+    changeTone: TraceMetricChangeToneApi
+    /** `increasing` or `decreasing` when occurrences moved past the trend thresholds against the previous period, `steady` otherwise. */
+    trend: ErrorTrendApi
+    /** How many traces raised the error in the date range. */
+    traces: number
+    /** How many identified users raised the error in the date range. */
+    users: number
+    /** Up to three models that raised the error most often. */
+    models: string[]
+    /** The latest occurrence in the date range. */
+    lastSeen: string
+    /** The occurrences in each bucket of `bucketStarts`. */
+    series: number[]
+}
+
+export interface ErrorListCountsApi {
+    /** How many errors the selection holds, ignoring the view. */
+    total: number
+    /** How many of them are increasing. */
+    increasing: number
+    /** How many of them are decreasing. */
+    decreasing: number
+    /** The most occurrences of any one error in the selection, ignoring the view, so every page can scale its rows against the same largest error. 0 when the selection holds none. */
+    maxOccurrences: number
+}
+
+export type ErrorOrderApi = (typeof ErrorOrderApi)[keyof typeof ErrorOrderApi]
+
+export const ErrorOrderApi = {
+    Occurrences: 'occurrences',
+    Change: 'change',
+    Traces: 'traces',
+    Users: 'users',
+    LastSeen: 'last_seen',
+} as const
+
+export interface ErrorListApi {
+    /** How many errors the view holds. */
+    count: number
+    /** The URL of the next page, or null on the last one. */
+    next: string | null
+    /** The URL of the previous page, or null on the first one. */
+    previous: string | null
+    /** A page of errors. */
+    results: ErrorListItemApi[]
+    /** How many errors the selection holds, and how many of them are increasing or decreasing. */
+    counts: ErrorListCountsApi
+    /** The start of each hour or day of the date range in the project's time zone, oldest first. */
+    bucketStarts: string[]
+    /** Whether the project captured no error from 30 days before the date range to its end. Sent on the first page only, and false on the others. */
+    nothingCaptured: boolean
+    /** The order the errors are sorted by: the one the request asked for, or occurrences when it asked for none. */
+    order: ErrorOrderApi
+}
+
+export interface TraceMetricsRangeTooLongApi {
+    /** What went wrong, for a person. */
+    detail: string
+    /** A stable code to branch on. */
+    code: 'range_too_long'
+}
+
+export interface ErrorGroupDetailApi {
+    /** The error as the errors list shows it. */
+    item: ErrorListItemApi
+    /** The start of each hour or day of the date range in the project's time zone, oldest first. */
+    bucketStarts: string[]
+    /** The occurrences in each bucket of the period of the same length before the date range, one per bucket of `bucketStarts` in the same position. When the period's bounds give it a bucket more, its last bucket is left out. Empty when the range has no previous period. */
+    previousSeries: number[]
+}
+
 /**
  * * `sessions` - sessions
  * * `tool_calls` - tool_calls
@@ -2659,14 +2756,6 @@ export const TraceMetricChangeUnitApi = {
     Seconds: 'seconds',
 } as const
 
-export type TraceMetricChangeToneApi = (typeof TraceMetricChangeToneApi)[keyof typeof TraceMetricChangeToneApi]
-
-export const TraceMetricChangeToneApi = {
-    Good: 'good',
-    Bad: 'bad',
-    Neutral: 'neutral',
-} as const
-
 export type TraceMetricStatusApi = (typeof TraceMetricStatusApi)[keyof typeof TraceMetricStatusApi]
 
 export const TraceMetricStatusApi = {
@@ -2727,13 +2816,6 @@ export interface TraceMetricsApi {
     bucketStarts: string[]
     /** One tile for each metric. */
     tiles: TraceMetricTileApi[]
-}
-
-export interface TraceMetricsRangeTooLongApi {
-    /** What went wrong, for a person. */
-    detail: string
-    /** A stable code to branch on. */
-    code: 'range_too_long'
 }
 
 export interface TracePageWithBoundsRequestApi {
@@ -7055,6 +7137,131 @@ export const LlmAnalyticsPersonalSpendListBucketMinutes = {
     Number30: 30,
     Number60: 60,
 } as const
+
+export type AiObservabilityErrorsListParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only errors from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * How many errors a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many errors to skip before the page starts, from 0 to 16777115. Defaults to 0.
+     * @minimum 0
+     * @maximum 16777115
+     */
+    offset?: number
+    /**
+     * Sorts the errors, largest first, by occurrences, by change from the previous period, by traces, by users, or by the latest occurrence. Defaults to occurrences.
+     *
+     * * `occurrences` - Occurrences
+     * * `change` - Change
+     * * `traces` - Traces
+     * * `users` - Users
+     * * `last_seen` - Last seen
+     * @minLength 1
+     */
+    order?: AiObservabilityErrorsListOrder
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Errors are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+    /**
+     * Text to look for in the error message, ignoring case. It narrows the counts too. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string
+    /**
+     * Lists only the increasing, the decreasing or the new errors. The counts ignore it.
+     *
+     * * `increasing` - Increasing
+     * * `decreasing` - Decreasing
+     * * `new` - New
+     * @minLength 1
+     */
+    view?: AiObservabilityErrorsListView
+}
+
+export type AiObservabilityErrorsListOrder =
+    (typeof AiObservabilityErrorsListOrder)[keyof typeof AiObservabilityErrorsListOrder]
+
+export const AiObservabilityErrorsListOrder = {
+    Occurrences: 'occurrences',
+    Change: 'change',
+    Traces: 'traces',
+    Users: 'users',
+    LastSeen: 'last_seen',
+} as const
+
+export type AiObservabilityErrorsListView =
+    (typeof AiObservabilityErrorsListView)[keyof typeof AiObservabilityErrorsListView]
+
+export const AiObservabilityErrorsListView = {
+    Increasing: 'increasing',
+    Decreasing: 'decreasing',
+    New: 'new',
+} as const
+
+export type AiObservabilityErrorsRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only errors from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Errors are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+}
 
 export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**

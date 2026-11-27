@@ -23,11 +23,12 @@ def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.In
     )
 
 
-def page_offset_field(noun: str) -> serializers.IntegerField:
+def page_offset_field(noun: str, *, maximum: int) -> serializers.IntegerField:
     return serializers.IntegerField(
         min_value=0,
+        max_value=maximum,
         default=0,
-        help_text=f"How many {noun} to skip before the page starts. Defaults to 0.",
+        help_text=f"How many {noun} to skip before the page starts, from 0 to {maximum}. Defaults to 0.",
     )
 
 
