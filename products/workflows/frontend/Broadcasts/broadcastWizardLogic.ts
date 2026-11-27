@@ -427,6 +427,7 @@ export interface broadcastWizardLogicValues {
     audienceLimit: number | null
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
+    batchJobsFailed: boolean
     batchJobsLoading: boolean
     blastRadius: BlastRadiusApi | null
     blastRadiusError: string | null
@@ -1490,6 +1491,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 loadBatchJobs: () => false,
                 loadBatchJobsSuccess: () => true,
+            },
+        ],
+        batchJobsFailed: [
+            false,
+            {
+                loadBatchJobs: () => false,
+                loadBatchJobsSuccess: () => false,
+                loadBatchJobsFailure: () => true,
             },
         ],
         movingToDraft: [

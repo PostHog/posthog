@@ -1,6 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { EmailPreviewScopeContext } from 'scenes/hog-functions/email-templater/preview/EmailPreviewScopeContext'
@@ -49,8 +49,9 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 }
 
 function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
-    const { broadcast, broadcastLoading, batchJobs, hasLoadedBatchJobs, batchJobsLoading } =
+    const { broadcast, broadcastLoading, batchJobs, hasLoadedBatchJobs, batchJobsLoading, batchJobsFailed } =
         useValues(broadcastWizardLogic)
+    const { loadBatchJobs } = useActions(broadcastWizardLogic)
     const { aiComposerAvailable } = useValues(newBroadcastAgentLogic)
     // The escape hatch lands on the wizard instead (see `aiComposerAvailable`).
     const showAiComposer = id === 'new' && aiComposerAvailable
@@ -87,6 +88,20 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         const sent = isSentBroadcast(broadcast, hasLoadedBatchJobs ? batchJobs : null)
         if (sent === null && batchJobsLoading) {
             return <SpinnerOverlay sceneLevel />
+        }
+        if (sent === null && batchJobsFailed) {
+            return (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadBatchJobs(),
+                        'data-attr': 'broadcast-send-history-retry',
+                    }}
+                >
+                    Couldn't load this broadcast's send history, so it can't open yet.
+                </LemonBanner>
+            )
         }
         if (sent) {
             return <BroadcastSummary />
