@@ -83,6 +83,7 @@ describe('diagnosticsDrawerReads', () => {
     it.each([
         ['a failed read', new ApiError('boom', 500), true],
         ['nothing found', new ApiError('missing', 404), false],
+        ['an aborted read', new DOMException('Aborted', 'AbortError'), false],
         [
             'a range too long',
             new ApiError('long', 422, undefined, { code: 'range_too_long', detail: 'Pick less.' }),
@@ -92,11 +93,12 @@ describe('diagnosticsDrawerReads', () => {
         expect(isReportedFailure(error)).toBe(expected)
     })
 
-    it('previews only the traces with no preview read yet', () => {
-        const traces = ['trace-1', 'trace-2', 'trace-3'].map((id) => makeTraceListItem({ id }))
+    it('previews only the traces with no preview read or in flight', () => {
+        const traces = ['trace-1', 'trace-2', 'trace-3', 'trace-4'].map((id) => makeTraceListItem({ id }))
         const previews: CellLoads<TracePreviewApi> = new Map([
             ['trace-1', ready(makeTracePreview('trace-1'))],
             ['trace-2', { status: 'error' }],
+            ['trace-4', { status: 'loading' }],
         ])
 
         expect(tracesToPreview(traces, previews)).toEqual(['trace-2', 'trace-3'])

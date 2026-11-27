@@ -8,7 +8,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from posthog.models import Team, User
 
-from . import trace_metrics_queries
+from . import trace_metrics_queries, trace_selection_queries
 from .summary_store import requester_fingerprint
 from .trace_metrics import BucketSize
 from .trace_metrics_queries import TraceMetricsRows, TraceMetricsTooHeavyError
@@ -21,7 +21,7 @@ _Entry = TraceMetricsRows | Literal["too_heavy"]
 _ENTRY = TypeAdapter[_Entry](cast(Any, _Entry))
 
 
-def metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> str:
+def _selection_key(team: Team, user: User, selection: TraceSelection) -> tuple[str, str]:
     # A relative range ends at now, so refreshes within a minute share one read. Keying on the bucket instead would
     # serve a window that ended up to a bucket earlier than the one asked for.
     window = selection.window
@@ -34,9 +34,18 @@ def metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: B
     selection_hash = hashlib.sha256(repr(by_minute).encode()).hexdigest()
     # A test account filter can read a warehouse table that only some people may read, and a cache hit skips that
     # access check, so each person reads only the entries their own reads wrote.
-    requester = f"{user.pk}:{requester_fingerprint(team.pk, user)}"
+    return selection_hash, f"{user.pk}:{requester_fingerprint(team.pk, user)}"
+
+
+def metrics_cache_key(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> str:
+    selection_hash, requester = _selection_key(team, user, selection)
     # Two windows within the same minutes can straddle the span that switches hourly buckets to daily ones.
     return f"ai_observability:trace_metrics:{team.pk}:{selection_hash}:{size.value}:{requester}"
+
+
+def _count_cache_key(team: Team, user: User, selection: TraceSelection) -> str:
+    selection_hash, requester = _selection_key(team, user, selection)
+    return f"ai_observability:trace_count:{team.pk}:{selection_hash}:{requester}"
 
 
 def _read(key: str) -> _Entry | None:
@@ -69,3 +78,18 @@ def cached_trace_metrics(team: Team, user: User, selection: TraceSelection, size
         raise
     _write(key, rows)
     return rows
+
+
+def cached_trace_count(team: Team, user: User, selection: TraceSelection, size: BucketSize) -> int:
+    """The selection's trace count, from the metrics a recent read cached, else through a short cache of its own. Its
+    own read counts the traces alone, so a range too heavy for the metrics still gets its count."""
+    metrics = _read(metrics_cache_key(team, user, selection, size))
+    if isinstance(metrics, TraceMetricsRows):
+        return metrics.current.traces
+    key = _count_cache_key(team, user, selection)
+    cached = cache.get(key)
+    if isinstance(cached, int):
+        return cached
+    count = trace_selection_queries.load_trace_count(team, user, selection)
+    cache.set(key, count, TRACE_METRICS_CACHE_SECONDS)
+    return count

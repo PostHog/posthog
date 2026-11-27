@@ -368,13 +368,43 @@ class TestToolsFacade(ClickhouseTestMixin, BaseTest):
 
         assert self._trace_shares(FETCH_PAGE, LOOKUP) == [0.3, 0.2]
 
-    def test_a_trace_count_too_heavy_to_read_fails_the_trace_shares_but_not_the_list(self) -> None:
+    def test_a_range_too_heavy_for_the_metrics_still_gets_its_trace_shares(self) -> None:
         self._seed_captured_and_not_captured()
         self._cache_trace_metrics("too_heavy")
 
-        with pytest.raises(diagnostics.DiagnosticsRangeTooLongError):
-            self._trace_shares(FETCH_PAGE)
-        assert self._list().page.count == 2
+        assert self._trace_shares(FETCH_PAGE, LOOKUP) == [0.6, 0.4]
+
+    def test_trace_shares_reuse_the_trace_count_they_cached_and_count_each_tool_afresh(self) -> None:
+        self._seed_captured_and_not_captured()
+        assert self._trace_shares(FETCH_PAGE) == [0.6]
+
+        # A second seed restarts the event ids, so another distinct id keeps this event from replacing the first one.
+        seed(self.team, [{**_generation(40, "fetch-3", called=FETCH_PAGE), "distinct_id": "distinct-2"}])
+
+        assert self._trace_shares(FETCH_PAGE) == [0.8]
+
+    def test_trace_shares_hold_a_trace_only_by_the_events_the_traces_list_keeps(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "deployment", "value": ["staging"], "operator": "is_not", "type": "event"}
+        ]
+        self.team.save()
+        self.selection = replace(self.selection, filter_test_accounts=True)
+        seed(
+            self.team,
+            [
+                _generation(-5, "staging-in-range", called=FETCH_PAGE),
+                {
+                    "event": "$ai_span",
+                    "trace_id": "staging-in-range",
+                    "minutes": 10,
+                    "properties": {"deployment": "staging"},
+                },
+                _generation(20, "fetch-0", called=FETCH_PAGE),
+                _generation(30, "no-tools-0"),
+            ],
+        )
+
+        assert self._trace_shares(FETCH_PAGE) == [0.5]
 
     def test_a_tools_traces_is_the_total_of_the_traces_list_scoped_to_it(self) -> None:
         def call(minute: int, trace_id: str, model: str) -> dict[str, Any]:

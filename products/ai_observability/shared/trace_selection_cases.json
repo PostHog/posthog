@@ -477,6 +477,26 @@
         "expected_counts": { "total": 3, "errors": 0, "feedback": 0 }
     },
     {
+        "name": "a tool scope matches a name holding a quote and a backslash as it was sent",
+        "events": [
+            {
+                "event": "$ai_generation",
+                "trace_id": "quoted",
+                "minutes": 5,
+                "properties": { "$ai_tools_called": "search, read_\"file\"\\v2" }
+            },
+            {
+                "event": "$ai_generation",
+                "trace_id": "unquoted",
+                "minutes": 3,
+                "properties": { "$ai_tools_called": "read_file_v2" }
+            }
+        ],
+        "selection": { "date_from": -60, "date_to": 60, "tool": "read_\"file\"\\v2" },
+        "expected_trace_ids": ["quoted"],
+        "expected_counts": { "total": 1, "errors": 0, "feedback": 0 }
+    },
+    {
         "name": "a failed tool scope reads the tool errors, not the tools called",
         "events": [
             {
