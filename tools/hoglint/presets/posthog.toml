@@ -406,7 +406,8 @@ data-api       = { parent = "facade", paths = ["backend/facade/api*.py"] }
 fixtures       = { parent = "facade", paths = ["backend/facade/testing.py"] }
 # Where core runs a product's code: what a facade module hands out from here makes it a capability.
 wiring         = { parent = "backend", paths = ["backend/hogql_queries/**", "backend/max_tools.py", "backend/temporal/**", "backend/tasks.py"] }
-presentation   = { parent = "backend", paths = ["backend/presentation/**", "backend/routes.py"] }
+# routes.py and console.py are the presentation that a core registry loads by name: URL routes and PostHog Admin panels.
+presentation   = { parent = "backend", paths = ["backend/presentation/**", "backend/routes.py", "backend/console.py", "backend/console/**"] }
 # Viewsets that have not moved to presentation/ yet.
 api            = { parent = "backend", paths = ["backend/api/**", "backend/api.py"] }
 logic          = { parent = "backend", paths = ["backend/logic.py", "backend/logic/**"] }
