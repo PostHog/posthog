@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { useTodayHomePaneEnabled } from '~/layout/today/useTodayHomePaneEnabled'
 
 import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
@@ -73,7 +74,9 @@ export function TodayHomePage(): JSX.Element {
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
     // The Home pane lists recents and pins for the whole project, so the page drops its own recents.
     const recentsInSidebar = useTodayHomePaneEnabled()
-    const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
+    const { isMaxAvailable } = useValues(aiShellLogic)
+    // A self-hosted instance with no LLM provider key cannot answer, so a prompt sent from here only fails.
+    const homeComposer = isMaxAvailable && !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)

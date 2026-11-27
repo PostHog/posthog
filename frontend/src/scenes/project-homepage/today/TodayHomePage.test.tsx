@@ -4,6 +4,10 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import { organizationLogic } from 'scenes/organizationLogic'
+
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+
 import type { PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { todayHomeEditLogic } from './todayHomeEditLogic'
@@ -12,6 +16,7 @@ import { todayLogic } from './todayLogic'
 import { makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), useValues: jest.fn() }))
+jest.mock('lib/hooks/useFeatureFlag', () => ({ useFeatureFlag: () => true }))
 jest.mock('./todayLogic', () => ({ todayLogic: { values: { homeScrollTop: null } }, reportIdFromPath: () => null }))
 jest.mock('./todayHomeEditLogic', () => ({ todayHomeEditLogic: {} }))
 jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {}, pulsePinLimitReason: () => undefined }))
@@ -19,7 +24,7 @@ jest.mock('./TodaySampleBanner', () => ({ TodaySampleBanner: () => null }))
 jest.mock('./TodayForYou', () => ({ TodayForYou: () => null }))
 jest.mock('./TodayRecents', () => ({ TodayRecents: () => null }))
 jest.mock('./TodayPrimaryDashboard', () => ({ TodayPrimaryDashboard: () => null }))
-jest.mock('./TodayHomeComposer', () => ({ TodayHomeComposer: () => null }))
+jest.mock('./TodayHomeComposer', () => ({ TodayHomeComposer: () => <div data-attr="home-composer" /> }))
 jest.mock('./TodayHomeClassicComposer', () => ({ TodayHomeClassicComposer: () => null }))
 jest.mock('./TodayPulseHoverCard', () => ({
     TodayPulseHoverCard: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -64,6 +69,50 @@ describe('TodayHomePage loading', () => {
 
         expect(actions.pulseViewMounted).toHaveBeenLastCalledWith(false)
         expect(actions.pulseViewUpdated).toHaveBeenCalledTimes(1)
+    })
+    it.each([
+        { isMaxAvailable: true, shown: true },
+        { isMaxAvailable: false, shown: false },
+    ])('shows the chat box only when PostHog AI can answer ($isMaxAvailable)', ({ isMaxAvailable, shown }) => {
+        const home = {
+            greeting: 'Hello',
+            now: Date.now(),
+            isNewProject: false,
+            recentObjects: [],
+            returnFocusReportId: null,
+            useSampleData: false,
+        }
+        const numbers = {
+            currentProjectId: 1,
+            highlights: makeHighlights({ pulse: [makePulseMetric()] }),
+            highlightsLoading: false,
+            highlightsFailed: false,
+            highlightsPending: false,
+            pulseTiles: [makePulseMetric()],
+            pulsePinsLoaded: true,
+        }
+        jest.mocked(useValues).mockImplementation((logic) => {
+            if (logic === todayLogic) {
+                return home
+            }
+            if (logic === organizationLogic) {
+                return { currentOrganization: { is_ai_data_processing_approved: true } }
+            }
+            if (logic === aiShellLogic) {
+                return { isMaxAvailable }
+            }
+            return numbers
+        })
+        jest.mocked(useActions).mockImplementation(() => ({
+            setReturnFocusReportId: jest.fn(),
+            pulseViewMounted: jest.fn(),
+            pulseViewUpdated: jest.fn(),
+            pulseViewUnmounted: jest.fn(),
+        }))
+
+        const { container } = render(<TodayHomePage />)
+
+        expect(!!container.querySelector('[data-attr="home-composer"]')).toBe(shown)
     })
     it('keeps Edit available in edit mode when the numbers fail to load', () => {
         const home = {
