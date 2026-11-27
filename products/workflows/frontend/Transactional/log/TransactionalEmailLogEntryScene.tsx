@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -11,8 +12,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
+import { TransactionalEmailClickTimeline } from './TransactionalEmailClickTimeline'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
+import { TransactionalEmailImpactLink } from './TransactionalEmailImpactLink'
 import {
     TransactionalEmailLogEntryLogicProps,
     transactionalEmailLogEntryLogic,
@@ -29,9 +32,11 @@ export const scene: SceneExport<TransactionalEmailLogEntryLogicProps> = {
 
 export function TransactionalEmailLogEntryScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const showTimeline = useFeatureFlag('WORKFLOWS_EMAIL_SEND_TIMELINE')
     // The scene binds the logic to the message ID in the URL.
-    const { email, emailLoading, emailFailed, emailPageUrl } = useValues(transactionalEmailLogEntryLogic)
-    const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
+    const { email, emailLoading, emailFailed, emailPageUrl, impactUrl, outcomeRows, activityFailed, activityLoading } =
+        useValues(transactionalEmailLogEntryLogic)
+    const { loadEmail, loadActivity } = useActions(transactionalEmailLogEntryLogic)
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -93,13 +98,27 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     <TransactionalEmailDeliveryProgress email={email} />
                     <div className="flex flex-col @3xl:flex-row gap-4 items-start">
                         <div className="w-full @3xl:flex-1 min-w-0 flex flex-col gap-4 order-last @3xl:order-none">
+                            {showTimeline && email.action_id && (
+                                <TransactionalEmailClickTimeline
+                                    rows={outcomeRows}
+                                    failed={activityFailed && !activityLoading}
+                                    onRetry={loadActivity}
+                                    clickTracking={email.tracking.clicks}
+                                />
+                            )}
                             {/* A send that never went out kept no copy, so nothing links it to a person. */}
                             {email.action_id && <TransactionalEmailActivity email={email} />}
                             <TransactionalEmailRendered email={email} />
                         </div>
-                        <div className="w-full @3xl:w-80 shrink-0 flex flex-col gap-4">
+                        <div
+                            className={clsx(
+                                'w-full shrink-0 flex flex-col gap-4',
+                                showTimeline ? '@3xl:w-96' : '@3xl:w-80'
+                            )}
+                        >
                             {email.distinct_id && <TransactionalEmailPersonCard distinctId={email.distinct_id} />}
                             <TransactionalEmailDetails email={email} emailUrl={emailPageUrl} />
+                            {showTimeline && impactUrl && <TransactionalEmailImpactLink impactUrl={impactUrl} />}
                         </div>
                     </div>
                 </div>

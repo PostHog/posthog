@@ -5,9 +5,11 @@ import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type {
+    TransactionalEmailClickApi,
     TransactionalEmailLogDetailApi,
     TransactionalEmailLogEntryApi,
     TransactionalEmailLogEventApi,
+    TransactionalEmailOwnEventApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
 /** How far before and after the send the page looks for what the person did. */
@@ -38,6 +40,12 @@ export interface PersonActivity {
     /** True when the window held more events before the send than the page loaded. */
     hasMoreBefore: boolean
     hasMoreAfter: boolean
+}
+
+/** A send's activity: the person's events, and each click on the email's links with the session it started. */
+export interface SendActivity extends PersonActivity {
+    clicks: TransactionalEmailClickApi[]
+    emailEvents: TransactionalEmailOwnEventApi[]
 }
 
 /** A short sentence for what the person did, such as "Viewed /pricing". */

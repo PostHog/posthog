@@ -664,6 +664,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_IMPACT: 'workflows-email-impact', // owner: @silthus #team-workflows, the Impact tab on transactional email pages: how far each email's sends got and what they led to
     WORKFLOWS_EMAIL_PERSON_PREVIEW: 'workflows-email-person-preview', // owner: @mayteio #team-workflows, renders email previews as a real or custom person instead of raw Liquid
     WORKFLOWS_EMAIL_SEND_LINKS: 'workflows-email-send-links', // owner: @silthus #team-workflows, links transactional emails and their sends: Open email for sends from code, Sends lists and metric clicks on email pages
+    WORKFLOWS_EMAIL_SEND_TIMELINE: 'workflows-email-send-timeline', // owner: @silthus #team-workflows, the send detail page's click timeline: each click's link and the session it started
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows

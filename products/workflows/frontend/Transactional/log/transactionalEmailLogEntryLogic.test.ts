@@ -31,7 +31,21 @@ const OTHERS = [
 ]
 
 const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
-const ACTIVITY = { before: [{ uuid: 'ev-1' }], after: [], has_more_before: true, has_more_after: false }
+const CLICK = {
+    at: SENT,
+    link_url: 'https://example.com/a',
+    event_uuid: 'click-1',
+    session: null,
+    no_session_reason: 'not_found',
+}
+const ACTIVITY = {
+    before: [{ uuid: 'ev-1' }],
+    after: [],
+    has_more_before: true,
+    has_more_after: false,
+    clicks: [CLICK],
+    email_events: [],
+}
 
 const PANELS = ['person', 'activity', 'otherEmails'] as const
 type Endpoint = 'detail' | (typeof PANELS)[number]
@@ -109,12 +123,30 @@ describe('transactionalEmailLogEntryLogic', () => {
         expect(logic.values.afterExpanded).toBe(true)
     })
 
-    it('loads nothing else for a send with no distinct id or recipient', async () => {
-        sends['msg-9'] = { ...SEND, message_id: 'msg-9', distinct_id: '', recipient: '' }
-        await open('msg-9')
-        expect(logic.values.email?.message_id).toBe('msg-9')
-        expect(served).toEqual(['detail'])
-    })
+    it.each([
+        ['an unclicked send', false, true, ['detail'], []],
+        ['a clicked send without the timeline', true, false, ['detail'], null],
+        ['a clicked send with the timeline', true, true, ['detail', 'activity'], ['click']],
+    ])(
+        'loads for %s with no distinct id or recipient only what its clicks need',
+        async (_name, clicked, timeline, endpoints, outcomeKinds) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(timeline ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] : [], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]: timeline,
+            })
+            sends['msg-9'] = {
+                ...SEND,
+                message_id: 'msg-9',
+                distinct_id: '',
+                recipient: '',
+                clicked,
+                timeline: [],
+            }
+            await open('msg-9')
+            expect(served).toEqual(endpoints)
+            expect(logic.values.outcomeRows?.map((row) => row.kind) ?? null).toEqual(outcomeKinds)
+        }
+    )
 
     it('tells a send that does not exist apart from one that failed to load', async () => {
         await open('missing')

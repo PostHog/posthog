@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,9 +17,10 @@ import type {
     TransactionalEmailLogEntryApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { templatePageUrl, transactionalEmailSendsUrl } from '../transactionalEmailUrl'
-import { ActivityPerson, PersonActivity } from './emailActivity'
-import { fetchActivityPerson, fetchOtherEmails, fetchPersonActivity } from './emailActivityQueries'
+import { templatePageUrl, transactionalEmailSendsUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
+import { ActivityPerson, SendActivity } from './emailActivity'
+import { fetchActivityPerson, fetchOtherEmails, fetchSendActivity } from './emailActivityQueries'
+import { EmailOutcomeRow, emailOutcomeRows } from './emailClicks'
 
 export interface TransactionalEmailLogEntryLogicProps {
     messageId: string
@@ -29,7 +30,7 @@ export interface TransactionalEmailLogEntryLogicProps {
 export interface transactionalEmailLogEntryLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
-    activity: PersonActivity | null
+    activity: SendActivity | null
     activityFailed: boolean
     activityLoading: boolean
     afterExpanded: boolean
@@ -39,9 +40,11 @@ export interface transactionalEmailLogEntryLogicValues {
     emailFailed: boolean
     emailLoading: boolean
     emailPageUrl: string | null
+    impactUrl: string | null
     otherEmails: TransactionalEmailLogEntryApi[]
     otherEmailsFailed: boolean
     otherEmailsLoading: boolean
+    outcomeRows: EmailOutcomeRow[] | null
     person: ActivityPerson | null | undefined
     personFailed: boolean
     personLoading: boolean
@@ -58,10 +61,10 @@ export interface transactionalEmailLogEntryLogicActions {
         errorObject?: any
     }
     loadActivitySuccess: (
-        activity: PersonActivity | null,
+        activity: SendActivity | null,
         payload?: any
     ) => {
-        activity: PersonActivity | null
+        activity: SendActivity | null
         payload?: any
     }
     loadEmail: () => any
@@ -126,6 +129,14 @@ export interface transactionalEmailLogEntryLogicMeta {
             featureFlags: FeatureFlagsSet,
             searchParams: Record<string, any>
         ) => string | null
+        impactUrl: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            featureFlags: FeatureFlagsSet
+        ) => string | null
+        outcomeRows: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            activity: SendActivity | null
+        ) => EmailOutcomeRow[] | null
         breadcrumbs: (messageId: string) => Breadcrumb[]
     }
 }
@@ -232,12 +243,12 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
             },
         ],
         activity: [
-            null as PersonActivity | null,
+            null as SendActivity | null,
             {
                 loadActivity: async () =>
                     values.currentProjectId === null
                         ? null
-                        : await fetchPersonActivity(values.currentProjectId, props.messageId),
+                        : await fetchSendActivity(values.currentProjectId, props.messageId),
             },
         ],
     })),
@@ -252,6 +263,31 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
                 featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]
                     ? transactionalEmailSendsUrl(email, searchParams)
                     : templatePageUrl(email?.template_id),
+        ],
+        impactUrl: [
+            (s) => [s.email, s.featureFlags],
+            (
+                email: TransactionalEmailLogDetailApi | null | undefined,
+                featureFlags: FeatureFlagsSet
+            ): string | null => {
+                const url = transactionalEmailUrl(email)
+                return url && featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT]
+                    ? combineUrl(url, { tab: 'impact' }).url
+                    : null
+            },
+        ],
+        // Null while a clicked send's clicks load. A send nobody clicked needs no activity to show how far it got.
+        outcomeRows: [
+            (s) => [s.email, s.activity],
+            (email: TransactionalEmailLogDetailApi | null | undefined, activity: SendActivity | null) => {
+                if (!email) {
+                    return null
+                }
+                if (!email.clicked) {
+                    return emailOutcomeRows(email, [], activity?.emailEvents ?? [])
+                }
+                return activity ? emailOutcomeRows(email, activity.clicks, activity.emailEvents) : null
+            },
         ],
         breadcrumbs: [
             (_, p) => [p.messageId],
@@ -272,10 +308,13 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
             ],
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadEmailSuccess: ({ email }) => {
             if (email?.distinct_id) {
                 actions.loadPerson(email.distinct_id)
+                actions.loadActivity()
+            } else if (email?.clicked && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE]) {
+                // The clicks find their sessions by the link's run tag, so they need no person.
                 actions.loadActivity()
             }
             if (email?.recipient) {

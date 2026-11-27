@@ -12,7 +12,7 @@ import type {
     TransactionalEmailLogEntryApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ACTIVITY_WINDOW_DAYS, ActivityEvent, ActivityPerson, PersonActivity } from './emailActivity'
+import { ACTIVITY_WINDOW_DAYS, ActivityEvent, ActivityPerson, PersonActivity, SendActivity } from './emailActivity'
 import { LOG_RETENTION_DAYS } from './transactionalEmailLogLogic'
 
 const OTHER_EMAILS_LIMIT = 20
@@ -52,8 +52,9 @@ LIMIT 1`,
     }
 }
 
-export async function fetchPersonActivity(projectId: number, messageId: string): Promise<PersonActivity> {
-    return toPersonActivity(await transactionalEmailLogActivityRetrieve(String(projectId), messageId))
+export async function fetchSendActivity(projectId: number, messageId: string): Promise<SendActivity> {
+    const activity = await transactionalEmailLogActivityRetrieve(String(projectId), messageId)
+    return { ...toPersonActivity(activity), clicks: activity.clicks, emailEvents: activity.email_events }
 }
 
 export function toPersonActivity(activity: TransactionalEmailActivityApi): PersonActivity {
