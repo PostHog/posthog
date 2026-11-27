@@ -275,12 +275,23 @@ def _links_by_click_time(
             "event": ast.Constant(value=CLICK_EVENT),
             "distinct_id": ast.Constant(value=detail.distinct_id),
             "message_id": ast.Constant(value=detail.entry.message_id),
-            "start": ast.Constant(value=click_times[0]),
-            "end": ast.Constant(value=click_times[-1]),
-            "click_times": ast.Tuple(exprs=[ast.Constant(value=at) for at in sorted(set(click_times))]),
+            "start": _utc_instant(click_times[0]),
+            "end": _utc_instant(click_times[-1]),
+            "click_times": ast.Tuple(exprs=[_utc_instant(at) for at in sorted(set(click_times))]),
             "limit": ast.Constant(value=len(click_times)),
         },
         query_type="transactional_email_activity_clicks",
         workload=Workload.ONLINE,
     )
     return {timestamp.astimezone(UTC): link_url for timestamp, link_url in response.results or [] if link_url}
+
+
+def _utc_instant(at: datetime) -> ast.Call:
+    return ast.Call(
+        name="toDateTime64",
+        args=[
+            ast.Constant(value=at.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")),
+            ast.Constant(value=6),
+            ast.Constant(value="UTC"),
+        ],
+    )

@@ -55,6 +55,8 @@ RANK = {
     "clicked": 9,
 }
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+THIS_SEND = "this send"
+ANOTHER_SEND = "another send"
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {
@@ -580,41 +582,66 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "every click with its link",
-                200,
+                "UTC",
+                NOW - timedelta(days=3),
+                [1200, 1500, 1800.57],
+                [
+                    (THIS_SEND, 1200, None),
+                    (THIS_SEND, 1200, "https://example.com/billing"),
+                    (THIS_SEND, 1200, "https://example.com/billing"),
+                    (ANOTHER_SEND, 1500, "https://example.com/other-send"),
+                    (THIS_SEND, 1500.0005, "https://example.com/another-instant"),
+                    (THIS_SEND, 1800.57, "https://example.com/docs"),
+                ],
                 [(1200, "https://example.com/billing"), (1500, None), (1800.57, "https://example.com/docs")],
                 False,
             ),
-            ("the newest clicks", 2, [(1500, None), (1800.57, "https://example.com/docs")], True),
+            (
+                "the newest 200 clicks",
+                "UTC",
+                NOW - timedelta(days=3),
+                [1000 + i for i in range(201)],
+                [],
+                [(1001 + i, None) for i in range(200)],
+                True,
+            ),
+            (
+                "a click in the repeated hour of a fall-back night",
+                "America/New_York",
+                datetime(2026, 11, 1, 6, 0, tzinfo=UTC),
+                [1800],
+                [(THIS_SEND, 1800, "https://example.com/billing")],
+                [(1800, "https://example.com/billing")],
+                False,
+            ),
         ]
     )
     def test_lists_the_newest_clicks_with_their_links(
-        self, _flag, _name, max_clicks, expected_clicks, expected_has_more
+        self, _flag, _name, timezone, queued_at, click_seconds, events, expected_clicks, expected_has_more
     ):
+        self.team.timezone = timezone
+        self.team.save()
         message_id = self._send(
-            3 * 24 * 60,
+            int((NOW - queued_at).total_seconds() // 60),
             "jane@example.com",
-            [("sent", 1, ""), ("clicked", 1200, ""), ("clicked", 1500, ""), ("clicked", 1800.57, "")],
+            [("sent", 1, ""), *[("clicked", seconds, "") for seconds in click_seconds]],
         )
-        queued_at = NOW - timedelta(days=3)
         self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
-        for invocation_id, seconds, link_url in [
-            (message_id, 1200, None),
-            (message_id, 1200, "https://example.com/billing"),
-            (message_id, 1200, "https://example.com/billing"),
-            (str(UUIDT()), 1500, "https://example.com/other-send"),
-            (message_id, 1500.0005, "https://example.com/another-instant"),
-            (message_id, 1800.57, "https://example.com/docs"),
-        ]:
+        for send, seconds, link_url in events:
             _create_event(
                 team=self.team,
                 event="$workflows_email_link_clicked",
                 distinct_id="jane",
                 timestamp=queued_at + timedelta(seconds=seconds),
-                properties={"$workflow_invocation_id": invocation_id, **({"$link_url": link_url} if link_url else {})},
+                properties={
+                    "$workflow_invocation_id": message_id if send == THIS_SEND else str(UUIDT()),
+                    **({"$link_url": link_url} if link_url else {}),
+                },
             )
         flush_persons_and_events()
 
-        with patch("products.messaging.backend.services.transactional_email_activity.MAX_CLICKS", max_clicks):
+        with time_machine.travel(max(NOW, queued_at + timedelta(days=2)), tick=False):
+            self.client.force_login(self.user)
             response = self.client.get(self._url(f"{message_id}/activity/"))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
