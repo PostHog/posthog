@@ -11,6 +11,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import type { MessagingCtaDestination } from '../../mcp/messagingPlacements'
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
 import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
@@ -68,7 +69,7 @@ export function messageAudienceUrl(
     )
 }
 
-export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): string {
+export function captureMessageAudienceClicked(source: string, destination: MessagingCtaDestination): string {
     const attemptId = uuid()
     // pinned: analytics event name
     posthog.capture('message audience clicked', { source, destination, attempt_id: attemptId })

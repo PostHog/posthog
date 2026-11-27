@@ -9,10 +9,14 @@ export const messagingCtaCopySchema = z.object({
 
 export type MessagingCtaCopy = z.infer<typeof messagingCtaCopySchema>
 
+export type MessagingCtaDestination = 'broadcast' | 'workflow' | 'send_from_code'
+
 export interface MessagingPlacement {
     readonly key: `${MessagingArea}.${string}`
     readonly area: MessagingArea
     readonly variant: string
+    readonly destination: MessagingCtaDestination
+    readonly dismissible?: true
     readonly defaultCopy: MessagingCtaCopy
 }
 
@@ -23,9 +27,21 @@ export const PLACEMENTS = [
         key: 'mcp.after_cohorts_create',
         area: 'mcp',
         variant: 'after_cohorts_create',
+        destination: 'broadcast',
         defaultCopy: {
             label: 'Email the people in this cohort',
             description: 'The user can send this cohort an email. They review and launch it in the broadcast editor.',
+        },
+    },
+    {
+        key: 'replay.player_chip',
+        area: 'replay',
+        variant: 'player_chip',
+        destination: 'send_from_code',
+        dismissible: true,
+        defaultCopy: {
+            label: 'From an email?',
+            description: "Send your app's emails through PostHog to see which email started each session.",
         },
     },
 ] as const satisfies readonly MessagingPlacement[]
@@ -43,7 +59,7 @@ export type PlacementState =
 
 const EXPERIMENT_HOLDOUT_VARIANT_PREFIX = 'holdout-'
 
-function placementFor(key: MessagingPlacementKey): MessagingPlacement {
+export function placementFor(key: MessagingPlacementKey): MessagingPlacement {
     const placement = PLACEMENTS.find((candidate) => candidate.key === key)
     if (!placement) {
         throw new Error(`Unknown messaging placement: ${key}`)
