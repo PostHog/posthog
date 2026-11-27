@@ -16,8 +16,10 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { pluralize } from 'lib/utils/strings'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
@@ -29,7 +31,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+import { warehouseTablesDestroy, warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
 import { externalDataSourcesSyncStateRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
@@ -126,6 +128,9 @@ export interface sourceManagementLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // joinsDataLogic
@@ -177,6 +182,9 @@ export interface sourceManagementLogicActions {
     } // sourcesDataLogic
     deleteSelfManagedTable: (tableId: string) => {
         tableId: string
+    }
+    deleteSelfManagedTables: (tableIds: readonly string[]) => {
+        tableIds: readonly string[]
     }
     deleteSource: (source: ExternalDataSource) => {
         source: ExternalDataSource
@@ -297,7 +305,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         ],
         actions: [
             databaseTableListLogic,
-            ['loadDatabase'],
+            ['loadDatabase', 'refreshDatabaseSchema'],
             joinsDataLogic,
             ['loadJoins', 'deleteJoin'],
             sourcesDataLogic,
@@ -317,6 +325,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
+        deleteSelfManagedTables: (tableIds: readonly string[]) => ({ tableIds }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
@@ -562,6 +571,24 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
+        },
+        deleteSelfManagedTables: async ({ tableIds }) => {
+            const teamId = String(ApiConfig.getCurrentTeamId())
+            const concurrency = new ConcurrencyController(5)
+            const results = await Promise.allSettled(
+                tableIds.map((id) => concurrency.run({ fn: () => warehouseTablesDestroy(teamId, id) }))
+            )
+            // A 404 means the table is already gone, for example deleted from its own row after it was selected.
+            const failedCount = results.filter(
+                (result) => result.status === 'rejected' && result.reason?.status !== 404
+            ).length
+            if (failedCount > 0) {
+                lemonToast.error(
+                    `Couldn't delete ${failedCount} of ${pluralize(tableIds.length, 'table', 'tables')}. Try again.`
+                )
+            }
+            posthog.capture('self-managed tables deleted', { count: tableIds.length, failedCount })
+            actions.refreshDatabaseSchema()
         },
         refreshSelfManagedTableSchema: async ({ tableId }) => {
             lemonToast.info('Updating schema...')

@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import type { MouseEvent } from 'react'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -94,6 +95,7 @@ describe('tagRuleModalLogic', () => {
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
                 order_key: persistedRule.order_key + 1,
             },
+            'create',
         ],
         [
             'saves an edit with its filters',
@@ -106,8 +108,10 @@ describe('tagRuleModalLogic', () => {
                 color: persistedRule.color,
                 filters: persistedRule.filters,
             },
+            'edit',
         ],
-    ])('%s and reloads the list', async (_, rule, method, path, body) => {
+    ])('%s and reloads the list', async (_, rule, method, path, body, mode) => {
+        const capture = jest.spyOn(posthog, 'capture')
         const logic = tagRuleModalLogic()
         logic.mount()
         const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
@@ -129,6 +133,8 @@ describe('tagRuleModalLogic', () => {
         expect(requests).toEqual([{ method, path, body }])
         expect(logic.values.isOpen).toBe(false)
         expect(list.values.rules).toEqual([persistedRule])
+        expect(capture).toHaveBeenCalledWith('error_tracking_tag_rule_modal_opened', { mode })
+        capture.mockRestore()
     })
 
     // An edit that changes which properties the filters read makes the backend delete every tag the rule applied.
