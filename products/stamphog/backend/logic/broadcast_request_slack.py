@@ -51,6 +51,10 @@ STOP_LOOKING_ACTION_ID = f"{ACTION_ID_PREFIX}stop_looking"
 ACTIONS_BLOCK_ID = "stamphog_broadcast_actions"
 
 _SOURCE = "stamphog"
+ALLOW_BROADCAST_HINT = (
+    "Next time, comment `@posthog stamp --allow-broadcast` on the pull request, or set `allow_broadcast` "
+    "in the MCP review request. Stamphog reviews it first and posts in this channel only if it doesn't approve."
+)
 # Enough findings to say why stamphog did not approve. The full review is on the pull request.
 _MAX_FINDINGS = 5
 _MAX_FINDING_CHARS = 300
@@ -128,6 +132,8 @@ class BroadcastRequestCard:
     lookers: tuple[CardLooker, ...]
     approved_by_login: str
     requester_card_count: int | None = None
+    # A card that a pull request link opened, whose poster may not know the command that asks Stamphog first.
+    from_link_post: bool = False
 
 
 def _mention_or_name(slack_user_id: str, name: str) -> str:
@@ -253,6 +259,8 @@ def card_blocks(card: BroadcastRequestCard) -> list[dict[str, Any]]:
         if card.lookers:
             buttons.append(_button("Stop looking", STOP_LOOKING_ACTION_ID, value))
         blocks.append({"type": "actions", "block_id": ACTIONS_BLOCK_ID, "elements": buttons})
+    if card.from_link_post:
+        blocks.append(context_block(ALLOW_BROADCAST_HINT))
     return [_verbatim(block) for block in blocks]
 
 
@@ -345,15 +353,22 @@ def _slack(team_id: int, integration_id: int) -> SlackIntegration:
     return SlackIntegration(integration, source=_SOURCE)
 
 
-def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str) -> str:
-    """Post the card and return its ts.
+def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str, *, thread_ts: str = "") -> str:
+    """Post the card and return its ts. With ``thread_ts``, the card is a reply in that post's thread.
 
     Raises ``BroadcastRequestSlackError`` when Slack cannot take it, and lets a transient Slack error through
     so the task retries.
     """
     slack = _slack(card.team_id, card.integration_id)
     try:
-        ts = post_with_join(slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None)
+        if thread_ts:
+            # Slack sent the app the post in this channel, so the app is a member and needs no join.
+            response = post_message(slack, channel_id, card_blocks(card), card_text(card), thread_ts=thread_ts)
+            ts = response.get("ts")
+        else:
+            ts = post_with_join(
+                slack, channel_id, card_blocks(card), card_text(card), channel_name=channel_name or None
+            )
     except SlackPostRefused as e:
         raise BroadcastRequestSlackError(str(e)) from e
     except SlackApiError as e:
@@ -362,6 +377,20 @@ def post_card(card: BroadcastRequestCard, channel_id: str, channel_name: str) ->
     if not ts:
         raise BroadcastRequestSlackError(f"Slack returned no ts for the card in {channel_id}")
     return ts
+
+
+def post_thread_reply(team_id: int, integration_id: int, channel_id: str, thread_ts: str, text: str) -> None:
+    """Reply in a thread with fixed text.
+
+    A permanent Slack error is logged. Any other error raises, so the caller's task retries: the reply is
+    the only answer the person gets, and the post's claim stops Slack from delivering the post again.
+    """
+    try:
+        post_message(_slack(team_id, integration_id), channel_id, [section_block(text)], text, thread_ts=thread_ts)
+    except SlackApiError as e:
+        if str(e.response.get("error") or "") not in _PERMANENT_SLACK_ERRORS:
+            raise
+        logger.warning("stamphog_broadcast_thread_reply_failed", slack_channel_id=channel_id, error=str(e))
 
 
 def card_permalink(card: BroadcastRequestCard, channel_id: str, ts: str) -> str:
