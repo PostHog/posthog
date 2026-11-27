@@ -266,7 +266,6 @@
         "products/posthog_ai/backend/**": ["products/posthog_ai/frontend/e2e/"]
     },
     "scenes_smoke_only": [
-        "groups",
         "integrations",
         "max",
         "web-analytics",
