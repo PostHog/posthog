@@ -5,7 +5,7 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import getLLMCosts from './aiObservability/getLLMCosts'
 import parserRecipeCreate from './aiObservability/parserRecipeCreate'
 import parserRecipeReference from './aiObservability/parserRecipeReference'
-// Billing (deprecation aliases for the tools that read /api/billing/)
+// Billing (deprecation aliases)
 import { BILLING_DEPRECATED_ALIASES } from './billing/deprecatedAliases'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
@@ -161,7 +161,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
 
-    // Billing — deprecated billing-usage-get and billing-spend-get aliases forwarding to the time-series tools.
+    // Billing (deprecation aliases)
     ...BILLING_DEPRECATED_ALIASES,
 }
 
