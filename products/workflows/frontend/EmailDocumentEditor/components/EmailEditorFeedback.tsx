@@ -1,25 +1,121 @@
-import { FeaturePreviewFeedbackBanner } from 'products/workflows/frontend/FeaturePreviewFeedbackBanner'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
-// The api-type survey the new editor's feedback reports to.
-const EMAIL_EDITOR_FEEDBACK_SURVEY_ID = '01a1b1b8-80ac-0000-69c3-d6d49770d78c'
-const EMAIL_EDITOR_FEEDBACK_RATING_QUESTION_ID = '7083646e-1fba-4ad7-97ee-e290849ac4fe'
-const EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID = 'e49fca42-fae0-4f4e-9c26-f9b0517aed45'
-// pinned: people who closed the old popover stay dismissed
-const DISMISS_KEY = 'workflows-email-editor-feedback-popover'
+import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-export function EmailEditorFeedback(): JSX.Element {
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { uuid } from 'lib/utils/dom'
+
+import { SurveyEventName, SurveyEventProperties } from '~/types'
+
+import { captureSurveyResponse } from 'products/workflows/frontend/surveyResponseCapture'
+
+import { EmailEditorFeedbackNote } from './EmailEditorFeedbackNote'
+import {
+    DISMISS_KEY,
+    EMAIL_EDITOR_FEEDBACK_RATING_QUESTION_ID,
+    EMAIL_EDITOR_FEEDBACK_SURVEY_ID,
+    EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID,
+} from './emailEditorFeedbackSurvey'
+
+type Rating = 'Useful' | 'Needs improvement'
+
+/** Thumbs in the editor toolbar. A rating is saved on click, and the optional note opens next to it. */
+export function EmailEditorFeedback(): JSX.Element | null {
+    const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: DISMISS_KEY }))
+    const { dismiss } = useActions(lemonBannerLogic({ dismissKey: DISMISS_KEY }))
+    const [rating, setRating] = useState<Rating | null>(null)
+    const [submissionId, setSubmissionId] = useState<string | null>(null)
+    const [noteOpen, setNoteOpen] = useState(false)
+
+    useEffect(() => {
+        if (!isDismissed) {
+            posthog.capture(SurveyEventName.SHOWN, {
+                [SurveyEventProperties.SURVEY_ID]: EMAIL_EDITOR_FEEDBACK_SURVEY_ID,
+                feedback_surface: 'email-editor',
+            })
+        }
+    }, [isDismissed])
+
+    // A rating hides the thumbs for good once its note is sent or skipped.
+    if (isDismissed && !rating) {
+        return null
+    }
+
+    const rate = (next: Rating): void => {
+        const id = uuid()
+        setRating(next)
+        setSubmissionId(id)
+        setNoteOpen(true)
+        captureSurveyResponse({
+            surveyId: EMAIL_EDITOR_FEEDBACK_SURVEY_ID,
+            submissionId: id,
+            completed: false,
+            answers: [{ questionIndex: 0, questionId: EMAIL_EDITOR_FEEDBACK_RATING_QUESTION_ID, value: next }],
+            surface: 'email-editor',
+        })
+    }
+
+    const closeNote = (): void => {
+        setNoteOpen(false)
+        dismiss()
+    }
+
     return (
-        <FeaturePreviewFeedbackBanner
-            surveyId={EMAIL_EDITOR_FEEDBACK_SURVEY_ID}
-            ratingQuestionId={EMAIL_EDITOR_FEEDBACK_RATING_QUESTION_ID}
-            feedbackQuestionId={EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID}
-            surface="email-editor"
-            dismissKey={DISMISS_KEY}
-            prompt="This email editor is new. Is it doing what you need?"
-            feedbackTitle="Help shape the email editor"
-            feedbackPlaceholder="Tell us what works, what doesn't, or what you'd change"
-            className="m-2 shrink-0"
-            data-attr="email-editor-feedback"
-        />
+        <Popover
+            visible={noteOpen}
+            onClickOutside={closeNote}
+            placement="bottom-end"
+            overlay={
+                <EmailEditorFeedbackNote
+                    title={rating === 'Useful' ? 'Thanks! Anything we should keep?' : 'What would make it better?'}
+                    placeholder="Tell us what works, what doesn't, or what you'd change"
+                    onCancel={closeNote}
+                    onSend={(note) => {
+                        if (submissionId) {
+                            captureSurveyResponse({
+                                surveyId: EMAIL_EDITOR_FEEDBACK_SURVEY_ID,
+                                submissionId,
+                                completed: true,
+                                answers: [
+                                    {
+                                        questionIndex: 1,
+                                        questionId: EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID,
+                                        value: note,
+                                    },
+                                ],
+                                surface: 'email-editor',
+                            })
+                        }
+                        closeNote()
+                    }}
+                />
+            }
+        >
+            <div className="flex items-center gap-0.5" data-attr="email-editor-feedback">
+                <span className="text-xs text-secondary pr-1">{rating ? 'Thanks!' : 'New editor:'}</span>
+                <LemonButton
+                    size="xsmall"
+                    icon={rating === 'Useful' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    tooltip="Working well"
+                    aria-label="Working well"
+                    disabledReason={rating ? 'Rated' : undefined}
+                    onClick={() => rate('Useful')}
+                    data-attr="email-editor-feedback-thumbs-up"
+                />
+                <LemonButton
+                    size="xsmall"
+                    icon={rating === 'Needs improvement' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                    tooltip="Needs improvement"
+                    aria-label="Needs improvement"
+                    disabledReason={rating ? 'Rated' : undefined}
+                    onClick={() => rate('Needs improvement')}
+                    data-attr="email-editor-feedback-thumbs-down"
+                />
+            </div>
+        </Popover>
     )
 }

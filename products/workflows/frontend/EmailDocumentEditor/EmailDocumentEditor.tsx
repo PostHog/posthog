@@ -406,13 +406,10 @@ export function EmailDocumentEditor(): JSX.Element {
                     if (event.key === 'Enter' && target.tagName === 'INPUT') {
                         event.preventDefault()
                     }
-                    // The fullscreen editor closes on Escape at the window. An open menu, dialog or feedback note takes it first.
+                    // The fullscreen editor closes on Escape at the window. An open menu or dialog takes it first.
                     if (
                         event.key === 'Escape' &&
-                        (suggestionsOpenRef.current ||
-                            target.closest?.(
-                                '.ReactModal__Overlay, .Popover, [data-attr="email-editor-feedback-feedback"]'
-                            ))
+                        (suggestionsOpenRef.current || target.closest?.('.ReactModal__Overlay, .Popover'))
                     ) {
                         event.stopPropagation()
                     }
@@ -458,6 +455,8 @@ export function EmailDocumentEditor(): JSX.Element {
                         <EmailOwnPlainTextNotice editor={editor} />
                     ) : null}
                     <EmailEditorSwitch.ConvertedNotice />
+                    {/* The editor stays mounted behind the Plain text tab, where the prompt would count as shown */}
+                    {activeContentTab === 'visual' ? <EmailEditorFeedback /> : null}
                     <EmailEditorSwitch.UseOldButton />
                     {mode === 'edit' ? (
                         <LemonButton
@@ -470,8 +469,6 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                {/* The editor stays mounted behind the Plain text tab, where the banner would count as shown */}
-                {activeContentTab === 'visual' ? <EmailEditorFeedback /> : null}
                 {mode === 'html' ? (
                     <EmailHtmlView />
                 ) : mode === 'preview' ? (
