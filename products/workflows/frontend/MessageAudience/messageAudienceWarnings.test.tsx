@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -62,6 +63,7 @@ interface Environment {
     sandbox?: Answer
     cohort?: Answer
     draftRequests?: unknown[]
+    createRequests?: Record<string, unknown>[]
 }
 
 const answer = (value: Answer): Promise<unknown> | [number, object] | object =>
@@ -113,6 +115,10 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
                 environment(params)?.draftRequests?.push(await request.json())
                 return [500, { detail: 'down' }]
             },
+            '/api/projects/:team_id/hog_flows/': async ({ params, request }) => {
+                environment(params)?.createRequests?.push(await request.json())
+                return [500, { detail: 'down' }]
+            },
         },
     })
 }
@@ -120,15 +126,24 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
 describe('message audience warnings', () => {
     const projectId = (): number => ApiConfig.getCurrentProjectId()
     const draftRequests: unknown[] = []
+    const createRequests: Record<string, unknown>[] = []
+    let WorkflowScene: typeof import('../Workflows/WorkflowScene').WorkflowScene
+
+    beforeAll(async () => {
+        initKeaTests()
+        ;({ WorkflowScene } = await import('../Workflows/WorkflowScene'))
+    }, 30_000)
 
     beforeEach(() => {
         initKeaTests()
         draftRequests.length = 0
+        createRequests.length = 0
     })
 
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     it.each<{
@@ -328,9 +343,8 @@ describe('message audience warnings', () => {
     } as EarlyAccessFeatureType
     const earlyAccess = enrolledPeopleAudience(earlyAccessFeature, 'early_access')
 
-    const openedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
+    const openedEditor: Record<MessageAudienceDestination, () => Promise<Record<string, unknown>>> = {
         workflow: async () => {
-            const { WorkflowScene } = await import('../Workflows/WorkflowScene')
             render(<WorkflowScene id="new" tab="workflow" />)
             await waitFor(() => expect(draftRequests).toHaveLength(1))
             const logic = Object.values(getContext().mount.mounted).find((mounted) =>
@@ -339,18 +353,24 @@ describe('message audience warnings', () => {
             const { actions } = logic!.values.workflow
             const trigger = actions.find((action) => action.type === 'trigger')?.config
             const email = actions.find((action) => action.type === 'email_sandbox' || action.type === 'function_email')
-            return {
+            const opened = {
                 trigger: trigger?.type,
                 step: email?.type,
                 subject: (email?.config as Record<string, any> | undefined)?.inputs?.email?.value?.subject,
                 draftRequest: draftRequests[0],
             }
+            logic!.actions.saveWorkflow(logic!.values.workflow)
+            await waitFor(() => expect(createRequests).toHaveLength(1))
+            return { ...opened, entryAttemptId: createRequests[0].entry_attempt_id }
         },
         broadcast: async () => {
             const logic = broadcastWizardLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            return { audience: logic.values.audienceProperties, name: logic.values.name }
+            const opened = { audience: logic.values.audienceProperties, name: logic.values.name }
+            logic.actions.ensureDraft()
+            await waitFor(() => expect(createRequests).toHaveLength(1))
+            return { ...opened, entryAttemptId: createRequests[0].entry_attempt_id }
         },
     }
 
@@ -375,10 +395,16 @@ describe('message audience warnings', () => {
             opens: { audience: earlyAccess.properties, name: earlyAccess.broadcastName },
         },
     ])(
-        'asks before a $destination with no sender, and Continue opens it',
+        'asks before a $destination with no sender, and Continue opens it carrying the click attempt',
         async ({ label, warning, path, destination, opens }) => {
+            const capture = jest.spyOn(posthog, 'capture')
             useEnvironmentMocks({
-                [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests },
+                [projectId()]: {
+                    senders: [],
+                    sandbox: { ...testSender, integration_id: 12 },
+                    draftRequests,
+                    createRequests,
+                },
             })
             window.POSTHOG_APP_CONTEXT = {
                 ...window.POSTHOG_APP_CONTEXT!,
@@ -400,7 +426,14 @@ describe('message audience warnings', () => {
             fireEvent.click(screen.getByText('Continue'))
             await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
             await waitFor(() => expect(screen.queryByText(warning)).not.toBeInTheDocument())
-            expect(await openedEditor[destination]()).toEqual(opens)
+            const clicks = capture.mock.calls.filter(([event]) => event === 'message audience clicked')
+            expect(clicks).toEqual([
+                [
+                    'message audience clicked',
+                    { source: 'early_access', destination, attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+                ],
+            ])
+            expect(await openedEditor[destination]()).toEqual({ ...opens, entryAttemptId: clicks[0][1]!.attempt_id })
         }
     )
 })

@@ -13,6 +13,7 @@ import {
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
 import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
+import { startMessageAudienceAttempt } from './messageAudienceAttempts'
 import { MessageDraft } from './messageDrafts'
 
 export type MessageAudienceDestination = 'broadcast' | 'workflow'
@@ -61,9 +62,11 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
     )
 }
 
-export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
+export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): string {
+    const attemptId = startMessageAudienceAttempt(source, destination)
     // pinned: analytics event name
-    posthog.capture('message audience clicked', { source, destination })
+    posthog.capture('message audience clicked', { source, destination, attempt_id: attemptId })
+    return attemptId
 }
 
 /** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */
