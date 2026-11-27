@@ -83,44 +83,55 @@ EXPRESSION_KEYWORD = re.compile(r"\b(?:MATERIALIZED|DEFAULT|ALIAS|EPHEMERAL) (?=
 EXPRESSION_END = (",", ")", " CODEC(", " COMMENT ", " TTL ")
 
 
-def _closing_paren(text: str, start: int) -> int:
-    """Index of the parenthesis closing text[start], or -1. Skips quoted text and tracks commas."""
-    depth, quote, index = 0, "", start
+def _walk(text: str, start: int = 0):
+    """Yield (index, char, quoted) for text[start:]. Quoted covers the quotes and what they hold.
+
+    A backslash escapes the next character only inside quotes.
+    """
+    quote = ""
+    index = start
     while index < len(text):
         char = text[index]
-        if char == "\\":
-            index += 1
-        elif quote:
-            quote = "" if char == quote else quote
-        elif char in "'`\"":
-            quote = char
-        elif char == "(":
+        if quote:
+            yield index, char, True
+            if char == "\\" and index + 1 < len(text):
+                index += 1
+                yield index, text[index], True
+            elif char == quote:
+                quote = ""
+        else:
+            if char in "'`\"":
+                quote = char
+            yield index, char, bool(quote)
+        index += 1
+
+
+def _closing_paren(text: str, start: int) -> int:
+    """Index of the parenthesis closing text[start], or -1."""
+    depth = 0
+    for index, char, quoted in _walk(text, start):
+        if quoted:
+            continue
+        if char == "(":
             depth += 1
         elif char == ")":
             depth -= 1
             if depth == 0:
                 return index
-        index += 1
     return -1
 
 
 def _has_top_level_comma(text: str) -> bool:
-    depth, quote, index = 0, "", 0
-    while index < len(text):
-        char = text[index]
-        if char == "\\":
-            index += 1
-        elif quote:
-            quote = "" if char == quote else quote
-        elif char in "'`\"":
-            quote = char
-        elif char in "([":
+    depth = 0
+    for _, char, quoted in _walk(text):
+        if quoted:
+            continue
+        if char in "([":
             depth += 1
         elif char in ")]":
             depth -= 1
         elif char == "," and depth == 0:
             return True
-        index += 1
     return False
 
 
@@ -136,9 +147,10 @@ def strip_enclosing_parens(expression: str) -> str:
 def normalize_ddl(ddl: str) -> str:
     """strip_enclosing_parens for every column expression inside a CREATE statement."""
     result, position = [], 0
+    quoted = {index for index, _, inside in _walk(ddl) if inside}
     for match in EXPRESSION_KEYWORD.finditer(ddl):
         start = match.end()
-        if start < position:
+        if start < position or match.start() in quoted:
             continue
         end = _closing_paren(ddl, start)
         if end == -1 or not ddl.startswith(EXPRESSION_END, end + 1):
@@ -148,14 +160,26 @@ def normalize_ddl(ddl: str) -> str:
     return "".join(result) + ddl[position:]
 
 
+TSV_ESCAPES = {"\\": "\\", "t": "\t", "n": "\n", "r": "\r", "'": "'", "0": "\0", "b": "\b", "f": "\f"}
+TSV_UNESCAPED = {value: f"\\{key}" for key, value in TSV_ESCAPES.items()}
+
+
+def _tsv_unescape(field: str) -> str:
+    return re.sub(r"\\(.)", lambda m: TSV_ESCAPES.get(m.group(1), m.group(0)), field)
+
+
+def _tsv_escape(field: str) -> str:
+    return "".join(TSV_UNESCAPED.get(char, char) for char in field)
+
+
 def normalize_snapshot(text: str) -> str:
     lines = []
     for line in text.splitlines(keepends=True):
         row = line.rstrip("\n").split("\t")
         if row[0] == "table" and len(row) > 4:
-            row[4] = normalize_ddl(row[4])
+            row[4] = _tsv_escape(normalize_ddl(_tsv_unescape(row[4])))
         elif row[0] == "column" and len(row) > 7:
-            row[7] = strip_enclosing_parens(row[7])
+            row[7] = _tsv_escape(strip_enclosing_parens(_tsv_unescape(row[7])))
         lines.append("\t".join(row) + ("\n" if line.endswith("\n") else ""))
     return "".join(lines)
 

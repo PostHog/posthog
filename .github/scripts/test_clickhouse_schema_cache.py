@@ -139,6 +139,16 @@ def test_restored_property_definitions_version_matches_the_migrated_one() -> Non
     [
         ("a real expression change", "x UInt8 DEFAULT (a + 1), y Int8", "x UInt8 DEFAULT (a + 2), y Int8"),
         ("a different default", "x UInt8 DEFAULT 1, y Int8", "x UInt8 DEFAULT 2, y Int8"),
+        (
+            "a keyword inside a string literal",
+            "x String DEFAULT 'foo DEFAULT (bar), baz', y",
+            "x String DEFAULT 'foo DEFAULT bar, baz', y",
+        ),
+        (
+            "a keyword after an escaped quote in a literal",
+            r"x String DEFAULT 'a\' DEFAULT (b)', y",
+            r"x String DEFAULT 'a\' DEFAULT b', y",
+        ),
         ("parentheses inside the expression", "x UInt8 DEFAULT (a) + (b), y", "x UInt8 DEFAULT a + b, y"),
     ]
 )
@@ -151,3 +161,11 @@ def test_normalizing_leaves_tuples_and_quoted_parentheses_alone() -> None:
     assert strip_enclosing_parens("(a)") == "a"
     quoted = "x String DEFAULT '(a)', y"
     assert normalize_ddl(quoted) == quoted
+
+
+def test_normalize_snapshot_reads_literals_through_tsv_escaping() -> None:
+    # ClickHouse TSV writes the quotes of a SQL literal as \' in the field.
+    literal = "table\tdb\tt\tMemory\tCREATE TABLE t (x String DEFAULT \\'foo DEFAULT (bar)\\', y UInt8)\t0\n"
+    assert normalize_snapshot(literal) == literal
+    wrapped = "table\tdb\tt\tMemory\tCREATE TABLE t (y UInt8 DEFAULT (1))\t0\n"
+    assert normalize_snapshot(wrapped) == wrapped.replace("(1)", "1")
