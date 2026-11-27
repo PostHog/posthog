@@ -10,8 +10,6 @@ Temporal client, so this module stays off the ``django.setup()`` path.
 
 from uuid import UUID
 
-from django.conf import settings
-
 from products.warehouse_sources.backend import file_upload_sources as _service
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -36,7 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
 __all__ = [
     "can_replace_file",
     "create_file_upload_source",
-    "discard_replaced_upload",
     "discard_unused_upload",
     "has_file_upload_source",
     "hosted_upload_in_use",
@@ -47,7 +44,6 @@ __all__ = [
     "replace_file_upload",
     "sanitize_upload_filename",
     "upload_format_for_table_format",
-    "warehouse_output_url",
 ]
 
 
@@ -125,27 +121,6 @@ def discard_unused_upload(team_id: int, upload: UploadedFileRef) -> None:
     except InvalidUploadError:
         return
     _delete_upload_if_unused(location)
-
-
-def warehouse_output_url(team_id: int, upload: UploadedFileRef) -> str:
-    location = UploadLocation(team_id=team_id, upload_id=upload.upload_id, filename=upload.filename)
-    if settings.USE_LOCAL_SETUP:
-        return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{location.path}"
-    return location.url_pattern
-
-
-def discard_replaced_upload(team_id: int, url_pattern: str) -> None:
-    if settings.USE_LOCAL_SETUP:
-        prefix = f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{settings.DATAWAREHOUSE_BUCKET}/"
-        if (
-            not url_pattern.startswith(prefix)
-            or DataWarehouseTable.objects.exclude(deleted=True).filter(url_pattern=url_pattern).exists()
-        ):
-            return
-        url_pattern = f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{url_pattern.removeprefix(prefix)}"
-    location = parse_hosted_upload(team_id, url_pattern)
-    if isinstance(location, UploadLocation):
-        _delete_upload_if_unused(location)
 
 
 def is_legacy_upload_url(team_id: int, url_pattern: str) -> bool:

@@ -37,7 +37,7 @@ from products.data_modeling.backend.logic.node_frequency import build_frequency_
 from products.data_modeling.backend.temporal.activities.notebook_model import (
     ModelFailure,
     ModelRun,
-    RetiredNotebookUpload,
+    NotebookModelGeneration,
     fail_notebook_model,
     prepare_notebook_model,
     publish_frame,
@@ -58,7 +58,6 @@ from products.notebooks.backend.sql_v2 import kernel_server_secret
 from products.notebooks.backend.sql_v2_dispatch import _build_plan, resolve_refs
 from products.notebooks.backend.test.test_notebook_run import markdown_content
 from products.notebooks.backend.warehouse_model import prepare_model_run
-from products.warehouse_sources.backend.facade.contracts import UploadedFileRef
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -386,13 +385,21 @@ class TestNotebookWarehouseModel(APIBaseTest):
                         if previous_table is not None:
                             assert previous_table.get_count() == 14000
                             assert prepared.previous_generation is not None
-                            retired = RetiredNotebookUpload(
+                            retired = NotebookModelGeneration(
                                 team_id=self.team.pk, generation=prepared.previous_generation
                             )
                             env.run(remove_retired_notebook_upload, retired)
                             retired_key = previous_table.url_pattern.split(f"/{bucket}/", maxsplit=1)[1]
                             assert not storage.exists(f"{bucket}/{retired_key}")
                         previous_table = DataWarehouseTable.objects.get(team=self.team, name="account_scores")
+                        key = f"notebook_models/team_{self.team.pk}/{run.run_id}/output.parquet"
+                        assert previous_table.url_pattern.endswith(f"/{key}")
+                        assert storage.exists(f"{bucket}/{key}")
+                        env.run(
+                            remove_retired_notebook_upload,
+                            NotebookModelGeneration(team_id=self.team.pk, generation=run.run_id),
+                        )
+                        assert storage.exists(f"{bucket}/{key}")
                         table_ids.add(previous_table.pk)
                     assert len(table_ids) == 1
                     consumer = DataWarehouseSavedQuery.objects.create(
@@ -448,14 +455,13 @@ class TestNotebookWarehouseModel(APIBaseTest):
             binding.latest_run_id = run.run_id
             binding.save()
             DataModelingJob.objects.create(id=run.run_id, team=self.team)
-            upload = UploadedFileRef(upload_id=str(uuid4()), filename="output.parquet", file_format="parquet")
             columns = {"score": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
             with (
                 patch.object(DataWarehouseTable, "get_columns", return_value=columns),
                 patch.object(DataWarehouseTable, "get_count", return_value=14000),
             ):
-                publish_frame(run, upload, 14000)
-                publish_frame(run, upload, 14000)
+                publish_frame(run, 14000)
+                publish_frame(run, 14000)
                 binding.refresh_from_db()
                 assert binding.table_id is not None
                 table = DataWarehouseTable.objects.get(team=self.team, id=binding.table_id)
@@ -465,7 +471,7 @@ class TestNotebookWarehouseModel(APIBaseTest):
                 binding.latest_run_id = uuid4()
                 binding.save()
                 with self.assertRaisesRegex(ValueError, "changed"):
-                    publish_frame(run, upload, 14000)
+                    publish_frame(run, 14000)
                 stopped = ModelRun(
                     team_id=self.team.pk,
                     node_id=str(node.pk),
@@ -475,7 +481,7 @@ class TestNotebookWarehouseModel(APIBaseTest):
                 )
                 DataModelingJob.objects.create(id=stopped.run_id, team=self.team, status=DataModelingJob.Status.FAILED)
                 with self.assertRaisesRegex(ValueError, "already closed"):
-                    publish_frame(stopped, upload, 14000)
+                    publish_frame(stopped, 14000)
             table.refresh_from_db()
             assert (table.url_pattern, table.row_count) == (original_url, 14000)
             response = self.client.get(f"{self.url}{node.id}/")

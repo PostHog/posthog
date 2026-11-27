@@ -11,7 +11,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.data_modeling.backend.temporal.activities.notebook_model import (
     ModelFailure,
     ModelRun,
-    RetiredNotebookUpload,
+    NotebookModelGeneration,
     fail_notebook_model,
     prepare_notebook_model,
     publish_notebook_model,
@@ -25,10 +25,10 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
 
 @workflow.defn(name="data-modeling-retire-notebook-upload")
 class RetireNotebookUploadWorkflow(PostHogWorkflow):
-    inputs_cls = RetiredNotebookUpload
+    inputs_cls = NotebookModelGeneration
 
     @workflow.run
-    async def run(self, retired: RetiredNotebookUpload) -> None:
+    async def run(self, retired: NotebookModelGeneration) -> None:
         await workflow.sleep(timedelta(days=1))
         await workflow.execute_activity(
             remove_retired_notebook_upload, retired, start_to_close_timeout=timedelta(minutes=2)
@@ -82,7 +82,7 @@ class MaterializeNotebookWorkflow(PostHogWorkflow):
         if prepared.previous_generation is not None:
             await workflow.start_child_workflow(
                 RetireNotebookUploadWorkflow.run,
-                RetiredNotebookUpload(team_id=run.team_id, generation=prepared.previous_generation),
+                NotebookModelGeneration(team_id=run.team_id, generation=prepared.previous_generation),
                 id=f"retire-notebook-upload-{run.team_id}-{run.run_id}",
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
             )

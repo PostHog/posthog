@@ -1,11 +1,13 @@
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 
 from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.utils import close_db_connections
@@ -15,9 +17,7 @@ from products.data_modeling.backend.logic.notebook_model import require_table_ac
 from products.data_modeling.backend.models import DataModelingJob, NotebookModel
 from products.data_modeling.backend.temporal.activities.utils import update_node_system_properties
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.warehouse_sources.backend.facade.api import MAX_FILE_UPLOAD_SIZE_BYTES, build_file_upload_s3_path
-from products.warehouse_sources.backend.facade.contracts import UploadedFileRef
-from products.warehouse_sources.backend.facade.file_upload_sources import discard_replaced_upload, warehouse_output_url
+from products.warehouse_sources.backend.facade.api import MAX_FILE_UPLOAD_SIZE_BYTES
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -39,9 +39,23 @@ class PreparedNotebookModel:
 
 
 @frozen
-class RetiredNotebookUpload:
+class NotebookModelGeneration:
     team_id: int
     generation: UUID
+
+    @property
+    def key(self) -> str:
+        return f"notebook_models/team_{self.team_id}/{self.generation}/output.parquet"
+
+    @property
+    def path(self) -> str:
+        return f"{settings.DATAWAREHOUSE_BUCKET}/{self.key}"
+
+    @property
+    def url_pattern(self) -> str:
+        if settings.USE_LOCAL_SETUP:
+            return f"http://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{self.path}"
+        return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/{self.key}"
 
 
 def _binding(run: ModelRun, *, lock: bool = False) -> NotebookModel:
@@ -96,22 +110,31 @@ def prepare_notebook_model(run: ModelRun) -> PreparedNotebookModel | None:
         )
 
 
-def _staged_upload(generation: UUID) -> UploadedFileRef:
-    return UploadedFileRef(upload_id=str(generation), filename="output.parquet", file_format="parquet")
+def _discard_unused_generation(output: NotebookModelGeneration) -> None:
+    if not settings.DATAWAREHOUSE_BUCKET or (
+        DataWarehouseTable.objects.filter(team_id=output.team_id, url_pattern=output.url_pattern)
+        .exclude(deleted=True)
+        .exists()
+    ):
+        return
+    try:
+        get_s3_client().rm(output.path)
+    except FileNotFoundError:
+        pass
+    except Exception as error:
+        capture_exception(error)
 
 
 @activity.defn
 @close_db_connections
-def remove_retired_notebook_upload(retired: RetiredNotebookUpload) -> None:
+def remove_retired_notebook_upload(retired: NotebookModelGeneration) -> None:
     with team_scope(retired.team_id, canonical=True):
-        discard_replaced_upload(
-            retired.team_id, warehouse_output_url(retired.team_id, _staged_upload(retired.generation))
-        )
+        _discard_unused_generation(retired)
 
 
-def publish_frame(run: ModelRun, upload: UploadedFileRef, row_count: int) -> None:
+def publish_frame(run: ModelRun, row_count: int) -> None:
     binding = _binding(run)
-    url = warehouse_output_url(run.team_id, upload)
+    url = NotebookModelGeneration(team_id=run.team_id, generation=run.run_id).url_pattern
     probe = DataWarehouseTable(team=binding.team, name=binding.node.name, format="Parquet", url_pattern=url)
     columns = probe.get_columns()
     if probe.get_count() != row_count:
@@ -174,13 +197,12 @@ def publish_notebook_model(run: ModelRun) -> int:
             return DataModelingJob.objects.get(team_id=run.team_id, pk=run.run_id).rows_materialized
         if binding.latest_run_id != run.run_id:
             raise ValueError("This run has been superseded.")
-        upload = _staged_upload(run.run_id)
+        output = NotebookModelGeneration(team_id=run.team_id, generation=run.run_id)
         try:
             with notebook_model_executor().open_output(
                 run.team_id, binding.notebook_id, run.run_id, MAX_FILE_UPLOAD_SIZE_BYTES
             ) as (source, rows):
-                path = build_file_upload_s3_path(run.team_id, upload.upload_id, upload.filename)
-                with get_s3_client().open(path, "wb") as destination:
+                with get_s3_client().open(output.path, "wb") as destination:
                     written = 0
                     while chunk := source.read(1024 * 1024):
                         written += len(chunk)
@@ -188,9 +210,9 @@ def publish_notebook_model(run: ModelRun) -> int:
                             raise ValueError("The notebook output exceeds the warehouse file size limit.")
                         destination.write(chunk)
                         activity.heartbeat()
-            publish_frame(run, upload, rows)
+            publish_frame(run, rows)
         except Exception:
-            discard_replaced_upload(run.team_id, warehouse_output_url(run.team_id, upload))
+            _discard_unused_generation(output)
             raise
         return rows
 
@@ -233,4 +255,4 @@ def fail_notebook_model(failure: ModelFailure) -> None:
                 )
         notebook_model_executor().stop(run.team_id, run.run_id)
         if failed:
-            discard_replaced_upload(run.team_id, warehouse_output_url(run.team_id, _staged_upload(run.run_id)))
+            _discard_unused_generation(NotebookModelGeneration(team_id=run.team_id, generation=run.run_id))

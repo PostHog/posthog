@@ -51,8 +51,8 @@ from products.data_modeling.backend.temporal.activities.get_dag_structure import
 from products.data_modeling.backend.temporal.activities.notebook_model import (
     ModelFailure,
     ModelRun,
+    NotebookModelGeneration,
     PreparedNotebookModel,
-    RetiredNotebookUpload,
 )
 from products.data_modeling.backend.temporal.tests.recorded_metrics import (
     REQUEST_TO_FINISH_METRIC,
@@ -613,7 +613,7 @@ class MockNotebookRunWorkflow:
 @temporal_workflow.defn(name="data-modeling-retire-notebook-upload")
 class MockRetireNotebookUploadWorkflow:
     @temporal_workflow.run
-    async def run(self, _upload: RetiredNotebookUpload) -> None:
+    async def run(self, _upload: NotebookModelGeneration) -> None:
         pass
 
 
@@ -736,18 +736,18 @@ class TestExecuteDAGWorkflowWithMocks:
         if retirements:
             assert retirements[0].parent_close_policy == HistoryParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
             assert env.client.data_converter.payload_converter.from_payloads(
-                retirements[0].input.payloads, [RetiredNotebookUpload]
-            ) == [RetiredNotebookUpload(team_id=1, generation=previous)]
+                retirements[0].input.payloads, [NotebookModelGeneration]
+            ) == [NotebookModelGeneration(team_id=1, generation=previous)]
         assert _mock_workflow_calls == [upstream, "transform", "publish", "failed" if publish_fails else consumer]
         assert result.skipped_nodes == int(publish_fails)
         assert result.failed_nodes == int(publish_fails)
 
     async def test_retires_the_previous_upload_after_one_day(self):
-        upload = RetiredNotebookUpload(team_id=1, generation=uuid.uuid4())
-        removed: list[RetiredNotebookUpload] = []
+        upload = NotebookModelGeneration(team_id=1, generation=uuid.uuid4())
+        removed: list[NotebookModelGeneration] = []
 
         @temporal_activity.defn(name="remove_retired_notebook_upload")
-        async def remove(retired: RetiredNotebookUpload) -> None:
+        async def remove(retired: NotebookModelGeneration) -> None:
             removed.append(retired)
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
