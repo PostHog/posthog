@@ -1,0 +1,113 @@
+.AdventFlowStage {
+    --advent-flow-sheet: var(--color-bg-primary);
+    --advent-flow-dot: color-mix(in oklab, var(--color-black) 43%, var(--color-white));
+    --advent-flow-edge: var(--border-bold);
+    --advent-flow-edge-walked: var(--color-text-secondary);
+
+    position: relative;
+    flex: 1 1 0;
+    min-height: 20rem;
+    overflow: hidden;
+    background-color: var(--advent-flow-sheet);
+    background-image: radial-gradient(circle, var(--advent-flow-dot) 0.9px, transparent 1px);
+    background-position: var(--advent-flow-dot-x) var(--advent-flow-dot-y);
+    background-size: var(--advent-flow-dot-gap) var(--advent-flow-dot-gap);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+}
+
+[theme='dark'] .AdventFlowStage {
+    --advent-flow-sheet: color-mix(in oklab, var(--color-black) 92%, var(--color-white));
+    --advent-flow-dot: color-mix(in oklab, var(--color-black) 53%, var(--color-white));
+}
+
+.AdventFlowStage__track {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.AdventFlowStage__track--column {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: none;
+}
+
+.AdventFlowStage__canvas {
+    position: absolute;
+    transform-origin: top left;
+}
+
+.AdventFlowEdges__edge {
+    fill: none;
+    stroke: var(--advent-flow-edge);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+}
+
+.AdventFlowEdges__edge--walked {
+    stroke: var(--advent-flow-edge-walked);
+    stroke-width: 2;
+}
+
+.AdventFlowEdges__edge--future {
+    opacity: 0.55;
+}
+
+.AdventFlowEdges__pill {
+    color: var(--color-text-primary);
+    transform: translate(-50%, -50%);
+}
+
+.AdventFlowEdges__pill--future {
+    opacity: 0.75;
+}
+
+.AdventFlowStep__tile {
+    background: var(--color-bg-surface-primary);
+}
+
+.AdventFlowStep__tile--faded {
+    border-color: var(--border-bold) !important;
+    opacity: 0.55;
+}
+
+.AdventFlowStep__tile:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 4px;
+}
+
+.AdventFlowStep__end {
+    font-size: 1.75rem;
+}
+
+.AdventFlowStep__end--trigger {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+.AdventFlowStep__end--exit {
+    color: var(--color-text-secondary);
+    border-color: var(--border-bold);
+}
+
+.AdventFlowStep__end--rows.AdventFlowStep__end--trigger {
+    border-top-left-radius: 1.75rem;
+    border-bottom-left-radius: 1.75rem;
+}
+
+.AdventFlowStep__end--rows.AdventFlowStep__end--exit {
+    border-top-right-radius: 1.75rem;
+    border-bottom-right-radius: 1.75rem;
+}
+
+.AdventFlowStep__end--column.AdventFlowStep__end--trigger {
+    border-top-left-radius: 1.75rem;
+    border-top-right-radius: 1.75rem;
+}
+
+.AdventFlowStep__end--column.AdventFlowStep__end--exit {
+    border-bottom-right-radius: 1.75rem;
+    border-bottom-left-radius: 1.75rem;
+}
