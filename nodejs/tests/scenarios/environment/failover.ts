@@ -382,8 +382,8 @@ export async function failOver({
             manifest.readerMaxAcu ?? refuse(`the run manifest names no maximum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
-        const query = {
-            Id: 'acu',
+        const queryOf = (Id: string, Stat: string): object => ({
+            Id,
             MetricStat: {
                 Metric: {
                     Namespace: 'AWS/RDS',
@@ -391,16 +391,16 @@ export async function failOver({
                     Dimensions: [{ Name: 'DBInstanceIdentifier', Value: reader }],
                 },
                 Period: 60,
-                Stat: 'Average',
+                Stat,
             },
-        }
+        })
         const from = until - 2 * CAPACITY_MINUTES * MINUTE_MS
         const answer = await required(
             aws.call([
                 'cloudwatch',
                 'get-metric-data',
                 '--metric-data-queries',
-                JSON.stringify([query]),
+                JSON.stringify([queryOf('acu', 'Average'), queryOf('peak', 'Maximum')]),
                 '--start-time',
                 new Date(from).toISOString(),
                 '--end-time',
@@ -410,15 +410,18 @@ export async function failOver({
             ])
         )
         let sorted: { at: number; acu: number }[] = []
+        let peaks = new Map<number, number>()
         try {
-            sorted = seriesOf(answer, {
-                ids: ['acu'],
+            const { acu, peak } = seriesOf(answer, {
+                ids: ['acu', 'peak'],
                 from,
                 to: until,
                 periodMs: MINUTE_MS,
                 floor,
                 subject: () => `${reader}'s capacity read`,
-            }).acu.map(({ at, value }) => ({ at, acu: value }))
+            })
+            sorted = acu.map(({ at, value }) => ({ at, acu: value }))
+            peaks = new Map(peak.map(({ at, value }) => [at, value]))
         } catch (error) {
             refuse(messageOf(error))
         }
@@ -440,7 +443,15 @@ export async function failOver({
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
         // No reader reaches past its maximum, so a reading above it is bad evidence even for a warm reader.
-        const over = minutes.filter(({ acu }) => acu > ceiling)
+        const unpeaked = minutes.filter(({ at }) => !peaks.has(at))
+        if (unpeaked.length > 0) {
+            refuse(
+                `${reader}'s capacity read has no maximum for ${unpeaked.map(({ at }) => new Date(at).toISOString()).join(', ')}`
+            )
+        }
+        const over = minutes
+            .map(({ at, acu }) => ({ at, acu: Math.max(acu, peaks.get(at)!) }))
+            .filter(({ acu }) => acu > ceiling)
         if (over.length > 0) {
             refuse(
                 `${reader} was above its ${ceiling} ACU maximum in its last ${CAPACITY_MINUTES} minutes: ${over.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`

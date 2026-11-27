@@ -56,17 +56,15 @@ const answeringCapacity = (cloud: FakeCloud, answerOf: (asked: CapacityAnswer) =
 
 const idleAnswer = ({ minutes }: CapacityAnswer, fields: Record<string, unknown> = {}): unknown => ({
     Messages: [],
-    MetricDataResults: [
-        {
-            Id: 'acu',
-            Label: 'ServerlessDatabaseCapacity',
-            Timestamps: minutes.map((at) => new Date(at).toISOString().replace('.000Z', '+00:00')),
-            Values: minutes.map(() => 1),
-            StatusCode: 'Complete',
-            Messages: [],
-            ...fields,
-        },
-    ],
+    MetricDataResults: ['acu', 'peak'].map((Id) => ({
+        Id,
+        Label: 'ServerlessDatabaseCapacity',
+        Timestamps: minutes.map((at) => new Date(at).toISOString().replace('.000Z', '+00:00')),
+        Values: minutes.map(() => 1),
+        StatusCode: 'Complete',
+        Messages: [],
+        ...fields,
+    })),
 })
 
 const failOverOn = (run: Run, overrides: Partial<FailoverOptions> = {}) =>
