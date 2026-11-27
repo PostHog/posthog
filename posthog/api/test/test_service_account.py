@@ -95,21 +95,23 @@ class TestServiceAccountAPI(APIBaseTest):
         user.refresh_from_db()
         assert user.first_name != "Changed"
 
-    @parameterized.expand(
-        [
-            ("email", "changed@example.com"),
-            ("type", "human"),
-            ("level", OrganizationMembership.Level.OWNER),
-            ("is_active", False),
-            ("is_staff", True),
-            ("password", "not-a-real-password"),
-            ("organization_id", "00000000-0000-0000-0000-000000000000"),
-        ]
-    )
-    def test_rejects_identity_and_permission_fields(self, field, value) -> None:
-        payload = {"name": "Changed", field: value}
-        assert self.client.post(self.url, payload).status_code == 400
-        assert self.client.patch(f"{self.url}{self.account.uuid}/", payload).status_code == 400
+    def test_rejects_identity_and_permission_fields(self) -> None:
+        forbidden_fields = {
+            "email": "changed@example.com",
+            "type": "human",
+            "level": OrganizationMembership.Level.OWNER,
+            "is_active": False,
+            "is_staff": True,
+            "password": "not-a-real-password",
+            "organization_id": "00000000-0000-0000-0000-000000000000",
+        }
+        payload = {"name": "Changed", **forbidden_fields}
+        user_count = User.objects.count()
+        for method, url in [("post", self.url), ("patch", f"{self.url}{self.account.uuid}/")]:
+            response = getattr(self.client, method)(url, payload)
+            assert response.status_code == 400
+            assert response.json()["detail"] == "Only the name can be set."
+        assert User.objects.count() == user_count
         self.account.refresh_from_db()
         assert self.account.first_name == "Deploy"
 
