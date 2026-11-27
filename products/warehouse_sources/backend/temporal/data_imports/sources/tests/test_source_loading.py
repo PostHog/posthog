@@ -101,6 +101,16 @@ def test_get_source_imports_only_the_requested_source(empty_registry):
     assert SourceRegistry._loaded is False
 
 
+def test_is_registered_imports_only_the_requested_source(empty_registry):
+    with (
+        patch(f"{_SOURCES}.load_source", side_effect=_register_fake_pypi_source),
+        patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
+    ):
+        assert SourceRegistry.is_registered(ExternalDataSourceType.PYPI) is True
+
+    assert SourceRegistry._loaded is False
+
+
 def test_get_source_falls_back_to_the_full_load_when_the_single_import_registers_nothing(empty_registry):
     with (
         patch(f"{_SOURCES}.load_source"),
