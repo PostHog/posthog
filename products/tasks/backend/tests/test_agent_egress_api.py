@@ -186,6 +186,26 @@ class TestAgentEgressRegistrationAPI(BaseTest):
         self.assertEqual(response.status_code, expected)
         self.assertNotIn(GIT_GRANT_CONTRACT["token"], response.content.decode())
 
+    @parameterized.expand([("127.0.0.1", 200), ("::1", 200), ("10.0.0.2", 403), ("", 403)])
+    @override_settings(SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"), TRUST_ALL_PROXIES=True)
+    def test_git_grant_requires_local_tls_transport(self, peer: str, expected: int) -> None:
+        self._publish_git_grant()
+        response = self.client.get(
+            self.url + "/git_read_grant/",
+            headers={
+                **self._git_headers(),
+                "X-Forwarded-Proto": "https",
+                "X-Forwarded-For": "127.0.0.1",
+                "X-Real-IP": "127.0.0.1",
+                "Forwarded": "for=127.0.0.1;proto=https",
+            },
+            REMOTE_ADDR=peer,
+        )
+        self.assertEqual(response.status_code, expected, response.content)
+        self.assertEqual(response["Cache-Control"], "no-store")
+        if expected != 200:
+            self.assertNotIn(GIT_GRANT_CONTRACT["token"], response.content.decode())
+
     def test_git_grant_requires_separate_key_https_and_available_registry(self) -> None:
         self._publish_git_grant()
         url = self.url + "/git_read_grant/"

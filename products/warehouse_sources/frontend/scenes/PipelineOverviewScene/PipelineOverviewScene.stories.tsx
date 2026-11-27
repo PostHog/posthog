@@ -63,8 +63,6 @@ const ROWS_STATS = {
     billing_period_start: '2026-09-01T00:00:00Z',
     billing_period_end: '2026-10-01T00:00:00Z',
     total_rows: 48200000,
-    tracked_billing_rows: 46000000,
-    pending_billing_rows: 2200000,
     materialized_rows_in_billing_period: 1200000,
     breakdown_of_rows_by_source: {},
 }

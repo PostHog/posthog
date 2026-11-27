@@ -861,6 +861,7 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_rerun_mode?: 'first_message' | 'until_team_reply' | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
     ai_context_account_property_ids?: string[] | null
@@ -4808,6 +4809,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** False on an instance that runs no batch exports, where their API is absent. */
+    batch_exports_enabled?: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean
@@ -5775,9 +5778,11 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
 // Scopes that wait on Slack app review. Only DEV and local development request them, because the
 // US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
-// Empty while no scope waits on review. Keep it for the next scope that needs review.
 /** @schemaEnum */
-export enum SlackIntegrationScopeInReview {}
+export enum SlackIntegrationScopeInReview {
+    USERGROUPS_READ = 'usergroups:read',
+    EMOJI_READ = 'emoji:read',
+}
 
 export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)
 
@@ -8133,8 +8138,6 @@ export interface DataWarehouseSourceRowCount {
     billing_period_start: string
     materialized_rows_in_billing_period: number
     total_rows: number
-    tracked_billing_rows: number
-    pending_billing_rows: number
 }
 
 export interface DataWarehouseActivityRecord {

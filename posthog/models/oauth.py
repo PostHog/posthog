@@ -1,3 +1,4 @@
+import re
 import copy
 import enum
 import uuid
@@ -40,6 +41,7 @@ from posthog.models.utils import (
     mask_key_value,
 )
 from posthog.scopes.catalog import translate_renamed_scopes
+from posthog.security.url_validation import browser_host
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -107,6 +109,18 @@ OIDC_SIGNING_KEY_MISSING_MESSAGE = (
     "OAuth is not set up on this PostHog instance. "
     "Ask the instance admin to set the OIDC_RSA_PRIVATE_KEY environment variable to an RSA private key in PEM format."
 )
+
+
+# No character here is special in a URL path, so a browser requests "<callback><client_id>/" as written.
+_PROXY_CALLBACK_CLIENT_ID = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def proxy_callbacks_on_host_of(uri: str) -> list[str]:
+    """The OAuth proxy callbacks served by the host that a browser sends this URI to."""
+    host = browser_host(uri)
+    if host is None:
+        return []
+    return [callback for callback in settings.OAUTH_PROXY_CALLBACK_URLS if browser_host(callback) == host]
 
 
 def oidc_signing_key_configured() -> bool:
@@ -513,6 +527,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
 
+            proxy_callbacks = proxy_callbacks_on_host_of(uri)
+            if proxy_callbacks and uri not in proxy_callbacks:
+                raise ValidationError(
+                    {
+                        "redirect_uris": f"Redirect URI {uri} is reserved for the PostHog OAuth proxy. Use your own callback URL."
+                    }
+                )
+
             # RFC 8252 Section 7.1 private-use scheme redirects (e.g. com.example.app:/oauth)
             # are authority-less by design; django-oauth-toolkit validator rejects them solely for lacking a host.
             # Everything else goes through validator unchanged.
@@ -623,6 +645,20 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.authorization_grant_type == self.GRANT_DEVICE_CODE and not self.is_verified:
             return False
         return super().allows_grant_type(*grant_types)
+
+    def redirect_uri_allowed(self, uri: str) -> bool:
+        proxy_callbacks = proxy_callbacks_on_host_of(uri)
+        if not proxy_callbacks:
+            return super().redirect_uri_allowed(uri)
+        # Exact strings only: django-oauth-toolkit's parsed comparison lets other spellings through.
+        # Each client reaches only its own "<callback><client_id>/", so the proxy can route a code by
+        # path to the client it was issued to.
+        registered = [callback for callback in proxy_callbacks if callback in self.redirect_uris.split()]
+        if uri in registered:
+            return True
+        return _PROXY_CALLBACK_CLIENT_ID.fullmatch(self.client_id) is not None and uri in {
+            f"{callback}{self.client_id}/" for callback in registered
+        }
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""

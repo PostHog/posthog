@@ -204,6 +204,34 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             if s.session_id == sid
         } == expected
 
+    @parameterized.expand([("on", True, {"reported"}), ("off", False, {"reported", "quiet", "praised"})])
+    def test_feedback_only_keeps_sessions_with_a_missing_capability_report(
+        self, _name: str, feedback_only: bool, expected: set[str]
+    ) -> None:
+        by_name = {name: str(uuid7()) for name in ("reported", "quiet", "praised")}
+        for session_id in by_name.values():
+            self._seed_session(session_id, ["query_run"])
+        _create_event(
+            team=self.team,
+            event="$mcp_missing_capability",
+            distinct_id="anon_seed",
+            timestamp=datetime.now(tz=UTC) - timedelta(minutes=1),
+            properties={"$session_id": by_name["reported"]},
+        )
+        _create_event(
+            team=self.team,
+            event="$mcp_feedback",
+            distinct_id="anon_seed",
+            timestamp=datetime.now(tz=UTC) - timedelta(minutes=1),
+            properties={"$session_id": by_name["praised"], "$mcp_feedback_type": "praise"},
+        )
+        flush_persons_and_events()
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0, feedback_only=feedback_only)
+
+        returned = {s.session_id for s in page.results}
+        assert {name for name, session_id in by_name.items() if session_id in returned} == expected
+
     @parameterized.expand(
         [
             ("property_filter", _tool_name_filter("query_run"), False, {"kept"}),

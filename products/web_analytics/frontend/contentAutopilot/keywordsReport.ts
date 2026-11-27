@@ -1,7 +1,14 @@
-import type { AEOKeywordModifierApi, ModifierKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOKeywordModifierApi,
+    AEOKeywordReportRowApi,
+    ModifierKindEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 // Matches the backend cap, so the form can say how many keywords are left before a request fails.
 export const MAX_KEYWORDS = 200
+// A share over fewer answers than this moves by 20 points or more with each new answer, so the report
+// table shows the count of answers instead of the share.
+export const MIN_RATED_ANSWERS = 5
 // A modifier whose answers cite the site this many points less often than all answers is a content gap.
 export const CITATION_GAP_POINTS = 0.1
 // Rates are floats, so 0.5 - 0.4 comes out a hair under 0.1 and would miss the threshold it sits on.
@@ -63,3 +70,47 @@ export const isCitationGap = (
     modifier.cited_rate !== null &&
     baselineCitedRate !== null &&
     baselineCitedRate - modifier.cited_rate >= CITATION_GAP_POINTS - RATE_EPSILON
+
+export interface SampledRate {
+    rate: number | null
+    sample: number
+}
+
+export type ReportRateKey = 'visibility' | 'searched' | 'searched_cited' | 'prompt_mention' | 'prompt_cited'
+
+export const reportRate = (row: AEOKeywordReportRowApi, key: ReportRateKey, totalAnswers: number): SampledRate => {
+    switch (key) {
+        case 'visibility':
+            return { rate: row.answer_mention_rate, sample: row.answer_checks }
+        case 'searched':
+            return { rate: row.searched_rate, sample: totalAnswers }
+        case 'searched_cited':
+            return { rate: row.searched_cited_rate, sample: row.searched_checks }
+        case 'prompt_mention':
+            return { rate: row.prompt_mention_rate, sample: row.prompt_checks }
+        case 'prompt_cited':
+            return { rate: row.prompt_cited_rate, sample: row.prompt_checks }
+    }
+}
+
+export const isRated = (sampled: SampledRate): sampled is SampledRate & { rate: number } =>
+    sampled.rate !== null && sampled.sample >= MIN_RATED_ANSWERS
+
+/**
+ * Orders rated shares by value and keeps the unrated ones (no answers, or fewer than MIN_RATED_ANSWERS)
+ * after them. LemonTable multiplies the result by `order`, so the unrated half is pre-multiplied to stay
+ * last whichever way the column sorts. Among unrated rows, more answers come first.
+ */
+export const compareSampledRates =
+    (order: 1 | -1) =>
+    (a: SampledRate, b: SampledRate): number => {
+        const ratedA = isRated(a)
+        const ratedB = isRated(b)
+        if (ratedA && ratedB) {
+            return a.rate - b.rate
+        }
+        if (ratedA !== ratedB) {
+            return order * (ratedA ? -1 : 1)
+        }
+        return order * (b.sample - a.sample)
+    }

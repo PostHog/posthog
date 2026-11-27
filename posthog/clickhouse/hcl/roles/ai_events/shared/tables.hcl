@@ -2,7 +2,7 @@ database "posthog" {
   table "_ai_events_data" {
     abstract = true
     extend = "_ai_events_columns"
-    order_by     = ["team_id", "trace_id", "timestamp"]
+    order_by     = ["team_id", "trace_id", "timestamp", "uuid"]
     partition_by = "toYYYYMM(drop_date)"
     ttl          = "drop_date"
     settings = {

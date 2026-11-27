@@ -98,9 +98,6 @@ MAX_DISTINCT_SCAN_WINDOWS = 50
 # the recording at all is decided per request in the view, so neither kind of revocation waits
 # for expiry. That keeps invalidation out of a path whose only job is to cut latency.
 SESSION_CONTEXT_CACHE_TTL = 10 * 60
-# Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
-# extra session widens the grouped scans; anything larger should arrive as separate batches.
-MAX_SESSION_CONTEXT_BATCH = 20
 # Each distinct recording day in a batch runs its own set of scans, so ids scattered across
 # many days would fan one throttled HTTP request out into dozens of ClickHouse queries. The
 # most recent days win (recordings lists sort by recency); sessions beyond the budget are

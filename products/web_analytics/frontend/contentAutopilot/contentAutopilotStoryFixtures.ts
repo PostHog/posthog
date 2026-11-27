@@ -14,29 +14,8 @@ import type {
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
-    ContentAutopilotSiteProfileApi,
+    AEOSetupContextApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
-
-export const EXAMPLE_PROFILE: ContentAutopilotSiteProfileApi = {
-    id: '00000000-0000-4000-8000-000000000001',
-    name: 'Example docs',
-    domain: 'https://docs.example.com',
-    source_urls: ['https://docs.example.com/sitemap.xml'],
-    content_boundaries: ['/docs'],
-    brand_rules: ['Use sentence case for headings'],
-    search_console_enabled: true,
-    created_at: '2026-08-26T12:00:00Z',
-    updated_at: '2026-08-26T12:00:00Z',
-}
-
-export const EXAMPLE_SECOND_PROFILE: ContentAutopilotSiteProfileApi = {
-    ...EXAMPLE_PROFILE,
-    id: '00000000-0000-4000-8000-000000000002',
-    name: 'Example blog',
-    domain: 'https://blog.example.com',
-    source_urls: ['https://blog.example.com/sitemap.xml'],
-    content_boundaries: ['/blog'],
-}
 
 const EXAMPLE_PROMPT: AEOPromptApi = {
     id: '00000000-0000-4000-8000-000000000301',
@@ -1036,5 +1015,26 @@ export const EXAMPLE_PROMPT_SET_SOURCES_RESPONSE = {
         ['community.example.org', 590, 0.24, 0],
         ['docs.example.net', 402, 0.163, 0],
         ['news.example.io', 233, 0.095, 0],
+    ],
+}
+
+export const EXAMPLE_SETUP_CONTEXT: AEOSetupContextApi = {
+    websites: [{ domain: 'hedgebox.net', source: 'own_brand', pageviews: null }],
+    own_domains: ['hedgebox.net'],
+    active_prompts: 20,
+    max_active_prompts: 100,
+    paused_prompts: 0,
+    keywords: 18,
+    has_checks: true,
+    checks_running: false,
+    ai_data_processing_approved: true,
+    first_run_available: true,
+    prompt_target: 20,
+    prompt_count_max: 50,
+    website_days: 7,
+    first_run_checks: [],
+    engines: [
+        { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+        { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
     ],
 }

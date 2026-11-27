@@ -2,8 +2,10 @@ import { rewriteEmaSetupEndpointInResponse } from '@/handlers/ema'
 import { type Region, proxyOrigin } from '@/lib/constants'
 import { type SigningKeyEnv } from '@/lib/idtoken'
 import {
+    type ClientMapping,
     getCallbackRedirectUri,
     getClientMapping,
+    getCodeRoute,
     getRegionSelection,
     putRegionSelection,
     resolveMappingRewrite,
@@ -31,9 +33,11 @@ const SINGLE_VALUE_TOKEN_PARAMS = [
  * OAuth Token Exchange — proxy to the correct region.
  *
  * Routes the token exchange to the correct regional PostHog server.
- * Region is determined by KV lookup on client_id (stored during the authorize step).
- * For refresh_token grants, we fall back to try-both since the client may not
- * have gone through our authorize flow.
+ * An authorization code is routed by the region recorded for that code when the proxy
+ * forwarded its callback. Otherwise the region comes from the KV selection on client_id
+ * (stored during the authorize step). That selection is shared by every user of a client,
+ * so for refresh_token grants it is only a first guess: a rejection there is retried in the
+ * other region. Refreshes with no selection at all fall back to try-both.
  */
 export async function handleToken(request: Request, kv: KVNamespace, env: SigningKeyEnv): Promise<Response> {
     const body = await request.text()
@@ -41,12 +45,14 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
     const contentType = request.headers.get('content-type') || ''
     let clientId: string | null = null
     let grantType: string | null = null
+    let code: string | null = null
 
     if (contentType.includes('application/json')) {
         try {
             const json = JSON.parse(body) as Record<string, unknown>
             clientId = (json.client_id as string) || null
             grantType = (json.grant_type as string) || null
+            code = typeof json.code === 'string' ? json.code : null
         } catch {
             return errorResponse(
                 { error: 'invalid_request', error_description: 'Malformed JSON body' },
@@ -61,9 +67,10 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         }
         clientId = formParams.get('client_id')
         grantType = formParams.get('grant_type')
+        code = formParams.get('code')
     }
 
-    const response = await routeToken(request, kv, body, clientId, grantType)
+    const response = await routeToken(request, kv, body, clientId, grantType, code)
 
     if (grantType === JWT_BEARER_GRANT_TYPE) {
         // An ID-JAG exchange returns an access token and no ID token, so it has nothing to re-issue.
@@ -96,7 +103,8 @@ async function routeToken(
     kv: KVNamespace,
     body: string,
     clientId: string | null,
-    grantType: string | null
+    grantType: string | null,
+    code: string | null
 ): Promise<Response> {
     const clientIdPrefix = clientId?.slice(0, 8) ?? 'none'
 
@@ -125,6 +133,33 @@ async function routeToken(
         return response
     }
 
+    if (grantType === 'authorization_code' && code) {
+        const route = await getCodeRoute(kv, code)
+        // A route is only trusted for the client whose flow recorded it, so a callback replayed
+        // with another flow's nonce cannot steer someone else's code to the other region.
+        if (route && route.client_id === clientId) {
+            const proxyCallbackUrl = `${new URL(request.url).origin}/oauth/callback/`
+            const response = await proxyWithMapping(rebuild(), kv, clientId, route.region, {
+                from: route.redirect_uri,
+                to: proxyCallbackUrl,
+            })
+            console.info(
+                JSON.stringify({
+                    handler: 'token',
+                    grant_type: grantType,
+                    client_id_prefix: clientIdPrefix,
+                    region_source: 'code',
+                    region: route.region,
+                    status: response.status,
+                })
+            )
+            if (response.ok && clientId) {
+                await putRegionSelection(kv, clientId, route.region)
+            }
+            return response
+        }
+    }
+
     // Look up region by client_id (stored during the authorize step)
     if (clientId) {
         const region = await getRegionSelection(kv, clientId)
@@ -147,6 +182,21 @@ async function routeToken(
                     region,
                 })
             )
+            // The selection is shared by every user of this client, so it may name the other user's
+            // region. A refresh token is useless to the region that didn't issue it, so retrying a
+            // rejected refresh in the other region is safe and recovers from that.
+            if (grantType === 'refresh_token') {
+                const mapping = await getClientMapping(kv, clientId)
+                if (mapping) {
+                    const other: Region = region === 'us' ? 'eu' : 'us'
+                    return tryMappedRegions(rebuild, kv, clientId, mapping, [region, other], {
+                        grantType,
+                        clientIdPrefix,
+                        source: 'kv_then_other',
+                    })
+                }
+            }
+
             const response = await proxyWithMapping(rebuild(), kv, clientId, region, redirectUriRewrite)
             console.info(
                 JSON.stringify({
@@ -192,85 +242,11 @@ async function routeToken(
     if (clientId) {
         const mapping = await getClientMapping(kv, clientId)
         if (mapping) {
-            let bestFailure: Response | null = null
-
-            for (const candidateRegion of ['us', 'eu'] as Region[]) {
-                const rewrite = resolveMappingRewrite(mapping, candidateRegion)
-                if (!rewrite) {
-                    continue
-                }
-
-                console.info(
-                    JSON.stringify({
-                        handler: 'token',
-                        grant_type: grantType,
-                        client_id_prefix: clientIdPrefix,
-                        region_source: 'mapping_try_both',
-                        candidate_region: candidateRegion,
-                    })
-                )
-
-                const response = await proxyPostWithClientId(
-                    rebuild(),
-                    candidateRegion,
-                    '/oauth/token/',
-                    clientId,
-                    rewrite.regionalClientId,
-                    undefined,
-                    rewrite.clientSecretRewrite
-                )
-
-                if (response.ok) {
-                    // Re-store the region so subsequent refreshes take the fast path
-                    await putRegionSelection(kv, clientId, candidateRegion)
-
-                    console.info(
-                        JSON.stringify({
-                            handler: 'token',
-                            grant_type: grantType,
-                            client_id_prefix: clientIdPrefix,
-                            region_source: 'mapping_try_both',
-                            resolved_region: candidateRegion,
-                            status: response.status,
-                        })
-                    )
-                    return response
-                }
-
-                bestFailure = bestFailure ? preferClientError(bestFailure, response) : response
-            }
-
-            if (bestFailure) {
-                console.error(
-                    JSON.stringify({
-                        handler: 'token',
-                        grant_type: grantType,
-                        client_id_prefix: clientIdPrefix,
-                        region_source: 'mapping_try_both',
-                        resolved_region: 'none',
-                        status: bestFailure.status,
-                    })
-                )
-                return bestFailure
-            }
-
-            console.error(
-                JSON.stringify({
-                    handler: 'token',
-                    grant_type: grantType,
-                    client_id_prefix: clientIdPrefix,
-                    region_source: 'mapping_try_both',
-                    resolved_region: 'none',
-                    error: 'no_region_candidates',
-                })
-            )
-            return new Response(
-                JSON.stringify({
-                    error: 'invalid_request',
-                    error_description: 'Unable to determine region',
-                }),
-                { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
-            )
+            return tryMappedRegions(rebuild, kv, clientId, mapping, ['us', 'eu'], {
+                grantType,
+                clientIdPrefix,
+                source: 'mapping_try_both',
+            })
         }
     }
 
@@ -329,4 +305,63 @@ async function proxyWithMapping(
     // No mapping found — proxy directly (client_id may already be regional)
     const { response } = await tryBothRegions(request, '/oauth/token/')
     return response
+}
+
+async function tryMappedRegions(
+    rebuild: () => Request,
+    kv: KVNamespace,
+    clientId: string,
+    mapping: ClientMapping,
+    order: Region[],
+    log: { grantType: string | null; clientIdPrefix: string; source: string }
+): Promise<Response> {
+    const base = {
+        handler: 'token',
+        grant_type: log.grantType,
+        client_id_prefix: log.clientIdPrefix,
+        region_source: log.source,
+    }
+    let bestFailure: Response | null = null
+
+    for (const candidateRegion of order) {
+        const rewrite = resolveMappingRewrite(mapping, candidateRegion)
+        if (!rewrite) {
+            continue
+        }
+
+        console.info(JSON.stringify({ ...base, candidate_region: candidateRegion }))
+
+        const response = await proxyPostWithClientId(
+            rebuild(),
+            candidateRegion,
+            '/oauth/token/',
+            clientId,
+            rewrite.regionalClientId,
+            undefined,
+            rewrite.clientSecretRewrite
+        )
+
+        if (response.ok) {
+            // Re-store the region so subsequent refreshes take the fast path
+            await putRegionSelection(kv, clientId, candidateRegion)
+            console.info(JSON.stringify({ ...base, resolved_region: candidateRegion, status: response.status }))
+            return response
+        }
+
+        bestFailure = bestFailure ? preferClientError(bestFailure, response) : response
+    }
+
+    if (bestFailure) {
+        console.error(JSON.stringify({ ...base, resolved_region: 'none', status: bestFailure.status }))
+        return bestFailure
+    }
+
+    console.error(JSON.stringify({ ...base, resolved_region: 'none', error: 'no_region_candidates' }))
+    return new Response(
+        JSON.stringify({
+            error: 'invalid_request',
+            error_description: 'Unable to determine region',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+    )
 }

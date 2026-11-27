@@ -43,7 +43,7 @@ Product = Literal[
     "warehouse_semantic_enrichment",
     "warehouse_custom_source_builder",
     "web_analytics",
-]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
+]
 
 
 def team_distinct_id(team_id: int) -> str:
@@ -83,22 +83,6 @@ def private_scout_gateway(api_key: str) -> Iterator[None]:
         _private_scout_gateway_token.reset(token)
 
 
-def get_llm_client(product: Product) -> OpenAI:
-    """Get an OpenAI-compatible client for the internal LLM gateway."""
-    if _private_scout_gateway_token.get() is not None:
-        raise GatewayNotConfiguredError("Scout trials require the Go AI gateway")
-    gateway_url = settings.LLM_GATEWAY_URL
-    api_key = settings.LLM_GATEWAY_API_KEY
-    if not gateway_url or not api_key:
-        raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
-
-    return OpenAI(
-        base_url=f"{gateway_url.rstrip('/')}/{product}/v1",
-        api_key=api_key,
-        http_client=httpx.Client(trust_env=False),
-    )
-
-
 def _gateway_misconfig(url: str, api_key: str) -> str | None:
     """Return a reason string if the gateway env is half-applied or malformed, else None."""
     if not (url and api_key):
@@ -118,9 +102,8 @@ class AIGatewayConfig:
 def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     """Return the validated AIGatewayConfig for the internal Go ai-gateway, or None.
 
-    None when neither env var is set, and ALSO when the config is half-applied or the URL is
-    malformed: that logs a warning and returns None, and the ``build_*`` helpers then raise
-    GatewayNotConfiguredError.
+    None when neither env var is set, and also when the config is half-applied or the URL is
+    malformed, which logs a warning. Callers that need a client raise GatewayNotConfiguredError on None.
     """
     trial_token = _private_scout_gateway_token.get()
     if trial_token is not None:
@@ -159,8 +142,8 @@ def resolve_https_ai_gateway_config() -> AIGatewayConfig | None:
 def _ai_property_headers(**labels: str | None) -> dict[str, str] | None:
     """Build the ``X-PostHog-Properties`` header from caller labels, dropping unset ones.
 
-    The slugless Go gateway reads event labels only from this JSON blob, not from the
-    ``x-posthog-property-<key>`` per-header form the Python gateway accepts. Don't use a
+    The Go gateway reads event labels only from this JSON blob and ignores
+    ``x-posthog-property-<key>`` headers. Don't use a
     ``$ai_`` prefix on a key: the gateway strips those as reserved. Returns None when no
     label is set so the client sends no properties header.
     """
@@ -198,8 +181,7 @@ def ai_gateway_headers(
     return headers or None
 
 
-# Mirrors the namespace in services/llm-gateway/src/llm_gateway/callbacks/posthog.py. Both must
-# stay equal or a team's trace id changes with whichever gateway serves it.
+# Changing it changes every team's trace id, splitting their generations across two traces.
 _TEAM_TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 
 
@@ -266,9 +248,9 @@ def build_openai_client(
 ) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway.
 
-    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. The slugless
-    Go gateway derives the team from its ``phs_`` bearer. ``ai_product`` tags the captured generation
-    through both the typed product header and the legacy property.
+    The gateway derives the team from its ``phs_`` bearer. ``ai_product`` tags the captured generation
+    through both the typed product header and the ``X-PostHog-Properties`` blob. Raises
+    GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed.
     trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = _require_ai_gateway_config()
@@ -320,7 +302,7 @@ def build_ai_gateway_openai_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
 ) -> OpenAI:
-    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``); no Python-gateway fallback."""
+    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``)."""
     url = settings.AI_GATEWAY_URL
     if not url:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
@@ -351,20 +333,17 @@ def build_async_anthropic_client(
 ) -> AsyncAnthropic:
     """Return a raw Anthropic client routed through the internal Go ai-gateway.
 
-    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed.
-    ``ai_product`` rides on both ``X-PostHog-Product`` and the legacy ``X-PostHog-Properties`` JSON
-    blob. The ``ai_stage`` and ``team_id`` labels use only the blob because the Go gateway ignores
-    the ``x-posthog-property-<key>`` per-header form.
+    ``ai_product`` rides on both ``X-PostHog-Product`` and the ``X-PostHog-Properties`` JSON blob;
+    ``ai_stage`` and ``team_id`` ride on the blob only.
     ``team_id`` is the customer team the generation is attributed to (the usage report reads it as
     a property); it does not change the event's owning project, which the gateway derives from the
     ``phs_`` bearer. The Anthropic SDK appends ``/v1/messages``, so the client gets the gateway
-    root rather than the ``/v1`` OpenAI base.
-
-    The Go gateway fails over to Bedrock on its own via the host breaker. trust_env=False keeps the
-    in-cluster call off the egress proxy.
+    root rather than the ``/v1`` OpenAI base. The gateway fails over to Bedrock on its own.
 
     An attributed call also carries ``X-PostHog-Trace-Id``. Callers can supply a per-operation
     ``trace_id`` and custom ``properties``; otherwise the trace falls back to :func:`team_trace_id`.
+    Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed.
+    trust_env=False keeps the in-cluster call off the egress proxy.
     """
     gateway = _require_ai_gateway_config()
     labels = dict(properties or {})
@@ -418,7 +397,7 @@ def build_anthropic_client(
     team_id: int | None = None,
     privacy_mode: bool = False,
 ) -> Anthropic:
-    """Build a native Anthropic client for synchronous Django worker code.
+    """Build a native Anthropic client on the Go ai-gateway for synchronous Django worker code.
 
     Raises GatewayNotConfiguredError when the Go ai-gateway pair is unset or malformed. ``privacy_mode`` keeps
     the request and response out of the generation the gateway captures. The Anthropic SDK appends

@@ -43,14 +43,15 @@ class PersonaFanout:
 
 @dataclass(frozen=True, kw_only=True)
 class PersonaChildList:
-    """A list endpoint Persona only serves for one parent at a time, via a required parent filter.
+    """A list endpoint Persona only serves for one parent at a time.
 
-    Each parent from the list walk gets its own paginated `GET {path}?filter[{parent_filter}]=<id>`.
+    Each parent from the list walk gets its own paginated request: `GET {path}?filter[{parent_filter}]=<id>`
+    when the parent goes in a filter, or `GET {path}` with `{parent_id}` in the path filled in.
     """
 
     path: str
-    parent_filter: str
     parent_key: str
+    parent_filter: Optional[str] = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -157,6 +158,40 @@ PERSONA_ENDPOINTS: dict[str, PersonaEndpointConfig] = {
         name="inquiry_sessions",
         path="/inquiry-sessions",
         supports_incremental=False,
+        should_sync_default=False,
+    ),
+    # Lists (blocklists and allowlists) take only a status filter, so they are full refresh.
+    "lists": PersonaEndpointConfig(
+        name="lists",
+        path="/lists",
+        supports_incremental=False,
+    ),
+    # `/devices` requires `filter[inquiry-session-id]`, so this walks the inquiry sessions and lists
+    # each one's devices. One device can show up in many sessions, which is the repeat-signup signal,
+    # so the session id is part of the key. Off by default: it costs one request per session.
+    "devices": PersonaEndpointConfig(
+        name="devices",
+        path="/inquiry-sessions",
+        child_list=PersonaChildList(
+            path="/devices",
+            parent_filter="inquiry-session-id",
+            parent_key="inquiry-session-id",
+        ),
+        supports_incremental=False,
+        partition_key=None,
+        primary_keys=["inquiry_session_id", "id"],
+        should_sync_default=False,
+    ),
+    # The runs and reviewer actions of each report. Entries are not JSON:API objects, and only some
+    # entry types carry `created-at`, so the table is not partitioned. Off by default: it costs one
+    # request per report.
+    "report_history": PersonaEndpointConfig(
+        name="report_history",
+        path="/reports",
+        child_list=PersonaChildList(path="/reports/{parent_id}/history", parent_key="report-id"),
+        supports_incremental=False,
+        partition_key=None,
+        primary_keys=["report_id", "id"],
         should_sync_default=False,
     ),
 }

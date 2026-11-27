@@ -96,6 +96,20 @@ def get_free_historical_rows_synced_by_team(begin: datetime, end: datetime) -> l
     return _by_team(jobs)
 
 
+def get_rows_synced_for_team(team_id: int, begin: datetime, end: datetime) -> int:
+    """Every row one team's completed billable jobs synced in the period, free or paid.
+
+    Counts the same jobs as both meters together, once per destination, so it matches the
+    report even for a job that started before `begin`.
+    """
+    total = (
+        _completed_billable_jobs(begin, end)
+        .filter(team_id=team_id)
+        .aggregate(total=Sum(F("rows_synced") * billable_destination_multiplier()))["total"]
+    )
+    return total or 0
+
+
 def get_destination_bytes_exported_by_team(begin: datetime, end: datetime) -> list:
     """Egress to external destinations, per team, for the completed billable jobs in the period.
 
