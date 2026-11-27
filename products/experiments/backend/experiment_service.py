@@ -2202,7 +2202,7 @@ class ExperimentService:
         )
         if feature_flag is None or feature_flag.deleted or feature_flag.archived:
             return
-        if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
+        if feature_flag.experiment_set.deleted_is_false().filter(archived=False).exclude(id=experiment.id).exists():
             return
 
         can_edit = user_can_edit_flag(feature_flag, team=self.team, user=self.user)
@@ -4487,7 +4487,7 @@ class ExperimentService:
             base_name = f"{source_experiment.name} (Copy)"
             clone_name = base_name
             counter = 1
-            while Experiment.objects.filter(team_id=target.id, name=clone_name, deleted=False).exists():
+            while Experiment.objects.for_team(target.id).deleted_is_false().filter(name=clone_name).exists():
                 clone_name = f"{base_name} {counter}"
                 counter += 1
 
@@ -5105,7 +5105,7 @@ class ExperimentService:
         previous_30d_start = today - timedelta(days=60)
         previous_30d_end = last_30d_start
 
-        base_queryset = Experiment.objects.filter(team=self.team, deleted=False, archived=False)
+        base_queryset = Experiment.objects.on_exact_team(self.team.id).deleted_is_false().filter(archived=False)
 
         launched_last_30d = base_queryset.filter(
             start_date__gte=last_30d_start, start_date__lt=today + timedelta(days=1)
