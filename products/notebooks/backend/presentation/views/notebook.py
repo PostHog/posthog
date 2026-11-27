@@ -38,7 +38,7 @@ from posthog.hogql.direct_connection import (
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.pagination import offset_page_links
+from posthog.api.pagination import DefaultLimitOffsetPagination, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
@@ -74,7 +74,11 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
-from products.notebooks.backend.facade.app_delivery import change_app_view_grant, revoke_app_view_grants
+from products.notebooks.backend.facade.app_delivery import (
+    active_view_grants,
+    change_app_view_grant,
+    revoke_app_view_grants,
+)
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
     read_published_run_rows,
@@ -146,6 +150,7 @@ from products.notebooks.backend.presentation.app_serializers import (
     update_app_revision,
 )
 from products.notebooks.backend.presentation.app_view_access import (
+    ActiveAppViewGrantSerializer,
     AppViewGrantRequestSerializer,
     AppViewGrantResultSerializer,
 )
@@ -932,13 +937,40 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def app_view_grants(self, request: Request, **kwargs) -> Response:
         notebook = self.get_object()
-        if not notebook_app_builder_enabled(request.user, notebook.team):
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
             raise Http404()
         self._require_app_sharing_access()
         data = AppViewGrantRequestSerializer(data=request.data)
         data.is_valid(raise_exception=True)
-        result = change_app_view_grant(notebook.team_id, notebook.pk, **data.validated_data)
+        result = change_app_view_grant(
+            notebook.team_id,
+            notebook.pk,
+            actor=request.user,
+            was_impersonated=is_impersonated(request),
+            **data.validated_data,
+        )
         return Response(AppViewGrantResultSerializer(result).data)
+
+    @extend_schema(responses=ActiveAppViewGrantSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="app_view_grants/active",
+        required_scopes=["notebook:read", "sharing_configuration:read"],
+    )
+    def active_app_view_grants(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not isinstance(request.user, User) or not notebook_app_builder_enabled(request.user, notebook.team):
+            raise Http404()
+        self._require_app_sharing_access()
+        pagination = DefaultLimitOffsetPagination()
+        limit = pagination.get_limit(request) or 10
+        offset = pagination.get_offset(request)
+        count, grants = active_view_grants(notebook.team_id, notebook.pk, offset=offset, limit=limit)
+        links = offset_page_links(
+            request, offset=offset, limit=limit, next_offset=offset + limit if offset + limit < count else None
+        )
+        return Response({"count": count, **links, "results": ActiveAppViewGrantSerializer(grants, many=True).data})
 
     @extend_schema(responses=NotebookAppReleaseSerializer)
     @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])

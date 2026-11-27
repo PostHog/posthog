@@ -6609,6 +6609,13 @@ export namespace Schemas {
       active_version: AppVersionContract;
     }
 
+    export interface ActiveAppViewGrant {
+      recipient_uuid: string;
+      email: string;
+      revision: number;
+      expires_at: string;
+    }
+
     /**
      * * `not_started` - not_started
      * * `queued` - queued
@@ -17089,7 +17096,14 @@ export namespace Schemas {
 
     export interface AppViewGrantRequest {
       /** Email address of the project member who can open the published output. */
-      email: string;
+      email?: string;
+      /** Current recipient to revoke, even if their email changed. */
+      recipient_uuid?: string;
+      /**
+         * The displayed release to share. Required when granting access.
+         * @minimum 1
+         */
+      revision?: number;
       /** Remove this member's access to every revision of this app. */
       revoke?: boolean;
     }
@@ -81817,6 +81831,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AccountTrackRuleRunView[];
+    }
+
+    export interface PaginatedActiveAppViewGrantList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ActiveAppViewGrant[];
     }
 
     export interface PaginatedActivityLogList {
@@ -150766,6 +150789,18 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksAppViewGrantsActiveListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    short_id?: string;
     };
 
     export type NotebooksSqlV2RunsRetrieveParams = {

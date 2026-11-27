@@ -7,6 +7,8 @@ from django.utils import timezone
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant
@@ -44,7 +46,9 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.management = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/app_view_grants/"
 
     def grant(self) -> str:
-        response = self.client.post(self.management, {"email": self.recipient.email}, format="json")
+        response = self.client.post(
+            self.management, {"email": self.recipient.email, "revision": self.release.revision}, format="json"
+        )
         assert response.status_code == 200, response.content
         return response.json()["url"]
 
@@ -88,3 +92,83 @@ class TestNotebookAppViewAccess(APIBaseTest):
         response = self.client.post(self.management, {"email": self.recipient.email, "revoke": True}, format="json")
         assert response.status_code == 200
         assert not NotebookAppViewGrant.objects.for_team(self.team.pk).filter(release=self.release).exists()
+        events = ActivityLog.objects.filter(team_id=self.team.pk, scope="Notebook", item_id=self.notebook.short_id)
+        details = [
+            entry.detail["changes"][0]
+            for entry in events
+            if entry.detail.get("changes") and entry.detail["changes"][0]["field"] == "app_view_grant"
+        ]
+        assert any(change.get("after") == {"recipient": self.recipient.email, "revision": 1} for change in details)
+        assert any(change.get("before") == {"recipient": self.recipient.email, "revision": 1} for change in details)
+
+    def test_admin_can_find_and_revoke_a_member_after_their_email_changes(self) -> None:
+        url = self.grant()
+        self.recipient.email = "renamed@example.com"
+        self.recipient.save(update_fields=["email"])
+        response = self.client.get(self.management + "active/")
+        assert response.status_code == 200, response.content
+        grants = response.json()["results"]
+        assert len(grants) == 1
+        assert grants[0]["email"] == self.recipient.email
+        request = {"recipient_uuid": grants[0]["recipient_uuid"], "revoke": True}
+        assert self.client.post(self.management, request, format="json").status_code == 200
+        assert self.client.post(self.management, request, format="json").status_code == 404
+        self.client.force_login(self.recipient)
+        assert self.client.get(url).status_code == 404
+        assert self.client.get(self.management + "active/").status_code == 403
+
+    def test_authorized_repeat_reads_reuse_the_pinned_projection(self) -> None:
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        self.assertContains(self.client.get(url), "222")
+        with patch(
+            "products.notebooks.backend.app_delivery.app_output_tabs", side_effect=AssertionError("unexpected reparse")
+        ):
+            self.assertContains(self.client.get(url), "222")
+        denied = BucketDecision(allowed=False, remaining=0, limit=1, retry_after=4, reset=4)
+        with patch("products.notebooks.backend.app_delivery.consume", return_value=denied):
+            response = self.client.get(url)
+            assert response.status_code == 429
+            assert response.headers["Retry-After"] == "4"
+
+    def test_grant_matches_the_release_the_admin_reviewed(self) -> None:
+        self.release.revision = 2
+        self.release.save(update_fields=["revision"])
+        request = {"email": self.recipient.email, "revision": 1}
+        assert self.client.post(self.management, request, format="json").status_code == 400
+        assert not NotebookAppViewGrant.objects.for_team(self.team.pk).exists()
+
+    def test_org_security_policies_also_apply_to_app_only_output(self) -> None:
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        for field in ("is_active", "is_pending_deletion", "enforce_2fa", "enforce_verified_domains"):
+            with self.subTest(field=field):
+                old = getattr(self.organization, field)
+                setattr(self.organization, field, field != "is_active")
+                self.organization.save(update_fields=[field])
+                assert self.client.get(url).status_code == 403
+                setattr(self.organization, field, old)
+                self.organization.save(update_fields=[field])
+
+    def test_chart_fallback_uses_pinned_rows_and_marks_an_incomplete_preview(self) -> None:
+        self.release.markdown = '<SQLV2 nodeId="totals" code="SELECT 1" runId="published" result={{"columns":["period","count","private_note"],"first_page":[["Nov",1,"hidden"]],"row_count":2,"previewOnly":true}} />'
+        self.release.sql_rows = {"published": [["Nov", 1, "hidden"], ["Dec", 2, "hidden"]]}
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertContains(output, "Dec")
+        self.assertNotContains(output, "private_note")
+        self.assertNotContains(output, "Only part")
+        self.release = NotebookAppRelease.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            revision=2,
+            title=self.release.title,
+            layout=self.release.layout,
+            markdown=self.release.markdown,
+        )
+        self.client.force_login(self.user)
+        partial_url = self.grant()
+        self.client.force_login(self.recipient)
+        self.assertContains(self.client.get(partial_url), "Only part")

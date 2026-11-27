@@ -38,6 +38,7 @@ import type {
     NotebookSQLV2RunResponseApi,
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
+    NotebooksAppViewGrantsActiveListParams,
     NotebooksListParams,
     NotebooksSqlV2RunsPageRetrieveParams,
     NotebooksSqlV2RunsRetrieveParams,
@@ -45,6 +46,7 @@ import type {
     NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
     NotebooksWidgetVersionsParams,
+    PaginatedActiveAppViewGrantListApi,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
     ReusableWidgetAttachRequestApi,
@@ -543,7 +545,7 @@ export const getNotebooksAppViewGrantsCreateUrl = (projectId: string, shortId: s
 export const notebooksAppViewGrantsCreate = async (
     projectId: string,
     shortId: string,
-    appViewGrantRequestApi: AppViewGrantRequestApi,
+    appViewGrantRequestApi?: AppViewGrantRequestApi,
     options?: RequestInit
 ): Promise<AppViewGrantResultApi> => {
     return apiMutator<AppViewGrantResultApi>(getNotebooksAppViewGrantsCreateUrl(projectId, shortId), {
@@ -552,6 +554,44 @@ export const notebooksAppViewGrantsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(appViewGrantRequestApi),
     })
+}
+
+export const getNotebooksAppViewGrantsActiveListUrl = (
+    projectId: string,
+    shortId: string,
+    params?: NotebooksAppViewGrantsActiveListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/app_view_grants/active/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/app_view_grants/active/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppViewGrantsActiveList = async (
+    projectId: string,
+    shortId: string,
+    params?: NotebooksAppViewGrantsActiveListParams,
+    options?: RequestInit
+): Promise<PaginatedActiveAppViewGrantListApi> => {
+    return apiMutator<PaginatedActiveAppViewGrantListApi>(
+        getNotebooksAppViewGrantsActiveListUrl(projectId, shortId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getNotebooksCollabMarkdownSaveCreateUrl = (projectId: string, shortId: string) => {

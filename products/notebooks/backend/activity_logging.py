@@ -7,10 +7,10 @@ module-scope imports reach the kernel runtime and the tasks sandbox (modal SDK).
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.user import User
-from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook
 
@@ -18,7 +18,7 @@ from products.notebooks.backend.models import Notebook
 def log_notebook_activity(
     activity: str,
     notebook: Notebook,
-    organization_id: UUIDT,
+    organization_id: UUID,
     team_id: int,
     user: User,
     was_impersonated: bool,

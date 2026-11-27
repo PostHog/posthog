@@ -47,9 +47,8 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
             id__in=run_refs.values(),
             node_type=NotebookNodeRun.NodeType.HOGQL,
             status=NotebookNodeRun.Status.DONE,
-            envelope__has_more=True,
         )
-        .only("id", "team_id", "notebook_id", "node_id", "node_type", "status", "created_at")
+        .only("id", "team_id", "notebook_id", "node_id", "node_type", "status", "created_at", "envelope")
         .order_by("node_id")
     )
     captured: dict[str, list[list[Any]]] = {}
@@ -58,9 +57,15 @@ def capture_published_sql_rows(notebook: Notebook, markdown: str, layout: dict[s
         key = str(run.pk)
         if key != run_refs[run.node_id]:
             continue
-        rows = read_published_run_rows(run.team_id, run.notebook_id, run.id)
-        if rows is None:
-            rows = sync_direct_run(run)
+        envelope = run.envelope or {}
+        if envelope.get("has_more"):
+            rows = read_published_run_rows(run.team_id, run.notebook_id, run.id)
+            if rows is None:
+                rows = sync_direct_run(run)
+        else:
+            rows = envelope.get("first_page")
+            if not isinstance(rows, list) or len(rows) <= 5:
+                continue
         if rows is None:
             continue
         size = len(json.dumps({key: rows}, ensure_ascii=False, allow_nan=False).encode())

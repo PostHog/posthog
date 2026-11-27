@@ -1000,7 +1000,14 @@ export interface NotebookAppReleaseApi {
 
 export interface AppViewGrantRequestApi {
     /** Email address of the project member who can open the published output. */
-    email: string
+    email?: string
+    /** Current recipient to revoke, even if their email changed. */
+    recipient_uuid?: string
+    /**
+     * The displayed release to share. Required when granting access.
+     * @minimum 1
+     */
+    revision?: number
     /** Remove this member's access to every revision of this app. */
     revoke?: boolean
 }
@@ -1016,6 +1023,22 @@ export interface AppViewGrantResultApi {
      * @nullable
      */
     expires_at: string | null
+}
+
+export interface ActiveAppViewGrantApi {
+    recipient_uuid: string
+    email: string
+    revision: number
+    expires_at: string
+}
+
+export interface PaginatedActiveAppViewGrantListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ActiveAppViewGrantApi[]
 }
 
 export interface NotebookCollabCursorApi {
@@ -1974,6 +1997,18 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksAppViewGrantsActiveListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
 }
 
 export type NotebooksSqlV2RunsRetrieveParams = {

@@ -66,7 +66,7 @@ export function PublishedNotebookAppControls({
                     <LemonButton size="small" to={urls.notebook(shortId) + '?view=builder'}>
                         App builder
                     </LemonButton>
-                    <NotebookAppAccess project={viewer.project} shortId={shortId} />
+                    <NotebookAppAccess project={viewer.project} shortId={shortId} revision={release.revision} />
                 </>
             )}
             <LemonButton
