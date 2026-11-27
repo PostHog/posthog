@@ -27,11 +27,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
-from products.experiments.backend.recalculation import (
+from products.experiments.backend.recalculation.admission import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
     RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
-    RUN_ENTRY_HIDDEN_MESSAGE,
 )
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_HIDDEN_MESSAGE
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalculation.logic import (
     _calculate_experiment_metric_for_recalculation_sync,
@@ -307,7 +307,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         if timeseries_point:
             self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
         run = self._run_in_state(exp, run_status) if run_status is not None else None
-        sync_execute = "products.experiments.backend.recalculation.sync_execute"
+        sync_execute = "products.experiments.backend.recalculation.query_progress.sync_execute"
         progress_read = (
             mock.patch(sync_execute, side_effect=live_progress)
             if isinstance(live_progress, Exception)
@@ -421,19 +421,31 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch(
-        "products.experiments.backend.temporal.recalculation.dispatch.sync_connect",
-        side_effect=RuntimeError("temporal down"),
-    )
+    @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
     @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
         # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
         # The DRF test client converts the exception into a 500 response rather than propagating it.
+        transport_error = ConnectionError("bridge down")
+
+        def fail_connect() -> None:
+            # Like the Temporal client, which raises its own error while it handles a transport error.
+            try:
+                raise transport_error
+            except ConnectionError:
+                raise RuntimeError("temporal down")
+
+        mock_connect.side_effect = fail_connect
         exp = self._launched_experiment()
-        resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
+        with mock.patch("posthog.exceptions.capture_exception", return_value=None) as reported:
+            resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
+        # Error tracking reports the dispatch error's own type and exception chain.
+        reported_error = reported.call_args.args[0]
+        assert type(reported_error) is RuntimeError
+        assert reported_error.__context__ is transport_error
 
     @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.sync_connect")
     @mock.patch("products.experiments.backend.temporal.recalculation.dispatch.asyncio.run")

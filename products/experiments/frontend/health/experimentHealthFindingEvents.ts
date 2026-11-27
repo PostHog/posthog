@@ -52,6 +52,7 @@ export type ExperimentHealthFindingCode =
     | 'new_flag_no_traffic'
     | 'early_significance'
     | 'metrics_not_matured'
+    | 'result_ready'
     | 'flag_shared'
     | 'stale_experiment'
 

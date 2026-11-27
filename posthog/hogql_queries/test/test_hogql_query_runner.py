@@ -747,19 +747,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestHogQLQueryRunnerRangeFreshness(BaseTest):
     @parameterized.expand(
         [
-            ("week_range_outlives_the_minute_rule", True, "-7d", timedelta(minutes=10), False),
-            ("week_range_expires_on_the_day_rule", True, "-7d", timedelta(hours=7), True),
-            ("hour_range_keeps_the_minute_rule", True, "-1h", timedelta(minutes=10), True),
-            ("day_range_uses_the_hour_rule", True, "-1d", timedelta(minutes=30), False),
-            ("year_range_uses_the_week_rule", True, "-180d", timedelta(hours=12), False),
-            ("absolute_range_keeps_the_minute_rule", True, "2026-10-01", timedelta(minutes=10), True),
-            ("overflowing_range_keeps_the_minute_rule", True, "-1000000d", timedelta(minutes=10), True),
-            ("outside_the_batch_keeps_the_minute_rule", False, "-7d", timedelta(minutes=10), True),
+            ("week_range_outlives_the_minute_rule", True, "-7d", timedelta(minutes=10), False, "day"),
+            ("week_range_expires_on_the_day_rule", True, "-7d", timedelta(hours=7), True, "day"),
+            ("hour_range_keeps_the_minute_rule", True, "-1h", timedelta(minutes=10), True, "minute"),
+            ("day_range_uses_the_hour_rule", True, "-1d", timedelta(minutes=30), False, "hour"),
+            ("year_range_uses_the_week_rule", True, "-180d", timedelta(hours=12), False, "week"),
+            ("absolute_range_keeps_the_minute_rule", True, "2026-10-01", timedelta(minutes=10), True, None),
+            ("overflowing_range_keeps_the_minute_rule", True, "-1000000d", timedelta(minutes=10), True, None),
+            ("outside_the_batch_keeps_the_minute_rule", False, "-7d", timedelta(minutes=10), True, None),
         ]
     )
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
     def test_relative_range_sets_staleness_only_under_range_based_freshness(
-        self, _name: str, in_batch: bool, date_from: str, age: timedelta, expected_stale: bool
+        self,
+        _name: str,
+        in_batch: bool,
+        date_from: str,
+        age: timedelta,
+        expected_stale: bool,
+        expected_interval: str | None,
     ) -> None:
         query = HogQLQuery(query="select 1", filters=HogQLFilters(dateRange=DateRange(date_from=date_from)))
         if in_batch:
@@ -774,6 +780,7 @@ class TestHogQLQueryRunnerRangeFreshness(BaseTest):
             runner.cache_target_age(last_refresh)
             == last_refresh + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
         )
+        assert runner._runner_event_properties().get("range_freshness_interval") == expected_interval
 
 
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):

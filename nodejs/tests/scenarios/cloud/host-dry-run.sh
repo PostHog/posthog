@@ -10,6 +10,7 @@ input=$(cd "$1" && pwd)
 work=$(mkdir -p "$2" && cd "$2" && pwd)
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 run_id=$(jq -r .runId "$input/manifest.json")
+manifest_sha256=$(sha256sum <"$input/manifest.json" | cut -d' ' -f1)
 engine=$(sed -n 's/^engineVersion: "\([0-9]*\)\..*/\1/p' "$input/cloud-profile.yaml")
 name=scenario-dry-run-$$
 bootstrap=$work/host-bootstrap.head.sh
@@ -262,4 +263,5 @@ docker run -d --name "$name-db" --network "$name" --network-alias cluster --netw
     >/dev/null
 docker run --name "$name-host" --platform "$platform" --network "$name" --dns "$upstream" --privileged -v "$name-docker:/var/lib/docker" \
     -e RUN_ID="$run_id" -e CARD_SECONDS="$card_seconds" -e DRY_RUN_DB_PASSWORD="$password" \
+    -e SCENARIO_INPUT_MANIFEST_SHA256="$manifest_sha256" \
     -v "$work:/dry-run" ubuntu:24.04 bash /dry-run/host.sh 2>&1 | tee "$work/host.log"

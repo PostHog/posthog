@@ -225,4 +225,86 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             associations="Object types the field can be used on, and whether it is required on each.",
         ),
     },
+    "Sequences": {
+        "description": "An outbound sequence (workflow): a series of automated email, call and SMS steps run on its subscribers.",
+        "docs_url": "https://developer.close.com/api/resources/sequences/",
+        "columns": _columns(
+            name="The sequence's name.",
+            status="Whether the sequence is active or paused.",
+            steps="Ordered steps of the sequence, each with its type, delay in seconds and email template id.",
+            schedule="Sending schedule of the sequence, or null to send at any time.",
+            timezone="Time zone the sending schedule uses.",
+            created_by_id="ID of the user who created the sequence.",
+            updated_by_id="ID of the user who last updated the sequence.",
+        ),
+    },
+    "SequenceSubscriptions": {
+        "description": "The enrollment of one contact in a sequence, with its current state.",
+        "docs_url": "https://developer.close.com/api/resources/sequences/",
+        "columns": _columns(
+            sequence_id="ID of the sequence the contact is enrolled in.",
+            contact_id="ID of the enrolled contact.",
+            contact_email="Email address the sequence sends to.",
+            lead_id="ID of the lead the contact belongs to.",
+            status="State of the subscription: active, paused, finished, goal or error.",
+            status_reason="Why the subscription has its current status, for example reply-received.",
+            start_date="Time at which the subscription is scheduled to start, if set.",
+            sender_account_id="ID of the connected email account that sends the sequence emails.",
+            sender_email="Email address the sequence sends from.",
+            sender_name="Sender name on the sequence emails.",
+            calls_assigned_to="IDs of the users or groups that get the call steps.",
+            created_by_id="ID of the user who created the subscription.",
+            updated_by_id="ID of the user who last updated the subscription.",
+        ),
+    },
+    "CustomObjectTypes": {
+        "description": (
+            "A custom object type defined by the organization, with its custom fields. Resolves the "
+            "custom_object_type_id and custom.cf_* keys on CustomObjects rows."
+        ),
+        "docs_url": "https://developer.close.com/api/resources/custom-object-types/",
+        "columns": _columns(
+            name="The custom object type's name.",
+            name_plural="Plural form of the name.",
+            description="Free-form description of the custom object type.",
+            fields="Custom fields that belong to the custom object type.",
+            back_reference_fields="Custom fields on other objects that reference this custom object type.",
+            api_create_only="Whether instances can be created only through the API.",
+            editable_with_roles="Roles allowed to edit instances. Empty means every role can.",
+            created_by="ID of the user who created the custom object type.",
+            updated_by="ID of the user who last updated the custom object type.",
+        ),
+    },
+    "CustomObjects": {
+        "description": "An instance of a custom object type, attached to a lead. Custom field values are in custom.cf_* columns.",
+        "docs_url": "https://developer.close.com/api/resources/custom-objects/",
+        "columns": _columns(
+            name="The custom object's name.",
+            custom_object_type_id="ID of the custom object type of this instance.",
+            lead_id="ID of the lead the custom object belongs to.",
+            created_by="ID of the user who created the custom object.",
+            updated_by="ID of the user who last updated the custom object.",
+        ),
+    },
+    "Groups": {
+        "description": "A named group of users in the organization.",
+        "docs_url": "https://developer.close.com/api/resources/groups/",
+        "columns": {
+            "id": "Unique identifier for the group.",
+            "name": "The group's name.",
+            "organization_id": "ID of the Close organization the group belongs to.",
+        },
+    },
+    "Roles": {
+        "description": "A permission role that defines what the users who have it can do in Close.",
+        "docs_url": "https://developer.close.com/api/resources/roles/",
+        "columns": {
+            "id": "Unique identifier for the role.",
+            "name": "The role's name.",
+            "permissions": "Permissions the role grants.",
+            "editable": "Whether the role can be changed. Built-in roles cannot.",
+            "visibility_user_lcf_behavior": "How lead visibility depends on user custom fields for this role.",
+            "visibility_user_lcf_ids": "IDs of the user custom fields that control lead visibility for this role.",
+        },
+    },
 }

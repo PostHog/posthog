@@ -1,0 +1,9 @@
+{% extends "email/base.html" %}
+{% block heading %}Your transcript wasn't accepted{% endblock %}
+{% block section %}
+    <p>We reviewed the transcript you uploaded for {{ organization_name }} and couldn't accept it.</p>
+    {% if review_message %}
+        <p><strong>Note from the PostHog team:</strong> {{ review_message }}</p>
+    {% endif %}
+    <p>We delete the file you uploaded {{ retention_days }} days after upload.</p>
+{% endblock %}

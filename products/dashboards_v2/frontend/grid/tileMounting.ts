@@ -1,6 +1,6 @@
 import { type RefObject, createContext, useContext, useEffect, useState } from 'react'
 
-import { scrollParentOf } from './scrollParent'
+import { scrollParentOf } from './drag/scrollParent'
 
 /** How far past the scrolled view a tile still counts as in range, so a scroll finds it already drawn. */
 const OVERSCAN_PX = 800
@@ -14,9 +14,10 @@ const PER_FRAME_WHILE_SCROLLING = 2
  * leaves. New tiles mount a few at a time, nearest the middle of the view first: every frame while the page scrolls, and
  * when the browser is idle otherwise.
  */
-export interface TileMountScheduler {
+export type TileMountScheduler = {
     /** Calls `onMountedChange` when `element` should mount or unmount its content. Returns the stop function. */
     observe: (element: Element, onMountedChange: (mounted: boolean) => void) => () => void
+    settled: () => boolean
     dispose: () => void
 }
 
@@ -25,6 +26,7 @@ const ALWAYS_MOUNTED: TileMountScheduler = {
         onMountedChange(true)
         return () => {}
     },
+    settled: () => true,
     dispose: () => {},
 }
 
@@ -88,7 +90,6 @@ export function createTileMountScheduler(): TileMountScheduler {
     const onScroll = (): void => {
         if (!scrolling) {
             scrolling = true
-            // Swap a pending idle callback for a frame callback.
             idle?.cancel()
             idle = null
             schedule()
@@ -134,6 +135,7 @@ export function createTileMountScheduler(): TileMountScheduler {
                 mounted.delete(element)
             }
         },
+        settled: () => waiting.size === 0,
         dispose() {
             idle?.cancel()
             idle = null
@@ -156,7 +158,6 @@ export const TileMountContext = createContext<TileMountScheduler | null>(null)
 /** The tile being captured as an image. It and everything inside it mount, whatever the scheduler says. */
 export const CapturingTileContext = createContext<string | null>(null)
 
-/** Whether the tile around `ref` should mount its content now. */
 export function useTileMounted(ref: RefObject<Element>): boolean {
     const scheduler = useContext(TileMountContext)
     const [mounted, setMounted] = useState(scheduler === null)

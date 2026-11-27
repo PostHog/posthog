@@ -19,13 +19,14 @@ from products.aeo.backend.facade.contracts import (
 )
 from products.aeo.backend.models import AEOEngineSetting
 
+PERIOD_DAYS: dict[CheckFrequency, int] = {CheckFrequency.EVERY_3_DAYS: 3, CheckFrequency.WEEKLY: 7}
+
 
 @frozen
 class EngineSchedule:
-    """The engines a run uses: daily ones check every due prompt, weekly ones a seventh of the set each day."""
-
     daily: tuple[CitationEngine, ...]
     weekly: tuple[CitationEngine, ...]
+    periods: dict[str, int]
 
 
 def list_engine_settings(team_id: int) -> list[EngineSetting]:
@@ -70,7 +71,9 @@ def update_engine_setting(team_id: int, engine: str, change: EngineSettingUpdate
 def engine_schedule(team_id: int) -> EngineSchedule:
     """The engines the project runs, split by frequency, among the ones this deployment can run."""
     enabled = [setting for setting in list_engine_settings(team_id) if setting.enabled and setting.available]
+    spread = [s for s in enabled if s.frequency in PERIOD_DAYS]
     return EngineSchedule(
         daily=tuple(ENGINE_SPECS_BY_ID[s.engine].build() for s in enabled if s.frequency == CheckFrequency.DAILY),
-        weekly=tuple(ENGINE_SPECS_BY_ID[s.engine].build() for s in enabled if s.frequency == CheckFrequency.WEEKLY),
+        weekly=tuple(ENGINE_SPECS_BY_ID[s.engine].build() for s in spread),
+        periods={s.engine: PERIOD_DAYS[s.frequency] for s in spread},
     )

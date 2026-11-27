@@ -17,6 +17,16 @@ MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
 
 LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
+# Flag config keys of the deprecated `parameters` surface. The linked flag stores them: a write copies them onto the
+# flag and strips them from the column, and a read projects the flag's config back into `parameters`.
+FEATURE_FLAG_CONFIG_KEYS: tuple[str, ...] = (
+    "feature_flag_variants",
+    "rollout_percentage",
+    "aggregation_group_type_index",
+    "feature_flag_payloads",
+    "ensure_experience_continuity",
+)
+
 
 class ExposuresPath(StrEnum):
     """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a

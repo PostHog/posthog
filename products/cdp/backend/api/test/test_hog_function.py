@@ -3289,6 +3289,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             assert response.json() == {"status": "error", "errors": expected}
 
+    def test_webhook_source_saves_inputs_reading_request_variables(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "source_webhook",
+                "hog": "return {'status': 200}",
+                "inputs_schema": [{"key": "order", "type": "string", "label": "Order", "required": True}],
+                "inputs": {"order": {"value": "{variables.order_id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     # warehouse_source_webhook is intentionally omitted: it's excluded from the viewset queryset
     # entirely (see test_warehouse_source_webhook_excluded), so its rerun endpoint 404s before the
     # rerunnable-type guard is ever reached — it can't exercise the 400 this test asserts.
@@ -3676,6 +3689,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_destination_rejects_inputs_reading_workflow_variables(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{variables.ticket_number}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs__url"
+        assert response.json()["detail"] == (
+            "Invalid template: Variable not available in inputs: variables. Inputs can read event, person, "
+            "groups, project, source and inputs, and in a workflow also variables."
+        )
 
     @parameterized.expand(
         [
