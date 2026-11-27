@@ -92,14 +92,14 @@ const BRAND_DETAIL: AEOBrandDetailApi = {
         prompt(1, 'What is the best product analytics tool for a startup?', 'Product analytics', 0.62, [
             'claude-web-search',
             'openai-web-search',
-            'perplexity-sonar',
+            'perplexity-web-search',
         ]),
         prompt(2, 'Which analytics tools have a generous free tier?', 'Pricing', 0.45, ['openai-web-search']),
         prompt(3, 'How do I compare funnel analysis tools?', 'Product analytics', 0.31, [
             'claude-web-search',
             'openai-web-search',
         ]),
-        prompt(4, 'What are alternatives to a self-hosted analytics stack?', null, 0.18, ['perplexity-sonar']),
+        prompt(4, 'What are alternatives to a self-hosted analytics stack?', null, 0.18, ['perplexity-web-search']),
         prompt(5, 'Which session replay tools work with React?', 'Session replay', 0.07, ['claude-web-search']),
     ],
     cited_sites: [
@@ -157,7 +157,7 @@ const BRAND_DETAIL: AEOBrandDetailApi = {
             {
                 sentence: 'Some reviewers find Rival Analytics slow to load on large projects.',
                 sentiment: 'negative',
-                engine: 'perplexity-sonar',
+                engine: 'perplexity-web-search',
                 prompt_id: '00000000-0000-4000-8000-000000000502',
             },
         ],
@@ -197,6 +197,7 @@ const handlers = ({ notFound = false }: { notFound?: boolean } = {}): ReturnType
             },
             '/api/projects/:team_id/aeo_brands/:id/detail/': () =>
                 notFound ? [404, { detail: 'Not found.' }] : [200, BRAND_DETAIL],
+            '/api/projects/:team_id/aeo_prompts/': () => [200, { count: 0, next: null, previous: null, results: [] }],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
             '/api/projects/:team_id/aeo_engines/': () => [200, EXAMPLE_ENGINE_SETTINGS],
             '/api/projects/:team_id/aeo_setup/context/': () => [200, EXAMPLE_SETUP_CONTEXT],

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { Button, Text } from '@posthog/quill'
 import { ProportionBar } from '@posthog/quill-charts'
-import type { Series } from '@posthog/quill-charts'
+import type { ProportionBarConfig, Series } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -16,6 +16,15 @@ import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { formatShare } from './shares'
 
 const TAG_TYPES: Record<string, LemonTagType> = { positive: 'success', neutral: 'muted', negative: 'danger' }
+
+// The bar's own legend prints each share twice, as a share and as a value, so labelled chips stand in for it.
+const LEGEND_HIDDEN: ProportionBarConfig = { legend: { show: false } }
+
+const SHARES: { key: 'positive_share' | 'neutral_share' | 'negative_share'; label: string; type: LemonTagType }[] = [
+    { key: 'positive_share', label: 'Positive', type: 'success' },
+    { key: 'neutral_share', label: 'Neutral', type: 'muted' },
+    { key: 'negative_share', label: 'Negative', type: 'danger' },
+]
 
 /** How the scored answers naming a brand speak about it, with a few of their sentences. */
 export const ContentAutopilotBrandSentiment = ({
@@ -53,12 +62,28 @@ export const ContentAutopilotBrandSentiment = ({
     }
     return (
         <div className="flex flex-col gap-4" data-attr="content-autopilot-brand-sentiment">
-            <ProportionBar
-                series={series}
-                theme={theme}
-                valueFormatter={formatShare}
-                dataAttr="content-autopilot-brand-sentiment-bar"
-            />
+            <div className="flex flex-col gap-2">
+                <ProportionBar
+                    series={series}
+                    theme={theme}
+                    config={LEGEND_HIDDEN}
+                    valueFormatter={formatShare}
+                    dataAttr="content-autopilot-brand-sentiment-bar"
+                />
+                <div className="flex flex-wrap items-center gap-1" data-attr="content-autopilot-brand-sentiment-shares">
+                    {SHARES.map(({ key, label, type }) => {
+                        const share = sentiment[key]
+                        return (
+                            <AiVisibilityTag key={key} type={type}>
+                                <span className="opacity-75">{label}</span>{' '}
+                                <span className="tabular-nums" translate="no">
+                                    {share === null ? '-' : formatShare(share)}
+                                </span>
+                            </AiVisibilityTag>
+                        )
+                    })}
+                </div>
+            </div>
             {sentiment.examples.length > 0 ? (
                 <ul className="m-0 flex flex-col gap-2 p-0" data-attr="content-autopilot-brand-sentiment-examples">
                     {sentiment.examples.map((example, index) => (
