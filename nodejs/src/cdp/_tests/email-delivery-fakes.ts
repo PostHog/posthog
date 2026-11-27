@@ -186,6 +186,8 @@ export class BucketProxy {
     }
 }
 
+export const ENDPOINT_THAT_REFUSES_CONNECTIONS = 'http://127.0.0.1:1'
+
 export const sesTransportFor = (ses: Pick<FakeSes, 'endpoint'>, overrides: SesClientOptions = {}): SesTransport =>
     new SesTransport({
         region: 'us-east-1',
@@ -193,34 +195,6 @@ export const sesTransportFor = (ses: Pick<FakeSes, 'endpoint'>, overrides: SesCl
         credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
         ...overrides,
     })
-
-export type SesThatStopsListening = Pick<FakeSes, 'endpoint'> & { close: () => Promise<void> }
-
-export const sesThatRefusesConnectionsAfterItsFirstAnswer = async (ses: FakeSes): Promise<SesThatStopsListening> => {
-    const upstreamUrl = new URL(ses.endpoint)
-    const sockets = new Set<Socket>()
-    const server = createTcpServer((client) => {
-        server.close()
-        const upstream = connect(Number(upstreamUrl.port), upstreamUrl.hostname)
-        for (const socket of [client, upstream]) {
-            sockets.add(socket)
-            socket.on('error', () => undefined)
-        }
-        client.pipe(upstream)
-        upstream.pipe(client)
-        upstream.once('data', () => setTimeout(() => client.destroy(), 50))
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    return {
-        endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-        close: async () => {
-            for (const socket of sockets) {
-                socket.destroy()
-            }
-            await new Promise((resolve) => server.close(resolve))
-        },
-    }
-}
 
 export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(

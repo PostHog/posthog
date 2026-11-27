@@ -203,6 +203,8 @@ For a query that a caller can correct, set `ErrorCodeMeta.user_safe` in `posthog
 For an internal failure, add guidance to `INTERNAL_CH_ERROR_USER_MESSAGES` when the code identifies a recovery step.
 The default response gives support the registered error name or, for a newer code, its number.
 Query polling can reconstruct this guidance from the stored error code.
+For incompatible operands, the SQL editor reports the comparison operator and both input types when ClickHouse identifies them.
+Use `toTypeName(expression)` in a separate SELECT to inspect an input's type.
 
 ClickHouse can append generated SQL, storage URLs, settings, and source values to any server exception.
 Build public explanations from fixed text. When adding context, use caller-visible query metadata or a bounded set of known values.

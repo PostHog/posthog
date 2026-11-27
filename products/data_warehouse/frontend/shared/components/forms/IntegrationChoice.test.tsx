@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -10,7 +11,13 @@ import { IntegrationType } from '~/types'
 
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { authorizedIntegrationId, SourceIntegrationChoice, sourceOAuthRedirectUrl } from './IntegrationChoice'
+import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import {
+    authorizedIntegrationId,
+    hasNoConnectionToPick,
+    SourceIntegrationChoice,
+    sourceOAuthRedirectUrl,
+} from './IntegrationChoice'
 
 const integration = (id: number, kind: string): IntegrationType => ({ id, kind }) as IntegrationType
 
@@ -30,6 +37,17 @@ describe('SourceIntegrationChoice', () => {
 
     it('waits for the connection list rather than adopting an unverified id', () => {
         expect(authorizedIntegrationId({ integration_id: '7' }, null, 'linkedin-ads')).toBeNull()
+    })
+
+    it.each([
+        ['an unresolved connection list', null, 'hubspot', undefined, false],
+        ['no connections at all', [], 'hubspot', undefined, true],
+        ['only connections of other kinds', [integration(8, 'google-ads')], 'hubspot', undefined, true],
+        ['a connection of this kind', [integration(3, 'hubspot')], 'hubspot', undefined, false],
+        ['a value that points at a removed connection', [], 'hubspot', 3, false],
+        ['a kind that connects through a setup modal', [], 'postgresql', undefined, false],
+    ])('has no connection to pick given %s', (_name, integrations, kind, value, expected) => {
+        expect(hasNoConnectionToPick(integrations, kind, value)).toBe(expected)
     })
     it.each(['/data-warehouse/new-source', '/onboarding'])(
         'preserves source origin and return destination through OAuth from %s',
@@ -122,7 +140,7 @@ describe('SourceIntegrationChoice', () => {
                     <SourceIntegrationChoice sourceConfig={sourceConfig} integration={kind} />
                 </Provider>
             )
-            await screen.findByText(/^Choose .+ connection$/)
+            await screen.findByText(/^(Connect to .+|Choose .+ connection)$/)
         }
 
         // A user who isn't a GitHub org owner comes back from GitHub to this field with only a
@@ -135,6 +153,95 @@ describe('SourceIntegrationChoice', () => {
         it('keeps the request off other connect fields', async () => {
             await renderField('hubspot')
             expect(screen.queryByText('Copy message for your org owner')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('connect field', () => {
+        const hubspotConnection = {
+            id: 3,
+            kind: 'hubspot',
+            display_name: 'Synthetic portal',
+            icon_url: '',
+        } as IntegrationType
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        // Behind a "Choose ... connection" menu, users read the field as needing an existing
+        // connection and leave through "Manage integrations" instead of connecting.
+        it.each([
+            [
+                'offers the OAuth connect directly when no connection exists yet',
+                'hubspot',
+                [],
+                'Connect to Hubspot',
+                /^Choose .+ connection$/,
+                expect.stringMatching(/\/integrations\/authorize.*kind=hubspot/),
+            ],
+            [
+                'keeps the connection picker once a connection of this kind exists',
+                'hubspot',
+                [hubspotConnection],
+                /^Choose .+ connection$/,
+                'Connect to Hubspot',
+                null,
+            ],
+            // The approved-install banner carries GitHub's connect button, so a second one would duplicate it.
+            ['keeps the connection picker for GitHub', 'github', [], /^Choose .+ connection$/, /^Connect to /, null],
+        ])('%s', async (_name, kind, existing: IntegrationType[], shown, hidden, connectHref) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/integrations': { results: existing },
+                    '/api/projects/:team_id/integrations': { results: existing },
+                    '/api/users/@me/integrations/github/install_requests/': () => [
+                        200,
+                        { results: [], install_url: null },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/data-warehouse/new-source', { kind })
+            const sourceConfig = { name: kind, fields: [] } as unknown as SourceConfigResponseApi
+            render(
+                <Provider>
+                    <SourceIntegrationChoice sourceConfig={sourceConfig} integration={kind} />
+                </Provider>
+            )
+
+            expect(await screen.findByText(shown)).toBeInTheDocument()
+            expect(screen.queryByText(hidden)).not.toBeInTheDocument()
+            expect(
+                screen
+                    .queryByText(/^Connect to /)
+                    ?.closest('a')
+                    ?.getAttribute('href') ?? null
+            ).toEqual(connectHref)
+        })
+
+        it('saves the wizard state and returns to the wizard from the direct connect', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/integrations': { results: [] },
+                    '/api/projects/:team_id/integrations': { results: [] },
+                },
+            })
+            initKeaTests()
+            router.actions.push('/data-warehouse/new-source', { kind: 'Hubspot' })
+            const sourceConfig = { name: 'Hubspot', fields: [] } as unknown as SourceConfigResponseApi
+            render(
+                <Provider>
+                    <SourceIntegrationChoice sourceConfig={sourceConfig} integration="hubspot" />
+                </Provider>
+            )
+
+            const link = (await screen.findByText('Connect to Hubspot')).closest('a') as HTMLAnchorElement
+            const next = new URL(link.href).searchParams.get('next') ?? ''
+            expect(next).toContain('/data-warehouse/new-source')
+            expect(next).toContain('kind=hubspot')
+            await expectLogic(sourceWizardLogic, () => {
+                fireEvent.click(link)
+            }).toDispatchActions(['saveFormStateBeforeRedirect'])
         })
     })
 })
