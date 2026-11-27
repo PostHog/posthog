@@ -743,6 +743,11 @@ class _UserWindowScan:
         return f"SELECT person_id FROM events WHERE {self.member_scan}"
 
     @property
+    def candidate_ids_sql(self) -> str:
+        """The candidates' ids. A member event before the cutoff is the same rule as ``first_ts < cutoff_ts``."""
+        return f"{self.members_sql} AND timestamp < {self.now_expr} - toIntervalDay({{horizon}})"
+
+    @property
     def candidates_sql(self) -> str:
         """One row per candidate as ``m(person_id, first_ts, cutoff_ts)``, for a FROM clause."""
         return f"""(
@@ -1006,8 +1011,7 @@ def build_eligible_count_sql(
     or any event when the population names none) in the lookback, before the start of the
     current UTC day minus horizon_days, and passes the person-property filters.
 
-    The query reuses the labeler's member scan, so it reads no more events than the
-    labeler. It does not apply the per-user-at-T0 ``HAVING``, so it is an upper bound on
+    The query reuses the labeler's member scan, and reads the member events once. It does not apply the per-user-at-T0 ``HAVING``, so it is an upper bound on
     the training rows. The validation multiplies it by the fraction of a sampled window
     that the labeler keeps.
 
@@ -1026,21 +1030,20 @@ def build_eligible_count_sql(
         anchor_ts=None,
     )
     persons_sql = _person_rows_sql(
-        scan.members_sql,
+        scan.candidate_ids_sql,
         scan.compiled_filters.person_parts,
         select="id, argMax(is_identified, version) AS is_identified",
         identified_only=False,
     )
-    eligible_expr = "countIf(p.is_identified = 1)" if IDENTIFIED_USERS_ONLY else "count()"
+    eligible_expr = "countIf(is_identified = 1)" if IDENTIFIED_USERS_ONLY else "count()"
 
     sql = f"""
         SELECT
             {eligible_expr} AS eligible,
             count() AS eligible_all
-        FROM {scan.candidates_sql}
-        INNER JOIN ({persons_sql}) AS p ON m.person_id = p.id
+        FROM ({persons_sql})
     """
-    return sql, dict(scan.values)
+    return sql, scan.values
 
 
 def _last_scored_sql(cutoff_expr: str) -> str:
