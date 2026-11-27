@@ -378,7 +378,6 @@ export const ListRowMenuDisabledAlertOpen: Story = {
                     count: 2,
                     next: null,
                     previous: null,
-                    // An insight alert is read-only here, so the disabled alert has to be one the list can change.
                     results: [
                         CONFIGURATION,
                         {
