@@ -81,6 +81,7 @@ class AdventCalendarDoorOpenRequestSerializer(serializers.Serializer):
     hoggy = StringRegexField(
         regex=r"^[a-z0-9-]+$",
         max_length=64,
+        trim_whitespace=False,
         help_text="The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 "
         "characters.",
     )

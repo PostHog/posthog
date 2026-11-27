@@ -20,6 +20,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.rate_limit import is_rate_limit_enabled
 from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
+from posthog.test.waiting import wait_until
 
 from products.workflows.backend.facade.advent_calendar import answer_advent_calendar, open_advent_calendar_door
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
@@ -155,6 +156,7 @@ class TestAdventCalendarAPI(APIBaseTest):
             ("offset_east_of_utc_plus_14", {"day": 1, "hoggy": "hoggy-santa", "utc_offset_minutes": 841}),
             ("missing_offset", {"day": 1, "hoggy": "hoggy-santa"}),
             ("hoggy_sent_as_a_number", {"day": 1, "hoggy": 123, "utc_offset_minutes": 0}),
+            ("hoggy_padded_with_spaces", {"day": 1, "hoggy": " hoggy-santa", "utc_offset_minutes": 0}),
         ]
     )
     def test_open_rejects_a_door_hoggy_or_offset_out_of_range(self, _name: str, body: dict[str, Any]) -> None:
@@ -250,11 +252,21 @@ class TestAdventCalendarDoorOpenRace(TransactionTestCase):
                 opened.set()
                 connections.close_all()
 
+        def opener_waits_on_the_deletion() -> bool:
+            with connections["default"].cursor() as cursor:
+                cursor.execute("SELECT pg_stat_clear_snapshot()")
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "
+                    "AND datname = current_database() AND wait_event_type = 'Lock'"
+                )
+                row = cursor.fetchone()
+            return row is not None and row[0] > 0
+
         with transaction.atomic():
             racer.delete()
             opener = threading.Thread(target=open_door)
             opener.start()
-            assert not opened.wait(timeout=1)
+            wait_until(lambda: opened.is_set() or opener_waits_on_the_deletion())
         opener.join()
 
         assert results == [None]
