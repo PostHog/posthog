@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from time import perf_counter
 from typing import Any, Optional
 
@@ -18,6 +19,7 @@ from products.exports.backend.source_authentication import assert_export_authori
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_USER,
     InvalidExportContext,
+    RetryableExportError,
     classify_failure_type,
 )
 
@@ -240,15 +242,24 @@ def export_asset_direct(
         raise
 
 
+def _stopped_before_render(exported_assets: list[ExportedAsset]) -> dict[int, Exception]:
+    return {
+        exported_asset.id: RetryableExportError("The batch stopped before this asset rendered")
+        for exported_asset in exported_assets
+    }
+
+
 def export_image_assets_batched(
-    exported_assets: list[ExportedAsset], source: Optional[EventSource]
+    exported_assets: list[ExportedAsset], source: Optional[EventSource], should_stop: Callable[[], bool]
 ) -> dict[int, Exception]:
     from products.exports.backend.tasks import image_exporter
 
     batch_props = {"render_mode": "batched", "render_batch_size": len(exported_assets)}
     errors: dict[int, Exception] = {}
     warmed: list[tuple[_ExportRun, dict[int, str]]] = []
-    for exported_asset in exported_assets:
+    for index, exported_asset in enumerate(exported_assets):
+        if should_stop():
+            return {**errors, **_stopped_before_render(exported_assets[index:])}
         run = _start_export(exported_asset, source, batch_props)
         try:
             _authorize_export(run)
@@ -262,7 +273,10 @@ def export_image_assets_batched(
     with image_exporter.BrowserlessRenderSession(
         session_timeout_ms=BATCH_SESSION_TIMEOUT_MS, mode="batched"
     ) as session:
-        for run, insight_cache_keys in warmed:
+        for index, (run, insight_cache_keys) in enumerate(warmed):
+            if should_stop():
+                errors.update(_stopped_before_render([unrendered.exported_asset for unrendered, _ in warmed[index:]]))
+                break
             try:
                 image_exporter.render_image_export(run.exported_asset, insight_cache_keys, session=session)
                 _finish_export(run)

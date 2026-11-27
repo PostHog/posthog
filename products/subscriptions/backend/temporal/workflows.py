@@ -133,7 +133,7 @@ async def _export_assets_batched(asset_ids: list[int], chunk_size: int) -> list[
             temporalio.workflow.execute_activity(
                 export_assets_batch_activity,
                 ExportAssetsBatchActivityInputs(exported_asset_ids=chunk, source=EventSource.SUBSCRIPTION),
-                start_to_close_timeout=dt.timedelta(minutes=15),
+                start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
             )

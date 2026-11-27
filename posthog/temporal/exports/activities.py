@@ -1,3 +1,5 @@
+import asyncio
+import threading
 import traceback
 
 import structlog
@@ -148,10 +150,16 @@ async def export_assets_batch_activity(inputs: ExportAssetsBatchActivityInputs) 
             asset_count=len(assets),
         )
 
-        failures = await database_sync_to_async(exporter.export_image_assets_batched, thread_sensitive=False)(
-            assets,
-            source=EventSource(inputs.source) if inputs.source else None,
-        )
+        stop = threading.Event()
+        try:
+            failures = await database_sync_to_async(exporter.export_image_assets_batched, thread_sensitive=False)(
+                assets,
+                source=EventSource(inputs.source) if inputs.source else None,
+                should_stop=stop.is_set,
+            )
+        except asyncio.CancelledError:
+            stop.set()
+            raise
 
         settled: list[ExportAssetResult] = []
         for asset in assets:
