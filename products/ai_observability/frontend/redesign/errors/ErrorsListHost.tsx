@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { HTMLAttributes, useMemo } from 'react'
+import { HTMLAttributes, useCallback, useMemo } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -20,13 +20,14 @@ import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { ErrorsSetupState } from './components/ErrorsSetupState'
 import { errorsTableColumns } from './components/ErrorsTableColumns'
+import { ErrorDrawerHost } from './ErrorDrawerHost'
+import { errorDrawerLogic } from './errorDrawerLogic'
 import { errorFirstSeenLogic } from './errorFirstSeenLogic'
 import { errorNewCountLogic } from './errorNewCountLogic'
 import { ERRORS_LIST_FILTERS, errorsListLogic } from './errorsListLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
 const DATA_ATTR = 'errors-list'
-const ROW_PROPS: HTMLAttributes<HTMLTableRowElement> & { 'data-attr': string } = { 'data-attr': `${DATA_ATTR}-row` }
 
 export function ErrorsListHost(): JSX.Element {
     const {
@@ -44,6 +45,7 @@ export function ErrorsListHost(): JSX.Element {
     const { setPageIndex, setOrder, reload } = useActions(errorsListLogic)
     const { firstSeen } = useValues(errorFirstSeenLogic)
     const { newCountLoad } = useValues(errorNewCountLogic)
+    const { openError } = useActions(errorDrawerLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(ERRORS_LIST_FILTERS))
     const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearFilters } = useActions(
         listFiltersLogic(ERRORS_LIST_FILTERS)
@@ -63,6 +65,14 @@ export function ErrorsListHost(): JSX.Element {
                 'data-attr': DATA_ATTR,
             }),
         [maxOccurrences, sortedBy, setOrder, firstSeen]
+    )
+    const rowProps = useCallback(
+        (item: ErrorListItemApi): HTMLAttributes<HTMLTableRowElement> & { 'data-attr': string } => ({
+            'data-attr': `${DATA_ATTR}-row`,
+            className: 'cursor-pointer',
+            onClick: () => openError(item),
+        }),
+        [openError]
     )
 
     return (
@@ -127,7 +137,7 @@ export function ErrorsListHost(): JSX.Element {
                 rows={items}
                 rowKey={(item) => item.key}
                 refreshing={refreshing}
-                onRow={() => ROW_PROPS}
+                onRow={rowProps}
                 onPrevious={canShowPrevious ? () => setPageIndex(pageIndex - 1) : undefined}
                 onNext={canShowNext ? () => setPageIndex(pageIndex + 1) : undefined}
                 emptyState={
@@ -164,6 +174,7 @@ export function ErrorsListHost(): JSX.Element {
                 }
                 data-attr={DATA_ATTR}
             />
+            <ErrorDrawerHost />
         </div>
     )
 }
