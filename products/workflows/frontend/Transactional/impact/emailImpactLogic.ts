@@ -70,6 +70,7 @@ export interface emailImpactLogicValues {
     linkTrackingDisabledReason: string | null
     linkTrackingSave: TeamWorkflowsConfigApi | null
     linkTrackingSaveLoading: boolean
+    projectHasLinkTracking: boolean
     replayEnabled: boolean
     showsLinkTrackingPrompt: boolean
     steps: ImpactStep[] | null
@@ -142,7 +143,12 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        projectHasLinkTracking: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        linkTagging: (
+            impact: TransactionalEmailImpactApi | null,
+            projectHasLinkTracking: boolean,
+            alwaysSensitive: boolean
+        ) => LinkTagging
         linkTrackingDisabledReason: (currentTeam: TeamPublicType | TeamType | null) => string | null
         steps: (
             impact: TransactionalEmailImpactApi | null,
@@ -313,12 +319,23 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                 impactError: string | null
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
+        projectHasLinkTracking: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamPublicType | TeamType | null): boolean =>
+                currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true,
+        ],
+        // The answer says which setting its counts were made with, which this tab's copy of the project can miss
+        // when another browser tab changed it.
         linkTagging: [
-            (s) => [s.currentTeam, s.alwaysSensitive],
-            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
+            (s) => [s.impact, s.projectHasLinkTracking, s.alwaysSensitive],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                projectHasLinkTracking: boolean,
+                alwaysSensitive: boolean
+            ): LinkTagging =>
                 alwaysSensitive
                     ? 'sensitive-email'
-                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                    : (impact?.link_tagging_enabled ?? projectHasLinkTracking)
                       ? 'on'
                       : 'off',
         ],
@@ -369,6 +386,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setEvent(event)
         },
         setDays: () => actions.loadImpact(),
+        turnOnLinkTrackingSuccess: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
@@ -390,8 +408,8 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
     // Every open Impact tab counts sessions once the project turns link tracking on, whichever tab or
     // settings page turned it on.
     subscriptions(({ actions }) => ({
-        linkTagging: (linkTagging: LinkTagging, previous: LinkTagging | undefined) => {
-            if (linkTagging === 'on' && previous === 'off') {
+        projectHasLinkTracking: (hasIt: boolean, previous: boolean | undefined) => {
+            if (hasIt && previous === false) {
                 actions.loadImpact()
             }
         },

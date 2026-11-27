@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import posthog from 'posthog-js'
 
@@ -75,8 +75,11 @@ describe('ImpactFunnelCard', () => {
 
     afterEach(cleanup)
 
-    const sessionStepText = async (): Promise<string | null | undefined> =>
-        (await screen.findByText('Started a session')).closest('li')?.textContent
+    const expectSessionCount = async (count: string): Promise<void> => {
+        const step = (await screen.findByText('Started a session')).closest('li') as HTMLElement
+        expect(within(step).getByText(count)).toBeInTheDocument()
+        expect(within(step).getByText('From sends with link tracking on')).toBeInTheDocument()
+    }
 
     const renderCard = (sensitive = false): void => {
         render(
@@ -186,7 +189,7 @@ describe('ImpactFunnelCard', () => {
         answerLinkTrackingSave()
 
         expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
-        expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
+        await expectSessionCount('1')
         expect(screen.getByText('Converted')).toBeInTheDocument()
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(linkTrackingSaves).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
@@ -262,7 +265,7 @@ describe('ImpactFunnelCard', () => {
 
         expect((await screen.findAllByText(outcome))[0]).toBeInTheDocument()
         if (turnedOn) {
-            expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
+            await expectSessionCount('1')
         }
         expect(!!screen.queryByText('Converted')).toBe(turnedOn)
         expect(
@@ -341,7 +344,7 @@ describe('ImpactFunnelCard', () => {
         answerSave()
 
         expect(await screen.findByText('From sends with link tracking on')).toBeInTheDocument()
-        expect(await sessionStepText()).toBe('Started a session1From sends with link tracking on')
+        await expectSessionCount('1')
         expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
         expect(patches).toHaveLength(1)
     })

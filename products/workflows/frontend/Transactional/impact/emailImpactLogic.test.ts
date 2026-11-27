@@ -304,6 +304,51 @@ describe('emailImpactLogic', () => {
         otherLogic.unmount()
     })
 
+    it.each([
+        [
+            'counts the sessions the API counted while this tab still has the project off',
+            false,
+            { ...WITHOUT_EVENT, sessions: 3 },
+            [3, false],
+        ],
+        [
+            'offers to turn it on when the API skipped the count because the project has it off',
+            true,
+            { ...WITHOUT_EVENT, link_tagging_enabled: false },
+            [null, true],
+        ],
+    ])('follows the link tracking the API counted with: %s', async (_, teamHasItOn, impact, [sessions, offered]) => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
+        })
+        answer = [200, impact]
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const step = logic.values.steps?.find(({ key }) => key === 'session')
+        expect([step?.value ?? null, !!step?.missingFixedByLinkTagging]).toEqual([sessions, offered])
+    })
+
+    it('reloads after turning link tracking on when this tab already had the project on', async () => {
+        const team: TeamType = { ...MOCK_DEFAULT_TEAM, workflows_config: { email_workflow_run_link_tag_enabled: true } }
+        useMocks({ patch: { '/api/organizations/:organization_id/projects/:id/': () => [200, team] } })
+        initKeaTests(true, team)
+        answer = [200, { ...WITHOUT_EVENT, link_tagging_enabled: false }]
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        requestedParams = []
+        answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
+
+        logic.actions.turnOnLinkTracking()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedParams).toHaveLength(1)
+        expect(logic.values.steps?.find(({ key }) => key === 'session')?.value).toBe(3)
+    })
+
     it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
         // Jest gives each test file its own copy of process.env, so the time zone has to change on Node's process.
         const nodeProcess = runInThisContext('process') as NodeJS.Process
