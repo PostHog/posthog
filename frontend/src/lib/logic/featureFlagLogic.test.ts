@@ -70,14 +70,16 @@ describe('featureFlagLogic', () => {
             flagsAnswers: FlagsAnswer[]
             afterLoad?: (sdk: PostHog) => void
             mountAfterLoad?: boolean
+            flagErrors?: boolean
         }
 
-        function openPage({ pageFlags, flagsAnswers }: PageVisit): PostHog {
+        function openPage({ pageFlags, flagsAnswers, flagErrors }: PageVisit): PostHog {
             window.POSTHOG_USER_IDENTITY_WITH_FLAGS = {
                 distinctID: 'person-1',
                 isIdentifiedID: true,
                 featureFlags: pageFlags,
             }
+            delete window.POSTHOG_GLOBAL_ERRORS
             global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
                 if (!String(url).startsWith(`${SDK_HOST}/flags/`)) {
                     return suiteFetch(url, init)
@@ -90,7 +92,10 @@ describe('featureFlagLogic', () => {
                     return new Promise<Response>(() => {})
                 }
                 const flags = Object.entries(answer).map(([key, enabled]) => [key, { key, enabled, variant: null }])
-                return new Response(JSON.stringify({ flags: Object.fromEntries(flags) }), { status: 200 })
+                return new Response(
+                    JSON.stringify({ flags: Object.fromEntries(flags), errorsWhileComputingFlags: flagErrors }),
+                    { status: 200 }
+                )
             }) as typeof fetch
             let sdk: PostHog | undefined
             jest.isolateModules(() => {
@@ -108,6 +113,11 @@ describe('featureFlagLogic', () => {
                 capture_pageview: false,
                 disable_session_recording: true,
                 disable_surveys: true,
+            })
+            sdk.onFeatureFlags((_flags, _variants, context) => {
+                if (context?.errorsLoading) {
+                    window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
+                }
             })
             return sdk
         }
@@ -134,6 +144,7 @@ describe('featureFlagLogic', () => {
             jest.useRealTimers()
             window.localStorage.clear()
             delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+            delete window.POSTHOG_GLOBAL_ERRORS
             jest.mocked(posthog.onFeatureFlags).mockImplementation(() => () => {})
             jest.mocked(posthog.get_property).mockReset()
         })
@@ -213,6 +224,17 @@ describe('featureFlagLogic', () => {
                 {
                     pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
                     flagsAnswers: [{ [OTHER_FLAG]: true }],
+                    mountAfterLoad: true,
+                },
+                undefined,
+            ],
+            [
+                'an answer with flag errors that arrives before the app mounts wins over the page decision',
+                [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
+                {
+                    pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
+                    flagsAnswers: [{ [OTHER_FLAG]: true, [FLAG]: false }],
+                    flagErrors: true,
                     mountAfterLoad: true,
                 },
                 undefined,
