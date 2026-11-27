@@ -10,7 +10,6 @@ from django.urls import reverse
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.organization import OrganizationMembership
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -26,27 +25,7 @@ class TeamOverviewPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
-        owner = (
-            OrganizationMembership.objects.filter(
-                organization_id=obj.organization_id, level=OrganizationMembership.Level.OWNER
-            )
-            .select_related("user")
-            .order_by("joined_at")
-            .first()
-        )
         return [
-            Fact(
-                label="Owner", value=owner.user.email, href=reverse("admin_console_user", kwargs={"pk": owner.user_id})
-            )
-            if owner
-            else Fact(label="Owner", value="No owner"),
-            Fact(label="Members", value=str(obj.organization.members.count())),
-            Fact(
-                label="Project",
-                value=str(obj.project_id),
-                mono=True,
-                href=reverse("admin_console_project", kwargs={"pk": obj.project_id}),
-            ),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
             Fact(label="Timezone", value=obj.timezone),
             Fact(

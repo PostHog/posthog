@@ -20,11 +20,13 @@ from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
+from django.db import connection
 from django.db.models import PROTECT, Model
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import URLResolver, resolve
 from django.urls.exceptions import Resolver404
 from django.urls.resolvers import RegexPattern
@@ -57,6 +59,7 @@ from posthog.admin.console.panels import (
 )
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
+from posthog.admin.console.related import RELATED_PREVIEW_SIZE, RelatedRecords
 from posthog.admin.console.results import (
     CACHE_ALIAS as RESULTS_CACHE_ALIAS,
     KEY_COOKIE,
@@ -337,6 +340,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "needs a title",
             ),
             (
+                "panel_key_that_would_shadow_related_lists",
+                lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"key": "related"})),
+                "URL segment of related lists",
+            ),
+            (
                 "tool_group_outside_the_navigation",
                 lambda: ConsoleRegistry().register_tool(type("T", (_Tool,), {"group": "Misc"})),
                 "not one of",
@@ -527,6 +535,25 @@ class TestAdminConsoleContract(SimpleTestCase):
 
         assert len(facts) == expected_facts
         assert (facts[-1].label == "More limits") == mentions_more
+
+
+class TestAdminConsoleRelations(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{record_type.key}_{relation.key}", record_type.key, relation.key)
+            for record_type in RECORD_TYPES.values()
+            for relation in record_type.relations()
+        ]
+    )
+    def test_a_relation_targets_a_record_type_whose_inverse_leads_back(self, _name: str, record: str, key: str) -> None:
+        relation = RECORD_TYPES[record].relation(key)
+        assert relation is not None
+        assert relation.target in RECORD_TYPES, f"{record} relation {key!r} targets unknown {relation.target!r}"
+        if relation.inverse is None:
+            return
+        inverse = RECORD_TYPES[relation.target].relation(relation.inverse)
+        assert inverse is not None, f"{relation.target} has no relation {relation.inverse!r} back to {record}"
+        assert inverse.target == record and inverse.inverse == key
 
 
 class TestAdminConsoleTheme(SimpleTestCase):
@@ -932,16 +959,56 @@ class TestAdminConsoleViews(BaseTest):
         User.objects.create_and_join(self.organization, "bob@example.com", None, last_name="Smith")
         other = Organization.objects.create(name="Another organization")
         User.objects.create_and_join(other, "alice@other.example.com", None, first_name="Alice")
-        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
-        members_url = f"/admin/console/tools/organization-members/?organization={self.organization.pk}"
-        assert f'href="{members_url}"' in organization_page
 
         response = self.client.get(
-            "/admin/console/tools/organization-members/", {"organization": str(self.organization.pk), "search": search}
+            "/admin/console/tools/organization-members/",
+            {"organization": str(self.organization.pk), "search": search},
+            follow=True,
         )
 
+        assert response.redirect_chain[-1][0].startswith(
+            f"/admin/console/organizations/{self.organization.pk}/related/members/"
+        )
         table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
         assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
+
+    def test_every_relation_previews_the_first_rows_of_its_full_list_and_links_back(self) -> None:
+        for number in range(RELATED_PREVIEW_SIZE + 2):
+            User.objects.create_and_join(self.organization, f"member{number}@example.com", None)
+        Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        # Same name as the user's own organization, so a link that matched by name would land on the wrong one.
+        twin = Organization.objects.create(name=self.organization.name)
+        OrganizationMembership.objects.create(organization=twin, user=self.user)
+        records = {"organization": self.organization, "project": self.project, "team": self.team, "user": self.user}
+
+        for record, obj in records.items():
+            for preview in self.client.get(RECORD_TYPES[record].url(obj)).context["related"]:
+                relation = preview.relation
+                full = self.client.get(preview.all_url).context["page"]
+                table = next(block for block in full.blocks if isinstance(block, Table))
+                hrefs = [row.cells[0].href for row in table.rows if isinstance(row, Row)]
+                assert [link.href for link in preview.links] == hrefs[:RELATED_PREVIEW_SIZE], (record, relation.key)
+                assert preview.total == len(hrefs), (record, relation.key)
+                if relation.inverse is None:
+                    continue
+                for href in hrefs:
+                    back = self.client.get(f"{href}related/{relation.inverse}/").context["page"]
+                    back_table = next(block for block in back.blocks if isinstance(block, Table))
+                    back_hrefs = [row.cells[0].href for row in back_table.rows if isinstance(row, Row)]
+                    assert RECORD_TYPES[record].url(obj) in back_hrefs, (record, relation.key, href)
+
+    def test_related_previews_load_their_rows_without_a_query_per_row(self) -> None:
+        def preview_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                RelatedRecords(RECORD_TYPES["organization"], self.organization).previews()
+            return len(queries)
+
+        one_member = preview_queries()
+        for number in range(RELATED_PREVIEW_SIZE * 3):
+            User.objects.create_and_join(self.organization, f"member{number}@example.com", None)
+
+        # Past the preview size, the members relation counts the rest with one more query.
+        assert preview_queries() == one_member + 1
 
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
