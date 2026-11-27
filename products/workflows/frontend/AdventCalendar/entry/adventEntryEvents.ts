@@ -1,10 +1,22 @@
 import posthog from 'posthog-js'
+import type { MouseEvent } from 'react'
 
 import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
 
-// pinned: analytics event name, renaming it breaks the entry point dashboards
-const ENTRY_CLICKED = 'workflows advent entry clicked'
+const MIDDLE_BUTTON = 1
+
+const PINNED_ENTRY_CLICKED_EVENT = 'workflows advent entry clicked'
 
 export function reportAdventEntryClicked(entry: 'card' | 'nav-tree', nav?: CategorySuffixNav): void {
-    posthog.capture(ENTRY_CLICKED, { entry, nav })
+    posthog.capture(PINNED_ENTRY_CLICKED_EVENT, { entry, nav })
+}
+
+export function reportAdventEntryMiddleClicked(
+    event: MouseEvent<HTMLElement>,
+    entry: 'card' | 'nav-tree',
+    nav?: CategorySuffixNav
+): void {
+    if (event.button === MIDDLE_BUTTON) {
+        reportAdventEntryClicked(entry, nav)
+    }
 }
