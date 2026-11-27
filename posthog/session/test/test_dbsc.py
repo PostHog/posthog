@@ -9,6 +9,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import caches
 from django.http import HttpResponse
 from django.test import (
     Client as DjangoClient,
@@ -25,7 +26,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.session.dbsc import challenges, protocol
+from posthog.session.dbsc import challenges, escalation, protocol
 from posthog.session.dbsc.binding import OFFER_SESSION_KEY, Binding
 from posthog.session.dbsc.cookies import CookieCheck, check_bound_cookie, cookie_name, set_bound_cookie
 from posthog.session.dbsc.decisions import Action, BoundRequest, decide
@@ -220,12 +221,15 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
         self.client.force_login(self.user)
         self.key = _ec_key()
 
-    def _register(self, extra_jwk_members: dict[str, str] | None = None) -> str:
+    def _register(self, extra_jwk_members: dict[str, str] | None = None, platform: str | None = None) -> str:
         offer = self.client.get("/api/users/@me/", headers={"Sec-Fetch-Dest": "document"})
         match = re.search(r'challenge="([^"]+)"', offer.headers[protocol.REGISTRATION_HEADER])
         assert match is not None
         proof = _proof(self.key, match.group(1), jwk={**_public_jwk(self.key), **(extra_jwk_members or {})})
-        response = self.client.post("/dbsc/start", headers={protocol.RESPONSE_HEADER: f'"{proof}"'})
+        headers = {protocol.RESPONSE_HEADER: f'"{proof}"'}
+        if platform is not None:
+            headers["Sec-CH-UA-Platform"] = f'"{platform}"'
+        response = self.client.post("/dbsc/start", headers=headers)
         assert response.status_code == 200, response.content
         return response.json()["session_identifier"]
 
@@ -282,15 +286,18 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("shadow", "shadow", "/api/users/@me/", timedelta(minutes=2), 200, True),
-            ("enforce_fresh_binding", "enforce", "/api/users/@me/", timedelta(0), 200, True),
-            ("enforce_api", "enforce", "/api/users/@me/", timedelta(minutes=2), 401, False),
-            ("enforce_page", "enforce", "/insights", timedelta(minutes=2), 302, False),
-            ("enforce_unrouted_dbsc_path", "enforce", "/dbsc/anything", timedelta(minutes=2), 302, False),
+            ("shadow", "shadow", "/api/users/@me/", timedelta(minutes=2), None, 200, True),
+            ("enforce_fresh_binding", "enforce", "/api/users/@me/", timedelta(0), None, 200, True),
+            ("enforce_api", "enforce", "/api/users/@me/", timedelta(minutes=2), "Windows", 401, False),
+            ("enforce_page", "enforce", "/insights", timedelta(minutes=2), None, 302, False),
+            ("enforce_unrouted_dbsc_path", "enforce", "/dbsc/anything", timedelta(minutes=2), None, 302, False),
+            ("enforce_macos_binding", "enforce", "/api/users/@me/", timedelta(minutes=2), "macOS", 200, True),
         ]
     )
-    def test_session_cookie_without_the_bound_cookie(self, _name, mode, path, elapsed, status, session_survives):
-        self._register()
+    def test_session_cookie_without_the_bound_cookie(
+        self, _name, mode, path, elapsed, platform, status, session_survives
+    ):
+        self._register(platform=platform)
         self.mode = mode
         session_key = self.client.session.session_key
         del self.client.cookies[cookie_name()]
@@ -347,6 +354,36 @@ class TestDeviceBoundSessionFlow(APIBaseTest):
 
         assert response.status_code == 401
         assert Session.objects.filter(session_key=session_key).exists()
+
+    @parameterized.expand([("refreshes_succeed", True, False), ("no_refresh_succeeds", False, True)])
+    def test_refusals_that_keep_the_session_end_it_when_they_repeat(self, _name, refreshed, session_survives):
+        binding_id = self._register()
+        caches["dbsc_challenges"].clear()
+        if refreshed:
+            self._refresh(binding_id)
+        self.mode = "enforce"
+        session_key = self.client.session.session_key
+        del self.client.cookies[cookie_name()]
+        forged = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", protocol.SKIPPED_HEADER: "unreachable"}
+
+        with self._past_grace(), self.captureOnCommitCallbacks(execute=True):
+            for _ in range(escalation.SOFT_REFUSAL_LIMIT + 1):
+                self.client.get("/api/users/@me/", headers=forged)
+
+        assert Session.objects.filter(session_key=session_key).exists() == session_survives
+        ended = not session_survives
+        assert ActivityLog.objects.filter(activity="session_refused_unbound", user=self.user).exists() == ended
+
+    def _refresh(self, binding_id: str) -> HttpResponse:
+        session_header = {protocol.SESSION_ID_HEADER: f'"{binding_id}"'}
+        challenge = protocol.parse_sf_string(
+            self.client.post("/dbsc/refresh", headers=session_header).headers[protocol.CHALLENGE_HEADER]
+        )
+        assert challenge is not None
+        signed = {**session_header, protocol.RESPONSE_HEADER: f'"{_proof(self.key, challenge)}"'}
+        response = self.client.post("/dbsc/refresh", headers=signed)
+        assert response.status_code == 200
+        return response
 
     def test_refresh_needs_a_fresh_signed_challenge(self):
         binding_id = self._register()

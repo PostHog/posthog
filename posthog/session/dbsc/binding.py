@@ -26,9 +26,17 @@ class Binding:
     alg: Algorithm
     jwk: dict[str, Any]
     bound_at: datetime
+    # What the registering browser reported, so a copy of the cookie sent from elsewhere cannot change it.
+    platform: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {"id": self.id, "alg": self.alg, "jwk": self.jwk, "bound_at": self.bound_at.isoformat()}
+        return {
+            "id": self.id,
+            "alg": self.alg,
+            "jwk": self.jwk,
+            "bound_at": self.bound_at.isoformat(),
+            "platform": self.platform,
+        }
 
     @classmethod
     def from_json(cls, raw: object) -> "Binding | None":
@@ -38,18 +46,20 @@ class Binding:
             alg = raw["alg"]
             if alg not in ("ES256", "RS256") or not isinstance(raw["jwk"], dict) or not isinstance(raw["id"], str):
                 return None
+            platform = raw.get("platform")
             return cls(
                 id=raw["id"],
                 alg=cast(Algorithm, alg),
                 jwk=raw["jwk"],
                 bound_at=datetime.fromisoformat(raw["bound_at"]),
+                platform=platform if isinstance(platform, str) else None,
             )
         except (KeyError, TypeError, ValueError):
             return None
 
 
-def new_binding(*, alg: Algorithm, jwk: dict[str, Any]) -> Binding:
-    return Binding(id=secrets.token_urlsafe(16), alg=alg, jwk=jwk, bound_at=timezone.now())
+def new_binding(*, alg: Algorithm, jwk: dict[str, Any], platform: str | None) -> Binding:
+    return Binding(id=secrets.token_urlsafe(16), alg=alg, jwk=jwk, bound_at=timezone.now(), platform=platform)
 
 
 def current_binding(session: SessionBase) -> Binding | None:

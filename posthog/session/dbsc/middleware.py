@@ -15,6 +15,7 @@ from posthog.models import User
 from posthog.session.dbsc import (
     binding as bindings,
     challenges,
+    escalation,
     protocol,
 )
 from posthog.session.dbsc.cookies import CookieCheck, check_bound_cookie, cookie_name
@@ -32,6 +33,7 @@ BOUNCE_COOKIE_MAX_AGE_SECONDS = 30
 # A meta refresh needs no script under the Content Security Policy, and our own origin starts the reload.
 _BOUNCE_PAGE = '<!doctype html><meta http-equiv="refresh" content="0"><title>PostHog</title>'
 _CROSS_SITE_FETCH_SITES = ("cross-site", "same-site")
+_SESSION_KEEPING_ACTIONS = (Action.BOUNCE, Action.REJECT, Action.RETRY_LATER)
 
 
 def _unauthenticated_response(request: HttpRequest) -> HttpResponse:
@@ -84,7 +86,7 @@ def _bound_request(request: HttpRequest, binding: bindings.Binding, check: Cooki
     navigation = request.method == "GET" and request.headers.get("Sec-Fetch-Mode") == "navigate"
     return BoundRequest(
         check=check,
-        mode=binding_mode(request),
+        mode=binding_mode(request, binding),
         binding_age=timezone.now() - binding.bound_at,
         cross_site=_started_elsewhere(request, navigation),
         navigation=navigation,
@@ -102,6 +104,9 @@ def _refusal(request: HttpRequest, user: User, binding: bindings.Binding) -> Htt
     action = decide(facts)
     if action == Action.ALLOW:
         return None
+    escalated = action in _SESSION_KEEPING_ACTIONS and escalation.is_repeated(binding.id)
+    if escalated:
+        action = Action.END_SESSION
     record_refusal(
         request,
         user,
@@ -111,6 +116,7 @@ def _refusal(request: HttpRequest, user: User, binding: bindings.Binding) -> Htt
         skipped=facts.refresh_skipped,
         cross_site=facts.cross_site,
         impersonated=is_impersonated_session(request),
+        escalated=escalated,
     )
     if action == Action.RECORD:
         return None

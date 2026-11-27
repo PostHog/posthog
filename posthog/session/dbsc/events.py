@@ -68,6 +68,7 @@ def record_refusal(
     skipped: bool,
     cross_site: bool,
     impersonated: bool,
+    escalated: bool = False,
 ) -> None:
     REFUSALS_COUNTER.labels(
         mode=mode.value,
@@ -84,6 +85,7 @@ def record_refusal(
         skipped=skipped,
         cross_site=cross_site,
         impersonated=impersonated,
+        escalated=escalated,
         user_id=user.id,
         path=request.path,
     )

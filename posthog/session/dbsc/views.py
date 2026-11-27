@@ -14,12 +14,13 @@ from posthog.models import User
 from posthog.session.dbsc import (
     binding as bindings,
     challenges,
+    escalation,
     protocol,
 )
 from posthog.session.dbsc.cookies import set_bound_cookie
 from posthog.session.dbsc.decisions import Action
 from posthog.session.dbsc.events import record_refresh, record_refusal, record_registration
-from posthog.session.dbsc.owner import binding_mode
+from posthog.session.dbsc.owner import binding_mode, client_platform
 from posthog.session.dbsc.rollout import Mode, is_available, mode_for
 
 
@@ -61,7 +62,7 @@ def start_session(request: HttpRequest) -> HttpResponse:
         record_registration("stale_challenge", user_id=user.id)
         return HttpResponse(status=400)
 
-    binding = bindings.new_binding(alg=proof.alg, jwk=proof.jwk)
+    binding = bindings.new_binding(alg=proof.alg, jwk=proof.jwk, platform=client_platform(request))
     if not bindings.save_binding(session.session_key, binding):
         record_registration("already_bound", user_id=user.id)
         return HttpResponse(status=409)
@@ -101,7 +102,7 @@ def refresh_session(request: HttpRequest) -> HttpResponse:
     try:
         proof = protocol.verify_refresh_proof(token, binding)
     except protocol.ProofError:
-        mode = binding_mode(request)
+        mode = binding_mode(request, binding)
         record_refresh("invalid_proof", user_id=user.id)
         if mode != Mode.OFF:
             record_refusal(
@@ -125,4 +126,5 @@ def refresh_session(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(status=200)
     set_bound_cookie(response, binding.id)
     record_refresh("refreshed", user_id=user.id)
+    escalation.mark_refresh_healthy()
     return response
