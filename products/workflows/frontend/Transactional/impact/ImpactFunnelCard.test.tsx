@@ -257,7 +257,7 @@ describe('ImpactFunnelCard', () => {
 
         await waitFor(() => expect(requestedEvents).toHaveLength(turnedOn ? 2 : 1))
         expect((await screen.findAllByText(outcome))[0]).toBeInTheDocument()
-        expect(screen.queryByText('Counting from now')).not.toBeInTheDocument()
+        expect(screen.queryByText("Couldn't count")).not.toBeInTheDocument()
         expect(!!screen.queryByText('Converted')).toBe(turnedOn)
         expect(
             screen.queryByText('Turn on for project')?.closest('button')?.getAttribute('aria-disabled') ?? null

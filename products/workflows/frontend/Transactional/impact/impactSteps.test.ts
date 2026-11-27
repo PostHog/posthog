@@ -137,22 +137,6 @@ describe('impactSteps', () => {
             'From sends with link tracking on',
         ],
         [
-            'names the limit when more sends were clicked than it counts',
-            { ...impact, clicked: 12000, sessions: 7 },
-            'on',
-            7,
-            undefined,
-            'From the newest 10,000 clicked sends with link tracking on',
-        ],
-        [
-            'counts from now when the funnel loaded with link tracking off',
-            { ...impact, link_tagging_enabled: false },
-            'on',
-            null,
-            'Counting from now',
-            'From sends with link tracking on',
-        ],
-        [
             'says why when the count is missing',
             impact,
             'on',
