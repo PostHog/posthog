@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -6,7 +6,9 @@ import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventShareModal } from './AdventShareModal'
 
 describe('AdventShareModal', () => {
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
     let clipboard: string | null
+    let unmountLogic: () => void
 
     beforeEach(() => {
         clipboard = null
@@ -19,11 +21,17 @@ describe('AdventShareModal', () => {
             },
         })
         initKeaTests()
-        adventCalendarLogic.mount()
+        unmountLogic = adventCalendarLogic.mount()
     })
 
     afterEach(() => {
-        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+        cleanup()
+        unmountLogic()
+        if (originalClipboard) {
+            Object.defineProperty(navigator, 'clipboard', originalClipboard)
+        } else {
+            delete (navigator as { clipboard?: Clipboard }).clipboard
+        }
     })
 
     const sharedLink = (dataAttr: string, param: string): string | null => {
