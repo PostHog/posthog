@@ -279,10 +279,17 @@ describe('emailImpactLogic', () => {
             ...MOCK_DEFAULT_TEAM,
             workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
         }
+        let releaseSave: () => void = () => {}
+        const saveReleased = new Promise<void>((resolve) => (releaseSave = resolve))
+        let saveArrived: () => void = () => {}
+        const saveStarted = new Promise<void>((resolve) => (saveArrived = resolve))
         useMocks({
             patch: {
                 '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
                     const patch = (await request.json()) as Partial<TeamType>
+                    saveArrived()
+                    await saveReleased
+                    answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
                     return [200, { ...team, workflows_config: { ...team.workflows_config, ...patch.workflows_config } }]
                 },
             },
@@ -297,9 +304,11 @@ describe('emailImpactLogic', () => {
         await expectLogic(otherLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
         requestedParams = []
-        answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
 
         logic.actions.turnOnLinkTracking()
+        await saveStarted
+        expect(requestedParams).toEqual([])
+        releaseSave()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(otherLogic).toFinishAllListeners()
 
