@@ -10,7 +10,7 @@ import json
 import asyncio
 from collections.abc import Iterable
 from dataclasses import field, replace
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from itertools import islice
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
@@ -333,19 +333,63 @@ def find_and_send_daily_focus(
         return blocked
     zone = person_zone(integration, slack_user_id)
     reschedule_daily_focus(integration, slack_user_id, zone)
+    # Imported here because the agent module builds on this one.
+    from products.slack_app.backend.logic.onboarding.daily_focus_agent import (  # noqa: PLC0415
+        agent_owner_id,
+        start_daily_focus_agent,
+    )
+
+    # The agent runs in its own workflow, because it takes minutes and this activity has two.
+    if agent_owner_id(integration, slack_user_id) is not None:
+        start_daily_focus_agent(integration, slack_user_id, since=since, run_at=run_at)
+        return "agent_started"
     found = _find(
         integration, slack_user_id, token, after=since, pages=DAILY_SEARCH_PAGES, flow="slack_app_daily_focus"
     )
     if isinstance(found, str):
         return found
+    privacy = _privacy_line(channels=found.thread_count > 0, since=_since_label(since, zone))
+    return _send_daily(integration, slack_user_id, found, at=daily.at, zone=zone, run_at=run_at, privacy=privacy)
+
+
+def send_agent_daily_focus(
+    integration: WorkspaceIntegration,
+    slack_user_id: str,
+    focus: WorkFocus,
+    *,
+    at: time,
+    zone: ZoneInfo,
+    run_at: datetime,
+    since: datetime,
+) -> str:
+    """The agent's work focus, sent with the pipeline's DM and send guard."""
+    found = _Found(
+        focus=focus,
+        message_count=0,
+        candidate_count=len(focus.suggestions),
+        thread_count=len(focus.summary),
+        handed_off_count=0,
+        flow="slack_app_daily_focus",
+        engine="agent",
+    )
+    # A task run keeps its transcript, so this DM does not say that nothing was kept.
+    privacy = f"I read your Slack since {_since_label(since, zone)} with your access. Each one starts its own thread."
+    return _send_daily(integration, slack_user_id, found, at=at, zone=zone, run_at=run_at, privacy=privacy)
+
+
+def _send_daily(
+    integration: WorkspaceIntegration,
+    slack_user_id: str,
+    found: "_Found",
+    *,
+    at: time,
+    zone: ZoneInfo,
+    run_at: datetime,
+    privacy: str,
+) -> str:
     blocks = [
-        *work_focus_blocks(
-            integration,
-            found.focus,
-            slack_user_id,
-            privacy=_privacy_line(channels=found.thread_count > 0, since=_since_label(since, zone)),
-        ),
-        daily_focus_footer_block(integration, daily.at, zone, first=False),
+        *work_focus_blocks(integration, found.focus, slack_user_id, privacy=privacy),
+        daily_focus_footer_block(integration, at, zone, first=False),
     ]
     # Claimed before the DM goes out. When Slack takes the DM but the response times out, the retry sends nothing.
     if not mark_daily_focus_sending(integration, slack_user_id, run_at):
@@ -429,6 +473,7 @@ class _Found:
     # Counts the person's own messages too.
     handed_off_count: int
     flow: WorkFocusFlow
+    engine: Literal["pipeline", "agent"] = "pipeline"
 
 
 def _find(
@@ -516,6 +561,7 @@ def _post(integration: WorkspaceIntegration, slack_user_id: str, found: _Found, 
         candidate_count=found.candidate_count,
         handed_off_count=found.handed_off_count,
         mode=_FLOW_MODES[found.flow],
+        engine=found.engine,
     )
     return "sent"
 

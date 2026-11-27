@@ -65,7 +65,24 @@ REPO_SELECTION = replace(
     mcp_scopes="read_only",
 )
 
-PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION)
+# Reads Slack through the person's Slack MCP and answers once, so it needs no repository, no PR and no open web.
+DAILY_FOCUS = replace(
+    SLACK,
+    key="slack.daily_focus",
+    listed=False,
+    max_live_per_user=1,
+    network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
+    inherit_user_defaults=False,
+    mcp_scopes="read_only",
+    github_resolution=GithubResolution.NEVER,
+    github_access=GithubAccess.NONE,
+    user_authorable_prs=False,
+    default_pr_authorship=PrAuthorship.BOT,
+    create_pr=False,
+    inactivity_minutes=5,
+)
+
+PROFILES = (SLACK, REPORT_IMPLEMENTATION, REPO_SELECTION, DAILY_FOCUS)
 
 
 def register() -> None:

@@ -494,10 +494,20 @@ def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
 
 def has_slack_mcp_connected(team_id: int, user_id: int) -> bool:
     """Whether the member's tasks mount a working Slack MCP, so an agent can read Slack with the member's access."""
+    return slack_mcp_installation_id(team_id, user_id) is not None
+
+
+def slack_mcp_installation_id(team_id: int, user_id: int) -> str | None:
+    """The member's working Slack MCP installation, so a run can mount it and nothing else. None when there is none."""
     ready_ids = [installation.id for installation in get_active_installations(team_id, user_id)]
     if not ready_ids:
-        return False
-    return MCPServerInstallation.objects.filter(team_id=team_id, id__in=ready_ids, url=SLACK_MCP_URL).exists()
+        return None
+    installation_id = (
+        MCPServerInstallation.objects.filter(team_id=team_id, id__in=ready_ids, url=SLACK_MCP_URL)
+        .values_list("id", flat=True)
+        .first()
+    )
+    return str(installation_id) if installation_id else None
 
 
 # The token keys of an installation that holds its own token. A linked installation has none of them.

@@ -43,6 +43,24 @@ def find_slack_app_work_focus_activity(inputs: SlackAppWorkFocusInputs) -> str:
 
 
 @activity.defn
+def run_slack_app_daily_focus_agent_activity(inputs: SlackAppWorkFocusInputs) -> str:
+    from products.slack_app.backend.logic.daily_focus import person_zone
+    from products.slack_app.backend.logic.onboarding.daily_focus_agent import run_daily_focus_agent
+    from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
+
+    integration = get_workspace_integration(inputs.integration_id, inputs.slack_team_id)
+    if integration is None or inputs.since is None or inputs.run_at is None:
+        return "integration_gone"
+    return run_daily_focus_agent(
+        integration,
+        inputs.slack_user_id,
+        since=datetime.fromtimestamp(inputs.since, tz=UTC),
+        run_at=datetime.fromtimestamp(inputs.run_at, tz=UTC),
+        zone=person_zone(integration, inputs.slack_user_id),
+    )
+
+
+@activity.defn
 def index_slack_app_daily_summary_activity(inputs: SlackAppDailySummaryIndexInputs) -> int:
     """Reads and scores the workspace's channel roots once, before the daily runs of its people start, so no run
     reads the channels itself. Skipped unless the organization approved AI data processing and has credits, and one
