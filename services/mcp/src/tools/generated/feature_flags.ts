@@ -174,6 +174,35 @@ const featureFlagArchive = (): ToolBase<
     },
 })
 
+const FeatureFlagDeleteInProjectsSchema = () => {
+    const OrgFeatureFlagsDeleteInProjectsBody = orvalSchemas.OrgFeatureFlagsDeleteInProjectsBody()
+    return OrgFeatureFlagsDeleteInProjectsBody
+}
+
+const featureFlagDeleteInProjects = (): ToolBase<
+    ReturnType<typeof FeatureFlagDeleteInProjectsSchema>,
+    Schemas.DeleteFlagInProjectsResponse
+> => ({
+    name: 'feature-flag-delete-in-projects',
+    schema: FeatureFlagDeleteInProjectsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagDeleteInProjectsSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const body: Record<string, unknown> = {}
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.project_ids !== undefined) {
+            body['project_ids'] = params.project_ids
+        }
+        const result = await context.api.request<Schemas.DeleteFlagInProjectsResponse>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/delete_in_projects/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagDisableSchema = () => {
     const FeatureFlagsDisableCreateBody = orvalSchemas.FeatureFlagsDisableCreateBody()
     const FeatureFlagsDisableCreateParams = orvalSchemas.FeatureFlagsDisableCreateParams()
@@ -1283,6 +1312,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'create-feature-flag': createFeatureFlag,
     'delete-feature-flag': deleteFeatureFlag,
     'feature-flag-archive': featureFlagArchive,
+    'feature-flag-delete-in-projects': featureFlagDeleteInProjects,
     'feature-flag-disable': featureFlagDisable,
     'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,

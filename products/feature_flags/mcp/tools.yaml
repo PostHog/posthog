@@ -162,6 +162,29 @@ tools:
                 - archived
                 - status
                 - version
+    feature-flag-delete-in-projects:
+        operation: org_feature_flags_delete_in_projects
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete feature flag in projects
+        description: >
+            Soft-delete the feature flag with a given key in several projects of the current organization, up to 50 at
+            a time. Use it when the user wants a flag gone from more than one project. For a single project, use
+            `delete-feature-flag`. Take the project IDs from `projects-get`, and confirm the list of projects with the
+            user before deleting.
+
+
+            Each project is checked and deleted on its own, so the response lists the projects where the flag was
+            deleted and the projects where it was not, each with the reason. A flag is not deleted when the project
+            does not exist or has no flag with that key, when the user cannot edit the flag there, or when the delete
+            is blocked, for example by an early access feature, a running experiment, flags that depend on it, a
+            survey, or a product tour. Name every project that failed and its reason to the user. Use
+            `feature-flag-restore` in each project to undo a delete. A flag whose `filters.version` is 2 cannot be
+            restored yet, so tell the user before deleting one.
+        feature_flag: feature-flag-delete-in-projects
     feature-flag-disable:
         operation: feature_flags_disable_create
         enabled: true

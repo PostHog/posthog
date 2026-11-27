@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowRight, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDialog, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -17,6 +18,8 @@ import { type Noun, groupsModel } from '~/models/groupsModel'
 import { OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
+import { featureFlagDeleteInProjectsLogic } from './featureFlagDeleteInProjectsLogic'
+import { FeatureFlagDeleteInProjectsResultModal } from './FeatureFlagDeleteInProjectsResultModal'
 import {
     dependencyActionLabel,
     dependencyDisabledReason,
@@ -28,6 +31,9 @@ import { groupFilters } from './FeatureFlags'
 import { FeatureFlagsTab } from './featureFlagsLogic'
 import { FlagActiveToggleTag } from './FlagActiveToggleTag'
 import { confirmFlagActiveToggleInProject, flagToggleKey } from './updateFlagActiveInProject'
+
+// Matches the limit of the delete_in_projects endpoint.
+const MAX_DELETE_IN_PROJECTS = 50
 
 const getColumns = ({
     aggregationLabel,
@@ -312,7 +318,10 @@ function FeatureFlagCopySection(): JSX.Element {
 }
 
 export default function FeatureFlagProjects(): JSX.Element {
-    const { projectsWithCurrentFlag, featureFlag, projectFlagsToggling } = useValues(featureFlagLogic)
+    const { props, projectsWithCurrentFlag, featureFlag, projectFlagsToggling } = useValues(featureFlagLogic)
+    const { deleteInProjectsResultLoading } = useValues(featureFlagDeleteInProjectsLogic({ id: props.id }))
+    const { confirmDeleteInProjects } = useActions(featureFlagDeleteInProjectsLogic({ id: props.id }))
+    const deleteInProjectsEnabled = useFeatureFlag('FEATURE_FLAG_DELETE_IN_PROJECTS')
     const { loadProjectsWithCurrentFlag, loadScheduledChanges, toggleProjectFlagActive } = useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -345,6 +354,42 @@ export default function FeatureFlagProjects(): JSX.Element {
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
+                rowKey={(record) => record.team_id ?? -1}
+                bulkSelection={
+                    deleteInProjectsEnabled
+                        ? {
+                              getKey: (record) => record.team_id ?? -1,
+                              isRowSelectable: (record) => record.team_id !== null && record.flag_id !== null,
+                              rowAriaLabel: (record) =>
+                                  `Select ${currentOrganization?.teams?.find((t) => t.id === record.team_id)?.name ?? 'project'}`,
+                              headerAriaLabel: 'Select all projects',
+                              noun: ['project', 'projects'],
+                              // A reload after a delete drops the deleted rows, so the selection must not outlive it.
+                              // Keyed on the row set, because a status toggle also replaces the array.
+                              clearSelectionKey: projectsWithCurrentFlag
+                                  .map((record) => `${record.team_id}:${record.flag_id}`)
+                                  .join(','),
+                              renderActions: (ctx) => (
+                                  <LemonButton
+                                      type="secondary"
+                                      status="danger"
+                                      size="small"
+                                      icon={<IconTrash />}
+                                      loading={deleteInProjectsResultLoading}
+                                      disabledReason={
+                                          ctx.selectedCount > MAX_DELETE_IN_PROJECTS
+                                              ? `Select up to ${MAX_DELETE_IN_PROJECTS} projects at a time`
+                                              : undefined
+                                      }
+                                      onClick={() => confirmDeleteInProjects(ctx.selectedKeys.map(Number))}
+                                      data-attr="feature-flag-delete-in-projects"
+                                  >
+                                      Delete in selected projects
+                                  </LemonButton>
+                              ),
+                          }
+                        : undefined
+                }
                 columns={getColumns({
                     currentTeamId,
                     currentOrganization,
@@ -354,6 +399,7 @@ export default function FeatureFlagProjects(): JSX.Element {
                 })}
                 emptyState="This feature flag is not being used in any other project."
             />
+            <FeatureFlagDeleteInProjectsResultModal id={props.id} />
         </div>
     )
 }

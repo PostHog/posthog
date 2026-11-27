@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "feature_flag_key": {
+            "description": "Key of the feature flag to delete",
+            "type": "string"
+        },
+        "project_ids": {
+            "description": "IDs of the projects to delete the flag from. All of them must belong to this organization.",
+            "items": {
+                "type": "number"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["feature_flag_key", "project_ids"],
+    "type": "object"
+}

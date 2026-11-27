@@ -135,6 +135,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'warehouse-multi-destination': true,
         'dwh-custom-source-ai-builder': true,
         'feature-flag-rules-v2-mcp': true,
+        'feature-flag-delete-in-projects': true,
         'discussions-slack-sync': true,
         'ui-customization': true,
         'platform-alerts-source-warehouse': true,

@@ -23682,6 +23682,47 @@
             "validators": []
         }
     },
+    "feature-flag-delete-in-projects": {
+        "name": "feature-flag-delete-in-projects",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/organizations/{organization_id}/feature_flags/delete_in_projects/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "feature_flag_key",
+                    "key": "feature_flag_key"
+                },
+                {
+                    "param": "project_ids",
+                    "key": "project_ids"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "feature-flag-disable": {
         "name": "feature-flag-disable",
         "kind": "http",
