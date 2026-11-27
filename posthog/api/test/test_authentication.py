@@ -47,6 +47,7 @@ from posthog.api.authentication import (
 )
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
+from posthog.api.test.test_code_based_verification import workflows_refuses_the_recipient
 from posthog.auth import (
     ExportRendererAuthentication,
     InternalAPIUser,
@@ -690,6 +691,24 @@ class TestLoginAPI(APIBaseTest):
 
         User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
 
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_email_unverified_null_user_still_logs_in_when_the_code_email_is_refused(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+    def test_email_unverified_login_reports_a_refused_code_email(self):
+        self.user.is_email_verified = False
+        self.user.save()
+
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "email_verification_code_undeliverable")
         self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthoganalytics.capture")

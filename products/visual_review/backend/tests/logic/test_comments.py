@@ -7,9 +7,19 @@ from django.db.models import F
 
 from parameterized import parameterized
 
+from posthog.models import User
+
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import (
+    BaselineMode,
+    ReviewDecision,
+    ReviewState,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
 from products.visual_review.backend.logic import comment_markdown, comments, github_api
+from products.visual_review.backend.logic.review_decisions import RunProgress
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -740,3 +750,170 @@ class TestReviewPromptComment:
         mocker.patch.object(github_api, "_github_api_request", side_effect=RuntimeError("boom"))
 
         comments._post_review_prompt_comment(run, repo)
+
+
+def _decision(action: str, *, by: int, seq: int, via: str = "web", reason: str = "") -> dict:
+    return {
+        "action": action,
+        "old_hash": "b0",
+        "new_hash": "b1",
+        "by": by,
+        "via": via,
+        "reason": reason,
+        "at": f"2026-01-0{seq}T00:00:00+00:00",
+        "seq": seq,
+    }
+
+
+class _GitHubResponse:
+    text = ""
+
+    def __init__(self, status_code: int, comment_id: int | None = None) -> None:
+        self.status_code = status_code
+        self.comment_id = comment_id
+
+    def json(self) -> dict:
+        return {"id": self.comment_id}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestReviewDecisionComments:
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=67676,
+            repo_full_name="test-org/decisions",
+            enable_pr_comments=True,
+            baseline_mode=BaselineMode.LEDGER,
+        )
+
+    def _run(self, repo, commit_sha: str, decisions: dict[str, list[dict]], **fields) -> Run:
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha=commit_sha,
+            branch="feature",
+            pr_number=42,
+            status=RunStatus.COMPLETED,
+            **fields,
+        )
+        for identifier, entries in decisions.items():
+            RunSnapshot.objects.create(
+                team_id=repo.team_id,
+                run=run,
+                identifier=identifier,
+                baseline_hash="b0",
+                current_hash="b1",
+                result=SnapshotResult.CHANGED,
+                review_state=ReviewState.PENDING,
+                metadata={"review_decisions": entries} if entries else {},
+            )
+        return run
+
+    def test_the_approval_comment_names_who_accepted_what(self, repo, team, user, mocker):
+        alice = User.objects.create_and_join(team.organization, "alice@example.com", None, first_name="Alice")
+        bob = User.objects.create_and_join(team.organization, "bob@example.com", None, first_name="Bob")
+        head = self._run(
+            repo,
+            "h" * 40,
+            {
+                "Avatar": [],
+                "Button": [_decision("accept", by=alice.id, seq=2)],
+                "Card": [_decision("accept", by=bob.id, seq=3, via="mcp")],
+            },
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            approved_by_id=user.id,
+            metadata={"github_comment_id": 9001},
+        )
+        self._run(repo, "s" * 40, {"Avatar": [_decision("accept", by=alice.id, seq=1)]}, superseded_by=head)
+        request = mocker.patch.object(github_api, "_github_api_request", return_value=_GitHubResponse(200))
+
+        comments._post_approval_comment(head, repo)
+
+        assert (
+            "Accepted by alice (2, on `hhhhhhh` and `sssssss`), bob (1, via MCP)."
+            in (request.call_args.kwargs["json"]["body"])
+        )
+
+    @pytest.mark.parametrize(
+        ("accepted_by", "line"),
+        [
+            pytest.param(
+                [
+                    comment_markdown.AcceptedBy(
+                        approver=comment_markdown._Approver(label="alice", is_github_login=True),
+                        via_agent=False,
+                        count=12,
+                        earlier_commit_shas=("abc1234567", "def5678901"),
+                    ),
+                    comment_markdown.AcceptedBy(
+                        approver=comment_markdown._Approver(label="bob", is_github_login=True), via_agent=True, count=6
+                    ),
+                ],
+                "Accepted by @alice (12, on `abc1234` and `def5678`), @bob (6, via MCP).",
+                id="earlier_commits_and_an_agent",
+            ),
+            pytest.param(
+                [
+                    comment_markdown.AcceptedBy(
+                        approver=comment_markdown._Approver(label="a_b*c", is_github_login=False),
+                        via_agent=False,
+                        count=1,
+                    )
+                ],
+                "Accepted by a\\_b\\*c (1).",
+                id="a_name_that_is_not_a_login_is_escaped",
+            ),
+        ],
+    )
+    def test_the_approval_comment_lists_approver_groups(self, repo, accepted_by, line):
+        run = self._run(repo, "h" * 40, {"Button": []})
+
+        body = comment_markdown._build_approval_comment_body(run, repo, None, accepted_by=accepted_by)
+
+        assert line in body
+
+    def test_the_review_prompt_counts_the_accepts_that_still_count(self, repo, user, mocker):
+        head = self._run(repo, "h" * 40, {"Button": [], "Card": []})
+        self._run(repo, "s" * 40, {"Button": [_decision("accept", by=user.id, seq=1)]}, superseded_by=head)
+        request = mocker.patch.object(github_api, "_github_api_request", return_value=_GitHubResponse(201, 9001))
+
+        comments._post_review_prompt_comment(head, repo)
+
+        assert request.call_args.kwargs["json"]["body"].startswith(
+            "👋 **1 visual change needs review** for this PR. 1 change accepted on earlier commits still counts.\n"
+        )
+
+
+def _progress(earlier: int, needs_review: int) -> RunProgress:
+    return RunProgress(
+        total=earlier + needs_review,
+        approved=earlier,
+        approved_on_earlier_commits=earlier,
+        approved_via_mcp=0,
+        rejected=0,
+        needs_review=needs_review,
+        tolerated=0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("progress", "heading"),
+    [
+        pytest.param(None, "👋 **Visual changes detected** for this PR.", id="yaml_mode"),
+        pytest.param(_progress(0, 3), "👋 **Visual changes detected** for this PR.", id="nothing_earlier"),
+        pytest.param(
+            _progress(18, 2),
+            "👋 **2 visual changes need review** for this PR. 18 changes accepted on earlier commits still count.",
+            id="partial_review_then_push",
+        ),
+        pytest.param(
+            _progress(4, 0),
+            "👋 **Visual changes detected** for this PR. 4 changes accepted on earlier commits still count.",
+            id="nothing_needs_review",
+        ),
+    ],
+)
+def test_review_prompt_heading(progress, heading):
+    assert comment_markdown._review_prompt_heading(progress) == heading

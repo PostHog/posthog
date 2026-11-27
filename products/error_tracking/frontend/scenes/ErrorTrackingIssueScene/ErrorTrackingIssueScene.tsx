@@ -207,6 +207,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         <IssueTagsButton
                                                             tags={issue.tags}
                                                             onTagClick={openIssueListWithTag}
+                                                            surface="issue_page"
                                                             size="default"
                                                         />
                                                     )}
@@ -310,6 +311,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <IssueTagsButton
                                                     tags={issue.tags}
                                                     onTagClick={openIssueListWithTag}
+                                                    surface="issue_page"
                                                     size="default"
                                                 />
                                             )}

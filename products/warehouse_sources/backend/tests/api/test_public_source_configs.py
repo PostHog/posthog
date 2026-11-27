@@ -264,6 +264,13 @@ class TestPublicSourceConfigs(APIBaseTest):
             "Neon": "postgres",
         }
 
+    def test_supports_xmin_is_set_only_for_postgres_sources(self):
+        response = self.client.get("/api/public_source_configs/")
+
+        xmin_sources = {source_type for source_type, config in response.json().items() if config["supportsXmin"]}
+
+        assert xmin_sources == {"Postgres", "Supabase", "Neon", "PlanetScalePostgres"}
+
     def test_every_config_exposes_version_fields(self):
         """The external version-update automation consumes these exact field names."""
         response = self.client.get("/api/public_source_configs/")

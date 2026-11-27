@@ -1,5 +1,5 @@
 import type { ExperimentHealthCheckResultApi } from '../generated/api.schemas'
-import { healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
+import { healthChangedWhileExposed, healthCheckRowsTable, healthDetectableEffects } from './healthCheckRows'
 
 const check = (
     key: ExperimentHealthCheckResultApi['key'],
@@ -18,24 +18,29 @@ const check = (
 const PRO = { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] }
 const TEAM = { properties: [{ key: 'plan', value: ['team'], operator: 'exact', type: 'person' }] }
 
+const EXPOSURE_TIMINGS = [
+    {
+        name: 'a change before the first exposure moved nobody',
+        row: { changed_at: '2026-10-19T07:05:00Z', before_exposure: true },
+        effect: 'Saved before anyone was exposed, so it moved nobody',
+        whileExposed: false,
+    },
+    {
+        name: 'an unknown exposure answer says so',
+        row: { changed_at: '2026-10-24T12:10:00Z', before_exposure: null },
+        effect: "Couldn't tell whether anyone was exposed before it",
+        whileExposed: true,
+    },
+    {
+        name: 'a change after the first exposure says only that',
+        row: { changed_at: '2026-10-24T12:10:00Z', before_exposure: false },
+        effect: 'Saved after users were exposed',
+        whileExposed: true,
+    },
+]
+
 describe('healthCheckRows', () => {
-    it.each([
-        {
-            name: 'a change before the first exposure moved nobody',
-            row: { changed_at: '2026-10-19T07:05:00Z', before_exposure: true },
-            effect: 'Saved before anyone was exposed, so it moved nobody',
-        },
-        {
-            name: 'an unknown exposure answer says so',
-            row: { changed_at: '2026-10-24T12:10:00Z', before_exposure: null },
-            effect: "Couldn't tell whether anyone was exposed before it",
-        },
-        {
-            name: 'a change after the first exposure says only that',
-            row: { changed_at: '2026-10-24T12:10:00Z', before_exposure: false },
-            effect: 'Saved after users were exposed',
-        },
-    ])('healthCheckRowsTable: $name', ({ row, effect }) => {
+    it.each(EXPOSURE_TIMINGS)('healthCheckRowsTable: $name', ({ row, effect }) => {
         const before = 'Set 1: 100%'
         const after = 'Set 1: 50%'
         const table = healthCheckRowsTable(
@@ -51,6 +56,10 @@ describe('healthCheckRows', () => {
                 effect: { text: effect },
             },
         ])
+    })
+
+    it.each(EXPOSURE_TIMINGS)('healthChangedWhileExposed: $name', ({ row, whileExposed }) => {
+        expect(healthChangedWhileExposed(check('split_changed_mid_run', [row]))).toEqual(whileExposed)
     })
 
     it.each([

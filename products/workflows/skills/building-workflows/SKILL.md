@@ -1,15 +1,27 @@
 ---
 name: building-workflows
-description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product, including first-time messaging setup (email channel, sending domain, frequency cap) before the first workflow.'
+description: 'Build, edit, test, enable, and monitor PostHog workflows over MCP. Author the action/edge graph so it runs and opens cleanly in the visual editor, then change drafts surgically with patch operations. Use when asked to build, set up, automate, change, fix, or debug a workflow, campaign, broadcast, drip sequence, or event-triggered automation in the workflows product, including first-time messaging setup (email channel, sending domain, frequency cap) before the first workflow. A broadcast (one email or push notification to an audience, sent once or on a schedule) is not a workflow: this skill routes it to broadcasts-create instead of building and running a batch workflow.'
 ---
 
 # Building workflows
 
-A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions`) wired by **edges** (`edges`), with exactly one `trigger` node that starts every run. You author that graph as JSON and ship it over MCP. Always call it a "workflow" to the user. "Hog flow" is the internal code name (`HogFlow`), not a user-facing term.
+A PostHog **workflow** is a directed graph: a list of **action nodes** (`actions`) wired by **edges** (`edges`), with exactly one `trigger` node that starts every run. You author that graph as JSON and ship it over MCP. Call it a "workflow" to the user, except for broadcasts and transactional emails, which have their own names (see below). "Hog flow" is the internal code name (`HogFlow`), not a user-facing term.
 
 The single biggest failure mode is **getting the graph JSON structurally wrong**. The backend stores `actions`/`config` as loose JSON, but the visual editor parses every node against a strict schema, so a malformed node saves but then **breaks the editor view** for the whole workflow. Before composing or editing any graph, read [references/graph-schema.md](references/graph-schema.md). It is the contract; do not improvise node shapes from these examples alone.
 
 A one-off email that the user's code sends to one person, such as a password reset, a sign-in code or a receipt, is a transactional email, not a workflow. Use the `sending-transactional-emails` skill for it.
+
+## Broadcasts are not workflows
+
+A **broadcast** is one email or push notification to an audience, sent once or on a schedule: an announcement, a newsletter, a product update, a maintenance notice. When the user asks for a broadcast, or for an email or push like that with no other steps, create it with `broadcasts-create` and call it a broadcast. Do not build it with `workflows-create`, and do not send it with `workflows-enable`, `workflows-run-batch` or `workflows-schedule-create`.
+
+- **Create the draft.** `broadcasts-create` takes exactly a `batch` trigger with the audience, one message step and an exit. For email the message step is one `function_email`; the tool description has the ids and the email shape, and `from` takes a verified sender when the project has one. For push it is one `function_push` instead ([references/graph-schema.md](references/graph-schema.md) has the shape), with the project's push integration ids in `channels`. The audience rules in [Hard rules](#hard-rules-to-surface-to-the-user-not-work-around) apply.
+- **Refine the message.** An email step: `workflows-patch-action-email`, designed with the **`designing-email-templates`** skill. A push step: `workflows-patch-graph`.
+- **Leave the launch to the user.** Do not enable it, start a run or attach a schedule. Give the user the broadcast link: they pick the timing, review the audience and launch it from the broadcast wizard.
+
+Build a workflow instead only when the message needs what a broadcast can't hold: more than one message, delays, branches, an event trigger, or SMS (a broadcast sends one email or one push, never SMS). Say so to the user before you build it, because it shows under workflows, not broadcasts.
+
+When the user has an existing workflow that is only a batch trigger, one email and an exit, and wants it under broadcasts, offer `workflows-convert-to-broadcast`. It can't be undone, so ask first.
 
 ## Before the first messaging workflow
 
@@ -27,7 +39,7 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 4. **Read logs while iterating.** `workflows-logs` shows the per-step execution trace (levels DEBUG to ERROR). This is how you see _why_ a step skipped, branched, or errored.
 5. **Edit, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. On a draft workflow, edits apply directly; on an active one they stage a draft (see [Changing a live workflow](#changing-a-live-workflow)).
 6. **Enable (needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. From then on it runs on real people, and every change goes through the draft → test → publish cycle before taking effect — so finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative. When the enabled or published workflow comes back with a `test_sender_live` warning, tell the user its message: its email steps on the PostHog test sender reach only verified members of the organization. Move those steps to a verified sender only when the user asks; `workflows-patch-action-email` describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.
-7. **Dispatch (batch/schedule only).** A `batch` or `schedule` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. A `batch` trigger fans out to a person audience, so scheduling it needs the `workflows-blast-radius` preview and its confirm token; a `schedule` trigger runs once per occurrence with no audience, so schedule it directly. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
+7. **Dispatch (batch/schedule only).** A `batch` or `schedule` workflow does **not** fire on enable alone. Start a one-off run with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. A `batch` trigger fans out to a person audience, so scheduling it needs the `workflows-blast-radius` preview and its confirm token; a `schedule` trigger runs once per occurrence with no audience, so schedule it directly. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
 8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step). For how an email performs (opens, clicks, links, versions, what recipients did next), use the **`measuring-email-performance`** skill.
 
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).

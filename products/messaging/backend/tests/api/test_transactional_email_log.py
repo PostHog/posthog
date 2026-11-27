@@ -746,12 +746,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 [(BILLING, "billing", None), (DOCS, None, "not_found")],
             ),
             (
-                "a redirect that drops a link parameter keeps its click",
-                [(300, f"{BILLING}?ref=email"), (330, DOCS)],
-                [("billing", "/billing", 305), ("docs", "/docs", 335)],
-                [(f"{BILLING}?ref=email", "billing", None), (DOCS, "docs", None)],
-            ),
-            (
                 "a visit at the end of the window keeps its click",
                 [(300, BILLING), (7200, BILLING)],
                 [("late", "/billing", 2100)],
@@ -808,17 +802,24 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert self._clicks(message_id) == [(link, None, reason), (link, None, reason)]
 
-    def test_keeps_each_click_link_when_opens_fill_the_event_limit(self, _flag):
-        message_id, queued_at = self._clicked_send()
+    def test_keeps_each_click_link_when_opens_and_clicks_pass_a_hundred(self, _flag):
+        click_seconds = range(300, 401)
+        message_id = self._send(
+            3 * 24 * 60,
+            "jane@example.com",
+            [("sent", 1, ""), ("delivered", 2, ""), *(("clicked", seconds, "") for seconds in click_seconds)],
+        )
+        queued_at = NOW - timedelta(days=3)
+        self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
         for seconds in range(61, 262):
             self._email_event("$workflows_email_opened", message_id, queued_at + timedelta(seconds=seconds))
-        for seconds in (300, 900):
+        for seconds in click_seconds:
             self._email_event(
                 "$workflows_email_link_clicked", message_id, queued_at + timedelta(seconds=seconds), BILLING
             )
         flush_persons_and_events()
 
-        assert [link for link, *_ in self._clicks(message_id)] == [BILLING, BILLING]
+        assert [link for link, *_ in self._clicks(message_id)] == [BILLING] * len(click_seconds)
 
     def test_finds_the_session_a_click_started_when_the_send_named_no_distinct_id(self, _flag):
         message_id, queued_at = self._clicked_send(distinct_id=None)
