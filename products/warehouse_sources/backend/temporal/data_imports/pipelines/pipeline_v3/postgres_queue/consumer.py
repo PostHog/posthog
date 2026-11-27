@@ -227,10 +227,11 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
 DESTINATION_CONNECT_EXHAUSTED_PATTERNS: tuple[str, ...] = (
     # libpq's wording for the destination dropping the connection mid-handshake or mid-query.
     "server closed the connection unexpectedly",
-    # writers/postgres.py's _client() rewrites a ConnectionTimeout into this detail (see
-    # CONNECT_TIMEOUT_DETAIL) before it reaches DestinationDeliveryError, so the client's own
-    # "Timed-out while trying to connect for..." text never survives to this point.
+    # writers/postgres.py's _client() rewrites a connect timeout and a connection closed during
+    # connect into these details (CONNECT_TIMEOUT_DETAIL, CONNECTION_CLOSED_DETAIL) before they
+    # reach DestinationDeliveryError, so the client's own text never survives to this point.
     "The database did not answer on the host and port given",
+    "The database closed the connection before PostHog could connect",
 )
 
 # Errors that are expected upstream/customer conditions rather than pipeline bugs. The run still
