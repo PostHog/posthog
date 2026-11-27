@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconGear, IconPlus, IconSparkles } from '@posthog/icons'
 
@@ -10,7 +10,6 @@ import { contentAutopilotPromptSuggestionsLogic } from './contentAutopilotPrompt
 
 /** AI visibility's rows in the Web analytics View menu. */
 export const ContentAutopilotMenuBarItems = (): JSX.Element => {
-    const { profile } = useValues(contentAutopilotLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
     const { openSuggest } = useActions(contentAutopilotPromptSuggestionsLogic)
@@ -33,15 +32,13 @@ export const ContentAutopilotMenuBarItems = (): JSX.Element => {
                 <IconSparkles />
                 Suggest prompts
             </SceneMenuBarItem>
-            {profile ? (
-                <SceneMenuBarItem
-                    onClick={() => setWorkspaceTab('settings')}
-                    data-attr="content-autopilot-menubar-settings"
-                >
-                    <IconGear />
-                    AI visibility settings
-                </SceneMenuBarItem>
-            ) : null}
+            <SceneMenuBarItem
+                onClick={() => setWorkspaceTab('settings')}
+                data-attr="content-autopilot-menubar-settings"
+            >
+                <IconGear />
+                AI visibility settings
+            </SceneMenuBarItem>
         </>
     )
 }

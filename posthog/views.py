@@ -80,8 +80,9 @@ def login_required(view):
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
-            user = User.objects.filter(is_active=True).first()
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            user = User.objects.humans().filter(is_active=True).first()
+            if user is not None:
+                login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         response = base_handler(request, *args, **kwargs)
 
         # Don't include next=/ in the login redirect URL since "/" is the default destination
@@ -159,15 +160,6 @@ def llms_txt(request: HttpRequest) -> HttpResponse:
 
 def not_found(request: HttpRequest) -> HttpResponse:
     return HttpResponseNotFound()
-
-
-def security_txt(request):
-    SECURITY_TXT_CONTENT = """
-        Contact: mailto:engineering@posthog.com
-        Hiring: https://posthog.com/careers
-        Expires: 2024-03-14T00:00:00.000Z
-        """
-    return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
 
 
 @xframe_options_exempt

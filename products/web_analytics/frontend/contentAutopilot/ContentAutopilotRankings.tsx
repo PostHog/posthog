@@ -2,23 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import {
-    Button,
-    cn,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
-    Heading,
-    Text,
-} from '@posthog/quill'
+import { Button, cn, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Text } from '@posthog/quill'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
@@ -30,8 +20,6 @@ import type {
 import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AiVisibilityCard } from './AiVisibilityCard'
-import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
-import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
@@ -39,9 +27,11 @@ import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
+import { segmentPrompts, windowRange } from './utils'
+import { MIN_TREND_DAYS } from './visibilityChart'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
@@ -59,7 +49,7 @@ const FROM_XL = 'hidden @xl/ai-visibility-table:table-cell'
 const FILL = 'w-full max-w-0'
 
 const VisibilityChart = (): JSX.Element | null => {
-    const { chart, rankingsLoading } = useValues(contentAutopilotRankingsLogic)
+    const { rankings, chart, rankingsLoading } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
         () =>
@@ -74,8 +64,23 @@ const VisibilityChart = (): JSX.Element | null => {
     if (!chart) {
         return null
     }
+    const daysOfData = new Set((rankings?.daily ?? []).filter(({ answers }) => answers > 0).map(({ date }) => date))
+        .size
     return (
-        <div className={cn('h-64 min-w-0 flex flex-col', rankingsLoading && 'opacity-50')} aria-busy={rankingsLoading}>
+        <div
+            className={cn('flex min-h-64 min-w-0 flex-1 flex-col', rankingsLoading && 'opacity-50')}
+            aria-busy={rankingsLoading}
+        >
+            {daysOfData < MIN_TREND_DAYS ? (
+                <Text
+                    size="xs"
+                    variant="muted"
+                    render={<p className="m-0 pb-1" />}
+                    data-attr="content-autopilot-rankings-waiting"
+                >
+                    Waiting for more days of data. {pluralize(daysOfData, 'day')} of {MIN_TREND_DAYS} so far.
+                </Text>
+            ) : null}
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -85,7 +90,6 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const { reviewShown } = useValues(aiVisibilityCompetitorReviewLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -103,53 +107,10 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     if (!rankings) {
         return <ContentAutopilotRankingsSkeleton />
     }
-    const header = (
-        <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0 flex-1 basis-80">
-                <Heading size="sm" render={<h4 className="m-0" />}>
-                    {filtersHeading(rankings)}
-                </Heading>
-                <Text
-                    size="xs"
-                    variant="muted"
-                    render={<p className="m-0" />}
-                    data-attr="content-autopilot-rankings-answers"
-                >
-                    {brandedAnswersNote(rankings.branded, rankings.answers)}{' '}
-                    {rankings.competitors_confirmed ? (
-                        <>
-                            Competitors are the ones you confirmed in{' '}
-                            <Button variant="link" size="inline" onClick={() => setWorkspaceTab('settings')}>
-                                settings
-                            </Button>
-                            .
-                        </>
-                    ) : reviewShown ? (
-                        // The review card below the header offers the same action.
-                        'Competitors are guessed from the sites the engines cite most.'
-                    ) : (
-                        <>
-                            Competitors are guessed from the sites the engines cite most.{' '}
-                            <Button
-                                variant="link"
-                                size="inline"
-                                onClick={() => setWorkspaceTab('settings')}
-                                data-attr="content-autopilot-rankings-confirm-competitors"
-                            >
-                                Confirm your competitors
-                            </Button>{' '}
-                            to rank against them by name.
-                        </>
-                    )}
-                </Text>
-            </div>
-        </div>
-    )
     const narrowed = rankings.engine !== null || rankings.topic !== null
     if (rankings.answers === 0 && (narrowed || rankings.branded !== 'all')) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-rankings">
-                {header}
                 <Empty data-attr="content-autopilot-rankings-segment-empty">
                     <EmptyHeader>
                         <EmptyTitle>
@@ -187,13 +148,24 @@ export const ContentAutopilotRankings = (): JSX.Element => {
 
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
-            {header}
-            <AiVisibilityCompetitorReview />
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
-                <AiVisibilityCard title="Visibility">
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+                <AiVisibilityCard title="Visibility" className="h-full">
                     <VisibilityChart />
                 </AiVisibilityCard>
-                <AiVisibilityCard title="Brands">
+                <AiVisibilityCard
+                    title="Brands"
+                    className="h-full"
+                    actions={
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setWorkspaceTab('settings')}
+                            data-attr="content-autopilot-rankings-edit-competitors"
+                        >
+                            Edit competitors
+                        </Button>
+                    }
+                >
                     <AiVisibilityTable<AEORankedBrandApi>
                         size="small"
                         embedded
@@ -221,31 +193,26 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 render: (_, brand) => {
                                     const named = rankings.competitors_confirmed && !brand.is_target
                                     return (
-                                        <span className="flex flex-col min-w-0">
-                                            <ContentAutopilotSiteLabel domain={brand.domain} isTarget={brand.is_target}>
-                                                <ContentAutopilotCitationsLink
-                                                    lookup={{
-                                                        kind: 'domain',
-                                                        value: brand.domain,
-                                                        dateFrom: rankings.window_from,
-                                                        dateTo: rankings.window_to,
-                                                        branded: rankings.branded,
-                                                    }}
-                                                    source="rankings-brands"
-                                                >
-                                                    {named ? brand.name : brand.domain}
-                                                </ContentAutopilotCitationsLink>
-                                            </ContentAutopilotSiteLabel>
-                                            {named ? (
-                                                <Text
-                                                    size="xs"
-                                                    variant="muted"
-                                                    render={<span className="m-0 truncate pl-6" />}
-                                                >
-                                                    {brand.domain}
-                                                </Text>
-                                            ) : null}
-                                        </span>
+                                        <ContentAutopilotSiteLabel
+                                            domain={brand.domain}
+                                            isTarget={brand.is_target}
+                                            subtitle={named ? brand.domain : undefined}
+                                        >
+                                            <ContentAutopilotCitationsLink
+                                                lookup={{
+                                                    kind: 'domain',
+                                                    value: brand.domain,
+                                                    dateFrom: rankings.window_from,
+                                                    dateTo: rankings.window_to,
+                                                    branded: rankings.branded,
+                                                }}
+                                                source="rankings-brands"
+                                                // Without padding, every name starts where the domain under it does.
+                                                className="px-0"
+                                            >
+                                                {named ? brand.name : brand.domain}
+                                            </ContentAutopilotCitationsLink>
+                                        </ContentAutopilotSiteLabel>
                                     )
                                 },
                             },
@@ -255,9 +222,10 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 tooltip: 'The share of these answers that name the brand or cite its site.',
                                 align: 'right',
                                 render: (_, brand) => (
-                                    <span className="tabular-nums">
-                                        {brand.visibility === null ? '-' : percentage(brand.visibility, 1)}
-                                    </span>
+                                    <ContentAutopilotRateBar
+                                        rate={brand.visibility}
+                                        tooltip={`Out of ${pluralize(rankings.answers, 'answer')}`}
+                                    />
                                 ),
                             },
                             {
@@ -292,11 +260,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 className: FROM_XL,
                                 tooltip:
                                     'Share of answers about your brand with a positive tone. Scored for your brand only.',
-                                render: (_, brand) => (
-                                    <span className="tabular-nums">
-                                        {brand.positive_share === null ? '-' : percentage(brand.positive_share, 0)}
-                                    </span>
-                                ),
+                                render: (_, brand) => <ContentAutopilotRateBar rate={brand.positive_share} />,
                             },
                         ]}
                     />
@@ -343,9 +307,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 key: 'share_of_answers',
                                 align: 'right',
                                 tooltip: 'Share of answers that link to at least one page on the site.',
-                                render: (_, domain) => (
-                                    <span className="tabular-nums">{percentage(domain.share_of_answers, 1)}</span>
-                                ),
+                                render: (_, domain) => <ContentAutopilotRateBar rate={domain.share_of_answers} />,
                             },
                             {
                                 title: 'Pages',
@@ -398,9 +360,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 key: 'share_of_answers',
                                 align: 'right',
                                 tooltip: 'Share of answers that link to this page.',
-                                render: (_, page) => (
-                                    <span className="tabular-nums">{percentage(page.share_of_answers, 1)}</span>
-                                ),
+                                render: (_, page) => <ContentAutopilotRateBar rate={page.share_of_answers} />,
                             },
                             {
                                 key: 'page_report',

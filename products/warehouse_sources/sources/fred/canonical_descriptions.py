@@ -27,26 +27,28 @@ _RELEASE_COLUMNS = {
     **_REALTIME_COLUMNS,
 }
 
+_SERIES_COLUMNS = {
+    "id": "FRED series ID, for example UNRATE or CPIAUCSL.",
+    "title": "Title of the series, for example 'Unemployment Rate'.",
+    "observation_start": "Date of the earliest observation available for the series.",
+    "observation_end": "Date of the most recent observation available for the series.",
+    "frequency": "Native frequency of the series, for example 'Monthly' or 'Quarterly'.",
+    "frequency_short": "Short code for the native frequency, for example 'M' or 'Q'.",
+    "units": "Units the observation values are expressed in, for example 'Percent'.",
+    "units_short": "Short form of the units.",
+    "seasonal_adjustment": "Seasonal adjustment applied to the series, for example 'Seasonally Adjusted'.",
+    "seasonal_adjustment_short": "Short code for the seasonal adjustment, for example 'SA' or 'NSA'.",
+    "last_updated": "Timestamp of when FRED last updated the series, in US Central time.",
+    "popularity": "FRED popularity score for the series, from 0 to 100.",
+    "notes": "Description of the series, usually including its source and methodology.",
+    **_REALTIME_COLUMNS,
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "series": {
         "description": "Metadata for each economic data series listed in the source's series IDs, including its title, frequency, units and when it was last updated.",
         "docs_url": f"{DOCS_BASE_URL}/series.html",
-        "columns": {
-            "id": "FRED series ID, for example UNRATE or CPIAUCSL.",
-            "title": "Title of the series, for example 'Unemployment Rate'.",
-            "observation_start": "Date of the earliest observation available for the series.",
-            "observation_end": "Date of the most recent observation available for the series.",
-            "frequency": "Native frequency of the series, for example 'Monthly' or 'Quarterly'.",
-            "frequency_short": "Short code for the native frequency, for example 'M' or 'Q'.",
-            "units": "Units the observation values are expressed in, for example 'Percent'.",
-            "units_short": "Short form of the units.",
-            "seasonal_adjustment": "Seasonal adjustment applied to the series, for example 'Seasonally Adjusted'.",
-            "seasonal_adjustment_short": "Short code for the seasonal adjustment, for example 'SA' or 'NSA'.",
-            "last_updated": "Timestamp of when FRED last updated the series, in US Central time.",
-            "popularity": "FRED popularity score for the series, from 0 to 100.",
-            "notes": "Description of the series, usually including its source and methodology.",
-            **_REALTIME_COLUMNS,
-        },
+        "columns": _SERIES_COLUMNS,
     },
     "observations": {
         "description": "Observation values over time for each series in the source's series IDs. One row per series and observation date.",
@@ -142,6 +144,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "notes": "Description of the category.",
         },
     },
+    "category_series": {
+        "description": "The series in each category of FRED's category tree. One row per category and series.",
+        "docs_url": f"{DOCS_BASE_URL}/category_series.html",
+        "columns": {
+            "category_id": "Identifier of the category the series is in. Join to categories.id.",
+            **_SERIES_COLUMNS,
+            "group_popularity": "FRED popularity score for the group of series that share the series' concept, from 0 to 100.",
+        },
+    },
+    "release_series": {
+        "description": "The series on each FRED release. One row per release and series.",
+        "docs_url": f"{DOCS_BASE_URL}/release_series.html",
+        "columns": {
+            "release_id": "Identifier of the release the series is on. Join to releases.id.",
+            **_SERIES_COLUMNS,
+            "group_popularity": "FRED popularity score for the group of series that share the series' concept, from 0 to 100.",
+        },
+    },
     "sources": {
         "description": "Organizations that publish the data behind FRED releases, such as the Bureau of Labor Statistics.",
         "docs_url": f"{DOCS_BASE_URL}/sources.html",
@@ -152,6 +172,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "notes": "Description of the source.",
             **_REALTIME_COLUMNS,
         },
+    },
+    "source_releases": {
+        "description": "The releases that each FRED source publishes. One row per source and release.",
+        "docs_url": f"{DOCS_BASE_URL}/source_releases.html",
+        "columns": {
+            "source_id": "Identifier of the source that publishes the release. Join to sources.id.",
+            **_RELEASE_COLUMNS,
+        },
+    },
+    "series_updates": {
+        "description": "Series whose observations FRED updated in the last two weeks, newest first. FRED keeps no older updates, so each sync replaces the table. A series that FRED updates while a sync runs can be missing until the next sync.",
+        "docs_url": f"{DOCS_BASE_URL}/series_updates.html",
+        "columns": _SERIES_COLUMNS,
     },
     "tags": {
         "description": "Every tag FRED assigns to series, used to filter and group them by frequency, geography, publisher and seasonal adjustment.",

@@ -4,8 +4,19 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsBulkImport, aeoPromptsSuggest, aeoPromptsSuggestionRetrieve } from '../generated/api'
-import type { AEOPromptSuggestionApi, AEOPromptSuggestionJobApi } from '../generated/api.schemas'
+import {
+    aeoBrandsCreate,
+    aeoPromptsBulkImport,
+    aeoPromptsSuggest,
+    aeoPromptsSuggestionRetrieve,
+    aeoSetupContext,
+} from '../generated/api'
+import type {
+    AEOBrandApi,
+    AEOPromptSuggestionApi,
+    AEOPromptSuggestionJobApi,
+    AEOSetupContextApi,
+} from '../generated/api.schemas'
 import { contentAutopilotPromptSuggestionsLogic, siteDomain } from './contentAutopilotPromptSuggestionsLogic'
 
 jest.mock('../generated/api', () => ({
@@ -13,6 +24,8 @@ jest.mock('../generated/api', () => ({
     aeoPromptsSuggest: jest.fn(),
     aeoPromptsSuggestionRetrieve: jest.fn(),
     aeoPromptsBulkImport: jest.fn(),
+    aeoBrandsCreate: jest.fn(),
+    aeoSetupContext: jest.fn(),
 }))
 
 const suggestion = (prompt: string, topic: string): AEOPromptSuggestionApi => ({
@@ -25,7 +38,13 @@ const suggestion = (prompt: string, topic: string): AEOPromptSuggestionApi => ({
 })
 
 const JOB_ID = '00000000-0000-4000-8000-000000000901'
-const pending: AEOPromptSuggestionJobApi = { id: JOB_ID, status: 'pending', suggestions: [], error: '' }
+const pending: AEOPromptSuggestionJobApi = {
+    id: JOB_ID,
+    status: 'pending',
+    suggestions: [],
+    competitors: [],
+    error: '',
+}
 const completed: AEOPromptSuggestionJobApi = {
     ...pending,
     status: 'completed',
@@ -45,6 +64,12 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
         initKeaTests()
         jest.mocked(aeoPromptsSuggest).mockResolvedValue(pending)
         jest.mocked(aeoPromptsBulkImport).mockResolvedValue({ created: 1, updated: 0, skipped: 0 })
+        jest.mocked(aeoBrandsCreate).mockResolvedValue({} as AEOBrandApi)
+        jest.mocked(aeoSetupContext).mockResolvedValue({
+            own_domains: ['example.com'],
+            engines: [],
+            websites: [],
+        } as unknown as AEOSetupContextApi)
         logic = contentAutopilotPromptSuggestionsLogic()
         logic.mount()
     })
@@ -134,5 +159,40 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
         ['  ', ''],
     ])('reads the site from %p', (input, expected) => {
         expect(siteDomain(input)).toBe(expected)
+    })
+
+    it('saves the site as your brand and the kept competitors when it adds the prompts', async () => {
+        jest.mocked(aeoSetupContext).mockResolvedValue({
+            own_domains: [],
+            engines: [],
+            websites: [],
+        } as unknown as AEOSetupContextApi)
+        logic.unmount()
+        logic = contentAutopilotPromptSuggestionsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setForm({ domain: 'https://www.example.com/', brand: 'Example' })
+        await expectLogic(logic, () => logic.actions.startSuggestions()).toFinishAllListeners()
+        jest.mocked(aeoPromptsSuggestionRetrieve).mockResolvedValueOnce({
+            ...completed,
+            competitors: [
+                { name: 'Rival', domain: 'rival.example.org' },
+                { name: 'Dropped', domain: 'dropped.example.org' },
+                { name: 'Only a name', domain: '' },
+            ],
+        })
+        await expectLogic(logic, () => logic.actions.loadJob()).toFinishAllListeners()
+        expect(logic.values.selectedCompetitors).toEqual(['rival.example.org', 'dropped.example.org'])
+
+        logic.actions.toggleCompetitor('dropped.example.org')
+        await expectLogic(logic, () => logic.actions.addSelected()).toFinishAllListeners()
+
+        const team = String(MOCK_DEFAULT_TEAM.id)
+        expect(jest.mocked(aeoBrandsCreate).mock.calls.map(([, body]) => body)).toEqual([
+            { domain: 'example.com', kind: 'own', name: 'Example' },
+            { domain: 'rival.example.org', kind: 'competitor' },
+        ])
+        expect(aeoBrandsCreate).toHaveBeenCalledWith(team, expect.anything())
     })
 })

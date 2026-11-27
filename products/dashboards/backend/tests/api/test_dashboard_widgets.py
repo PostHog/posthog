@@ -1540,18 +1540,25 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         after = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
         assert all(t["widget"]["config"]["limit"] == 5 for t in after)
 
+    @parameterized.expand(
+        [
+            (
+                "widget_type_change",
+                {"widget_type": "session_replay_list", "config": {"limit": 10}},
+                "widget_type cannot be changed",
+            ),
+            ("config_not_an_object", {"config": [1]}, "Config must be an object."),
+        ]
+    )
     @override_settings(IN_UNIT_TESTING=True)
-    def test_cannot_change_widget_type(self) -> None:
+    def test_rejects_invalid_widget_patch(self, _name: str, patch_fields: dict[str, Any], expected_detail: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
         tile = dashboard_json["tiles"][0]
 
-        response = self._batch_update(
-            dashboard_id,
-            [{"tile_id": tile["id"], "widget_type": "session_replay_list", "config": {"limit": 10}}],
-        )
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], **patch_fields}])
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "widget_type cannot be changed" in response.json()["detail"]
+        assert expected_detail in response.json()["detail"]
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_rejects_non_widget_tile(self) -> None:
