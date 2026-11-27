@@ -174,6 +174,36 @@ class TestNotebookAppLayout(APIBaseTest):
         assert notebook.app_published is None
         assert notebook.app_draft["title"] == "Draft title"
 
+    def test_table_input_requires_distinct_list_variables_before_publication(self) -> None:
+        variables = [
+            {"name": "regions", "type": "list", "value": ["North"]},
+            {"name": "labels", "type": "string", "value": "First"},
+        ]
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, variables=variables)
+        url = f"/api/projects/{self.team.pk}/notebooks/{notebook.short_id}/"
+        table = {
+            "id": "inputs",
+            "kind": "input",
+            "input_kind": "table",
+            "tab_id": "overview",
+            "variable": "regions",
+            "table_columns": ["labels"],
+        }
+        duplicate = {**LAYOUT, "blocks": [{**table, "table_columns": ["regions"]}]}
+        rejected = self.client.patch(url, {"app_revision": 0, "app_draft": duplicate}, format="json")
+        assert rejected.status_code == 400
+        assert "Choose distinct list variables" in str(rejected.json())
+
+        layout = {**LAYOUT, "blocks": [table]}
+        preview = self.client.post(url + "app_preview/", layout, format="json")
+        assert preview.json()["problems"] == ["inputs: bind each table column to a list variable."]
+        notebook.variables = [variables[0], {"name": "labels", "type": "list", "value": ["First"]}]
+        notebook.save(update_fields=["variables"])
+        assert self.client.post(url + "app_preview/", layout, format="json").json()["problems"] == []
+        published = self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json")
+        assert published.status_code == 200, published.json()
+        assert self.client.get(url + "app_release/").json()["layout"]["blocks"][0]["table_columns"] == ["labels"]
+
     def test_release_pins_defaults_and_restores_without_overwriting_the_draft(self) -> None:
         variables = [{"name": "region", "type": "string", "value": "Europe"}]
         notebook = Notebook.objects.create(

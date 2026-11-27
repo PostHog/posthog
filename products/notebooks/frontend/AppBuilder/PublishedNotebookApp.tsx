@@ -12,8 +12,8 @@ import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
-import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { appSourceCells } from './notebookAppLayout'
+import { NotebookAppTableCanvas } from './NotebookAppTableCanvas'
 import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
@@ -39,12 +39,12 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
-    const { changeInput } = useActions(logic)
+    const { variables, chartFilterVariables, results, publishedResults, refreshFailed: error } = useValues(logic)
+    const { changeInput, changeInputs } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
-        variables.map((v) => [
+        chartFilterVariables.map((v) => [
             v.name,
             (value: unknown) => {
                 if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -86,7 +86,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 onChange={setActiveTab}
                 tabs={layout.tabs.map((tab) => ({ key: tab.id, label: tab.title }))}
             />
-            <NotebookAppCanvas
+            <NotebookAppTableCanvas
                 layout={layout}
                 activeTab={activeTab}
                 cells={cells}
@@ -95,7 +95,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                 editing={false}
                 selectedId={null}
                 canInteract
-                onInput={changeInput}
+                onInput={changeInputs}
                 renderOutput={(cell) =>
                     cell.type === 'component' && cell.tagName === 'SQLV2' ? (
                         <PublishedNotebookQuery

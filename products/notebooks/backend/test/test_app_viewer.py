@@ -1,5 +1,8 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
@@ -12,6 +15,32 @@ from products.notebooks.backend.markdown_conversion import (
     get_markdown_notebook_markdown,
 )
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
+
+
+def test_table_inputs_bind_only_published_list_columns():
+    from products.notebooks.backend.app_viewer import resolve_viewer_queries
+    from products.notebooks.backend.facade.contracts import AppRelease
+
+    release = AppRelease(
+        revision=1,
+        published_at=None,
+        results_as_of=None,
+        title="Targets",
+        has_previous=False,
+        variables=[{"name": name, "type": "list", "value": []} for name in ["segment", "target", "private"]],
+        markdown='<SQLV2 nodeId="targets" code="SELECT arrayZip({segment}, {target})" />',
+        layout={
+            "blocks": [
+                {"kind": "cell", "node_id": "targets"},
+                {"kind": "input", "variable": "segment", "input_kind": "table", "table_columns": ["target"]},
+            ]
+        },
+    )
+    plans = resolve_viewer_queries(release, {"segment": ["North"], "target": ["25"]})
+    assert len(plans) == 1
+    assert "North" in plans[0].query and "25" in plans[0].query
+    with pytest.raises(ValidationError, match="published app input"):
+        resolve_viewer_queries(release, {"private": ["secret"]})
 
 
 class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):

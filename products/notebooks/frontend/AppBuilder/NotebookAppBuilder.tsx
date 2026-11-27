@@ -19,10 +19,10 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { NotebookAppEditorAgentContext } from './NotebookAppAgentIntegration'
-import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
+import { NotebookAppTableCanvas } from './NotebookAppTableCanvas'
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
     const logic = notebookAppLogic({ shortId })
@@ -71,7 +71,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
         useNotebookLayout,
         undo,
         redo,
-        setInputValue,
+        setInputValues,
         updateCellOutput,
         openSource,
         saveApp,
@@ -379,7 +379,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                                 }
                             />
                         )}
-                        <NotebookAppCanvas
+                        <NotebookAppTableCanvas
                             layout={layout}
                             activeTab={selectedTab}
                             cells={cells}
@@ -395,7 +395,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             onDuplicate={duplicateBlock}
                             onRemove={removeBlock}
                             onSource={openSource}
-                            onInput={setInputValue}
+                            onInput={setInputValues}
                             onCellOutput={updateCellOutput}
                         />
                     </main>

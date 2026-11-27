@@ -46,7 +46,7 @@ export function NotebookAppCanvas({
     onDuplicate?: (id: string) => void
     onRemove?: (id: string) => void
     onSource?: (id: string) => void
-    onInput: (name: string, value: NotebookVariableValue) => void
+    onInput: (changes: Record<string, NotebookVariableValue>) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {

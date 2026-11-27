@@ -28,8 +28,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider\n* `table` - Editable table",
+                                        "enum": ["auto", "select", "slider", "table"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -72,6 +72,15 @@
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
                                         "type": "string"
+                                    },
+                                    "table_columns": {
+                                        "description": "Additional list variables displayed alongside the first column of a table input.",
+                                        "items": {
+                                            "maxLength": 80,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 9,
+                                        "type": "array"
                                     },
                                     "text": {
                                         "default": "",
@@ -178,8 +187,8 @@
                                     },
                                     "input_kind": {
                                         "default": "auto",
-                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
-                                        "enum": ["auto", "select", "slider"],
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider\n* `table` - Editable table",
+                                        "enum": ["auto", "select", "slider", "table"],
                                         "type": "string"
                                     },
                                     "kind": {
@@ -222,6 +231,15 @@
                                         "description": "Tab containing this component.",
                                         "maxLength": 80,
                                         "type": "string"
+                                    },
+                                    "table_columns": {
+                                        "description": "Additional list variables displayed alongside the first column of a table input.",
+                                        "items": {
+                                            "maxLength": 80,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 9,
+                                        "type": "array"
                                     },
                                     "text": {
                                         "default": "",
