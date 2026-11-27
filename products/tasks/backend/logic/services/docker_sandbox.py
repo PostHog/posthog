@@ -6,6 +6,7 @@ import time
 import uuid
 import shlex
 import base64
+import select
 import shutil
 import signal
 import socket
@@ -73,6 +74,7 @@ from .sandbox import (
     list_dir_command,
     parse_list_dir_output,
     parse_sandbox_repo_mount_map,
+    read_bounded_output,
     read_pinned_agent_version,
     redact_sandbox_command,
     sandbox_repo_path,
@@ -517,7 +519,7 @@ class DockerSandbox(AgentServerLaunchMixin):
     def create(config: SandboxConfig) -> DockerSandbox:
         skills_snapshot: tempfile.TemporaryDirectory[str] | None = None
         try:
-            skill_source = DockerSandbox._local_skill_source(config)
+            skill_source = None if config.block_network else DockerSandbox._local_skill_source(config)
             if skill_source == "local":
                 skills_snapshot = tempfile.TemporaryDirectory(prefix="posthog-task-skills-")
                 try:
@@ -540,7 +542,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                             value = DockerSandbox._transform_url_for_docker(value)
                         env_args.extend(["-e", f"{key}={value}"])
 
-            host_port = DockerSandbox._find_available_port()
+            host_port = None if config.block_network else DockerSandbox._find_available_port()
             # Streamlit sandboxes are reached via their auth proxy (8080); everything else
             # via the agent-server. Ports must be published at `docker run` time — the proxy
             # boots later inside the container, so we publish 8080 up front regardless.
@@ -549,7 +551,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
             port_args = ["-p", f"{host_port}:{container_port}"]
 
-            mount_map = parse_sandbox_repo_mount_map()
+            mount_map = {} if config.block_network else parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
             for repo_key, local_path in mount_map.items():
                 org, repo = repo_key.split("/", 1)
@@ -558,7 +560,7 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             # Native runtimes need the same files as plugin discovery. Eval snapshots replace
             # whole directories so image-only skills cannot enter the comparison.
-            local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
+            local_skills_host = None if config.block_network else os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
             if (
                 skill_source != "local"
                 and not bundled_skills_disabled(config.environment_variables)
@@ -580,6 +582,13 @@ class DockerSandbox(AgentServerLaunchMixin):
             if config.template == SandboxTemplate.PI_BASE:
                 cap_args.extend(["--cap-add", "NET_ADMIN"])
 
+            network_args = ["--add-host", "host.docker.internal:host-gateway"]
+            if config.block_network:
+                network_args = ["--network", "none"]
+                cap_args = []
+                volume_args = []
+                port_args = []
+
             docker_args = [
                 "docker",
                 "run",
@@ -589,8 +598,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                 "--pull=never",
                 "--name",
                 container_name,
-                "--add-host",
-                "host.docker.internal:host-gateway",
+                *network_args,
                 *cap_args,
                 "-w",
                 WORKING_DIR,
@@ -779,6 +787,37 @@ class DockerSandbox(AgentServerLaunchMixin):
                 {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
+
+    def execute_bounded(self, command: str, *, timeout_seconds: int, max_output_bytes: int) -> ExecutionResult:
+        deadline = time.monotonic() + timeout_seconds
+        with subprocess.Popen(
+            ["docker", "exec", self._container_id, "bash", "-c", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ) as process:
+            assert process.stdout is not None
+            pipe = process.stdout
+
+            def remaining() -> float:
+                return max(0, deadline - time.monotonic())
+
+            def chunks() -> Iterator[bytes]:
+                while remaining() > 0 and select.select([pipe], [], [], remaining())[0]:
+                    chunk = os.read(pipe.fileno(), 16 * 1024)
+                    if not chunk:
+                        return
+                    yield chunk
+                raise TimeoutError("Kernel execution timed out.")
+
+            try:
+                output = read_bounded_output(chunks(), max_output_bytes)
+                exit_code = process.wait(timeout=remaining())
+            except subprocess.TimeoutExpired as error:
+                raise TimeoutError("Kernel execution timed out.") from error
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            return ExecutionResult(stdout=output, stderr="", exit_code=exit_code)
 
     def execute_stream(
         self,

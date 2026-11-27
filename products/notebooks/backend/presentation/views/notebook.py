@@ -24,7 +24,7 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -81,6 +81,7 @@ from products.notebooks.backend.facade.app_releases import (
     read_release,
     record_release,
     review_release,
+    run_app_cell,
 )
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
@@ -342,6 +343,20 @@ class NotebookAppWidgetSlotSerializer(serializers.Serializer):
 
 class NotebookAppDraftQueryRequestSerializer(NotebookAppViewerRequestSerializer):
     layout = NotebookAppLayoutSerializer()
+
+
+class NotebookAppComputeRequestSerializer(NotebookAppViewerRequestSerializer):
+    node_id = serializers.CharField(max_length=200)
+
+
+class NotebookAppDraftComputeRequestSerializer(NotebookAppComputeRequestSerializer):
+    layout = NotebookAppLayoutSerializer()
+
+
+class NotebookAppComputeResultSerializer(serializers.Serializer):
+    text = serializers.CharField(required=False, allow_blank=True)
+    columns = serializers.ListField(child=serializers.CharField(), required=False)
+    rows = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()), required=False)
 
 
 class NotebookAppViewerQuerySerializer(serializers.Serializer):
@@ -922,7 +937,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
         if self.action in ("app_queries", "app_draft_queries"):
             return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
-        if self.action in ("kernel_start", "kernel_restart"):
+        if self.action in ("kernel_start", "kernel_restart", "app_compute", "app_draft_compute"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
         return throttles
 
@@ -992,6 +1007,43 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         inputs = {v["name"]: v.get("value") for v in data["variables"]}
         plans = plan_draft_queries(notebook.team_id, notebook.pk, data["revision"], data["layout"], inputs)
         return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
+
+    @extend_schema(request=NotebookAppComputeRequestSerializer, responses=NotebookAppComputeResultSerializer)
+    @action(methods=["POST"], detail=True, url_path="app_compute", required_scopes=["notebook:read", "query:read"])
+    def app_compute(self, request: Request, **kwargs) -> Response:
+        return self._compute_app_cell(request, NotebookAppComputeRequestSerializer(data=request.data))
+
+    @extend_schema(request=NotebookAppDraftComputeRequestSerializer, responses=NotebookAppComputeResultSerializer)
+    @action(
+        methods=["POST"], detail=True, url_path="app_draft_compute", required_scopes=["notebook:write", "query:read"]
+    )
+    def app_draft_compute(self, request: Request, **kwargs) -> Response:
+        return self._compute_app_cell(request, NotebookAppDraftComputeRequestSerializer(data=request.data))
+
+    def _compute_app_cell(self, request: Request, params: NotebookAppComputeRequestSerializer) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("Sign in to run this calculation.")
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+        inputs = {v["name"]: v.get("value") for v in data["variables"]}
+        try:
+            result = run_app_cell(
+                notebook.team_id,
+                notebook.pk,
+                user,
+                data["revision"],
+                data["node_id"],
+                inputs,
+                draft_layout=data.get("layout"),
+            )
+        except (ExposedHogQLError, KernelSandboxLimitExceeded) as error:
+            raise ValidationError(str(error)) from error
+        return Response(NotebookAppComputeResultSerializer(result).data)
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":

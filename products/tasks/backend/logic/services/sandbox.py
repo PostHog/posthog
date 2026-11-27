@@ -193,6 +193,19 @@ def needs_full_history(origin_product: str | None) -> bool:
     return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
+class SandboxOutputTooLarge(Exception):
+    pass
+
+
+def read_bounded_output(chunks: Iterable[bytes], max_bytes: int) -> str:
+    output = bytearray()
+    for chunk in chunks:
+        if len(chunk) > max_bytes - len(output):
+            raise SandboxOutputTooLarge("The calculation output is too large.")
+        output.extend(chunk)
+    return output.decode("utf-8", errors="replace")
+
+
 class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
@@ -626,6 +639,10 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def execute_bounded(self, command: str, *, timeout_seconds: int, max_output_bytes: int) -> ExecutionResult:
+        """Collect stdout with a host-side byte limit and discard stderr."""
+        raise NotImplementedError("This sandbox does not support bounded output.")
 
     def execute_in_task_filesystem(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
         return self.execute(command, timeout_seconds=timeout_seconds)

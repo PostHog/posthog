@@ -38,6 +38,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal.stream_type import StreamType
 from modal.types import (
     FileInfo as ModalFileInfo,
     FileType as ModalFileType,
@@ -101,6 +102,7 @@ from products.tasks.backend.logic.services.sandbox import (
     build_bundled_skills_clear_command,
     list_dir_command,
     parse_list_dir_output,
+    read_bounded_output,
     redact_sandbox_command,
     sandbox_repo_path,
 )
@@ -1650,6 +1652,22 @@ class ModalSandbox(AgentServerLaunchMixin):
             raise
         except Exception as e:
             self._raise_command_failure(e, redacted_command, timeout_seconds)
+
+    def execute_bounded(self, command: str, *, timeout_seconds: int, max_output_bytes: int) -> ExecutionResult:
+        redacted_command, timeout_seconds = self._prepare_command(command, timeout_seconds)
+        process = self._sandbox.exec(
+            "bash", "-c", command, timeout=timeout_seconds, text=False, bufsize=-1, stderr=StreamType.DEVNULL
+        )
+        output = read_bounded_output(process.stdout, max_output_bytes)
+        process.wait()
+        if process.returncode == MODAL_EXEC_TIMEOUT_RETURNCODE:
+            raise SandboxTimeoutError(
+                f"Execution timed out after {timeout_seconds} seconds",
+                {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, "command": redacted_command},
+                cause=TimeoutError("The sandbox command exceeded its time limit"),
+                capture=False,
+            )
+        return ExecutionResult(stdout=output, stderr="", exit_code=process.returncode)
 
     def execute_stream(
         self,

@@ -974,6 +974,29 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookAppComputeRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+    /** @maxLength 200 */
+    node_id: string
+}
+
+export interface NotebookAppComputeResultApi {
+    text?: string
+    columns?: string[]
+    rows?: unknown[][]
+}
+
+export interface NotebookAppDraftComputeRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+    /** @maxLength 200 */
+    node_id: string
+    layout: NotebookAppLayoutApi
+}
+
 export interface NotebookAppDraftQueryRequestApi {
     /** @minimum 0 */
     revision: number

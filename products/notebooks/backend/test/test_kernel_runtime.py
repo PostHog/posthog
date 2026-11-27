@@ -431,13 +431,14 @@ class TestKernelRuntimeService(BaseTest):
         assert execution_result.stdout == "before\nafter"
         mock_payload.assert_called_once_with(bridge_payload_json, handle)
 
-    def test_notebook_bridge_hogql_executes_as_runtime_user(self) -> None:
+    @parameterized.expand([("notebook", False), ("app", True)])
+    def test_notebook_bridge_query_access(self, _name: str, private_app: bool) -> None:
         service = KernelRuntimeService(execution_timeout=5)
         notebook = Notebook.objects.create(team=self.team)
         runtime = KernelRuntime.objects.create(
             team=self.team,
-            notebook=notebook,
-            notebook_short_id=notebook.short_id,
+            notebook=None if private_app else notebook,
+            notebook_short_id="_viewer" if private_app else notebook.short_id,
             user=self.user,
             status=KernelRuntime.Status.RUNNING,
             backend=KernelRuntime.Backend.DOCKER,
@@ -463,10 +464,14 @@ class TestKernelRuntimeService(BaseTest):
             mock_execute.return_value.model_dump.return_value = {"results": [[1]], "columns": ["count"]}
             service._handle_notebook_bridge_payload(json.dumps(payload), handle)
 
-        mock_execute.assert_called_once()
-        assert mock_execute.call_args.kwargs["user"] == self.user
         header, body = sandbox.written_files["/tmp/resp.json"].split(b"\n", 1)
         assert int(header) == len(body)
+        if private_app:
+            mock_execute.assert_not_called()
+            assert "SQL cell" in json.loads(body)["error"]
+        else:
+            mock_execute.assert_called_once()
+            assert mock_execute.call_args.kwargs["user"] == self.user
 
     @parameterized.expand(
         [

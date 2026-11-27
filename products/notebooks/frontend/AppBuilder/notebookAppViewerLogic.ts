@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { readableErrorMessage } from 'lib/api-error'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
@@ -17,11 +18,17 @@ import { performQuery } from '~/queries/query'
 import { HogQLQuery, HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import {
+    notebooksAppComputeCreate,
+    notebooksAppDraftComputeCreate,
     notebooksAppDraftQueriesCreate,
     notebooksAppQueriesCreate,
     notebooksAppReleaseRetrieve,
 } from '../generated/api'
-import type { NotebookAppReleaseApi, NotebookAppViewerQueryApi } from '../generated/api.schemas'
+import type {
+    NotebookAppComputeResultApi,
+    NotebookAppReleaseApi,
+    NotebookAppViewerQueryApi,
+} from '../generated/api.schemas'
 import { type PublishedRunResult, restorePublishedResults } from './notebookAppPublishedResults'
 import { parseWidgetQueryResponse } from './viewerWidgetFrames'
 
@@ -36,6 +43,11 @@ export interface ViewerOutput {
     result: HogQLQueryResponse
     generation: number
     widgetSlots: NonNullable<NotebookAppViewerQueryApi['widget_slots']>
+}
+export interface PrivateCellState {
+    result?: { data: NotebookAppComputeResultApi; inputs: NotebookVariable[] }
+    loading: boolean
+    error?: string
 }
 export interface ViewerResults {
     outputs: Record<string, ViewerOutput>
@@ -126,6 +138,8 @@ async function resolveViewerOutputs(
 export interface notebookAppViewerLogicValues {
     auto: boolean
     dirty: boolean
+    nativeOutputIds: string[] | null
+    privateCells: Record<string, PrivateCellState>
     publishedResults: Record<string, PublishedRunResult>
     publishedResultsLoading: boolean
     refreshFailed: boolean
@@ -191,8 +205,25 @@ export interface notebookAppViewerLogicActions {
         publishedResults: Record<string, PublishedRunResult>
         payload?: NotebookAppReleaseApi
     }
+    runPrivateCell: (
+        nodeId: string,
+        cellType: string
+    ) => {
+        cellType: string
+        nodeId: string
+    }
     setAuto: (auto: boolean) => {
         auto: boolean
+    }
+    setNativeOutputIds: (ids: string[]) => {
+        ids: string[]
+    }
+    setPrivateCell: (
+        nodeId: string,
+        state: PrivateCellState
+    ) => {
+        nodeId: string
+        state: PrivateCellState
     }
 }
 
@@ -220,10 +251,13 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
     key((props) => props.sessionId),
     path((key) => ['products', 'notebooks', 'appBuilder', 'notebookAppViewerLogic', key]),
     actions({
+        setNativeOutputIds: (ids: string[]) => ({ ids }),
+        runPrivateCell: (nodeId: string, cellType: string) => ({ nodeId, cellType }),
+        setPrivateCell: (nodeId: string, state: PrivateCellState) => ({ nodeId, state }),
         changeInput: (name: string, value: NotebookVariableValue) => ({ name, value }),
         setAuto: (auto: boolean) => ({ auto }),
     }),
-    loaders(({ props, values, cache }) => ({
+    loaders(({ props, values, cache, actions }) => ({
         release: [
             null as NotebookAppReleaseApi | null,
             {
@@ -279,6 +313,7 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
                               )
                             : await notebooksAppQueriesCreate(props.project, props.shortId, request, options)
                         breakpoint()
+                        actions.setNativeOutputIds(plans.map((plan) => plan.node_id))
                         const { outputs, queried } = await resolveViewerOutputs(
                             plans,
                             results?.outputs,
@@ -315,6 +350,17 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
         ],
     })),
     reducers({
+        nativeOutputIds: [
+            null as string[] | null,
+            { loadReleaseSuccess: () => null, setNativeOutputIds: (_, { ids }) => ids },
+        ],
+        privateCells: [
+            {} as Record<string, PrivateCellState>,
+            {
+                loadReleaseSuccess: () => ({}),
+                setPrivateCell: (cells, { nodeId, state }) => ({ ...cells, [nodeId]: state }),
+            },
+        ],
         variables: [
             [] as NotebookVariable[],
             {
@@ -342,7 +388,46 @@ export const notebookAppViewerLogic = kea<notebookAppViewerLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
+        runPrivateCell: async ({ nodeId, cellType }) => {
+            const { release, variables, privateCells } = values
+            if (!release) {
+                return
+            }
+            const controller = new AbortController()
+            cache.disposables.add(() => () => controller.abort(), 'privateCell-' + nodeId, { pauseOnPageHidden: false })
+            const result = privateCells[nodeId]?.result
+            actions.setPrivateCell(nodeId, { result, loading: true })
+            try {
+                const body = { node_id: nodeId, revision: release.revision, variables }
+                const options = { signal: controller.signal }
+                const data = props.draft
+                    ? await notebooksAppDraftComputeCreate(
+                          props.project,
+                          props.shortId,
+                          { ...body, layout: release.layout },
+                          options
+                      )
+                    : await notebooksAppComputeCreate(props.project, props.shortId, body, options)
+                if (!controller.signal.aborted && values.release === release) {
+                    actions.setPrivateCell(nodeId, { result: { data, inputs: variables }, loading: false })
+                    posthog.capture('notebook app viewer calculation ran', {
+                        short_id: props.shortId,
+                        cell_type: cellType,
+                    })
+                }
+            } catch (error) {
+                if (!controller.signal.aborted && values.release === release) {
+                    actions.setPrivateCell(nodeId, {
+                        result,
+                        loading: false,
+                        error:
+                            readableErrorMessage(error) ||
+                            'Could not run this calculation. Check your data access and try again.',
+                    })
+                }
+            }
+        },
         loadReleaseSuccess: ({ release }) => {
             actions.restore(release)
             posthog.capture(props.draft ? 'notebook app draft previewed' : 'notebook app viewed', {

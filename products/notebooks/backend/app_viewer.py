@@ -6,6 +6,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions import Conflict
 
+from products.notebooks.backend.app_draft import draft_release_from_notebook
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.app_widget_sources import (
     ApprovedWidgetSource,
@@ -49,18 +50,7 @@ def plan_draft_queries(
     from products.notebooks.backend.models import Notebook
 
     notebook = Notebook.objects.get(team_id=team_id, pk=notebook_id)
-    if revision != notebook.version:
-        raise Conflict("The notebook changed. Reopen the preview to load its latest sources.")
-    draft = AppRelease(
-        revision=revision,
-        published_at=None,
-        results_as_of=None,
-        title=notebook.title or "",
-        layout=layout,
-        markdown=get_markdown_notebook_markdown(notebook.content) or "",
-        variables=notebook.variables or [],
-        has_previous=False,
-    )
+    draft = draft_release_from_notebook(notebook, revision, layout, get_markdown_notebook_markdown(notebook.content))
     return _plan_layout_queries(team_id, notebook_id, draft, inputs)
 
 
@@ -82,16 +72,8 @@ def resolve_viewer_queries(
     inputs: dict[str, NotebookVariableValue],
     widget_sources: dict[str, ApprovedWidgetSource] | None = None,
 ) -> list[AppViewerQuery]:
-    allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
-    if inputs.keys() - allowed:
-        raise ValidationError("Choose a published app input.")
     defaults = build_notebook_variables(release.variables)
-    overrides = NotebookVariableSerializer(
-        data=[{**var, "value": inputs[var["name"]]} for var in release.variables if var["name"] in inputs], many=True
-    )
-    overrides.is_valid(raise_exception=True)
-    by_name = {var["name"]: var for var in overrides.validated_data}
-    variables = build_notebook_variables([by_name.get(var["name"], var) for var in release.variables])
+    variables = viewer_variables(release, inputs)
     displayed = {
         block["node_id"]
         for block in release.layout["blocks"]
@@ -135,6 +117,18 @@ def resolve_viewer_queries(
         for node_id, query in queries.items()
         if node_id in visible or node_id in slots
     ]
+
+
+def viewer_variables(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[NotebookVariable]:
+    allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
+    if inputs.keys() - allowed:
+        raise ValidationError("Choose a published app input.")
+    overrides = NotebookVariableSerializer(
+        data=[{**var, "value": inputs[var["name"]]} for var in release.variables if var["name"] in inputs], many=True
+    )
+    overrides.is_valid(raise_exception=True)
+    by_name = {var["name"]: var for var in overrides.validated_data}
+    return build_notebook_variables([by_name.get(var["name"], var) for var in release.variables])
 
 
 def _bound_queries(

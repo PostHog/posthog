@@ -3449,6 +3449,28 @@ class TestModalSandboxProxyRateLimit:
 
         assert mock_sandbox._sandbox.exec.call_count == 1
 
+    def test_bounded_timeout_uses_the_sandbox_timeout_error(self, mock_sandbox: Any):
+        process = _running_process()
+        process.returncode = -1
+        mock_sandbox._sandbox.exec.return_value = process
+        with pytest.raises(SandboxTimeoutError):
+            mock_sandbox.execute_bounded("sleep 2", timeout_seconds=1, max_output_bytes=16)
+
+    def test_bounded_execution_rejects_output_before_reading_more(self, mock_sandbox: Any):
+        from products.tasks.backend.logic.services.sandbox import SandboxOutputTooLarge
+
+        def chunks():
+            yield b"123456"
+            yield b"789"
+            pytest.fail("Read past the output budget")
+
+        process = _running_process()
+        process.stdout = chunks()
+        mock_sandbox._sandbox.exec.return_value = process
+        with pytest.raises(SandboxOutputTooLarge):
+            mock_sandbox.execute_bounded("echo sample", timeout_seconds=5, max_output_bytes=8)
+        process.wait.assert_not_called()
+
     @pytest.mark.parametrize("stage", ["wait", "iterate"])
     def test_execute_stream_rate_limit_propagates(self, stage: str, mock_sandbox: Any):
         process = _running_process()

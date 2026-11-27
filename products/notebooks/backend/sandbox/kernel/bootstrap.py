@@ -120,14 +120,9 @@ def _column_type_name(dtype: Any) -> str:
     a numeric axis. A raw pandas dtype ('float64') is not one of them, so such a column
     reads as non-numeric there and drops out of every axis picker.
     """
-    if pd.api.types.is_bool_dtype(dtype):
-        return "Bool"
-    if pd.api.types.is_integer_dtype(dtype):
-        return "Int64"
-    if pd.api.types.is_float_dtype(dtype):
-        return "Float64"
-    if pd.api.types.is_datetime64_any_dtype(dtype):
-        return "DateTime"
+    for check, name in envelope.DATAFRAME_TYPE_CHECKS:
+        if getattr(pd.api.types, check)(dtype):
+            return name
     return "String"
 
 

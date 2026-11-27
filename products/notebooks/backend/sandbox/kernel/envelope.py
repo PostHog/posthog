@@ -11,6 +11,13 @@ import datetime
 from collections.abc import Sequence
 from typing import Any
 
+DATAFRAME_TYPE_CHECKS = (
+    ("is_bool_dtype", "Bool"),
+    ("is_integer_dtype", "Int64"),
+    ("is_float_dtype", "Float64"),
+    ("is_datetime64_any_dtype", "DateTime"),
+)
+
 
 def _json_cell(value: Any) -> Any:
     """Coerce an Arrow-produced cell into a JSON-safe value."""

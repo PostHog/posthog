@@ -66,6 +66,7 @@ from posthog.hogql.direct_sql import (
     get_adapter_for_source,
     get_raw_adapter_for_source,
 )
+from posthog.hogql.direct_sql.result_limit import execute_with_result_limit
 from posthog.hogql.errors import (
     FIELD_NOT_FOUND_MESSAGE,
     UNRESOLVED_FIELD_MESSAGE,
@@ -802,7 +803,8 @@ class HogQLQueryExecutor:
         )
 
         query_stats.notify_query_started()
-        result = adapter.execute(
+        result = execute_with_result_limit(
+            adapter,
             DirectQueryRequest(
                 source=source,
                 team=self.team,
@@ -821,7 +823,7 @@ class HogQLQueryExecutor:
                     else None
                 ),
                 cancellation_token=cancellation_token,
-            )
+            ),
         )
 
         self.results = result.results

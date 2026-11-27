@@ -108,6 +108,14 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
                 ).status_code
                 == 403
             )
+            assert (
+                self.client.post(
+                    notebook_url + "app_draft_compute/",
+                    {"revision": notebook.version, "variables": [], "layout": layout, "node_id": "output"},
+                    format="json",
+                ).status_code
+                == 403
+            )
             assert self.client.patch(notebook_url, {"title": "Unauthorized"}, format="json").status_code == 403
             payload = {
                 "revision": 1,
