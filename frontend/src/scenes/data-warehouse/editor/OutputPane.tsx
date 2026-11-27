@@ -45,7 +45,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
-import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, InsightValidationError, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -71,6 +71,7 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import {
     type AccessControlFilterWarning,
     type DataTableNode,
@@ -1204,28 +1205,38 @@ const ErrorState = ({
     response,
     showQueryScan,
 }: any): JSX.Element | null => {
+    const { responseErrorObject } = useValues(dataNodeLogic)
+    const validationError = !queryCancelled && extractValidationError(responseErrorObject)
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
           ? response.error
           : responseError
+    const fixWithAI = <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
             <div className="flex min-h-full flex-col justify-center">
-                <InsightErrorState
-                    query={sourceQuery}
-                    excludeDetail
-                    title={
-                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                            {error}
-                        </pre>
-                    }
-                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                    fixWithAIComponent={
-                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                    }
-                />
+                {validationError ? (
+                    <InsightValidationError
+                        query={sourceQuery}
+                        detail={validationError}
+                        validationErrorCode={extractValidationErrorCode(responseErrorObject)}
+                        fixWithAIComponent={fixWithAI}
+                    />
+                ) : (
+                    <InsightErrorState
+                        query={sourceQuery}
+                        excludeDetail
+                        title={
+                            <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                                {error}
+                            </pre>
+                        }
+                        excludeActions={queryCancelled}
+                        fixWithAIComponent={fixWithAI}
+                    />
+                )}
                 {showQueryScan && <EditorQueryScanBanner />}
             </div>
         </div>

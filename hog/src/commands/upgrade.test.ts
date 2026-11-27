@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
 
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { replaceExecutables } from '@/core/runtime'
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
 import { extractAll } from '@/updates/archive'
@@ -268,7 +268,7 @@ describe('setup on an outdated hog', () => {
     })
 
     test.each([
-        ['an npm install carries on, because npm may not have it yet', NPM_PATH, EXIT_NEEDS_PERSON],
+        ['an npm install carries on, because npm may not have it yet', NPM_PATH, EXIT_SUCCESS],
         ['a standalone binary stops, because the release bucket has it', '/usr/local/bin/hog', EXIT_FAILURE],
     ])('a release out for an hour: %s', async (_name, execPath, exitCode) => {
         const result = await runHog(['setup'], {
@@ -300,14 +300,14 @@ describe('setup on an outdated hog', () => {
             respond: release(null),
         })
 
-        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ step: 'purpose', hog: { latest: null } })
     })
 
     test('carries on when the release manifest is out of reach', async () => {
         const result = await runHog(['setup'], { env: AGENT, build: RUNNING, respond: release(null) })
 
-        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({
             step: 'purpose',
             hog: { version: '0.1.0-alpha.5', latest: null, updateAvailable: false },
@@ -337,7 +337,7 @@ describe('setup on an outdated hog', () => {
             respond: release(manifest('0.2.0', BUILT)),
         })
 
-        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests.filter((request) => request.url === LATEST)).toHaveLength(0)
     })
 })

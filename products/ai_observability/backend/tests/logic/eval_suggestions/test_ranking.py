@@ -285,7 +285,7 @@ def test_a_screened_rate_holds_only_for_traces_with_an_answer() -> None:
     [
         ("generation_reads_its_own_input", "generation", [5000.0], 1200.0),
         ("trace_reads_its_generations", "trace", [5000.0, 7000.0], 6000.0),
-        ("trace_stops_at_the_transcript_cap", "trace", [400_000.0], 37_500.0),
+        ("trace_stops_at_the_transcript_cap", "trace", [400_000.0], 75_000.0),
         ("session_reads_its_traces", "session", [5000.0], 50_000.0),
     ]
 )

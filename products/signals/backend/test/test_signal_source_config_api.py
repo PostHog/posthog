@@ -727,6 +727,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
                         {"name": "project_name", "type": "string", "description": "Name of the issue's project."}
                     ],
                     "starter_expressions": [],
+                    "preview_supported": True,
                 }
             ]
             if flag_enabled and eligible

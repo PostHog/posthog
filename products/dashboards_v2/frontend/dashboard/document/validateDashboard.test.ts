@@ -67,7 +67,31 @@ describe('validateDashboard', () => {
         {
             name: 'a full panel that also carries a ref, which only a shared panel may have',
             document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, ref: 'note' } }]),
-            expected: [{ path: 'tabs[0].tiles[0].panel', message: expect.stringContaining('ref') }],
+            expected: [{ path: 'tabs[0].tiles[0].panel.ref', message: expect.stringContaining('ref') }],
+        },
+        {
+            name: 'a tile that shows a shared panel and also carries content that would replace it',
+            document: {
+                ...(withTiles([
+                    { id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ref: 'note', config: { text: 123 } } },
+                ]) as object),
+                panels: { note },
+            },
+            expected: [{ path: 'tabs[0].tiles[0].panel.config', message: expect.any(String) }],
+        },
+        {
+            name: 'a content panel that carries tiles',
+            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, tiles: null } }]),
+            expected: [{ path: 'tabs[0].tiles[0].panel.tiles', message: expect.any(String) }],
+        },
+        {
+            name: 'a tab with both tiles and a link, whose link would skip the scheme check',
+            document: {
+                version: 2,
+                title: 'Test',
+                tabs: [{ id: 'tab', title: 'Tab', tiles: [], href: 'javascript:alert(1)' }],
+            },
+            expected: [{ path: 'tabs[0]', message: expect.any(String) }],
         },
         {
             name: 'a tile smaller than the shared panel it shows',
@@ -165,9 +189,17 @@ describe('validateDashboard', () => {
             ],
         },
         {
-            name: 'a misspelled panel field',
-            document: withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, titel: 'x' } }]),
-            expected: [{ path: 'tabs[0].tiles[0].panel', message: expect.stringContaining('titel') }],
+            name: 'a shared panel that carries its own parts',
+            document: {
+                ...(withTiles([{ id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ref: 'note' } }]) as object),
+                panels: { note: { ...note, parts: { header: false } } },
+            },
+            expected: [{ path: 'panels.note.parts', message: expect.stringContaining('parts') }],
+        },
+        {
+            name: 'a document saved by a newer version',
+            document: { ...(withTiles([]) as object), version: 3 },
+            expected: [{ path: 'version', message: expect.stringContaining('newer version') }],
         },
         {
             name: 'a tile smaller than its panel allows',
@@ -257,6 +289,19 @@ describe('validateDashboard', () => {
         },
     ])('reports $name', ({ document, expected }) => {
         expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual(expected)
+    })
+
+    it('accepts fields a newer version added', () => {
+        const document = {
+            ...(withTiles([
+                { id: 'a', place: { x: 0, y: 0, w: 8, h: 4 }, panel: { ...note, pinned: true }, locked: true },
+            ]) as object),
+            tags: ['growth'],
+            folder: 'Team',
+            owner: 'someone',
+        }
+
+        expect(validateDashboard(document, SPECS, FILTER_SPECS)).toEqual([])
     })
 
     it('keeps the section type out of content panels when the schema parses a document on its own', () => {

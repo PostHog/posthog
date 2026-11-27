@@ -263,6 +263,9 @@ def _fanned_out_pages(
 
             child_cursor = None
             resumable_source_manager.save_state(AshbyResumeConfig(parent_cursor=parent_cursor, parent_index=index + 1))
+            # Every row of this parent is yielded. A parent with no children yields nothing, and
+            # the pipeline only commits a cursor after a write, so this is where it commits one.
+            resumable_source_manager.safe_point()
 
         skip = 0
 

@@ -62,6 +62,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     llm_trace_to_formatter_format,
 )
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
+from products.ai_observability.backend.text_repr.formatters.repeated_input import RepeatedInputHistory
 
 # Floor so a session with many traces still renders each one readably instead of one line each.
 _MIN_TRACE_CHARS_IN_SESSION = 2_000
@@ -382,6 +383,11 @@ def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker |
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
+        if preserve_generation_output:
+            # One history for the whole session, so a chat that resends its history in every trace shows it once.
+            # The last pass samples lines anywhere, so it renders every message to keep no reference whose
+            # message the sample dropped.
+            options["repeated_input_history"] = RepeatedInputHistory()
         if media_marker is not None:
             # One marker for the whole session, so an image repeated across traces is attached once.
             options["media_marker"] = media_marker

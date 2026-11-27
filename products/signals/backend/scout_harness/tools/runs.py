@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -43,6 +43,10 @@ if TYPE_CHECKING:
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
+
+# A run list row carries this much of the summary, so a default page fits in one agent tool result.
+# `summary` has no upper bound, and a few long ones would otherwise push the trailing rows out.
+RUN_SUMMARY_LEAD_CHARS = 600
 
 # The columns `_to_summary` reads, so the run reads skip the large TaskRun JSON columns (`output`,
 # `artifacts`, `state`). Add a field here when `_to_summary` reads it, or each row costs one more query.
@@ -213,6 +217,14 @@ class RunDetail:
         return asdict(self)
 
 
+def run_summary_lead(summary: str | None) -> str:
+    """The start of a run summary on one line, cut at a word and ended with `…` when it is longer."""
+    text = " ".join((summary or "").split())
+    if len(text) <= RUN_SUMMARY_LEAD_CHARS:
+        return text
+    return text[:RUN_SUMMARY_LEAD_CHARS].rsplit(" ", 1)[0] + "…"
+
+
 def search_recent_runs(
     *,
     team_id: int,
@@ -223,7 +235,7 @@ def search_recent_runs(
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
-    exclude_skill_name: str | None = None,
+    exclude_skill_names: Collection[str] = (),
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -238,8 +250,9 @@ def search_recent_runs(
     `emitted_report_ids`), `False` keeps only runs that emitted nothing on either
     channel; omit it for both. `skill_name` is an exact-match filter that narrows the dump to
     a single scout — the primary scoping path for a specialist deduping against its
-    own past work; pair it with `skill_version` to pin a specific version. Results
-    are capped at `MAX_RUN_SEARCH_LIMIT`.
+    own past work; pair it with `skill_version` to pin a specific version.
+    `exclude_skill_names` drops those scouts' runs before the limit applies, so a caller's own
+    runs can't fill the page of a fleet-wide search. Results are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
     qs = (
@@ -251,8 +264,8 @@ def search_recent_runs(
     )
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
-    if exclude_skill_name is not None:
-        qs = qs.exclude(skill_name=exclude_skill_name)
+    if exclude_skill_names:
+        qs = qs.exclude(skill_name__in=list(exclude_skill_names))
     if date_to is not None:
         qs = qs.filter(created_at__lt=date_to)
     if text:

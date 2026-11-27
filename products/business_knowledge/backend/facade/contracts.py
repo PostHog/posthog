@@ -15,3 +15,12 @@ class KnowledgeHit:
     heading_path: str
     url: str
     content: str
+
+
+@frozen
+class DocsPage:
+    """One PostHog documentation page from the docs library, with its matching text."""
+
+    title: str
+    url: str
+    text: str

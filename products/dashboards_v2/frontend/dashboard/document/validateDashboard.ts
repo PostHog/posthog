@@ -13,7 +13,7 @@ import {
     tileSchema,
     panelRefSchema,
 } from './dashboardSchema'
-import { type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
+import { type DashboardDocument, type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
@@ -24,11 +24,30 @@ export type DashboardProblem = {
     message: string
 }
 
+// Loading spreads a shared panel onto each of its tiles, so a `parts` saved here would show on every tile.
+const SHARED_PANEL_TILE_FIELD = 'A shared panel holds content only. Each tile sets its own parts and appearance'
+const ON_SHARED_PANEL: Record<string, string> = {
+    parts: SHARED_PANEL_TILE_FIELD,
+    appearance: SHARED_PANEL_TILE_FIELD,
+    ref: 'A shared panel has no ref of its own',
+    tiles: 'Only a section holds tiles',
+}
+const ON_CONTENT_PANEL: Record<string, string> = {
+    ref: 'Only a tile that shows a shared panel has a ref, and it holds no other content',
+    tiles: 'Only a section holds tiles',
+}
+// Loading spreads a reference over its shared panel, so content here would replace the checked content.
+const REF_CONTENT = 'A tile that shows a shared panel takes its content from the panel'
+const ON_PANEL_REF: Record<string, string> = Object.fromEntries([
+    ...['type', 'title', 'description', 'refreshedAt', 'config'].map((key) => [key, REF_CONTENT]),
+    ['tiles', 'Only a section holds tiles'],
+])
+
 // The document schemas, with each panel checked only for a `type` at first. A panel's fields depend on its type, so
 // the walk below checks each one against the schema for that type, which gives a clearer problem than a failed union.
 const panelHeadSchema = z.looseObject({ type: z.string() })
 type PanelHead = z.infer<typeof panelHeadSchema>
-const tileHeadSchema = tileSchema.extend({ panel: z.union([panelHeadSchema, panelRefSchema]) })
+const tileHeadSchema = tileSchema.extend({ panel: z.union([panelHeadSchema, panelRefSchema.loose()]) })
 type TileHead = z.infer<typeof tileHeadSchema>
 const sectionHeadSchema = sectionPanelSchema.extend({ tiles: z.array(tileHeadSchema) })
 const dashboardHeadSchema = dashboardDocumentSchema.extend({
@@ -37,6 +56,23 @@ const dashboardHeadSchema = dashboardDocumentSchema.extend({
         .array(z.union([gridTabSchema.extend({ tiles: z.array(tileHeadSchema) }), linkTabSchema]))
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
+
+// Loading walks every section's tiles, so a section without them is not a dashboard's shape.
+function sectionsHaveTiles(tiles: TileHead[], depth: number): boolean {
+    return tiles.every((tile) => {
+        if (!('type' in tile.panel) || tile.panel.type !== 'section') {
+            return true
+        }
+        const section = sectionHeadSchema.safeParse(tile.panel)
+        return depth < MAX_SECTION_DEPTH && section.success && sectionsHaveTiles(section.data.tiles, depth + 1)
+    })
+}
+
+/** Whether a document has the shape of a dashboard. It checks each panel only for a `type`, as each panel type checks the rest. */
+export function isDashboardDocument(document: unknown): document is DashboardDocument {
+    const parsed = dashboardHeadSchema.safeParse(document)
+    return parsed.success && parsed.data.tabs.every((tab) => !('tiles' in tab) || sectionsHaveTiles(tab.tiles, 0))
+}
 
 function issuesAt(path: string, error: z.ZodError): DashboardProblem[] {
     return error.issues.map((issue) => ({
@@ -66,7 +102,18 @@ export function validateDashboard(
     const sizeOf = sizeOfPanels(panels)
     const seenIds = new Set<string>()
 
-    const checkContent = (panel: PanelHead, path: string, schema: z.ZodType<SavedPanel>): SavedPanel | null => {
+    // Parsing drops fields it doesn't know, so a field that belongs elsewhere in the document is checked by hand.
+    const checkContent = (
+        panel: PanelHead,
+        path: string,
+        schema: z.ZodType<SavedPanel>,
+        misplaced: Record<string, string>
+    ): SavedPanel | null => {
+        for (const [key, message] of Object.entries(misplaced)) {
+            if (key in panel) {
+                problems.push({ path: `${path}.${key}`, message })
+            }
+        }
         const spec = findPanel(panels, panel.type)
         if (!spec) {
             problems.push({
@@ -89,7 +136,7 @@ export function validateDashboard(
     const shared = new Map(
         Object.entries(parsed.data.panels ?? {}).map(([key, panel]) => [
             key,
-            checkContent(panel, `panels.${key}`, sharedPanelSchema),
+            checkContent(panel, `panels.${key}`, sharedPanelSchema, ON_SHARED_PANEL),
         ])
     )
 
@@ -120,6 +167,11 @@ export function validateDashboard(
 
             if (!('type' in tile.panel)) {
                 const { ref } = tile.panel
+                for (const [key, message] of Object.entries(ON_PANEL_REF)) {
+                    if (key in tile.panel) {
+                        problems.push({ path: `${tilePath}.panel.${key}`, message })
+                    }
+                }
                 if (!shared.has(ref)) {
                     problems.push({
                         path: `${tilePath}.panel.ref`,
@@ -147,7 +199,12 @@ export function validateDashboard(
                 return
             }
 
-            const panel = checkContent(tile.panel, `${tilePath}.panel`, documentContentPanelSchema)
+            const panel = checkContent(
+                tile.panel as PanelHead,
+                `${tilePath}.panel`,
+                documentContentPanelSchema,
+                ON_CONTENT_PANEL
+            )
             checkSize(panel, tile, tilePath)
         })
     }
@@ -184,6 +241,11 @@ export function validateDashboard(
             problems.push({ path: `tabs[${index}].id`, message: `The id "${tab.id}" is used by another tile or tab` })
         }
         seenIds.add(tab.id)
+        // Parsing keeps only the fields of the first kind of tab that fits, so the other kind's are checked here.
+        const rawTab = (document as { tabs: object[] }).tabs[index]
+        if ('tiles' in rawTab && 'href' in rawTab) {
+            problems.push({ path: `tabs[${index}]`, message: 'A tab holds tiles or links somewhere else, not both' })
+        }
         if ('tiles' in tab) {
             checkGrid(tab.tiles, GRID.columns, `tabs[${index}].tiles`, 0)
         }

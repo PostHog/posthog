@@ -3,6 +3,7 @@
     "dependencies": {
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
         "react-grid-layout": "^2.3.0"
