@@ -53,8 +53,11 @@ from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthCheckRule,
@@ -433,8 +436,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The cache key asks on every run, and each check loads the project's access rules.
         if self._flag_history_access is None or self._flag_history_access[0] != self.user.pk:
             try:
-                readable = UserAccessControl(user=self.user, team=self.team).check_access_level_for_object(
-                    self.experiment.feature_flag, required_level="viewer"
+                readable = authorization.check(
+                    resource=resource_for_object(self.experiment.feature_flag, team=self.team),
+                    action=Action.VIEW,
+                    subject=Subject(user_id=self.user.pk),
                 )
             except Exception as error:
                 # The answer feeds the cache key, so a failure here would fail the exposure query.

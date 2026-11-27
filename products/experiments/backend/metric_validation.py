@@ -30,8 +30,10 @@ from posthog.schema import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import get_actions
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
@@ -325,9 +327,23 @@ def validate_metric_action_ids(
     # Synthetic principals (project secret API keys) and userless system writes bypass access control.
     if not isinstance(user, User):
         return
-    denied = UserAccessControl(user=user, team=team).denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    # Each action is checked with its own team's rules, so an action from a sibling environment resolves correctly.
+    viewable = authorization.check(
+        [
+            CheckRequest(
+                resource=Resource(
+                    type=ResourceType.ACTION,
+                    id=str(action.id),
+                    project_id=action.team_id,
+                    created_by_id=action.created_by_id,
+                ),
+                action=Action.VIEW,
+                subject=Subject(user_id=user.pk),
+            )
+            for action in actions
+        ]
     )
+    denied = [str(action.id) for action, allowed in zip(actions, viewable, strict=True) if not allowed]
     if denied:
         raise PermissionDenied(
             f"You don't have viewer access to action(s) {', '.join(denied)}. "

@@ -10,10 +10,12 @@ def visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
     # The same narrowing `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
     if access is None:
         return queryset
+    # `created_by_id=None` would match every record without a creator, so a viewer without an id owns nothing.
+    own = Q(created_by_id=access.viewer_id) if access.viewer_id is not None else Q(pk__in=[])
     if access.only_allowed:
-        return queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by_id=access.viewer_id))
+        return queryset.filter(Q(id__in=access.allowed_ids) | own)
     if access.blocked_ids:
-        return queryset.exclude(Q(id__in=access.blocked_ids) & ~Q(created_by_id=access.viewer_id))
+        return queryset.exclude(Q(id__in=access.blocked_ids) & ~own)
     return queryset
 
 

@@ -74,10 +74,9 @@ from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import get_authenticator_scoped_team_ids
+from posthog.permissions import get_authenticator_scoped_team_ids, request_subject
 from posthog.utils_cors import cors_response
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -87,6 +86,10 @@ from products.actions.backend.presentation.views.action import ActionSerializer,
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     REALTIME_COHORT_NOT_READY_ERROR_CODE,
@@ -1409,9 +1412,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if self.instance is not None:
             action_ids -= set(self.instance.actions.values_list("id", flat=True))
         added_actions = get_actions(project_id=self.context["project_id"], action_ids=action_ids)
-        denied_ids = self.context["view"].user_access_control.denied_object_ids(
-            "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
+        subject = request_subject(self.context["request"])
+        viewable = authorization.check(
+            [
+                CheckRequest(
+                    resource=Resource(
+                        type=ResourceType.ACTION,
+                        id=str(action.id),
+                        project_id=action.team_id,
+                        created_by_id=action.created_by_id,
+                    ),
+                    action=Action.VIEW,
+                    subject=subject,
+                )
+                for action in added_actions
+            ]
         )
+        denied_ids = [str(action.id) for action, allowed in zip(added_actions, viewable, strict=True) if not allowed]
         if denied_ids:
             raise serializers.ValidationError(
                 f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
@@ -3148,7 +3165,11 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
         # so apply it explicitly here — otherwise a user with access to only one survey would
         # receive labels for every survey in the team.
-        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset())
+        queryset = filter_queryset(
+            self.get_queryset(),
+            resource=Resource(type=ResourceType.SURVEY, project_id=self.team.pk),
+            subject=request_subject(request),
+        )
         # The viewset's class-level queryset pre-joins `linked_flag`, `linked_insight`,
         # `targeting_flag`, `internal_targeting_flag` via `select_related`. `.only(...)` on
         # those deferred FK columns raises `FieldError: cannot be both deferred and traversed
@@ -3600,9 +3621,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             }
         )
 
-    def _check_duplicate_target_access(
-        self, request: request.Request, target_team: Team, access_control: UserAccessControl
-    ) -> None:
+    def _check_duplicate_target_access(self, request: request.Request, target_team: Team) -> None:
         # The permission classes check only the source project in the URL. Apply the checks that
         # `POST /surveys/` in the target project applies: the key's project scope, project access,
         # and survey editor access.
@@ -3612,10 +3631,11 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                 f"API key does not have access to the requested project: ID {target_team.id}."
             )
 
-        if (
-            self.user_permissions.team(target_team).effective_membership_level is None
-            or not access_control.check_access_level_for_object(target_team, required_level="member")
-            or not access_control.check_access_level_for_resource("survey", required_level="editor")
+        subject = request_subject(request)
+        if not authorization.check(
+            resource=Resource.project(target_team.pk), action=Action.VIEW, subject=subject
+        ) or not authorization.check(
+            resource=Resource(type=ResourceType.SURVEY, project_id=target_team.pk), action=Action.EDIT, subject=subject
         ):
             raise exceptions.PermissionDenied(
                 f"You don't have permission to create surveys in project {target_team.id}. "
@@ -3660,7 +3680,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
 
         for target_team in target_teams:
-            self._check_duplicate_target_access(request, target_team, target_access_controls[target_team.id])
+            self._check_duplicate_target_access(request, target_team)
 
         duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         created_surveys = []

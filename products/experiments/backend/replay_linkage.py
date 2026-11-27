@@ -65,11 +65,15 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.synthetic_user import SyntheticUser
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Subject
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.experiments.backend.facade.contracts import TargetableExperiment
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -160,7 +164,9 @@ def validate_experiment_exposure_access(
     experiment = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).first()
     if experiment is None:
         return True
-    if not UserAccessControl(user=user, team=team).check_access_level_for_object(experiment, required_level="viewer"):
+    if not authorization.check(
+        resource=resource_for_object(experiment), action=Action.VIEW, subject=Subject(user_id=user.pk)
+    ):
         raise UserAccessControlError("experiment", "viewer", resource_id=str(experiment_id))
     return True
 

@@ -17,6 +17,7 @@ from posthog.models.user import User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.contracts import ExperimentResultsWidgetMetric, ExperimentResultsWidgetMetrics
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.logic.access import visible_experiments
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _visible_to(access: UserAccessControl | None, queryset: QuerySet[Experiment]) -> QuerySet[Experiment]:
-    return queryset if access is None else access.filter_queryset_by_access_level(queryset)
+    return queryset if access is None else visible_experiments(access, queryset)
 
 
 def list_widget_queryset(

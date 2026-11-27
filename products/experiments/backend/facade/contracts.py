@@ -2081,9 +2081,10 @@ class ListAccess:
     This is the narrowing that `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
     With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and the
     viewer's own records. Otherwise it drops the blocked ids, except the viewer's own records.
+    `viewer_id=None` means no record counts as the viewer's own, as for a principal that is not a user.
     """
 
-    viewer_id: int
+    viewer_id: int | None
     only_allowed: bool
     allowed_ids: frozenset[str]
     blocked_ids: frozenset[str]

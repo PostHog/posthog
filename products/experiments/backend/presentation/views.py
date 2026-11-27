@@ -36,7 +36,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
@@ -63,7 +62,6 @@ from posthog.rate_limit import (
 )
 from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.api import (
@@ -71,14 +69,11 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
-    access_level_satisfied_for_resource,
-)
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.facade.contracts import CheckRequest, Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade import (
     experiments as experiments_facade,
@@ -269,9 +264,7 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
     return candidate
 
 
-def _accessible_session_ids(
-    request: Request, user_access_control: UserAccessControl, team: Team, session_ids: list[str]
-) -> list[str]:
+def _accessible_session_ids(request: Request, team: Team, session_ids: list[str]) -> list[str]:
     """Drop session ids whose recording the viewer is denied at the object level.
 
     The resource-level `session_recording` check the session-context actions run first grants
@@ -289,12 +282,22 @@ def _accessible_session_ids(
         # scope and project membership instead of object-level RBAC.
         return session_ids
 
-    recordings = SessionRecording.objects.filter(team=team, session_id__in=session_ids)
-    denied_ids = {
-        recording.session_id
-        for recording in recordings
-        if not user_access_control.check_access_level_for_object(recording, required_level="viewer")
-    }
+    recordings = list(SessionRecording.objects.filter(team=team, session_id__in=session_ids))
+    viewable = authorization.check(
+        [
+            CheckRequest(
+                resource=resource_for_ref(
+                    ObjectAccessRef(
+                        resource="session_recording", id=str(recording.pk), team_id=team.id, created_by_id=None
+                    )
+                ),
+                action=Action.VIEW,
+                subject=request_subject(request),
+            )
+            for recording in recordings
+        ]
+    )
+    denied_ids = {recording.session_id for recording, allowed in zip(recordings, viewable, strict=True) if not allowed}
     return [session_id for session_id in session_ids if session_id not in denied_ids]
 
 
@@ -644,9 +647,9 @@ class EnterpriseExperimentsViewSet(
         self, resource: Literal["experiment", "experiment_saved_metric"], *, include_all_if_admin: bool = False
     ) -> ListAccess | None:
         return list_access(
-            self.user_access_control,
             resource,
-            viewer_id=cast(User, self.request.user).id,
+            team_id=self.team.pk,
+            subject=request_subject(self.request),
             include_all_if_admin=include_all_if_admin,
         )
 
@@ -697,17 +700,25 @@ class EnterpriseExperimentsViewSet(
             queryset.select_related(None).prefetch_related(None).select_related("created_by").only("id", "created_by")
         )
 
-        if not self.user_access_control:
-            editable_ids = list(queryset.values_list("id", flat=True))
-        else:
-            experiments = list(queryset)
-            self.user_access_control.preload_object_access_controls(cast(list, experiments))
-            editable_ids = [
-                experiment.id
+        experiments = list(queryset)
+        editable = authorization.check(
+            [
+                CheckRequest(
+                    resource=resource_for_ref(
+                        ObjectAccessRef(
+                            resource="experiment",
+                            id=str(experiment.id),
+                            team_id=self.team.id,
+                            created_by_id=experiment.created_by_id,
+                        )
+                    ),
+                    action=Action.EDIT,
+                    subject=request_subject(request),
+                )
                 for experiment in experiments
-                if (user_access_level := self.user_access_control.get_user_access_level(experiment))
-                and access_level_satisfied_for_resource("experiment", user_access_level, "editor")
             ]
+        )
+        editable_ids = [experiment.id for experiment, allowed in zip(experiments, editable, strict=True) if allowed]
 
         return Response(ExperimentMatchingIdsResponseSerializer({"ids": editable_ids, "total": len(editable_ids)}).data)
 
@@ -739,9 +750,9 @@ class EnterpriseExperimentsViewSet(
         """The team default cleanup repository is environment-wide configuration; writing it via
         experiments_config requires project admin (TeamMemberStrictManagementPermission), so the
         write through end/ship_variant must hold the same bar."""
-        user_permissions = UserPermissions(user=cast(User, request.user))
-        effective_level = user_permissions.team(self.team).effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+        if not authorization.check(
+            resource=Resource.project(self.team.pk), action=Action.EDIT, subject=request_subject(request)
+        ):
             raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
 
     def _check_copy_target_access(self, request: Request, target_team: Team) -> None:
@@ -757,16 +768,23 @@ class EnterpriseExperimentsViewSet(
         if scoped_teams is not None and target_team.id not in scoped_teams:
             raise PermissionDenied(f"API key does not have access to the requested project: ID {target_team.id}.")
 
-        user = cast(User, request.user)
-        effective_level = UserPermissions(user=user).team(target_team).effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+        subject = request_subject(request)
+        if not authorization.check(resource=Resource.project(target_team.pk), action=Action.VIEW, subject=subject):
             raise PermissionDenied("You do not have write access to the target project.")
 
-        target_access_control = UserAccessControl(user=user, team=target_team)
-        if not target_access_control.check_access_level_for_object(
-            target_team, required_level="member"
-        ) or not target_access_control.check_access_level_for_resource("experiment", required_level="editor"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.EXPERIMENT, project_id=target_team.pk),
+            action=Action.EDIT,
+            subject=subject,
+        ):
             raise PermissionDenied("You do not have permission to create experiments in the target project.")
+
+    def _has_replay_access(self, request: Request) -> bool:
+        return authorization.check(
+            resource=Resource(type=ResourceType.SESSION_RECORDING, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(request),
+        )
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -1527,7 +1545,11 @@ class EnterpriseExperimentsViewSet(
         # Scope checks alone don't cover resource-level access controls: this action runs on the
         # experiment viewset, so AccessControlPermission only verifies experiment access. Check
         # prompt access explicitly before validation queries LLMPrompt and leaks which names exist.
-        if not self.user_access_control.check_access_level_for_resource("llm_prompt", required_level="viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.LLM_PROMPT, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(request),
+        ):
             raise PermissionDenied("Creating an experiment from a prompt requires LLM analytics access.")
 
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
@@ -2035,10 +2057,10 @@ class EnterpriseExperimentsViewSet(
         if not session_id:
             raise ValidationError({"session_id": ["This field is required."]})
 
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        if not self._has_replay_access(request):
             raise PermissionDenied("Reading session experiment context requires session replay access.")
 
-        if not _accessible_session_ids(request, self.user_access_control, self.team, [session_id]):
+        if not _accessible_session_ids(request, self.team, [session_id]):
             raise PermissionDenied("You don't have access to this recording.")
 
         # detail=False actions skip the automatic list-action ACL filtering, so filter here —
@@ -2084,12 +2106,12 @@ class EnterpriseExperimentsViewSet(
         """
         session_ids: list[str] = request.validated_data["session_ids"]
 
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        if not self._has_replay_access(request):
             raise PermissionDenied("Reading session experiment context requires session replay access.")
 
         # Denied recordings are omitted rather than rejecting the batch, matching how the response
         # already treats a session whose recording metadata doesn't exist.
-        session_ids = _accessible_session_ids(request, self.user_access_control, self.team, session_ids)
+        session_ids = _accessible_session_ids(request, self.team, session_ids)
 
         # detail=False actions skip the automatic list-action ACL filtering, so filter here —
         # private experiments must not leak into another user's session context.
@@ -2150,7 +2172,7 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: ExperimentHandle = self.get_object()
 
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        if not self._has_replay_access(request):
             raise PermissionDenied("Reading experiment session buckets requires session replay access.")
 
         try:
@@ -2177,7 +2199,7 @@ class EnterpriseExperimentsViewSet(
         # `truncated` describes what this viewer may see.
         result = finalize_session_bucket(
             scan,
-            _accessible_session_ids(request, self.user_access_control, self.team, scan.candidate_session_ids),
+            _accessible_session_ids(request, self.team, scan.candidate_session_ids),
         )
         return Response(ExperimentSessionBucketResponseSerializer(result).data)
 
@@ -2216,7 +2238,7 @@ class EnterpriseExperimentsViewSet(
         if not self._session_event_deltas_enabled():
             raise NotFound()
 
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        if not self._has_replay_access(request):
             raise PermissionDenied("Comparing an experiment's session behavior requires session replay access.")
 
         try:
@@ -2241,7 +2263,7 @@ class EnterpriseExperimentsViewSet(
         # still read its id, the variant it was in, and an event it contains.
         result = finalize_watch_cards(
             result,
-            _accessible_session_ids(request, self.user_access_control, self.team, all_card_session_ids(result)),
+            _accessible_session_ids(request, self.team, all_card_session_ids(result)),
         )
         return Response(ExperimentSessionEventDeltaResponseSerializer(result).data)
 
