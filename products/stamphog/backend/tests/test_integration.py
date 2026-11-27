@@ -4332,6 +4332,27 @@ def test_an_ineffective_revoke_is_logged(team, stamphog_chain: StamphogChain) ->
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_key_with_a_legacy_product_url_fails_before_the_mint(team, stamphog_chain: StamphogChain) -> None:
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 126, "sha126a")
+    mint = MagicMock()
+
+    with (
+        override_settings(
+            AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1", AI_GATEWAY_API_KEY="phs_stamphog_mint"
+        ),
+        patch.object(activities.requests, "post", mint),
+    ):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.FAILED
+    assert "AI_GATEWAY_URL" in (run.error or "")
+    mint.assert_not_called()
+    assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_overlapping_activities_keep_each_others_output_keys(team, stamphog_chain: StamphogChain) -> None:
     # The sandbox activity runs beside the context fetch, the pre-check and the bot polls. A write
     # from a copy loaded before another activity's write must not drop that activity's keys, such as

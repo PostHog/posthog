@@ -34,6 +34,12 @@ def test_url_without_v1_falls_back(monkeypatch):
     assert resolve_gateway_config() is None
 
 
+def test_legacy_product_route_falls_back(monkeypatch):
+    monkeypatch.setenv("AI_GATEWAY_URL", "https://ai-gateway.us.posthog.com/stamphog/v1")
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_secret")
+    assert resolve_gateway_config() is None
+
+
 def test_schemeless_url_falls_back(monkeypatch):
     # Schemeless parses all into .path, so the /v1 check alone would pass.
     monkeypatch.setenv("AI_GATEWAY_URL", "ai-gateway.us.posthog.com/v1")
