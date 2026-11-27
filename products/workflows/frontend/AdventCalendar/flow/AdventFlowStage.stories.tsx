@@ -65,7 +65,7 @@ const meta: Meta<typeof AdventFlowStage> = {
             },
         }),
         (Story) => (
-            <div className="flex flex-col" style={{ width: 1200, height: 760 }}>
+            <div className="flex flex-col" style={{ width: '100vw', height: '100vh' }}>
                 <Story />
             </div>
         ),
