@@ -233,7 +233,9 @@ describe('soak measurements', () => {
         })
         const samples = Array.from({ length: 121 }, (_, i) => worker(i * 10, i * 100, i <= 60 ? 0 : (i - 60) * 10))
 
-        expect(measured('pickup_p99_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })).toEqual([
+        expect(
+            measured('pickup_p99_window_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })
+        ).toEqual([
             { key: 'hogflow_t0', value: 1 },
             { key: 'hogflow_t600', value: 10 },
         ])
@@ -255,7 +257,9 @@ describe('soak measurements', () => {
         })
         const samples = Array.from({ length: 122 }, (_, i) => worker(-5 + i * 10, i * 100, i < 61 ? 0 : 1000))
 
-        expect(measured('pickup_p99_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })).toEqual([
+        expect(
+            measured('pickup_p99_window_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })
+        ).toEqual([
             { key: 'hogflow_t0', value: 1 },
             { key: 'hogflow_t600', value: 10 },
         ])

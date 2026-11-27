@@ -250,7 +250,7 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                   }
         })
     }),
-    seriesMeasure('pickup_p99_seconds', 's', (evidence, params) =>
+    seriesMeasure('pickup_p99_window_seconds', 's', (evidence, params) =>
         Object.entries(WORKER_OF).flatMap(([queue, role]) =>
             evidence.samples.some((sample) => sample.role === role)
                 ? series(

@@ -9,6 +9,7 @@ import type { JournalEntry } from './judge'
 import {
     DriveWindow,
     HostSample,
+    MEASUREMENTS,
     MeasureEvidence,
     Measurement,
     MetricSample,
@@ -135,6 +136,12 @@ const probedQueue = (lag: (second: number) => Read, step = 5): QueueSample[] =>
 const between = (fromS: number, toS: number) => (second: number) => second >= fromS && second <= toS
 
 describe('measurements', () => {
+    it('names each measurement once, so a card resolves every name to the one it means', () => {
+        const names = MEASUREMENTS.map(({ name }) => name)
+
+        expect(names.filter((name, i) => names.indexOf(name) !== i)).toEqual([])
+    })
+
     const missedAt = (atS: number, replica = 0): MissedScrape => ({ role: ROLE, replica, at: FROM + atS * 1000 })
 
     it.each<[string, MetricSample[], MissedScrape[], Pick<Measurement, 'value' | 'incomplete'>]>([
