@@ -256,7 +256,8 @@ function loadOutcome(row: DecisionRow): {
             : row.load === 'calendar flag failed' || row.load.startsWith('unrelated error')
               ? ['errors_while_computing_flags']
               : []
-    const details = row.load === 'calendar flag failed' && before === 'none' ? { [FLAG]: { failed: true } } : {}
+    const details: Record<string, { failed: boolean }> =
+        row.load === 'calendar flag failed' && before === 'none' ? { [FLAG]: { failed: true } } : {}
     return { after, errors, details }
 }
 
