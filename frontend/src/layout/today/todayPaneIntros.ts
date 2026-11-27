@@ -49,9 +49,3 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         description: 'Settings for you, this project and your organization.',
     },
 }
-
-// pinned: keys in the user's server-side `has_seen_product_intro_for`. Renaming one shows that intro again to
-// everyone who dismissed it.
-export function todayPaneIntroKey(pane: TodayIntroPane): string {
-    return `today_pane_intro_${pane}`
-}

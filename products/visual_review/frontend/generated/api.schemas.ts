@@ -365,6 +365,34 @@ export interface TolerationPileupsApi {
     generated_at: string
 }
 
+export interface RunProgressApi {
+    /** Changed, new and removed snapshots that gate the run, plus rejected quarantined ones. */
+    total: number
+    /** Accepted, on this run or on an earlier run of the pull request. */
+    approved: number
+    /** Accepted on an earlier commit of the pull request, and still counting because the pictures match. */
+    approved_on_earlier_commits: number
+    /** Accepted by an agent through MCP. */
+    approved_via_mcp: number
+    /** Rejected. Each one blocks finalize. */
+    rejected: number
+    /** Not accepted, rejected or tolerated yet. Includes removed snapshots nobody decided on, which finalize accepts by itself. */
+    needs_review: number
+    /** Tolerated as rendering noise. */
+    tolerated: number
+}
+
+export interface HeadRunApi {
+    /** UUID of the run of the pull request whose verdict gates it. */
+    id: string
+    /** The commit of that run. */
+    commit_sha: string
+    /** The run's processing status. */
+    status: string
+    /** Whether that run is finalized. */
+    approved: boolean
+}
+
 /**
  * * `review` - review
  * * `observe` - observe
@@ -408,6 +436,12 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** How far the review of this run got. Only on the single-run read, null in lists. */
+    progress?: RunProgressApi | null
+    /** The newest run of the pull request, which finalize needs. Only on the single-run read, null in lists. */
+    head_run?: HeadRunApi | null
+    /** Whether a finalize without `approve_all` would pass now: this is the pull request's newest run, it is not finalized, nothing is rejected, and every changed and new snapshot is accepted, tolerated or quarantined. A removed snapshot nobody decided on does not hold it back, because finalize accepts it. Only on the single-run read, false in lists. */
+    can_finalize?: boolean
     /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
      *
      * * `review` - review
@@ -602,15 +636,87 @@ export interface AddSnapshotsResultApi {
 }
 
 export interface ApproveSnapshotInputApi {
-    /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
+    /**
+     * The snapshot identifier, such as a Storybook story id plus theme.
+     * @maxLength 512
+     */
     identifier: string
-    /** The content hash of the new baseline image to record for this identifier. */
-    new_hash: string
+    /**
+     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+     * @maxLength 128
+     * @nullable
+     */
+    new_hash?: string | null
+    /**
+     * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+     * @maxLength 128
+     * @nullable
+     */
+    old_hash?: string | null
 }
 
 export interface ApproveRunRequestInputApi {
-    /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+    /** Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the per-snapshot "Accept change" action). It does not change the baseline or pass the gate: the finalize endpoint does that. */
     snapshots: ApproveSnapshotInputApi[]
+    /**
+     * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+     * @minimum 0
+     * @nullable
+     */
+    expected_seq?: number | null
+    /** Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent through MCP can never accept over a rejection. */
+    override_rejection?: boolean
+}
+
+export interface DecisionResultApi {
+    /** The run the call was made on. */
+    run: RunApi
+    /** The newest run of the pull request. A decision counts there when the pictures are the same. */
+    head_run: HeadRunApi
+    /** How far the review of the newest run got after this call. */
+    progress: RunProgressApi
+    /** Identifiers whose newest decision already was the one requested, so nothing was written for them and the first decider stays. */
+    already_decided: string[]
+}
+
+export interface DecisionRefusalApi {
+    /** The refused snapshot. Empty when the whole call was refused. */
+    identifier: string
+    /** Why it was refused, such as `hash_mismatch` or `decided_by_person`. */
+    code: string
+    /** What went wrong and what to do next. */
+    detail: string
+    /**
+     * The `seq` of the newest decision on the snapshot, when the refusal is about it.
+     * @nullable
+     */
+    current_seq: number | null
+}
+
+export interface DecisionErrorApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
+    /** Every refused snapshot. The call is all or nothing, so nothing was written. */
+    snapshots: DecisionRefusalApi[]
+}
+
+export interface ClearRunRequestInputApi {
+    /**
+     * Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.
+     * @maxItems 500
+     * @items.maxLength 512
+     */
+    identifiers: string[]
+    /**
+     * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+     * @minimum 0
+     * @nullable
+     */
+    expected_seq?: number | null
+    /** Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection. */
+    override_rejection?: boolean
 }
 
 export interface CompleteRunInputApi {
@@ -623,7 +729,7 @@ export interface CompleteRunInputApi {
 }
 
 export interface FinalizeRunRequestInputApi {
-    /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
+    /** Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review. */
     approve_all?: boolean
     /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
     commit_to_github?: boolean
@@ -631,9 +737,69 @@ export interface FinalizeRunRequestInputApi {
     add_images_to_comment_on_pr?: boolean
 }
 
+/**
+ * * `web` - Visual Review page
+ * * `api` - API key
+ * * `mcp` - Agent through MCP
+ */
+export type DecisionChannelEnumApi = (typeof DecisionChannelEnumApi)[keyof typeof DecisionChannelEnumApi]
+
+export const DecisionChannelEnumApi = {
+    Web: 'web',
+    Api: 'api',
+    Mcp: 'mcp',
+} as const
+
+export interface FinalizeApproverApi {
+    /** Who accepted. */
+    user: UserBasicInfoApi | null
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+     *
+     * * `web` - Visual Review page
+     * * `api` - API key
+     * * `mcp` - Agent through MCP */
+    via: DecisionChannelEnumApi
+    /** How many of the run's changes this person accepted this way. */
+    count: number
+    /** The commits of the pull request the accepts were made on. */
+    commit_shas: string[]
+}
+
 export interface FinalizeResultApi {
+    /** The review of the finalized run. */
+    progress?: RunProgressApi | null
+    /** Who accepted the run's changes, by person and channel, most accepts first. */
+    approvers: FinalizeApproverApi[]
     run: RunApi
     baseline_content: string
+}
+
+export interface RejectedSnapshotDetailApi {
+    /** Who rejected it. */
+    by: UserBasicInfoApi | null
+    identifier: string
+    reason: string
+}
+
+/**
+ * Every 409 of finalize. `code` says which one, and only its own fields are present.
+ */
+export interface FinalizeConflictApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
+    /** With `not_fully_resolved`: every rejected snapshot. It clears with a new picture, the rejecter's undo, or a person's explicit override ("accept anyway"). An agent can never clear it. */
+    rejected?: RejectedSnapshotDetailApi[]
+    /** With `not_fully_resolved`: every snapshot that still needs a decision. */
+    needs_review?: string[]
+    /**
+     * With `stale_run`: the pull request's newest run, which is the one to finalize, when known.
+     * @nullable
+     */
+    head_run_id?: string | null
+    /** With `stale_run`: the commit of that newest run, when known. */
+    head_commit_sha?: string
 }
 
 export interface LiftOnMergeInputApi {
@@ -720,6 +886,43 @@ export interface RecomputeResultApi {
     ci_rerun_error?: string | null
 }
 
+export interface RejectSnapshotInputApi {
+    /**
+     * The snapshot identifier, such as a Storybook story id plus theme.
+     * @maxLength 512
+     */
+    identifier: string
+    /**
+     * The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself.
+     * @maxLength 128
+     * @nullable
+     */
+    new_hash?: string | null
+    /**
+     * Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at.
+     * @maxLength 128
+     * @nullable
+     */
+    old_hash?: string | null
+    /**
+     * What is wrong with the new picture, so the author can fix it. Shown on the pull request.
+     * @minLength 1
+     * @maxLength 500
+     */
+    reason: string
+}
+
+export interface RejectRunRequestInputApi {
+    /** Snapshots to reject, each with `identifier`, `new_hash` and `reason`. */
+    snapshots: RejectSnapshotInputApi[]
+    /**
+     * Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.
+     * @minimum 0
+     * @nullable
+     */
+    expected_seq?: number | null
+}
+
 export interface DiffClusterApi {
     x: number
     y: number
@@ -736,6 +939,91 @@ export interface ClusterSummaryApi {
     truncated: boolean
 }
 
+/**
+ * * `approved` - approved
+ * * `rejected` - rejected
+ * * `cleared` - cleared
+ */
+export type DecisionStateEnumApi = (typeof DecisionStateEnumApi)[keyof typeof DecisionStateEnumApi]
+
+export const DecisionStateEnumApi = {
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Cleared: 'cleared',
+} as const
+
+export interface SnapshotDecisionApi {
+    /** `approved`: accepted. `rejected`: rejected, which blocks finalize. `cleared`: a decision was undone, so the snapshot needs review again.
+     *
+     * * `approved` - approved
+     * * `rejected` - rejected
+     * * `cleared` - cleared */
+    state: DecisionStateEnumApi
+    /** Who made the decision. */
+    by: UserBasicInfoApi | null
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+     *
+     * * `web` - Visual Review page
+     * * `api` - API key
+     * * `mcp` - Agent through MCP */
+    via: DecisionChannelEnumApi
+    /** When the decision was made. */
+    at: string
+    /** Why the snapshot was rejected. Empty for other decisions. */
+    reason: string
+    /** The run of the pull request the decision was made on. */
+    run_id: string
+    /** The commit of that run. */
+    commit_sha: string
+    /** Whether the decision was made on an earlier commit of the pull request and still counts here. */
+    from_earlier_commit: boolean
+    /** Order of the decision within the pull request. Pass the highest `seq` you read as `expected_seq` when you decide, so a decision made after your read is not replaced unseen. */
+    seq: number
+}
+
+/**
+ * * `before` - before
+ * * `after` - after
+ * * `both` - both
+ */
+export type EarlierDecisionChangeEnumApi =
+    (typeof EarlierDecisionChangeEnumApi)[keyof typeof EarlierDecisionChangeEnumApi]
+
+export const EarlierDecisionChangeEnumApi = {
+    Before: 'before',
+    After: 'after',
+    Both: 'both',
+} as const
+
+export interface EarlierSnapshotDecisionApi {
+    /** What the earlier decision was.
+     *
+     * * `approved` - approved
+     * * `rejected` - rejected
+     * * `cleared` - cleared */
+    state: DecisionStateEnumApi
+    /** Who made the earlier decision. */
+    by: UserBasicInfoApi | null
+    /** How the decision reached Visual Review: `web` (the Visual Review page), `api` (an API key), or `mcp` (an agent through MCP). `mcp` comes from a marker the client sends, so it is a best effort. An accept from before decisions kept a history shows `web`.
+     *
+     * * `web` - Visual Review page
+     * * `api` - API key
+     * * `mcp` - Agent through MCP */
+    via: DecisionChannelEnumApi
+    /** When the earlier decision was made. */
+    at: string
+    /** Why the earlier picture was rejected. Empty for other decisions. */
+    reason: string
+    /** The commit the earlier decision was made on. */
+    commit_sha: string
+    /** Which picture changed since: `before` (the baseline, because the default branch or a pull request below changed it), `after` (the pull request's own picture), or `both`.
+     *
+     * * `before` - before
+     * * `after` - after
+     * * `both` - both */
+    changed: EarlierDecisionChangeEnumApi
+}
+
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -747,6 +1035,12 @@ export interface SnapshotApi {
     row_shift?: RowShiftApi | null
     /** Whether a quarantine covered this snapshot when the run was last gated, so its diff did not block the pull request. It keeps that value after the quarantine ends or a new one starts. */
     is_quarantined?: boolean
+    /** Where the snapshot stands in review on this run: `pending`, `approved` (accepted), `rejected` or `tolerated`, and empty for an unchanged snapshot. In ledger mode a decision made on another run of the pull request counts here while the pictures are the same. */
+    review_state: string
+    /** The newest decision on the exact before and after pictures this snapshot shows, on any run of the pull request. Null when nobody decided on this pair. */
+    decision?: SnapshotDecisionApi | null
+    /** Set only when `decision` is null: the newest decision on another picture of this snapshot, which no longer applies because a picture changed. Judge the new picture like any change. */
+    earlier_decision?: EarlierSnapshotDecisionApi | null
     id: string
     run_id: string
     identifier: string
@@ -756,7 +1050,6 @@ export interface SnapshotApi {
     diff_percentage: number | null
     /** @nullable */
     diff_pixel_count: number | null
-    review_state: string
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
@@ -1047,10 +1340,30 @@ export type VisualReviewRunsSnapshotsListParams = {
      */
     quarantined_only?: boolean
     /**
+     * Only snapshots in this review state on the run, after decisions made on other runs of the pull request. `pending` with `exclude_unchanged=true` lists what still needs a decision.
+     *
+     * * `pending` - pending
+     * * `approved` - approved
+     * * `tolerated` - tolerated
+     * * `rejected` - rejected
+     * @minLength 1
+     */
+    review_state?: VisualReviewRunsSnapshotsListReviewState
+    /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
     snapshot_id?: string
 }
+
+export type VisualReviewRunsSnapshotsListReviewState =
+    (typeof VisualReviewRunsSnapshotsListReviewState)[keyof typeof VisualReviewRunsSnapshotsListReviewState]
+
+export const VisualReviewRunsSnapshotsListReviewState = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Tolerated: 'tolerated',
+    Rejected: 'rejected',
+} as const
 
 export type VisualReviewRunsToleratedHashesListParams = {
     /**

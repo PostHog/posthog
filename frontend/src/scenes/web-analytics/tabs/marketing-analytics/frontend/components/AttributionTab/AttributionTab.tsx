@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popov
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -19,8 +20,14 @@ import {
     unattributedTooltip,
 } from '../../logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
-import { AttributionTable } from './AttributionTable'
-import { ConversionPaths } from './ConversionPaths'
+import { AttributionResults } from './AttributionResults'
+import { QuillAttributionTab } from './QuillAttributionTab'
+
+export interface AttributionBreakdownOption {
+    value: MarketingAnalyticsAttributionBreakdown
+    label: string
+    disabledReason?: string
+}
 
 // Offered but disabled: they exist on the Dashboard's drill-down, so dropping them silently reads as
 // a bug, but events carry no ad identifier for any model to credit.
@@ -41,8 +48,6 @@ export function AttributionTab(): JSX.Element {
         excludeUnattributed,
         attributableGoals,
         selectedGoalId,
-        query,
-        pathsQuery,
         attribution_window_days,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
@@ -60,18 +65,12 @@ export function AttributionTab(): JSX.Element {
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const settingsUrl = urls.settings('environment-marketing-analytics', 'marketing-settings')
-
-    if (!attributableGoals.length) {
-        return (
-            <LemonBanner type="info" className="mt-4" action={{ children: 'Add a conversion goal', to: settingsUrl }}>
-                {conversion_goals?.length
-                    ? "Your conversion goals all read from data warehouse tables, which attribution doesn't support yet. Add a goal based on an event or an action to compare attribution models."
-                    : 'Attribution needs a conversion goal to credit. Add one to see how each model splits credit across your marketing.'}
-            </LemonBanner>
-        )
-    }
+    const noGoalsMessage = conversion_goals?.length
+        ? "Your conversion goals all read from data warehouse tables, which attribution doesn't support yet. Add a goal based on an event or an action to compare attribution models."
+        : 'Attribution needs a conversion goal to credit. Add one to see how each model splits credit across your marketing.'
 
     const lookbackOptions = [...new Set([...LOOKBACK_PRESETS_DAYS, attribution_window_days])]
         .sort((a, b) => a - b)
@@ -79,6 +78,46 @@ export function AttributionTab(): JSX.Element {
             value: days,
             label: days === attribution_window_days ? `${days} days (default)` : `${days} days`,
         }))
+    // Picking the default stores null, so a later settings change flows through.
+    const onLookbackChange = (value: number): void =>
+        setLookbackWindowDays(value === attribution_window_days ? null : value)
+
+    const goalOptions = attributableGoals.map((goal) => ({
+        value: goal.conversion_goal_id,
+        label: goal.conversion_goal_name,
+    }))
+    const breakdownOptions: AttributionBreakdownOption[] = [
+        ...Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
+            value: level,
+            label: BREAKDOWN_LABELS[level],
+        })),
+        ...UNATTRIBUTABLE_LEVELS.map((level) => ({
+            value: level.value as MarketingAnalyticsAttributionBreakdown,
+            label: level.label,
+            disabledReason: UNATTRIBUTABLE_REASON,
+        })),
+    ]
+
+    if (todayRailNav) {
+        return (
+            <QuillAttributionTab
+                settingsUrl={settingsUrl}
+                noGoalsMessage={noGoalsMessage}
+                goalOptions={goalOptions}
+                breakdownOptions={breakdownOptions}
+                lookbackOptions={lookbackOptions}
+                onLookbackChange={onLookbackChange}
+            />
+        )
+    }
+
+    if (!attributableGoals.length) {
+        return (
+            <LemonBanner type="info" className="mt-4" action={{ children: 'Add a conversion goal', to: settingsUrl }}>
+                {noGoalsMessage}
+            </LemonBanner>
+        )
+    }
 
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
@@ -94,10 +133,7 @@ export function AttributionTab(): JSX.Element {
                 <LemonSelect
                     fullWidth
                     value={effectiveLookbackDays}
-                    onChange={(value) =>
-                        // Picking the default stores null, so a later settings change flows through.
-                        value && setLookbackWindowDays(value === attribution_window_days ? null : value)
-                    }
+                    onChange={(value) => value && onLookbackChange(value)}
                     options={lookbackOptions}
                 />
                 <div className="text-muted mt-1 text-xs">
@@ -148,10 +184,7 @@ export function AttributionTab(): JSX.Element {
                                     size="small"
                                     value={selectedGoalId}
                                     onChange={(value) => value && setConversionGoalId(value)}
-                                    options={attributableGoals.map((goal) => ({
-                                        value: goal.conversion_goal_id,
-                                        label: goal.conversion_goal_name,
-                                    }))}
+                                    options={goalOptions}
                                 />
                             </div>
                             <div className="flex items-center gap-2">
@@ -160,17 +193,7 @@ export function AttributionTab(): JSX.Element {
                                     size="small"
                                     value={breakdownBy}
                                     onChange={(value) => value && setBreakdownBy(value)}
-                                    options={[
-                                        ...Object.values(MarketingAnalyticsAttributionBreakdown).map((level) => ({
-                                            value: level,
-                                            label: BREAKDOWN_LABELS[level],
-                                        })),
-                                        ...UNATTRIBUTABLE_LEVELS.map((level) => ({
-                                            value: level.value as MarketingAnalyticsAttributionBreakdown,
-                                            label: level.label,
-                                            disabledReason: UNATTRIBUTABLE_REASON,
-                                        })),
-                                    ]}
+                                    options={breakdownOptions}
                                 />
                             </div>
                         </div>
@@ -197,10 +220,7 @@ export function AttributionTab(): JSX.Element {
                         </div>
                     }
                 />
-                <div className="mt-4 flex flex-col gap-4 pb-8">
-                    {query && <AttributionTable query={query} attachTo={marketingAnalyticsLogic} />}
-                    {pathsQuery && <ConversionPaths query={pathsQuery} attachTo={marketingAnalyticsLogic} />}
-                </div>
+                <AttributionResults />
             </div>
         </BindLogic>
     )

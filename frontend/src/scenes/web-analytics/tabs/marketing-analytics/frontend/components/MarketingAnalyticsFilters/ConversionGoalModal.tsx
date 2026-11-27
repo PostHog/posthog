@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
@@ -18,6 +19,7 @@ import {
     defaultConversionGoalFilter,
     getConfiguredConversionGoalsLabel,
 } from '../settings/constants'
+import { QuillConversionGoalModal } from './QuillConversionGoalModal'
 
 export function ConversionGoalModal(): JSX.Element {
     const { conversionGoalModalVisible, draftConversionGoal, conversionGoalInput, conversion_goals } =
@@ -32,6 +34,7 @@ export function ConversionGoalModal(): JSX.Element {
     } = useActions(marketingAnalyticsLogic)
 
     const [configuredGoalsExpanded, setConfiguredGoalsExpanded] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleConversionGoalChange = (filter: ConversionGoalFilter): void => {
         setConversionGoalInput({
@@ -44,6 +47,39 @@ export function ConversionGoalModal(): JSX.Element {
     const hasEvent = conversionGoalInput?.name !== defaultConversionGoalFilter.name
     const hasChanges = conversionGoalInput && !objectsEqual(conversionGoalInput, draftConversionGoal) && hasEvent
     const hasAppliedGoal = !!draftConversionGoal
+    const handleNameChange = (value: string): void => {
+        setConversionGoalInput({
+            ...conversionGoalInput,
+            conversion_goal_name: value,
+        })
+    }
+    const conversionGoalDropdown = (
+        <ConversionGoalDropdown
+            key={conversionGoalInput?.conversion_goal_id || 'default'}
+            value={conversionGoalInput || defaultConversionGoalFilter}
+            onChange={handleConversionGoalChange}
+            typeKey="conversion-goal-modal"
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <QuillConversionGoalModal
+                isOpen={conversionGoalModalVisible}
+                onClose={hideConversionGoalModal}
+                goalName={conversionGoalInput?.conversion_goal_name || ''}
+                onGoalNameChange={handleNameChange}
+                conversionGoalDropdown={conversionGoalDropdown}
+                savedGoals={conversion_goals}
+                onLoadGoal={loadConversionGoal}
+                hasAppliedGoal={hasAppliedGoal}
+                hasChanges={!!hasChanges}
+                onClear={clearConversionGoal}
+                onSave={saveConversionGoal}
+                onApply={applyConversionGoal}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -96,24 +132,14 @@ export function ConversionGoalModal(): JSX.Element {
                     <label className="text-sm font-medium mb-1 block">Conversion goal name</label>
                     <LemonInput
                         value={conversionGoalInput?.conversion_goal_name || ''}
-                        onChange={(value) => {
-                            setConversionGoalInput({
-                                ...conversionGoalInput,
-                                conversion_goal_name: value,
-                            })
-                        }}
+                        onChange={handleNameChange}
                         placeholder={conversionGoalNamePlaceholder}
                     />
                 </div>
 
                 <div>
                     <label className="text-sm font-medium mb-1 block">Event or table</label>
-                    <ConversionGoalDropdown
-                        key={conversionGoalInput?.conversion_goal_id || 'default'}
-                        value={conversionGoalInput || defaultConversionGoalFilter}
-                        onChange={handleConversionGoalChange}
-                        typeKey="conversion-goal-modal"
-                    />
+                    {conversionGoalDropdown}
                 </div>
 
                 {conversion_goals.length > 0 && (

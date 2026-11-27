@@ -1,7 +1,7 @@
-import type { CellContext, ColumnDef } from '@tanstack/react-table'
+import type { CellContext } from '@tanstack/react-table'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconHome, IconInfo } from '@posthog/icons'
+import { IconHome } from '@posthog/icons'
 import {
     DataTable,
     Item,
@@ -11,26 +11,19 @@ import {
     ItemMedia,
     ItemTitle,
     Skeleton,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
 } from '@posthog/quill'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
-import { APIScopeObject, AccessControlLevel, AvailableFeature } from '~/types'
+import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
-import { getLevelOptionsForResource } from './helpers'
+import { getLevelOptionsForResource, productLevelOptions } from './helpers'
 import { QuillAddLevelMenu } from './QuillAddLevelMenu'
 import { QuillLevelSelect } from './QuillLevelSelect'
 import { QuillObjectAccessRules } from './QuillObjectAccessRules'
+import { type ProductRow, productAccessColumns } from './QuillProductNameCell'
 import { QuillPropertyAccessRules } from './QuillPropertyAccessRules'
-import { ScopeIcon } from './ScopeIcon'
-
-type ProductRow = { key: APIScopeObject; label: string }
 
 function getDefaultsDisabledReason(
     loading: boolean,
@@ -38,29 +31,6 @@ function getDefaultsDisabledReason(
     terraformDisabledReason: string | null | undefined
 ): string | undefined {
     return loading ? 'Loading...' : !canEdit ? (terraformDisabledReason ?? 'Cannot edit') : undefined
-}
-
-function ProductCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
-    const tooltipText = getAccessControlTooltip(row.original.key)
-
-    return (
-        <div className="flex items-center gap-2">
-            <span className="flex items-center text-muted-foreground">
-                <ScopeIcon scope={row.original.key} />
-            </span>
-            <Text size="xs" weight="medium" render={<span />}>
-                {row.original.label}
-            </Text>
-            {tooltipText && (
-                <Tooltip>
-                    <TooltipTrigger render={<span className="flex items-center text-muted-foreground" />}>
-                        <IconInfo />
-                    </TooltipTrigger>
-                    <TooltipContent>{tooltipText}</TooltipContent>
-                </Tooltip>
-            )}
-        </div>
-    )
 }
 
 function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
@@ -71,13 +41,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
     const disabledReason = getDefaultsDisabledReason(loading, canEdit, terraformDisabledReason)
     const entry = defaults?.resource_access_levels[row.original.key]
     const value = entry?.access_level ?? null
-    const options = getLevelOptionsForResource(resourceLevels, {
-        minimum: entry?.minimum ?? null,
-        maximum: entry?.maximum ?? null,
-        inheritedLevel: null,
-        inheritedReason: null,
-        resourceLabel: row.original.label,
-    })
+    const options = productLevelOptions(resourceLevels, entry, row.original.label)
 
     const setResourceDefault = (level: AccessControlLevel | null): void => {
         updateResourceAccessControls(
@@ -112,10 +76,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
 
 // DataTable renders each cell function as a component, so the cells live at module scope and read the logic
 // themselves. Rebuilding them on each save would remount the access select and drop keyboard focus.
-const COLUMNS: ColumnDef<ProductRow>[] = [
-    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: ProductCell },
-    { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
-]
+const COLUMNS = productAccessColumns(AccessCell)
 
 export function QuillAccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })

@@ -9,7 +9,8 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { clickHouseTimestampSecondPrecisionToISO, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawKafkaEvent, Team } from '../../types'
-import { assertTeamId, skipIfMalformed } from '../consumers/message-parsing'
+import { assertTeamId, readTeamIdHeader, skipIfMalformed } from '../consumers/message-parsing'
+import { counterTeamIdHeaderMismatch } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
 import { cdpTrackedFetch, loggableOrigin } from '../utils/cdp-fetch'
@@ -21,7 +22,8 @@ export class LegacyWebhookService {
     constructor(
         private postgres: PostgresRouter,
         private teamManager: TeamManager,
-        pubSub: PubSub
+        pubSub: PubSub,
+        private skipByTeamHeader = false
     ) {
         this.actionManager = new ActionManager(postgres, pubSub)
         this.actionMatcher = new ActionMatcher(this.actionManager)
@@ -99,10 +101,20 @@ export class LegacyWebhookService {
 
         await Promise.all(
             messages.map(async (message) => {
+                // Few teams have webhooks, so most bodies are never needed.
+                const headerTeamId = this.skipByTeamHeader ? readTeamIdHeader(message) : null
+                if (headerTeamId !== null && !this.actionMatcher.hasWebhooks(headerTeamId)) {
+                    return
+                }
+
                 const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
                     assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
                 )
                 if (!clickHouseEvent) {
+                    return
+                }
+                if (headerTeamId !== null && clickHouseEvent.team_id !== headerTeamId) {
+                    counterTeamIdHeaderMismatch.inc()
                     return
                 }
 

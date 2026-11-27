@@ -41,7 +41,7 @@ export function TagRuleModal(): JSX.Element {
             pageKey="tag-rule-modal"
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             saveDisabledReason={saveDisabledReason}
-            extraFields={
+            leadingFields={
                 <>
                     <div className="flex flex-wrap items-end gap-2">
                         <div className="min-w-48 flex-1">
@@ -91,9 +91,9 @@ export function TagRuleModal(): JSX.Element {
                             />
                         </Tooltip>
                     </div>
-                    <TagRuleMatchBanner />
                 </>
             }
+            extraFields={<TagRuleMatchBanner />}
         />
     )
 }

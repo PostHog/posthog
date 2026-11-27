@@ -23,6 +23,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
     QueryRanConcurrently,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, Budget, FailureKind, QueryFailureRecord
@@ -64,7 +65,7 @@ def shareable_failure(error: Exception) -> Optional[SharedFailure]:
     the code is found on the exception or behind it. An exposed HogQL error travels by its class.
     The candidate is rebuilt here first and shared only when that gives back the leader's own class
     and message, so nothing the app decided on its own, such as an app-side limit, ever travels."""
-    if classify_query_error(error) not in SHAREABLE_FAILURE_CATEGORIES:
+    if classify_query_error(error) not in SHAREABLE_FAILURE_CATEGORIES or isinstance(error, ClickHouseUDFTimeOut):
         return None
     try:
         candidate = _shared_failure_candidate(error)
@@ -133,6 +134,9 @@ def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optiona
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "memory_limit" if error.is_per_query_limit else None
+    if isinstance(error, ClickHouseUDFTimeOut):
+        # The funnel UDF runs in a shared process pool, so its timeout also depends on cluster load.
+        return None
     if isinstance(error, ClickHouseQueryTimeOut):
         return "timeout"
     if isinstance(error, ClickHouseEstimatedQueryExecutionTimeTooLong):

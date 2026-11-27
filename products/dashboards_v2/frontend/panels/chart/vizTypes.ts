@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 import type { z } from 'zod'
 
-import type { PanelSize } from '../../dashboard/document/dashboardTypes'
 import type { DataFrame } from '../../query/queryTypes'
+import { type PanelSize } from '../core/panelSpec'
 
 /** One kind of chart, without its component, so code outside the browser can load it. */
 export type VizSpec<Options = unknown> = {

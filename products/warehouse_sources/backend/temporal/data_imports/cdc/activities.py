@@ -70,6 +70,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
+    mark_lost_slot_broken,
+    marks_slot_loss,
     restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
@@ -572,9 +574,11 @@ class CDCExtractActivity:
             self._load_pk_columns()
             self._read_changes_loop()
             # A read that got this far proves the slot is back, so a reset held for it can finish on
-            # the next run even if recovery never runs again.
+            # the next run even if recovery never runs again, and a marker that reports the slot lost is stale.
             for schema in self.cdc_schemas:
                 self._release_reset_awaiting_slot(schema)
+            if self.source is not None and any(marks_slot_loss(schema) for schema in self.cdc_schemas):
+                clear_slot_loss_markers(self.source)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 
@@ -1916,6 +1920,12 @@ def cleanup_orphan_slots_activity() -> None:
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
                     lag = adapter.get_lag(conn, source)
+                    # No lag also means a slot that has not confirmed a position yet, so check the slot itself.
+                    slot_lost = (
+                        lag is None
+                        and cdc_config.management_mode == "posthog"
+                        and not adapter.stream_exists(conn, source)
+                    )
             except Exception:
                 source_log.exception("failed_to_check_slot_lag")
                 metrics.get_sweeper_source_errors_metric().add(1)
@@ -1923,7 +1933,15 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             if lag is None:
-                source_log.warning("slot_not_found_or_no_flush_lsn")
+                source_log.warning("slot_not_found_or_no_flush_lsn", slot_lost=slot_lost)
+                if slot_lost:
+                    try:
+                        if mark_lost_slot_broken(source, adapter):
+                            source_log.warning("cdc_lost_slot_marked_broken")
+                    except Exception:
+                        source_log.exception("failed_to_mark_lost_slot_broken")
+                        metrics.get_sweeper_source_errors_metric().add(1)
+                        sources_errored += 1
                 continue
 
             metrics.record_wal_lag(source.team_id, str(source.id), lag.behind_bytes)

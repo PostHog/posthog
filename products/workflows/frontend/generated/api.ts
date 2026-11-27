@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AdventCalendarAnswerApi,
+    AdventCalendarDoorOpenApi,
+    AdventCalendarDoorOpenRequestApi,
     AdventCalendarResultsApi,
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
@@ -1645,7 +1647,7 @@ export const getWorkflowAdventCalendarAnswerUrl = (projectId: string) => {
 }
 
 /**
- * How people answer the questions of the Workflows advent calendar.
+ * How people open the doors of the Workflows advent calendar and answer its questions.
  */
 export const workflowAdventCalendarAnswer = async (
     projectId: string,
@@ -1660,12 +1662,32 @@ export const workflowAdventCalendarAnswer = async (
     })
 }
 
+export const getWorkflowAdventCalendarOpenUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/open/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarOpen = async (
+    projectId: string,
+    adventCalendarDoorOpenRequestApi: AdventCalendarDoorOpenRequestApi,
+    options?: RequestInit
+): Promise<AdventCalendarDoorOpenApi> => {
+    return apiMutator<AdventCalendarDoorOpenApi>(getWorkflowAdventCalendarOpenUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarDoorOpenRequestApi),
+    })
+}
+
 export const getWorkflowAdventCalendarResultsUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_advent_calendar/results/`
 }
 
 /**
- * How people answer the questions of the Workflows advent calendar.
+ * How people open the doors of the Workflows advent calendar and answer its questions.
  */
 export const workflowAdventCalendarResults = async (
     projectId: string,

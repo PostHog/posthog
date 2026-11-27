@@ -166,7 +166,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             ),
         ],
     }),
-    loaders(({ values }: any) => ({
+    loaders(({ values, cache }: any) => ({
         // `null` rather than an empty shape throughout: the scene has to tell "not answered yet"
         // from "answered, and there is nothing", or it renders an empty state over a pending load.
         jobStats: [
@@ -219,7 +219,11 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         destinationRowSeries: [
             null as { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
             {
-                loadDestinationRowSeries: async () => {
+                loadDestinationRowSeries: async (_, breakpoint) => {
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'destinationRowSeriesRequest', {
+                        pauseOnPageHidden: false,
+                    })
                     const destinations = values.destinations ?? []
                     if (destinations.length === 0) {
                         return { labels: [], series: [], total: [] }
@@ -254,17 +258,24 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                                 id: destination.id,
                                 response: await loadAppMetricsTimeSeries(
                                     { ...common, instanceId: destination.id },
-                                    timezone
+                                    timezone,
+                                    controller.signal
                                 ),
                             }))
                         ),
                         schemaIds.length > 0
                             ? loadAppMetricsTimeSeries(
                                   { ...common, instanceIds: schemaIds, breakdownBy: 'metric_name' },
-                                  timezone
+                                  timezone,
+                                  controller.signal
                               )
                             : Promise.resolve({ labels: [], interval, timezone, series: [] }),
-                    ])
+                    ]).catch((error) => {
+                        controller.abort()
+                        breakpoint()
+                        throw error
+                    })
+                    breakpoint()
                     return {
                         labels:
                             answers.find((a) => a.response.labels.length > 0)?.response.labels ?? total.labels ?? [],

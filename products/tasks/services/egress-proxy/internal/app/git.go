@@ -14,7 +14,7 @@ import (
 	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/telemetry"
 )
 
-func newGitRead(config GitReadConfig, region string, lookupTimeout, requestTimeout time.Duration) (*gitread.Adapter, []*http.Transport, error) {
+func newGitRead(config GitReadConfig, region string, lookupTimeout, requestTimeout time.Duration, expirations map[string]time.Time) (*gitread.Adapter, []*http.Transport, error) {
 	smokescreen, err := url.Parse(config.SmokescreenURL)
 	if err != nil || smokescreen.Hostname() == "" || (smokescreen.Scheme != "http" && smokescreen.Scheme != "https") ||
 		smokescreen.User != nil || smokescreen.Opaque != "" || smokescreen.RawQuery != "" || smokescreen.ForceQuery ||
@@ -25,17 +25,23 @@ func newGitRead(config GitReadConfig, region string, lookupTimeout, requestTimeo
 	if err != nil {
 		return nil, nil, err
 	}
-	grantRoots, err := roots(config.GrantCAFile)
+	grantRoots, err := loadRoots(config.GrantCAFile)
 	if err != nil {
 		return nil, nil, err
 	}
-	upstreamRoots, err := roots(config.UpstreamCAFile)
+	upstreamRoots, err := loadRoots(config.UpstreamCAFile)
 	if err != nil {
 		return nil, nil, err
+	}
+	if grantRoots.pool != nil {
+		expirations["git_grant_ca"] = grantRoots.expires
+	}
+	if upstreamRoots.pool != nil {
+		expirations["git_upstream_ca"] = upstreamRoots.expires
 	}
 	grants := http.DefaultTransport.(*http.Transport).Clone()
 	grants.Proxy = nil
-	grants.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: grantRoots}
+	grants.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: grantRoots.pool}
 	client, err := gitread.NewClient(gitread.ClientConfig{
 		BaseURL: config.GrantURL, Region: region, SigningKey: strings.TrimSpace(string(key)),
 		Timeout: lookupTimeout, HTTPClient: &http.Client{Transport: grants},
@@ -45,7 +51,7 @@ func newGitRead(config GitReadConfig, region string, lookupTimeout, requestTimeo
 	}
 	upstream := http.DefaultTransport.(*http.Transport).Clone()
 	upstream.Proxy = http.ProxyURL(smokescreen)
-	upstream.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: upstreamRoots}
+	upstream.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: upstreamRoots.pool}
 	upstream.MaxConnsPerHost = 64
 	adapter, err := gitread.New(gitread.Config{
 		Lookup: client.Lookup, Transport: upstream, LookupTimeout: lookupTimeout, RequestTimeout: requestTimeout,

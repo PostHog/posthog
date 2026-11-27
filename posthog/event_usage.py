@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest
 
 import posthoganalytics
 from opentelemetry import trace
@@ -20,6 +21,7 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
+from posthog.session.activity import client_attribution_properties
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
 from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS, WEBMCP_APP_CLIENT_ID
@@ -163,6 +165,8 @@ def report_user_joined_organization(organization: Organization, current_user: Us
 
 def report_user_logged_in(
     user: User,
+    *,
+    request: "HttpRequest | Request",
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
 ) -> None:
     """
@@ -174,7 +178,7 @@ def report_user_logged_in(
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user logged in",
-        properties={"social_provider": social_provider},
+        properties={"social_provider": social_provider, **client_attribution_properties(request, user)},
         groups=groups(user.current_organization, user.current_team),
     )
 
@@ -199,7 +203,9 @@ def report_user_email_change_requested(user: User, *, verification_required: boo
     )
 
 
-def report_user_identity_change_refused(user: User, *, field: str, reason: str) -> None:
+def report_user_identity_change_refused(
+    user: User, *, request: "HttpRequest | Request", field: str, reason: str
+) -> None:
     """Triggered when the API refuses to change the login email or the password.
 
     `reason` is `token_auth` for a personal API key or OAuth token, or `stale_reauth` when the
@@ -215,6 +221,7 @@ def report_user_identity_change_refused(user: User, *, field: str, reason: str) 
             "field": field,
             "reason": reason,
             "$set": user.get_analytics_metadata(),
+            **client_attribution_properties(request, user),
         },
         groups=groups(user.current_organization, user.current_team),
     )
@@ -236,7 +243,7 @@ def report_user_updated(user: User, updated_attrs: list[str]) -> None:
     )
 
 
-def report_user_password_reset(user: User) -> None:
+def report_user_password_reset(user: User, *, request: "HttpRequest | Request") -> None:
     """
     Reports a user resetting their password.
     """
@@ -246,6 +253,7 @@ def report_user_password_reset(user: User) -> None:
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="user password reset",
+        properties=client_attribution_properties(request, user),
         groups=groups(user.current_organization, user.current_team),
     )
 
