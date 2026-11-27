@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
@@ -65,5 +67,31 @@ describe('MonitoringEvidence', () => {
 
         expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
         expect(screen.queryByText("Couldn't load the monitoring chart.")).not.toBeInTheDocument()
+    })
+
+    it('loads checks from the selected child environment', async () => {
+        const report = monitoringRows[3]! as unknown as SignalReportListApi
+        const requestedPaths: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:report_id/checks/': ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [200, { results: monitoringChecksForReport(report) }]
+                },
+            },
+        })
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 99 }, { ...MOCK_DEFAULT_PROJECT, id: 99 })
+
+        render(
+            <MonitoringEvidence
+                report={report}
+                summary={report.monitoring_summary!}
+                now={Date.parse(MONITORING_MOCK_NOW)}
+            />
+        )
+
+        expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
+        expect(requestedPaths).toEqual([`/api/projects/4242/signals/reports/${report.id}/checks/`])
     })
 })

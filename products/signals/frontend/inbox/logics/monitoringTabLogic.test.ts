@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper. */
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -99,5 +104,26 @@ describe('monitoringTabLogic', () => {
 
         expect(logic.values.page?.results.map((r) => r.id)).toEqual(['a', 'b', 'c'])
         expect(logic.values.page?.hasMore).toBe(false)
+    })
+
+    it('loads reports from the selected child environment', async () => {
+        const requestedPaths: string[] = []
+        useMocks({
+            get: {
+                [REPORTS_URL]: ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [200, page([])]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 99 })
+        projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, id: 99 })
+
+        logic = monitoringTabLogic()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(requestedPaths).toEqual(['/api/projects/4242/signals/reports/'])
     })
 })
