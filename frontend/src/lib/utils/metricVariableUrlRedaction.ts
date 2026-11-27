@@ -1,7 +1,7 @@
 import type { BeforeSendFn } from 'posthog-js'
 
 // A metric prefill link carries SQL that the team wrote, with its literal values.
-const MARKERS = ['metricVariables', 'bi_filter', 'metric_prefill']
+const MARKERS = ['metricVariables', 'bi_filter', 'metric_prefill', 'appView']
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 // The catalog usage responses return the sample SQL and the drafted definitions of the team's queries.
