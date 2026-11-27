@@ -2301,6 +2301,7 @@ class EmailForwardingChallengeThrottle(UserRateThrottle):
 
 
 class PostHogSupportDraftCreateThrottle(UserRateThrottle):
+    num_requests: int
     scope = "posthog_support_draft_create"
     rate = "75/day"
 

@@ -280,10 +280,9 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if not throttle.allow_request(request, self):
                 wait = math.ceil(throttle.wait() or 0)
                 hours = max(1, math.ceil(wait / 3600))
-                drafts_a_day, _ = throttle.parse_rate(throttle.rate)
                 throttled = Throttled(
                     detail=(
-                        f"Nothing was drafted. PostHog allows {drafts_a_day} drafts a day, so they can try "
+                        f"Nothing was drafted. PostHog allows {throttle.num_requests} drafts a day, so they can try "
                         f"again in about {hours} hour{'s' if hours > 1 else ''}."
                     ),
                 )
