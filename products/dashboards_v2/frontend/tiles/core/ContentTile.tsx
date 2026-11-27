@@ -1,7 +1,7 @@
 import './ContentTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, useMemo } from 'react'
+import { type CSSProperties, useMemo, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -45,6 +45,29 @@ function cardLook(
         // A saved color can be any CSS color, so no class can carry it.
         style: tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined,
     }
+}
+
+function DescriptionInfo({ description }: { description: string }): JSX.Element {
+    const [open, setOpen] = useState(false)
+    return (
+        <Tooltip open={open} onOpenChange={setOpen}>
+            <TooltipTrigger
+                // A touch screen has no hover, so a click opens the description and must not close it again.
+                closeOnClick={false}
+                render={
+                    <button
+                        type="button"
+                        className="inline-flex shrink-0 text-muted-foreground"
+                        aria-label={description}
+                        onClick={() => setOpen(true)}
+                    />
+                }
+            >
+                <IconInfo />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">{description}</TooltipContent>
+        </Tooltip>
+    )
 }
 
 /**
@@ -98,22 +121,7 @@ export function ContentTile({
                     <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="TileGrid__text truncate">{panel.title}</span>
-                            {panel.description && (
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        render={
-                                            <span
-                                                tabIndex={0}
-                                                className="inline-flex shrink-0 text-muted-foreground"
-                                                aria-label={panel.description}
-                                            />
-                                        }
-                                    >
-                                        <IconInfo />
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-80">{panel.description}</TooltipContent>
-                                </Tooltip>
-                            )}
+                            {panel.description && <DescriptionInfo description={panel.description} />}
                         </CardTitle>
                         {(HeaderExtra || hasMenu) && (
                             <TileActions menu={hasMenu}>
