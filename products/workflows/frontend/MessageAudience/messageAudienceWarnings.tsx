@@ -66,12 +66,13 @@ export async function loadMessageAudienceWarnings(
     { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<string[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
-    const workflowEnvironmentId = String(ApiConfig.getCurrentTeamId())
+    const inProjectEnvironment = String(ApiConfig.getCurrentTeamId()) === projectId
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
-    const testSenderStatus = offerTestSender
-        ? withinTimeout(workflowEmailSandboxStatus(workflowEnvironmentId))
-        : Promise.resolve(null)
+    const testSenderStatus =
+        offerTestSender && inProjectEnvironment
+            ? withinTimeout(workflowEmailSandboxStatus(projectId))
+            : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
         withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
         withinTimeout(integrationsList(projectId, { kind: 'email' })),
@@ -82,27 +83,16 @@ export async function loadMessageAudienceWarnings(
         ),
     ])
     const senderWarning = senderWarningOf(integrations)
-    const testSenderUsable =
+    const offerTest =
         !!senderWarning &&
         suspension?.email_sending_suspended === false &&
         canAdoptSandboxSender(await testSenderStatus)
-    const [workflowSuspension, workflowIntegrations] = !testSenderUsable
-        ? [null, null]
-        : workflowEnvironmentId === projectId
-          ? [suspension, integrations]
-          : await Promise.all([
-                withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(workflowEnvironmentId)),
-                withinTimeout(integrationsList(workflowEnvironmentId, { kind: 'email' })),
-            ])
-    const offerTest =
-        testSenderUsable &&
-        workflowSuspension?.email_sending_suspended === false &&
-        !!senderWarningOf(workflowIntegrations)
-    const testSenderMessage =
-        destination === 'broadcast' ? TEST_SENDER_ONLY_BROADCAST_MESSAGE : TEST_SENDER_ONLY_WORKFLOW_MESSAGE
+    if (offerTest && destination === 'broadcast') {
+        return [TEST_SENDER_ONLY_BROADCAST_MESSAGE]
+    }
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
-        offerTest ? testSenderMessage : senderWarning,
+        offerTest ? TEST_SENDER_ONLY_WORKFLOW_MESSAGE : senderWarning,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
@@ -126,13 +116,12 @@ export async function openMessageAudience(
             router.actions.push(messageAudienceUrl(audience, destination))
         }
         const continueInWorkflow = async (): Promise<void> => {
-            const email = audience.broadcastEmail ?? audience.workflowEmail
             router.actions.push(
                 urlForNewWorkflowWithTrigger(
                     { type: 'batch', filters: { properties: audience.properties } },
                     audience.source,
-                    email,
-                    email ? audience.draftSource : undefined
+                    audience.broadcastEmail,
+                    audience.draftSource
                 )
             )
         }

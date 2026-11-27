@@ -21,11 +21,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
-import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
-import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
-import { MESSAGE_TEMPLATE_PREFILL_PARAM } from './emailTemplateWorkflowPrefill'
 import { WorkflowImportNotesBanner } from './import/WorkflowImportNotesBanner'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -50,13 +46,13 @@ import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
 import { WorkflowEditorVisitTracker } from './WorkflowEditorVisitTracker'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
-import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { workflowLogic } from './workflowLogic'
+import { workflowLogicPropsFromUrl } from './workflowLogicPropsFromUrl'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowRevisions } from './WorkflowRevisions'
 import { WorkflowSandboxSenderBanner } from './WorkflowSandboxSenderBanner'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
-import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
@@ -77,31 +73,8 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
     const { searchParams } = useValues(router)
-    const templateId = searchParams.templateId as string | undefined
-    const editTemplateId = searchParams.editTemplateId as string | undefined
-    const rawTriggerPrefill = searchParams[TRIGGER_PREFILL_PARAM]
-    const triggerPrefill =
-        rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
-            ? JSON.stringify(rawTriggerPrefill)
-            : rawTriggerPrefill
-    const entrySource = searchParams[SOURCE_PREFILL_PARAM]
-    const rawEmailPrefill = searchParams[EMAIL_PREFILL_PARAM]
-    const emailPrefill =
-        rawEmailPrefill && typeof rawEmailPrefill !== 'string' ? JSON.stringify(rawEmailPrefill) : rawEmailPrefill
-    const messageTemplateId = searchParams[MESSAGE_TEMPLATE_PREFILL_PARAM]
-    const rawDraftSource = searchParams[DRAFT_SOURCE_PARAM]
-    const draftSource =
-        rawDraftSource && typeof rawDraftSource !== 'string' ? JSON.stringify(rawDraftSource) : rawDraftSource
-    const workflowProps: WorkflowLogicProps = {
-        id: workflowSceneProps.id,
-        templateId,
-        editTemplateId,
-        triggerPrefill,
-        emailPrefill,
-        messageTemplateId: typeof messageTemplateId === 'string' ? messageTemplateId : undefined,
-        draftSource,
-        entrySource: typeof entrySource === 'string' ? entrySource : undefined,
-    }
+    const workflowProps = workflowLogicPropsFromUrl(workflowSceneProps.id, searchParams)
+    const { editTemplateId } = workflowProps
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 

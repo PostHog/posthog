@@ -8,7 +8,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { workflowLogic } from '../Workflows/workflowLogic'
+import { workflowLogicPropsFromUrl } from '../Workflows/workflowLogicPropsFromUrl'
 import { MessageAudience } from './messageAudience'
 import { openMessageAudience } from './messageAudienceWarnings'
 import { draftMessage } from './messageDrafts'
@@ -17,14 +19,14 @@ const properties: MessageAudience['properties'] = [
     { key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In },
 ]
 const email = draftMessage({ kind: 'feature_available', featureName: 'Dark mode' })
-
-function asProp(raw: unknown): string | undefined {
-    return raw && typeof raw !== 'string' ? JSON.stringify(raw) : (raw as string | undefined)
-}
+const draftSource: EmailDraftRequestApi = { source: 'early_access', source_id: 'feature-1' }
 
 describe('continuing a broadcast in a workflow with the test sender', () => {
+    let draftRequests: unknown[]
+
     beforeEach(() => {
         initKeaTests()
+        draftRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/email_sending_suspension/': { email_sending_suspended: false },
@@ -42,6 +44,12 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
                     is_calculating: false,
                 },
             },
+            post: {
+                '/api/projects/:team_id/workflow_email_drafts/': async ({ request }) => {
+                    draftRequests.push(await request.json())
+                    return [500, {}]
+                },
+            },
         })
     })
 
@@ -52,7 +60,7 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
     it.each<{ case: string; audience: MessageAudience; subject: string | null }>([
         {
             case: 'an email audience',
-            audience: { source: 'early_access_feature', properties, broadcastEmail: email },
+            audience: { source: 'early_access_feature', properties, broadcastEmail: email, draftSource },
             subject: email.subject,
         },
         { case: 'a cohort', audience: { source: 'cohort', properties }, subject: null },
@@ -63,15 +71,9 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
         fireEvent.click(await screen.findByText('Continue in a workflow'))
         await waitFor(() => expect(router.values.location.pathname).toContain('/workflows/new'))
 
-        const { searchParams } = router.values
-        const logic = workflowLogic({
-            id: 'new',
-            triggerPrefill: asProp(searchParams.trigger),
-            emailPrefill: asProp(searchParams.email),
-            entrySource: searchParams.source,
-        })
+        const logic = workflowLogic(workflowLogicPropsFromUrl('new', router.values.searchParams))
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
 
         const trigger = logic.values.workflow.actions.find((action) => action.type === 'trigger')
         expect(trigger?.config).toEqual({ type: 'batch', filters: { properties } })
@@ -82,5 +84,6 @@ describe('continuing a broadcast in a workflow with the test sender', () => {
                 subject: (action.config as Record<string, any>).inputs?.email?.value?.subject,
             }))
         ).toEqual(subject ? [{ type: 'email_sandbox', subject }] : [])
+        expect(draftRequests).toEqual(subject ? [expect.objectContaining(draftSource)] : [])
     })
 })

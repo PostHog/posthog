@@ -119,6 +119,14 @@ describe('loadMessageAudienceWarnings', () => {
             expected: [TEST_SENDER_FOR_BROADCAST],
         },
         {
+            case: 'only the test sender, for a broadcast to a list still matching',
+            destination: 'broadcast',
+            senders: [],
+            sandbox: testSender,
+            cohort: matchingList,
+            expected: [TEST_SENDER_FOR_BROADCAST],
+        },
+        {
             case: 'the test sender while sending is suspended',
             destination: 'broadcast',
             suspended: true,
@@ -229,74 +237,38 @@ describe('loadMessageAudienceWarnings', () => {
         }
     })
 
-    it.each<{
-        case: string
-        destination: MessageAudienceDestination
-        selected: 'same' | 'child'
-        senders: object[]
-        sandbox?: object
-        expected: string[]
-    }>([
-        {
-            case: 'a verified sender leaves nothing for the test sender to change',
-            destination: 'workflow',
-            selected: 'same',
-            senders: [verified],
-            expected: [],
-        },
-        {
-            case: 'a verified sender leaves nothing for the test sender to change',
-            destination: 'broadcast',
-            selected: 'child',
-            senders: [verified],
-            expected: [],
-        },
-        {
-            case: 'the test sender is unavailable',
-            destination: 'workflow',
-            selected: 'child',
-            senders: [],
-            sandbox: noTestSender,
-            expected: [NO_SENDER],
-        },
-    ])('answers a $destination at once when $case', async ({ destination, selected, senders, sandbox, expected }) => {
-        jest.useFakeTimers()
-        const projectId = String(ApiConfig.getCurrentProjectId())
-        const teamId = ApiConfig.getCurrentTeamId()
-        try {
-            if (selected === 'child') {
-                ApiConfig.setCurrentTeamId(teamId + 1)
+    it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
+        'answers a %s at once when a verified sender leaves nothing for the test sender to change',
+        async (destination) => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                    email_sending_suspended: false,
+                } as never)
+                jest.mocked(integrationsList).mockResolvedValue({
+                    count: 1,
+                    results: [verified],
+                    next: null,
+                } as never)
+                jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
+                jest.mocked(cohortsRetrieve).mockResolvedValue({
+                    name: 'Signups',
+                    is_static: true,
+                    is_calculating: false,
+                } as never)
+
+                let warnings: string[] | undefined
+                void loadMessageAudienceWarnings(audience, destination, { offerTestSender: true }).then((result) => {
+                    warnings = result
+                })
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(warnings).toEqual([])
+            } finally {
+                jest.useRealTimers()
             }
-            const answersNow = (id: string): boolean => selected === 'same' || id === projectId
-            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockImplementation((id) =>
-                answersNow(id) ? (Promise.resolve({ email_sending_suspended: false }) as never) : new Promise(() => {})
-            )
-            jest.mocked(integrationsList).mockImplementation((id) =>
-                answersNow(id)
-                    ? (Promise.resolve({ count: senders.length, results: senders, next: null }) as never)
-                    : new Promise(() => {})
-            )
-            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(
-                sandbox ? (Promise.resolve(sandbox) as never) : new Promise(() => {})
-            )
-            jest.mocked(cohortsRetrieve).mockResolvedValue({
-                name: 'Signups',
-                is_static: true,
-                is_calculating: false,
-            } as never)
-
-            let warnings: string[] | undefined
-            void loadMessageAudienceWarnings(audience, destination, { offerTestSender: true }).then((result) => {
-                warnings = result
-            })
-            await jest.advanceTimersByTimeAsync(0)
-
-            expect(warnings).toEqual(expected)
-        } finally {
-            ApiConfig.setCurrentTeamId(teamId)
-            jest.useRealTimers()
         }
-    })
+    )
 
     it.each<{
         case: string
@@ -321,18 +293,11 @@ describe('loadMessageAudienceWarnings', () => {
                 expected: [NO_SENDER],
             },
             {
-                case: `a ${destination} offers no test sender where the selected environment has its own sender`,
+                case: `a ${destination} offers no test sender outside the project's own environment`,
                 destination,
                 project: { suspended: false, senders: [], sandbox: testSender },
-                selected: { suspended: false, senders: [verified], sandbox: testSender },
-                expected: [NO_SENDER],
-            },
-            {
-                case: `a ${destination} offers the test sender of the selected environment`,
-                destination,
-                project: { suspended: false, senders: [], sandbox: noTestSender },
                 selected: { suspended: false, senders: [], sandbox: testSender },
-                expected: [destination === 'workflow' ? TEST_SENDER_FOR_WORKFLOW : TEST_SENDER_FOR_BROADCAST],
+                expected: [NO_SENDER],
             },
         ])
     )('reads the checks where they apply: $case', async ({ destination, project, selected, expected }) => {
