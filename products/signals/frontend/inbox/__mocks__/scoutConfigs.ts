@@ -266,7 +266,12 @@ function makeMockSuggestion(
 }
 
 export const mockScoutSuggestions: ScoutSuggestionItemApi[] = [
-    makeMockSuggestion({ id: 'suggestion-web-vitals', gap: true, confidence: 'high' }),
+    makeMockSuggestion({
+        id: 'suggestion-web-vitals',
+        goal: 'Checks each day whether the pricing page is getting slower, and tells you which metric moved.',
+        gap: true,
+        confidence: 'high',
+    }),
     makeMockSuggestion({
         id: 'suggestion-signup-drop-off',
         kind: 'custom',

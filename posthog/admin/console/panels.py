@@ -54,10 +54,11 @@ class Fact:
     mono: bool = False
     # A console page the value links to, for example the team page of a team the fact names.
     href: str | None = None
+    detail: str = ""
 
     def __post_init__(self) -> None:
         # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
-        if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
+        if any(isinstance(text, SafeData) for text in (self.label, self.value, self.detail)):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
         if self.href is not None and not is_internal_path(self.href):
