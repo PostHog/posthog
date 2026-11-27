@@ -5,6 +5,8 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import { monitoringTabLogic } from './monitoringTabLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
+const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
 
 const page = (ids: string[], next: string | null = null): Record<string, unknown> => ({
     count: ids.length,
@@ -125,5 +128,43 @@ describe('monitoringTabLogic', () => {
         }).toFinishAllListeners()
 
         expect(requestedPaths).toEqual(['/api/projects/4242/signals/reports/'])
+    })
+
+    it('does not refresh unused metric snapshots when monitoring rows load', async () => {
+        let refreshRequests = 0
+        useMocks({
+            get: {
+                [REPORTS_URL]: [
+                    200,
+                    {
+                        ...page(['monitoring']),
+                        results: [
+                            {
+                                id: 'monitoring',
+                                metrics: [{ value: null, value_at: null }],
+                                monitoring_summary: null,
+                                monitoring_outcome: null,
+                            },
+                        ],
+                    },
+                ],
+            },
+            post: {
+                [REFRESH_METRICS_URL]: () => {
+                    refreshRequests += 1
+                    return [200, { reports: [] }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+        })
+        logic = monitoringTabLogic()
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(refreshRequests).toBe(0)
     })
 })

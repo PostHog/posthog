@@ -68,7 +68,12 @@ function monitoringMetricChart(
     if (!check || !checkMetric || !query) {
         return null
     }
-    return { check, checkMetric, query, timeline: monitoringSummaryTimeline(summary, now) }
+    return {
+        check,
+        checkMetric,
+        query,
+        timeline: monitoringSummaryTimeline({ ...summary, ends_at: lead.ends_at }, now),
+    }
 }
 
 function MonitoringMetricEvidence({
@@ -81,11 +86,11 @@ function MonitoringMetricEvidence({
     now: number
 }): JSX.Element {
     const lead = summary.lead_check
-    const logic = monitoringRowLogic({ reportId: report.id, loadChecks: lead?.metric_id != null })
+    const logic = monitoringRowLogic({ reportId: report.id, loadChecks: lead != null })
     const { reportChecks, reportChecksLoadFailed } = useValues(logic)
     const { loadReportChecks } = useActions(logic)
 
-    if (lead?.metric_id && reportChecks === null && !reportChecksLoadFailed) {
+    if (lead && reportChecks === null && !reportChecksLoadFailed) {
         return <LemonSkeleton className="h-36 w-full" />
     }
     if (reportChecksLoadFailed) {

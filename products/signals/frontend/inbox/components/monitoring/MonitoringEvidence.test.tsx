@@ -8,16 +8,24 @@ import userEvent from '@testing-library/user-event'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportListApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { MONITORING_MOCK_NOW, monitoringChecksForReport, monitoringRows } from '../../__mocks__/monitoringMocks'
 import { MonitoringEvidence } from './MonitoringEvidence'
 
+const mockReportCheckMetricChart = jest.fn(
+    (_props: { timeline: { endsAt: string }; monitoring?: { endsAt: string | null } }) => (
+        <div>Sidebar metric chart</div>
+    )
+)
+
 jest.mock('../detail/ReportCheckMetricChart', () => ({
-    ReportCheckMetricChart: () => <div>Sidebar metric chart</div>,
+    ReportCheckMetricChart: (props: { timeline: { endsAt: string }; monitoring?: { endsAt: string | null } }) =>
+        mockReportCheckMetricChart(props),
 }))
 
 describe('MonitoringEvidence', () => {
+    beforeEach(() => mockReportCheckMetricChart.mockClear())
     afterEach(cleanup)
 
     it('loads the full check and renders the report sidebar chart when the list snapshot has no series', async () => {
@@ -93,5 +101,57 @@ describe('MonitoringEvidence', () => {
 
         expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
         expect(requestedPaths).toEqual([`/api/projects/4242/signals/reports/${report.id}/checks/`])
+    })
+
+    it('loads evidence when the lead check has a stored query but no report metric ID', async () => {
+        const sourceReport = monitoringRows[3]! as unknown as SignalReportListApi
+        const sourceCheck = monitoringChecksForReport(sourceReport)[0]!
+        const summary = {
+            ...sourceReport.monitoring_summary!,
+            lead_check: { ...sourceReport.monitoring_summary!.lead_check!, metric_id: null },
+        }
+        const report = { ...sourceReport, monitoring_summary: summary }
+        const check = {
+            ...sourceCheck,
+            config: { ...sourceCheck.config, metric_id: null },
+        } as SignalReportCheckApi
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:report_id/checks/': { results: [check] },
+            },
+        })
+        initKeaTests()
+
+        render(<MonitoringEvidence report={report} summary={summary} now={Date.parse(MONITORING_MOCK_NOW)} />)
+
+        expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
+    })
+
+    it("limits the chart to the lead check's monitoring window", async () => {
+        const sourceReport = monitoringRows[3]! as unknown as SignalReportListApi
+        const leadEndsAt = '2026-11-19T17:00:00.000Z'
+        const summary = {
+            ...sourceReport.monitoring_summary!,
+            ends_at: '2026-11-25T17:00:00.000Z',
+            lead_check: { ...sourceReport.monitoring_summary!.lead_check!, ends_at: leadEndsAt },
+        }
+        const report = { ...sourceReport, monitoring_summary: summary }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [] },
+                '/api/projects/:team_id/signals/reports/:report_id/checks/': {
+                    results: monitoringChecksForReport(report),
+                },
+            },
+        })
+        initKeaTests()
+
+        render(<MonitoringEvidence report={report} summary={summary} now={Date.parse(MONITORING_MOCK_NOW)} />)
+
+        expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
+        const props = mockReportCheckMetricChart.mock.calls.at(-1)?.[0]
+        expect(props?.timeline.endsAt).toBe(leadEndsAt)
+        expect(props?.monitoring?.endsAt).toBe(leadEndsAt)
     })
 })
