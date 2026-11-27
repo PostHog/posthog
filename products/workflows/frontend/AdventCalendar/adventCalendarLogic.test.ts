@@ -11,6 +11,8 @@ import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
+import { AdventCalendarResultsApi } from 'products/workflows/frontend/generated/api.schemas'
+
 import { workflowsSetupLogic } from '../emptyState/workflowsSetupLogic'
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { ADVENT_QUESTIONS } from './adventContent'
@@ -103,20 +105,30 @@ describe('adventCalendarLogic', () => {
         jest.useRealTimers()
     })
 
-    it.each<[string, number | null, boolean, boolean | null]>([
-        ['nothing has looked for workflows yet', null, false, null],
-        ['the Workflows page found none', 0, true, false],
-        ['the Workflows page found some', 1, true, true],
-        ['an earlier visit to the Workflows page found some', 1, false, true],
-    ])('reports the view, with whether the project has workflows, when %s', async (_, count, open, hasWorkflows) => {
+    it.each<[string, number[], boolean, boolean | null]>([
+        ['nothing has looked for workflows yet', [], false, null],
+        ['the Workflows page found none', [0], true, false],
+        ['the Workflows page found some', [1], true, true],
+        ['an earlier visit to the Workflows page found some', [1], false, true],
+        ['the Workflows page found none after an earlier visit found some', [1, 0], true, null],
+    ])('reports the view, with whether the project has workflows, when %s', async (_, counts, open, hasWorkflows) => {
         logic.unmount()
         capture.mockClear()
-        if (count !== null) {
-            useMocks({ get: { '/api/projects/:team_id/hog_flows/': { count, results: [] } } })
+        for (const [visit, count] of counts.entries()) {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/': {
+                        count,
+                        results: count ? [{ id: 'workflow-1', name: 'Welcome series' }] : [],
+                        next: null,
+                        previous: null,
+                    },
+                },
+            })
             const setup = workflowsSetupLogic()
             setup.mount()
-            await expectLogic(setup).toDispatchActions(['detectStatusSuccess']).toFinishAllListeners()
-            if (!open) {
+            await expectLogic(setup).toFinishAllListeners()
+            if (!open || visit < counts.length - 1) {
                 setup.unmount()
             }
         }
@@ -185,10 +197,13 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-4-upper')?.status).toBe('ready')
     })
 
-    it('keeps the progress and the pick another tab saved, and sends no second answer, when this tab answers again', async () => {
+    it('keeps the progress and the pick another tab saved, shows its shares, and sends no second answer, when this tab answers again', async () => {
         const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
         const api = calendarApi()
         useMocks(api.mocks)
+        logic.actions.loadPollResultsSuccess(
+            resultsOf({ ...DAY_TWO_ANSWERED, answer: null }) as AdventCalendarResultsApi
+        )
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         window.localStorage.setItem(
@@ -206,6 +221,7 @@ describe('adventCalendarLogic', () => {
             [other]: { opened: [1], answers: {} },
         })
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
         expect(api.answers).toEqual([])
     })
 
@@ -235,19 +251,27 @@ describe('adventCalendarLogic', () => {
     it.each([
         ['an answer no option has', { opened: [1, 2, 3], answers: { 2: 'tmi' } }],
         ['no answer', { opened: [1, 2, 3], answers: {} }],
-    ])('lets the person answer a question again when storage holds %s for it', (_, progress) => {
-        logic.unmount()
-        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: progress }))
-        logic = adventCalendarLogic()
-        logic.mount()
+    ])(
+        'lets the person answer a question again when storage holds %s for it, and keeps every saved open',
+        (_, progress) => {
+            const other = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e02'
+            logic.unmount()
+            window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: progress, [other]: progress }))
+            logic = adventCalendarLogic()
+            logic.mount()
 
-        expect(doorOf(logic, 'door-2')?.status).toBe('ready')
-        expect(logic.values.openCount).toBe(1)
+            expect(doorOf(logic, 'door-2')?.status).toBe('ready')
+            expect(logic.values.openCount).toBe(1)
 
-        logic.actions.answerDoor('door-2', 'tim')
+            logic.actions.answerDoor('door-2', 'tim')
 
-        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-    })
+            expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+            expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({
+                [UUID]: { opened: [1, 2, 3], answers: { 2: 'tim' } },
+                [other]: { opened: [1, 2, 3], answers: {} },
+            })
+        }
+    )
 
     it.each(['null', `{"${UUID}":{"opened":3}}`])('keeps working when storage holds %s at load', (value) => {
         const uncaught: ErrorEvent[] = []
@@ -356,6 +380,39 @@ describe('adventCalendarLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
+    })
+
+    it('keeps the results of a later answer when an earlier answer replies last', async () => {
+        let release = (): void => {}
+        const held = new Promise<void>((done) => (release = done))
+        const dayFive = {
+            day: 5,
+            answer: 'yes',
+            shares: [
+                { option: 'no', share: 30 },
+                { option: 'yes', share: 70 },
+            ],
+        }
+        useMocks({
+            post: {
+                [`${CALENDAR_API}/answer/`]: async ({ request }) => {
+                    const { day } = (await request.json()) as { day: number }
+                    if (day === 2) {
+                        await held
+                        return [200, resultsOf(DAY_TWO_ANSWERED)]
+                    }
+                    return [200, resultsOf(DAY_TWO_ANSWERED, dayFive)]
+                },
+            },
+        })
+
+        logic.actions.savePollAnswer({ day: 2, option: 'tim' })
+        logic.actions.savePollAnswer({ day: 5, option: 'yes' })
+        await waitFor(() => expect(logic.values.pollResults).toEqual(resultsOf(DAY_TWO_ANSWERED, dayFive)))
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pollResults).toEqual(resultsOf(DAY_TWO_ANSWERED, dayFive))
     })
 
     it('sends no door opens or answers while a staff user previews another day, and keeps the live doors shut', async () => {

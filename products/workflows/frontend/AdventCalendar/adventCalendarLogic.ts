@@ -30,7 +30,12 @@ import {
     openDoors,
 } from './adventGraph'
 import { adventHasWorkflows } from './adventHasWorkflows'
-import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from './adventProgressStorage'
+import {
+    cleanProgressByUser,
+    PROGRESS_STORAGE_KEY,
+    reachableProgress,
+    storedProgressByUser,
+} from './adventProgressStorage'
 import { adventPicksDay, adventToday } from './adventToday'
 
 // pinned: analytics event names and property keys. Usage insights query them, so a rename breaks them.
@@ -300,22 +305,26 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         share: true,
         preloadImages: true,
     }),
-    loaders(({ values }) => ({
-        pollResults: [
-            null as AdventCalendarResultsApi | null,
-            {
-                loadPollResults: async () => {
-                    const results = await resultsOrNull(
-                        api.workflowAdventCalendarResults(String(values.currentProjectId))
-                    )
-                    return values.pollResults ?? results
+    loaders(({ values, cache }) => {
+        const latestResults = async (
+            request: Promise<AdventCalendarResultsApi>
+        ): Promise<AdventCalendarResultsApi | null> => {
+            const sent = (cache.pollRequests = (cache.pollRequests ?? 0) + 1)
+            const results = await resultsOrNull(request)
+            return sent === cache.pollRequests ? (results ?? values.pollResults) : (values.pollResults ?? results)
+        }
+        return {
+            pollResults: [
+                null as AdventCalendarResultsApi | null,
+                {
+                    loadPollResults: async () =>
+                        latestResults(api.workflowAdventCalendarResults(String(values.currentProjectId))),
+                    savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
+                        latestResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer)),
                 },
-                savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
-                    (await resultsOrNull(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer))) ??
-                    values.pollResults,
-            },
-        ],
-    })),
+            ],
+        }
+    }),
     reducers({
         progressByUser: [
             {} as Record<string, AdventProgress>,
@@ -388,7 +397,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 isLive: adventCalendarLogicValues['isLive']
             ): AdventProgress => {
                 const stored = cleanProgressByUser(progressByUser)[user?.uuid ?? ''] ?? EMPTY_ADVENT_PROGRESS
-                return isLive ? stored : mergeAdventProgress(stored, previewProgress)
+                return reachableProgress(isLive ? stored : mergeAdventProgress(stored, previewProgress))
             },
         ],
         today: [
@@ -481,6 +490,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const storedPick = cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]
                 if (storedPick) {
                     actions.openDoor(uuid, door.day, storedPick, values.isLive)
+                    actions.loadPollResults()
                     return
                 }
                 const notTaken = index === 0 ? 'lower' : 'upper'
@@ -489,7 +499,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 )
                 captureLive(values.isLive, EVENTS.answerPicked, { day: door.day, option: optionId })
                 actions.openDoor(uuid, door.day, optionId, values.isLive)
-                const answer = pollAnswerOf(door.day, optionId)
+                const answer = pollAnswerOf(door.day, values.progress.answers[door.day] ?? optionId)
                 if (answer && values.isLive) {
                     actions.savePollAnswer(answer)
                 }
