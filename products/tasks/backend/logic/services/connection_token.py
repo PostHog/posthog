@@ -60,7 +60,7 @@ class SandboxEventIngestTokenPayload:
 @dataclass(frozen=True)
 class _SandboxJwtKey:
     kid: str
-    private_key_pem: str = field(repr=False)
+    private_key: rsa.RSAPrivateKey = field(repr=False)
     public_key_pem: str
 
 
@@ -95,8 +95,7 @@ def _normalize_pem_key(key: str) -> str:
     return key.replace("\\n", "\n")
 
 
-def _derive_public_key_pem(private_key_pem: str) -> str:
-    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
+def _derive_public_key_pem(private_key: rsa.RSAPrivateKey) -> str:
     return (
         private_key.public_key()
         .public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -118,9 +117,13 @@ def _compute_kid(public_key_pem: str) -> str:
 
 
 def _build_key(private_key_pem: str) -> _SandboxJwtKey:
-    normalized = _normalize_pem_key(private_key_pem)
-    public_key_pem = _derive_public_key_pem(normalized)
-    return _SandboxJwtKey(kid=_compute_kid(public_key_pem), private_key_pem=normalized, public_key_pem=public_key_pem)
+    private_key = serialization.load_pem_private_key(
+        _normalize_pem_key(private_key_pem).encode(), password=None, backend=default_backend()
+    )
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise ValueError("Sandbox JWT signing keys must be RSA")
+    public_key_pem = _derive_public_key_pem(private_key)
+    return _SandboxJwtKey(kid=_compute_kid(public_key_pem), private_key=private_key, public_key_pem=public_key_pem)
 
 
 @lru_cache(maxsize=1)
@@ -251,7 +254,7 @@ def _encode_agent_egress_token(task_run: TaskRun, payload: AgentEgressTokenPaylo
             "iat": now,
             "exp": now + AGENT_EGRESS_TOKEN_TTL,
         },
-        key.private_key_pem,
+        key.private_key,
         algorithm="RS256",
         headers={"kid": key.kid},
     )
@@ -301,7 +304,7 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
         "aud": SANDBOX_CONNECTION_AUDIENCE,
     }
 
-    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
+    return jwt.encode(payload, key.private_key, algorithm="RS256", headers={"kid": key.kid})
 
 
 def _encode_run_scoped_token(
@@ -328,7 +331,7 @@ def _encode_run_scoped_token(
     if extra_claims:
         payload.update(extra_claims)
     key = _signing_key_for_run(task_run)
-    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
+    return jwt.encode(payload, key.private_key, algorithm="RS256", headers={"kid": key.kid})
 
 
 def create_sandbox_event_ingest_token(

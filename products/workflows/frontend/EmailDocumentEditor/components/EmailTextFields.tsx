@@ -2,6 +2,7 @@ import type { Editor } from '@tiptap/core'
 
 import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { setSelectedSize } from '../emailCommands'
 import { EmailBlockStyle, fontOptions, fontUrlFor, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
 import { EmailFormatButton, EmailFormatButtons } from './EmailFormatButtons'
@@ -10,6 +11,7 @@ import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailWeightField } from './fields/EmailWeightField'
+import { NUMBER_LIMITS } from './fields/numberLimits'
 
 export function EmailTextFields({
     editor,
@@ -86,25 +88,24 @@ export function EmailTextFields({
             />
             <EmailNumberField
                 label="Font size"
+                limit={NUMBER_LIMITS.textSize}
                 value={style.fontSize}
                 placeholder={size}
-                min={8}
-                max={96}
                 onChange={(fontSize) => set({ fontSize })}
                 attr="email-editor-font-size"
             />
             <EmailNumberField
                 label="Line height"
                 suffix="%"
+                limit={NUMBER_LIMITS.lineHeight}
                 value={style.lineHeight}
                 placeholder={nodeType === 'heading' ? 125 : page.lineHeight}
-                min={80}
-                max={300}
                 onChange={(lineHeight) => set({ lineHeight })}
                 attr="email-editor-line-height"
             />
             <EmailNumberField
                 label="Letter spacing"
+                limit={NUMBER_LIMITS.letterSpacing}
                 value={style.letterSpacing}
                 placeholder={0}
                 onChange={(letterSpacing) => set({ letterSpacing })}
@@ -134,17 +135,12 @@ export function EmailTextFields({
                         attr="email-editor-selection-color"
                     />
                     <EmailNumberField
+                        key={`${editor.state.selection.from}-${editor.state.selection.to}`}
                         label="Selected size"
+                        limit={NUMBER_LIMITS.textSize}
                         value={editor.getAttributes('textStyle').fontSize ?? undefined}
                         placeholder={style.fontSize ?? size}
-                        min={8}
-                        max={96}
-                        onChange={(fontSize) =>
-                            editor
-                                .chain()
-                                .setMark('textStyle', { fontSize: fontSize ?? null })
-                                .run()
-                        }
+                        onChange={(fontSize) => setSelectedSize(editor, fontSize)}
                         attr="email-editor-selection-size"
                     />
                 </>
@@ -153,6 +149,7 @@ export function EmailTextFields({
                 <>
                     <EmailNumberField
                         label="List indent"
+                        limit={NUMBER_LIMITS.gap}
                         value={style.listIndent}
                         placeholder={24}
                         onChange={(listIndent) => set({ listIndent })}
@@ -160,6 +157,7 @@ export function EmailTextFields({
                     />
                     <EmailNumberField
                         label="Item spacing"
+                        limit={NUMBER_LIMITS.gap}
                         value={style.listItemGap}
                         placeholder={4}
                         onChange={(listItemGap) => set({ listItemGap })}
@@ -174,7 +172,7 @@ export function EmailTextFields({
                 onChange={(linkColor) => set({ linkColor })}
                 attr="email-editor-block-link-color"
             />
-            <EmailFieldRow label="Link underline">
+            <EmailFieldRow label="Link underline" group>
                 <LemonSegmentedButton
                     size="xsmall"
                     fullWidth

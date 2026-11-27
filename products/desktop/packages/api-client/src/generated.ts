@@ -259,7 +259,10 @@ export namespace Schemas {
     export type QueryScanFindingKind =
         | "no_event_filter"
         | "no_start_date"
-        | "persons_join";
+        | "persons_join"
+        | "repeated_cte_expansion"
+        | "cross_join_equality"
+        | "date_arrays_before_breakdown_limit";
     export type QueryScanWarning = {
         /**
          * Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable.
@@ -4290,6 +4293,11 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
+    export type ExperimentWarehouseNativeRowsLeftOut = Partial<{
+        empty_id: number | null;
+        exposed_without_rows: Record<string, number> | null;
+        unknown_variants: Record<string, number> | null;
+    }>;
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
@@ -4297,6 +4305,7 @@ export namespace Schemas {
         hogql: string | null;
         is_precomputed: boolean | null;
         kind: string;
+        rows_left_out: ExperimentWarehouseNativeRowsLeftOut | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
@@ -6003,6 +6012,7 @@ export namespace Schemas {
      * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
      * * `members_over_limit` - Members over limit
      * * `test_account_filter` - Test account filter
+     * * `unsupported_time_range` - Unsupported time range
      */
     export type CohortRealtimeUnavailableReasonEnum =
         | "history_over_limit"
@@ -6011,10 +6021,11 @@ export namespace Schemas {
         | "action_criteria"
         | "includes_non_realtime_cohort"
         | "members_over_limit"
-        | "test_account_filter";
+        | "test_account_filter"
+        | "unsupported_time_range";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. When `reason` is set, it can't be turned on, and `reason` says why. `daily`: the cohort can't be realtime, so its membership only comes from the once-a-day calculation. See `reason`. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
@@ -6035,7 +6046,7 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
+         * Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. `includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. `history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test users. On an `off` cohort, the first of these that keeps it from being turned on: `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support. `history_over_limit`, its criteria look back further than the project's plan allows. On a `needs_attention` cohort, why nothing can prepare it: `too_large_to_build`, the events in its criteria happen too often for PostHog to prepare it automatically. `unsupported_time_range`, one of its event criteria uses a time range realtime cohorts don't support, so PostHog can't prepare it. Null in every other case, including a `daily` cohort whose stored criteria don't show why.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
@@ -6044,6 +6055,7 @@ export namespace Schemas {
          * * `includes_non_realtime_cohort` - Includes a cohort that is not realtime
          * * `members_over_limit` - Members over limit
          * * `test_account_filter` - Test account filter
+         * * `unsupported_time_range` - Unsupported time range
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
@@ -6250,6 +6262,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter2 = {
@@ -6341,6 +6354,7 @@ export namespace Schemas {
             | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         schema_map: Record<string, string | unknown>;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionGoalFilter3 = {
@@ -6437,6 +6451,7 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        use_in_recommendations?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ConversionRateInputType = "manual" | "automatic";
@@ -7580,7 +7595,17 @@ export namespace Schemas {
         | "resolved"
         | "pending_release"
         | "suppressed";
+    export type ErrorTrackingIssueTagColor =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTag = {
+        color?: (ErrorTrackingIssueTagColor | null) | undefined;
         /**
          * What the tag means, for a tooltip.
          */
@@ -9144,6 +9169,7 @@ export namespace Schemas {
     };
     export type TraceQuery = {
         dateRange?: (DateRange | null) | undefined;
+        eventsLimit?: (number | null) | undefined;
         includeSentiment?: (boolean | null) | undefined;
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -9476,6 +9502,25 @@ export namespace Schemas {
         | "medium"
         | "high"
         | "critical";
+    /**
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple
+     */
+    export type IssueTagColorEnum =
+        | "blue"
+        | "teal"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red"
+        | "pink"
+        | "purple";
     export type ErrorTrackingIssueTagRead = {
         /**
          * Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not.
@@ -9489,6 +9534,19 @@ export namespace Schemas {
          * What the tag means, for a tooltip.
          */
         description: string;
+        /**
+         * Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+         *
+         * * `blue` - Blue
+         * * `teal` - Teal
+         * * `green` - Green
+         * * `yellow` - Yellow
+         * * `orange` - Orange
+         * * `red` - Red
+         * * `pink` - Pink
+         * * `purple` - Purple
+         */
+        color: IssueTagColorEnum | NullEnum;
         /**
          * The tagger that applied the tag: `jev` for AI, `manual` for a person.
          */
@@ -10217,6 +10275,7 @@ export namespace Schemas {
         rollout_percentage: number;
         variant: string | null;
         aggregation_group_type_index: number | null;
+        description: string | null;
     }>;
     /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
@@ -10458,6 +10517,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10467,6 +10527,8 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `unserved_variant_exposures` - Unserved Variant Exposures
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10475,6 +10537,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
      */
@@ -10487,6 +10550,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10496,6 +10560,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "unserved_variant_exposures"
+        | "events_billing_limit"
+        | "feature_flags_billing_limit"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
@@ -10504,6 +10570,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "flag_shared"
         | "stale_experiment";
     /**
@@ -10552,6 +10619,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `metric_all_zero` - Metric All Zero
@@ -10559,6 +10627,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `result_ready` - Result Ready
      * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10566,6 +10635,8 @@ export namespace Schemas {
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
+     * * `events_billing_limit` - Events Billing Limit
+     * * `feature_flags_billing_limit` - Feature Flags Billing Limit
      */
     export type ExperimentHealthCheckKeyEnum =
         | "flag_state"
@@ -10579,6 +10650,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_uses_feature_flag_called"
         | "metric_cannot_compile"
         | "metric_calculation_failed"
         | "metric_all_zero"
@@ -10586,13 +10658,16 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "result_ready"
         | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
         | "unserved_variant_exposures"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "events_billing_limit"
+        | "feature_flags_billing_limit";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -10605,6 +10680,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10614,6 +10690,8 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `unserved_variant_exposures` - Unserved Variant Exposures
+         * * `events_billing_limit` - Events Billing Limit
+         * * `feature_flags_billing_limit` - Feature Flags Billing Limit
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10622,6 +10700,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `flag_shared` - Flag Shared
          * * `stale_experiment` - Stale Experiment
          */
@@ -10676,6 +10755,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -10683,6 +10763,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10690,6 +10771,8 @@ export namespace Schemas {
          * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
+         * * `events_billing_limit` - Events Billing Limit
+         * * `feature_flags_billing_limit` - Feature Flags Billing Limit
          */
         check: ExperimentHealthCheckKeyEnum;
     };
@@ -10717,7 +10800,8 @@ export namespace Schemas {
      * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
      * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `primary_metric_count` - Primary metrics of the experiment
+     * * `secondary_metric_count` - Secondary metrics of the experiment
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
      * * `metric_count` - Metrics that the calculation computes
      * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10728,8 +10812,13 @@ export namespace Schemas {
      * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
      * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+     * * `flag_called` - Whether PostHog has recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+     * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+     * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -10740,12 +10829,15 @@ export namespace Schemas {
      * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
      * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
      * * `significant` - Whether a variant's difference from the control is significant
+     * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
      * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
      * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
      * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
      * * `forced_count` - Users or groups that a release condition with a variant override served
      * * `forced_percentage` - forced_count as a share of variant_matched_count
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+     * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+     * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10754,6 +10846,8 @@ export namespace Schemas {
      * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
      * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+     * * `cohort_count` - Cohorts that the exposure criteria filter on
+     * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
      * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -10779,6 +10873,7 @@ export namespace Schemas {
         | "unserved_exposed_percentage"
         | "only_count_matured_users"
         | "primary_metric_count"
+        | "secondary_metric_count"
         | "waiting_metric_count"
         | "metric_count"
         | "completed_metric_count"
@@ -10789,8 +10884,13 @@ export namespace Schemas {
         | "flag_rolled_out"
         | "shipped_variant"
         | "flag_last_called_at"
+        | "flag_called"
         | "since_start_hours"
         | "daily_calculation_ends_at"
+        | "events_billing_limit_reached"
+        | "events_billing_limit_ends_at"
+        | "feature_flags_billing_limit_reached"
+        | "feature_flags_billing_limit_ends_at"
         | "metric_name"
         | "metric_role"
         | "ratio_side"
@@ -10801,12 +10901,15 @@ export namespace Schemas {
         | "difference_percentage"
         | "detectable_difference_percentage"
         | "significant"
+        | "significant_since_at"
         | "forced_condition_count"
         | "matched_count"
         | "variant_matched_count"
         | "forced_count"
         | "forced_percentage"
         | "traffic_since_at"
+        | "history_since_at"
+        | "change_count"
         | "changed_at"
         | "before_exposure"
         | "changed_setting"
@@ -10815,6 +10918,8 @@ export namespace Schemas {
         | "before_filters"
         | "after_filters"
         | "flag_service_call_percentage"
+        | "cohort_count"
+        | "dynamic_cohort_count"
         | "event"
         | "event_received"
         | "invalid_metric_count"
@@ -10850,7 +10955,8 @@ export namespace Schemas {
          * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
          * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `primary_metric_count` - Primary metrics of the experiment
+         * * `secondary_metric_count` - Secondary metrics of the experiment
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
          * * `metric_count` - Metrics that the calculation computes
          * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10861,8 +10967,13 @@ export namespace Schemas {
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
          * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `flag_called` - Whether PostHog has recorded a call of the feature flag
          * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
          * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+         * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+         * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+         * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
          * * `metric_name` - The name of a metric
          * * `metric_role` - Whether a metric is primary or secondary
          * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -10873,12 +10984,15 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
          * * `forced_count` - Users or groups that a release condition with a variant override served
          * * `forced_percentage` - forced_count as a share of variant_matched_count
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+         * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10887,6 +11001,8 @@ export namespace Schemas {
          * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
          * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `cohort_count` - Cohorts that the exposure criteria filter on
+         * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
          * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -10920,7 +11036,8 @@ export namespace Schemas {
          * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
          * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `primary_metric_count` - Primary metrics of the experiment
+         * * `secondary_metric_count` - Secondary metrics of the experiment
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
          * * `metric_count` - Metrics that the calculation computes
          * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
@@ -10931,8 +11048,13 @@ export namespace Schemas {
          * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
          * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
          * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
+         * * `flag_called` - Whether PostHog has recorded a call of the feature flag
          * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
          * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+         * * `events_billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+         * * `events_billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
+         * * `feature_flags_billing_limit_reached` - Whether the organization reached its billing limit for feature flags, so that PostHog returns no flags to the project's flag requests
+         * * `feature_flags_billing_limit_ends_at` - When PostHog returns flags to the project's flag requests again, unless the limit lifts earlier
          * * `metric_name` - The name of a metric
          * * `metric_role` - Whether a metric is primary or secondary
          * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -10943,12 +11065,15 @@ export namespace Schemas {
          * * `difference_percentage` - A variant's difference from the control on the primary metric, relative to the control, with its sign
          * * `detectable_difference_percentage` - The smallest difference from the control that the variant's sample can reliably detect, relative to the control
          * * `significant` - Whether a variant's difference from the control is significant
+         * * `significant_since_at` - Since when every result of the primary metric, up to the current one, shows a variant as significant. With more than one significant variant, the earliest date
          * * `forced_condition_count` - Release conditions of the feature flag that serve a fixed variant through a variant override
          * * `matched_count` - Users or groups that a release condition served since traffic_since_at, without those forced to a variant that has 0% in the split
          * * `variant_matched_count` - Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at random
          * * `forced_count` - Users or groups that a release condition with a variant override served
          * * `forced_percentage` - forced_count as a share of variant_matched_count
          * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
+         * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
+         * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
          * * `changed_at` - When a change of the feature flag was saved
          * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
          * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -10957,6 +11082,8 @@ export namespace Schemas {
          * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
          * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
          * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
+         * * `cohort_count` - Cohorts that the exposure criteria filter on
+         * * `dynamic_cohort_count` - Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation
          * * `event` - The name of an event that the check looked up
          * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
          * * `invalid_metric_count` - Metrics whose query doesn't compile, so every calculation fails
@@ -11006,6 +11133,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_uses_feature_flag_called` - Metric Uses Feature Flag Called
          * * `metric_cannot_compile` - Metric Cannot Compile
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `metric_all_zero` - Metric All Zero
@@ -11013,6 +11141,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `result_ready` - Result Ready
          * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -11020,6 +11149,8 @@ export namespace Schemas {
          * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
+         * * `events_billing_limit` - Events Billing Limit
+         * * `feature_flags_billing_limit` - Feature Flags Billing Limit
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
@@ -11556,7 +11687,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
@@ -11583,7 +11714,9 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "test_account_filter_removes_exposures"
-        | "unserved_variant_exposures";
+        | "unserved_variant_exposures"
+        | "events_billing_limit"
+        | "feature_flags_billing_limit";
     export type ExperimentExposureHealthValueKey =
         | "exposed_count"
         | "compared_count"
@@ -11669,7 +11802,9 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "test_account_filter_removes_exposures"
-        | "unserved_variant_exposures";
+        | "unserved_variant_exposures"
+        | "events_billing_limit"
+        | "feature_flags_billing_limit";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -11733,6 +11868,9 @@ export namespace Schemas {
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
         kind?: string | undefined;
+        rows_left_out?:
+            | (ExperimentWarehouseNativeRowsLeftOut | null)
+            | undefined;
         sample_ratio_mismatch?: (SampleRatioMismatch | null) | undefined;
         timeseries: Array<ExperimentExposureTimeSeries>;
         total_exposures: Record<string, number>;
@@ -11956,7 +12094,7 @@ export namespace Schemas {
          */
         can_freeze_exposure: boolean;
         /**
-         * The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
+         * The event exposures are counted on when the experiment doesn't configure a custom one: `$experiment_exposure` if the experiment started at or after the deployment's cutoff (2026-09-01 UTC on PostHog Cloud, none by default on self-hosted instances), otherwise `$feature_flag_called`. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.
          */
         resolved_exposure_event: string;
         /**
@@ -12032,6 +12170,10 @@ export namespace Schemas {
     export type IncrementalSyncBlockedReasonEnum =
         | "missing_primary_key"
         | "duplicate_primary_key";
+    export type WebhookIssueEnum =
+        | "not_registered"
+        | "missing_inputs"
+        | "not_routed";
     export type ExternalDataSourceApiVersionDeprecation = {
         /**
          * The deprecated vendor API version this source is pinned to.
@@ -12147,6 +12289,10 @@ export namespace Schemas {
          * Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`.
          */
         webhook_not_registered: boolean;
+        /**
+         * Why this webhook-sync table gets no webhook rows, or null when nothing stops them. `not_registered`: the source has no enabled webhook. `missing_inputs`: the webhook lacks a required setting such as its signing secret, so it drops every delivery. `not_routed`: the webhook has no route for this table, so it drops the table's events. Fix the last two from the source's webhook setup (`external-data-sources-webhook-info-retrieve` lists the missing inputs; creating the webhook again adds the route).
+         */
+        webhook_issue: WebhookIssueEnum | NullEnum;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -12922,7 +13068,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_email also accepts run_link_tag_enabled?: <bool> (default true) - when false, tracked link clicks in that email are not connected to the sessions they start. The project setting workflows_config.email_workflow_run_link_tag_enabled turns it off for every email. function_email also accepts click_tracking_enabled?: <bool> (defaults to false when sensitive is true, true otherwise) to override link click tracking without turning off opens. function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. email_sandbox: {message_category_id?, message_category_type?: marketing|transactional, inputs: {email: {templating: hog|liquid, value: {to: {email, name?}, subject, preheader?, text?, html?, design?}}}}. Sends from the PostHog test sender to members of the organization only, so it takes no sender, reply-to, template, headers or attachments. Needs text or html. Only workflows, not broadcasts or templates, can hold it. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -13059,6 +13205,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         source_record?: (string | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        entry_attempt_id?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -13844,6 +13994,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from an action.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from an action.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -13959,6 +14113,10 @@ export namespace Schemas {
         /**
          * A conversion goal counted from events.
          */
+        use_in_recommendations?: (boolean | null) | undefined;
+        /**
+         * A conversion goal counted from events.
+         */
         version?: (number | null) | undefined;
     };
     /**
@@ -14054,6 +14212,10 @@ export namespace Schemas {
         schema_map: Record<string, string | unknown>;
         table_name: string;
         timestamp_field: string;
+        /**
+         * A conversion goal counted from a data warehouse table.
+         */
+        use_in_recommendations?: (boolean | null) | undefined;
         /**
          * A conversion goal counted from a data warehouse table.
          */
@@ -17560,6 +17722,8 @@ export namespace Schemas {
         require_tags: boolean;
         blocked_hosts: Array<string>;
         blocked_ips: Array<string>;
+        allowed_hosts: Array<string>;
+        allowed_ips: Array<string>;
     }>;
     /**
      * A project and its settings, including the settings that live on its passthrough Team.

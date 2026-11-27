@@ -1,5 +1,11 @@
 import type { AEOPromptDailyEngineStatsApi } from '../generated/api.schemas'
-import { answerOutcomeChart, engineVisibilityChart } from './visibilityChart'
+import {
+    answerOutcomeChart,
+    daysWithData,
+    engineVisibilityChart,
+    seriesAverages,
+    trendDisplay,
+} from './visibilityChart'
 
 const DAILY: AEOPromptDailyEngineStatsApi[] = [
     { date: '2026-10-01', engine: 'openai-web-search', checks: 4, cited: 1, mentioned: 2, failed: 0, avg_position: 3 },
@@ -47,5 +53,29 @@ describe('visibility charts', () => {
         const chart = answerOutcomeChart(DAILY, ['2026-10-01', '2026-10-02', '2026-10-03'], metric)
 
         expect([chart.yes, chart.no]).toEqual([yes, no])
+    })
+
+    it('averages each engine over the days it answered and counts only days with data', () => {
+        const chart = {
+            labels: ['2026-10-01', '2026-10-02', '2026-10-03'],
+            series: [
+                { engine: 'a', label: 'A', color: undefined, data: [0.5, NaN, 0.25] },
+                { engine: 'b', label: 'B', color: undefined, data: [NaN, NaN, 1] },
+                { engine: 'c', label: 'C', color: undefined, data: [NaN, NaN, NaN] },
+            ],
+        }
+
+        expect(daysWithData(chart)).toBe(2)
+        expect(seriesAverages(chart).map(({ average }) => average)).toEqual([0.375, 1, null])
+    })
+
+    it.each([
+        [0, 'averages'],
+        [1, 'averages'],
+        [2, 'waiting'],
+        [6, 'waiting'],
+        [7, 'trend'],
+    ])('shows %s days of data as %s', (days, display) => {
+        expect(trendDisplay(days)).toBe(display)
     })
 })

@@ -43,7 +43,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import BooleanField, Case, F, Q, QuerySet, Value, When
+from django.db.models import BooleanField, Case, F, Func, JSONField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KT, KeyTransform
 from django.db.models.functions import Least
 from django.utils import timezone as django_timezone
@@ -167,6 +167,23 @@ class ResultSummary:
     baseline_sum: str | None
     variant_results: tuple[dict[str, Any], ...]
     configuration_status: str = ExperimentResultConfigurationStatus.UNKNOWN
+
+
+@frozen
+class SignificanceHistory:
+    """Since when the stored results of one metric show each variant that the current result shows as significant."""
+
+    # When the data of the current result ends.
+    current_until: datetime
+    # By variant key: since when every result, up to the current one, shows the variant as significant. The time is
+    # the end of the data of the first result in that run. Only the variants that the current result shows as
+    # significant.
+    significant_since: Mapping[str, datetime]
+
+
+# The keys of the variants whose stored `significant` is true. A null means that validation stopped the analysis, so it
+# doesn't count as significant.
+_SIGNIFICANT_VARIANT_KEYS = "$.variant_results[*] ? (@.significant == true).key"
 
 
 @frozen
@@ -357,6 +374,46 @@ class MetricResultStore:
         # F() selects the alias, which values_list can't select by name.
         rows = self._current_rows({self.experiment_id: calculation_config})
         return rows.values_list(F("data_until"), flat=True).first()
+
+    def significance_history(self, calculation_config: MetricCalculationConfig) -> SignificanceHistory | None:
+        """Since when the results of the metric show each variant that the current result shows as significant, or None
+        when it has no current result.
+
+        It reads the rows that `current_outcomes` picks the current result from, in the same order, so the first row is
+        the current result. The daily points and the recalculation runs both count, because the page has shown each of
+        them as the current result. A row whose variant isn't significant ends the run of that variant, and so does a
+        row without a result.
+        """
+        rows = (
+            self._outcome_rows({self.experiment_id: calculation_config})
+            .annotate(
+                until=F("data_until"),
+                significant_variants=Func(
+                    F("result"),
+                    Func(Value(_SIGNIFICANT_VARIANT_KEYS), template="%(expressions)s::jsonpath"),
+                    function="jsonb_path_query_array",
+                    output_field=JSONField(),
+                ),
+            )
+            .values_list("until", "significant_variants")
+        )
+        current_until: datetime | None = None
+        running: set[str] = set()
+        since: dict[str, datetime] = {}
+        # One query for the whole history, because Postgres reads the significant variants of every matching row before
+        # it sorts, so each page of a paged read would read them all again.
+        for until, significant_variants in rows:
+            significant = {key for key in significant_variants or () if isinstance(key, str)}
+            if current_until is None:
+                current_until, running = until, significant
+            running &= significant
+            if not running:
+                break
+            for key in running:
+                since[key] = until
+        if current_until is None:
+            return None
+        return SignificanceHistory(current_until=current_until, significant_since=since)
 
     def previous_completed(
         self, metric_uuid: str, fingerprints: Iterable[str], *, display_key: str | None, before: datetime
@@ -630,6 +687,11 @@ class MetricResultStore:
     @staticmethod
     def _current_rows(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> QuerySet[ExperimentMetricResult]:
         """For each experiment, the row that `current_outcomes` describes."""
+        return MetricResultStore._outcome_rows(config_by_experiment).distinct("experiment_id")
+
+    @staticmethod
+    def _outcome_rows(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> QuerySet[ExperimentMetricResult]:
+        """For each experiment, the rows that `current_outcomes` picks from, the row it picks first."""
         filed_under_config = Q()
         under_current_settings = Q()
         for experiment_id, calculation_config in config_by_experiment.items():
@@ -654,7 +716,6 @@ class MetricResultStore:
                 F("completed_at").desc(nulls_last=True),
                 "-id",
             )
-            .distinct("experiment_id")
         )
 
     @staticmethod

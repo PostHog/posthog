@@ -7,9 +7,18 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
+import { useHealthFindingReporting } from '../health/useHealthFindingReporting'
+
+/**
+ * The page's own rule for the `metric_uses_feature_flag_called` health check, for readers who don't see the
+ * health findings.
+ */
 export function FeatureFlagCalledMetricsBanner(): JSX.Element | null {
     const { experiment, featureFlagCalledMetricNames } = useValues(experimentLogic)
     const metricCount = featureFlagCalledMetricNames.length
+    const { reportOpened } = useHealthFindingReporting(
+        metricCount > 0 ? { code: 'metric_uses_feature_flag_called' } : null
+    )
 
     useEffect(() => {
         if (metricCount > 0) {
@@ -43,6 +52,7 @@ export function FeatureFlagCalledMetricsBanner(): JSX.Element | null {
                     to="https://posthog.com/blog/changing-event-storage"
                     target="_blank"
                     data-attr="experiment-feature-flag-called-metrics-blog-link"
+                    onClick={() => reportOpened('docs')}
                 >
                     Read more about the change
                 </Link>

@@ -23,6 +23,10 @@ export const ENGINE_LABELS: Record<string, string> = {
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 
+/** Topics that differ only in letter case are one topic, as the API counts them. */
+export const sameTopic = (a: string | null | undefined, b: string | null | undefined): boolean =>
+    a !== null && a !== undefined && b !== null && b !== undefined && a.toLowerCase() === b.toLowerCase()
+
 export const unavailableEngineReason = (setting: { available: boolean }): string | undefined =>
     setting.available ? undefined : "This engine isn't set up for this project yet."
 
@@ -173,19 +177,3 @@ export const windowRange = ({ window_from, window_to }: ReportWindow): string =>
     window_from === window_to
         ? `on ${windowDay(window_to)}`
         : `from ${windowDay(window_from)} to ${windowDay(window_to)}`
-
-/** The heading over a tab's numbers, such as "Oct 18 to Nov 17, Claude, topic Pricing". */
-export const filtersHeading = ({
-    window_from,
-    window_to,
-    engine,
-    topic,
-}: ReportWindow & {
-    engine?: string | null
-    topic?: string | null
-}): string =>
-    [
-        window_from === window_to ? windowDay(window_to) : `${windowDay(window_from)} to ${windowDay(window_to)}`,
-        engine ? engineLabel(engine) : 'all engines',
-        ...(topic === null || topic === undefined ? [] : [topic ? `topic ${topic}` : 'prompts with no topic']),
-    ].join(', ')

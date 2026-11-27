@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -106,8 +107,19 @@ from products.error_tracking.backend.facade.testing import (
     create_suppression_rule,
     create_symbol_set,
 )
-from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
-from products.experiments.backend.facade.testing import create_experiment
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventDefinitionMetadata,
+    PropertyDefinition,
+    PropertyDefinitionMetadata,
+)
+from products.experiments.backend.facade.testing import (
+    clear_experiment_status,
+    create_experiment,
+    create_saved_metric,
+    link_saved_metric,
+    update_experiment,
+)
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
@@ -182,6 +194,8 @@ TEAM_ID_FILTER_PATTERNS: dict[str, str | tuple[str, ...]] = {
     # Runs have no team_id column; isolation is enforced via a predicate scoping through the
     # run's parent (scheduled or on-demand batch export)
     "batch_export_runs": "system__batch_exports.team_id",
+    # Saved metric links have no team_id column; isolation flows through system.experiments
+    "experiment_to_saved_metrics": "system__experiments.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
     "_event_definition_tagged_items": "system___event_definition_tagged_items.team_id",
@@ -234,9 +248,11 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_custom_property_values_history",
             # Hidden junction backing system.support_tickets.tags; covered by TestSystemTicketTagsLazyJoin.
             "_ticket_tagged_items",
-            # Hidden junctions backing the definition tables' tags; covered by TestSystemDefinitionTables.
+            # Hidden tables backing the definition tables' tags and metadata; covered by TestSystemDefinitionTables.
             "_event_definition_tagged_items",
             "_property_definition_tagged_items",
+            "_event_definition_metadata",
+            "_property_definition_metadata",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
             # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
@@ -699,6 +715,16 @@ def _create_hog_function(team: Team, label: str) -> HogFunction:
 def _create_experiment(team: Team, label: str) -> int:
     flag = FeatureFlag.objects.create(team=team, key=f"flag_for_exp_{label}")
     return create_experiment(team_id=team.id, name=f"experiment_{label}", feature_flag_id=flag.id)
+
+
+def _create_experiment_saved_metric(team: Team, label: str) -> int:
+    return create_saved_metric(team_id=team.id, name=f"saved_metric_{label}", query={"kind": "ExperimentMetric"})
+
+
+def _create_experiment_to_saved_metric(team: Team, label: str) -> int:
+    return link_saved_metric(
+        experiment_id=_create_experiment(team, label), saved_metric_id=_create_experiment_saved_metric(team, label)
+    )
 
 
 def _create_export(team: Team, label: str) -> ExportedAsset:
@@ -1260,6 +1286,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("event_definitions", _create_event_definition),
     ("evaluations", _create_evaluation),
     ("experiments", _create_experiment),
+    ("experiment_saved_metrics", _create_experiment_saved_metric),
+    ("experiment_to_saved_metrics", _create_experiment_to_saved_metric),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
     ("feature_request_account_links", _create_feature_request_account_link),
@@ -1956,11 +1984,11 @@ class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_workflow_files_are_not_listed(self):
-        from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+        from posthog.models.file_system.constants import UNFILED_FILE_SYSTEM_TYPES
         from posthog.models.file_system.file_system import FileSystem
 
         FileSystem.objects.create(team=self.team, path="Reports/Weekly", type="insight", ref="weekly")
-        for file_type in WORKFLOW_FILE_SYSTEM_TYPES:
+        for file_type in UNFILED_FILE_SYSTEM_TYPES:
             FileSystem.objects.create(team=self.team, path=f"Campaigns/{file_type}", type=file_type, ref=file_type)
 
         response = execute_hogql_query("SELECT type FROM system.file_system", team=self.team, user=self.user)
@@ -2492,6 +2520,166 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
         assert response.results == []
 
 
+class TestSystemExperimentAndFlagColumns(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("enabled", True, 1), ("disabled", False, 0)])
+    def test_feature_flag_active(self, _name, active, expected):
+        FeatureFlag.objects.create(team=self.team, key="flag", active=active)
+
+        response = execute_hogql_query("SELECT key, active FROM system.feature_flags", team=self.team, user=self.user)
+
+        assert response.results == [("flag", expected)]
+
+    def test_experiment_metric_config_and_status_columns(self):
+        metric = {"kind": "ExperimentMetric", "metric_type": "funnel", "conversion_window": 14}
+        secondary_metric = {"kind": "ExperimentMetric", "metric_type": "mean"}
+        exposure_criteria = {"filterTestAccounts": True, "multiple_variant_handling": "exclude"}
+        stats_config = {"method": "frequentist", "frequentist": {"alpha": 0.05}}
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
+            name="checkout",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            end_date=datetime(2026, 2, 1, tzinfo=UTC),
+            metrics=[metric],
+            metrics_secondary=[secondary_metric],
+            exposure_criteria=exposure_criteria,
+        )
+        update_experiment(
+            team_id=self.team.id,
+            experiment_id=experiment_id,
+            stats_config=stats_config,
+            conclusion="won",
+            conclusion_comment="clear winner",
+        )
+
+        response = execute_hogql_query(
+            "SELECT status, conclusion, conclusion_comment, metrics, metrics_secondary, exposure_criteria, "
+            "stats_config, deleted FROM system.experiments",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:3] == ("stopped", "won", "clear winner")
+        assert [json.loads(value) for value in row[3:7]] == [
+            [metric],
+            [secondary_metric],
+            exposure_criteria,
+            stats_config,
+        ]
+        assert row[7] == 0
+
+    @parameterized.expand([("not_deleted", False, 0), ("deleted", True, 1), ("legacy_null", None, 0)])
+    def test_experiment_deleted(self, _name, deleted, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=flag.id, deleted=deleted)
+
+        response = execute_hogql_query("SELECT deleted FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    @parameterized.expand(
+        [
+            ("draft", None, None, "draft"),
+            ("running", datetime(2026, 1, 1, tzinfo=UTC), None, "running"),
+            ("stopped", datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC), "stopped"),
+        ]
+    )
+    def test_experiment_status_derived_from_dates_when_null(self, _name, start_date, end_date, expected):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, start_date=start_date, end_date=end_date
+        )
+        clear_experiment_status(team_id=self.team.id, experiment_id=experiment_id)
+
+        response = execute_hogql_query("SELECT status FROM system.experiments", team=self.team, user=self.user)
+
+        assert response.results == [(expected,)]
+
+    @parameterized.expand([("other_creator", False, []), ("reader_is_creator", True, ["restricted"])])
+    def test_saved_metric_object_access_rule_hides_row(self, _name, reader_is_creator, expected_restricted):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        create_saved_metric(team_id=self.team.id, name="open", query={"kind": "ExperimentMetric"})
+        restricted_id = create_saved_metric(
+            team_id=self.team.id, name="restricted", query={"kind": "ExperimentMetric"}, created_by_id=creator.id
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment_saved_metric",
+            resource_id=str(restricted_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT name FROM system.experiment_saved_metrics ORDER BY name", team=self.team, user=self.user
+        )
+
+        assert [row[0] for row in response.results] == ["open", *expected_restricted]
+
+    @parameterized.expand([("other_creator", False, 0), ("reader_is_creator", True, 1)])
+    def test_saved_metric_links_follow_experiment_access(self, _name, reader_is_creator, expected_links):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        creator = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, created_by_id=creator.id)
+        saved_metric_id = create_saved_metric(team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric"})
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="experiment",
+            resource_id=str(experiment_id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        response = execute_hogql_query(
+            "SELECT count() FROM system.experiment_to_saved_metrics", team=self.team, user=self.user
+        )
+
+        assert response.results == [(expected_links,)]
+
+    def test_saved_metrics_join_to_their_experiments(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="exp_flag")
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="checkout")
+        unused_flag = FeatureFlag.objects.create(team=self.team, key="other_flag")
+        create_experiment(team_id=self.team.id, feature_flag_id=unused_flag.id, name="unused")
+        saved_metric_id = create_saved_metric(
+            team_id=self.team.id, name="revenue", query={"kind": "ExperimentMetric", "metric_type": "mean"}
+        )
+        link_saved_metric(experiment_id=experiment_id, saved_metric_id=saved_metric_id, metadata={"type": "secondary"})
+
+        response = execute_hogql_query(
+            "SELECT e.name, m.name, m.query, l.metadata "
+            "FROM system.experiment_to_saved_metrics AS l "
+            "JOIN system.experiments AS e ON e.id = l.experiment_id "
+            "JOIN system.experiment_saved_metrics AS m ON m.id = l.saved_metric_id",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(response.results) == 1
+        experiment_name, metric_name, query, metadata = response.results[0]
+        assert (experiment_name, metric_name) == ("checkout", "revenue")
+        assert json.loads(query) == {"kind": "ExperimentMetric", "metric_type": "mean"}
+        assert json.loads(metadata) == {"type": "secondary"}
+
+
 class TestSystemDefinitionTables(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -2568,6 +2756,73 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
             str(untagged.pk): [],
         }
 
+    def _add_metadata(self, definition: EventDefinition | PropertyDefinition, team: Team, **fields) -> None:
+        if isinstance(definition, EventDefinition):
+            EventDefinitionMetadata.objects.for_team(team.pk, canonical=True).create(
+                event_definition=definition, team=team, **fields
+            )
+        else:
+            PropertyDefinitionMetadata.objects.for_team(team.pk, canonical=True).create(
+                property_definition=definition, team=team, **fields
+            )
+
+    @parameterized.expand(
+        [("event_definitions", _create_event_definition), ("property_definitions", _create_property_definition)]
+    )
+    def test_metadata_columns_read_own_team_metadata(self, table_name, factory):
+        verified_at = datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+        edited = factory(self.team, "edited")
+        self._add_metadata(
+            edited,
+            self.team,
+            description="Billing plan",
+            verified=True,
+            verified_at=verified_at,
+            verified_by=self.user,
+            hidden=True,
+            updated_by=self.user,
+        )
+        unedited = factory(self.team, "unedited")
+        theirs = factory(self.other_team, "theirs")
+        self._add_metadata(theirs, self.other_team, description="Their plan", verified=True)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            joined = execute_hogql_query(
+                f"SELECT id, description, verified, verified_at, verified_by_id, hidden, updated_by_id FROM system.{table_name}",
+                team=self.team,
+                user=self.user,
+            )
+            direct = execute_hogql_query(
+                f"SELECT definition_id FROM system._{table_name[:-1]}_metadata", team=self.team, user=self.user
+            )
+
+        assert {str(row[0]): row[1:] for row in joined.results} == {
+            str(edited.pk): ("Billing plan", 1, verified_at, self.user.pk, 1, self.user.pk),
+            str(unedited.pk): (None, 0, None, None, 0, None),
+        }
+        assert [str(row[0]) for row in direct.results] == [str(edited.pk)]
+
+    def test_event_metadata_includes_the_owner(self):
+        definition = _create_event_definition(self.team, "owned")
+        self._add_metadata(definition, self.team, owner=self.user)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = execute_hogql_query(
+                "SELECT owner_id FROM system.event_definitions", team=self.team, user=self.user
+            )
+
+        assert response.results == [(self.user.pk,)]
+
+    def test_metadata_columns_are_off_without_the_flag(self):
+        _create_event_definition(self.team, "any")
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            assert execute_hogql_query(
+                "SELECT name FROM system.event_definitions", team=self.team, user=self.user
+            ).results == [("event_any",)]
+            with self.assertRaisesRegex(QueryError, "metadata columns are not available"):
+                execute_hogql_query("SELECT description FROM system.event_definitions", team=self.team, user=self.user)
+
     def test_property_definitions_hide_restricted_properties(self):
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -2586,6 +2841,7 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
                 type=prop_type,
                 group_type_index=group_type_index,
             )
+            self._add_metadata(definition, self.team, description="Restricted" if restricted else "Readable")
             if restricted:
                 PropertyAccessControl.objects.create(
                     team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
@@ -2594,8 +2850,14 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT name, type, group_type_index FROM system.property_definitions", team=self.team, user=self.user
         )
+        metadata = execute_hogql_query(
+            "SELECT description FROM system._property_definition_metadata", team=self.team, user=self.user
+        )
 
         assert sorted(response.results, key=str) == [("plan", "person", None), ("tier", "group", 0)]
+        assert metadata.results == [("Readable",), ("Readable",)]
+        # The metadata query filters by the ids of the hidden definitions, not by a read of every definition
+        assert "posthog_propertydefinition" not in (metadata.clickhouse or "")
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

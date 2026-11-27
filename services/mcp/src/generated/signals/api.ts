@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 95 enabled ops
+ * PostHog API - MCP 97 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -518,6 +518,38 @@ export const SignalsConfigCreateBody = () => zod.object({
         .optional()
         .describe(
             "Whether anomaly scoring runs while the Product analytics source (analytics \/ anomaly_investigation) is on. Scoring checks this project's active trends insights for anomalies and writes the results as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps alert signals; events written before stay. Turning the source off stops scoring whatever this value is, and turning the source on again keeps this value. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
+})
+
+/**
+ * @summary Monitor a pull request
+ */
+export const SignalsMonitorPrCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsMonitorPrCreateBodyPrUrlMax = 500
+
+export const signalsMonitorPrCreateBodyNoteDefault = ``
+export const signalsMonitorPrCreateBodyNoteMax = 4000
+
+export const SignalsMonitorPrCreateBody = () => zod.object({
+    pr_url: zod
+        .url()
+        .max(signalsMonitorPrCreateBodyPrUrlMax)
+        .describe(
+            "GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported."
+        ),
+    note: zod
+        .string()
+        .max(signalsMonitorPrCreateBodyNoteMax)
+        .default(signalsMonitorPrCreateBodyNoteDefault)
+        .describe(
+            'Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.'
         ),
 })
 
@@ -1624,7 +1656,7 @@ export const SignalsReportsStateCreateBody = () => zod.object({
 })
 
 /**
- * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). Pass `type` to keep only some artefact types. `suggested_reviewers` content is enriched with PostHog user info at read time. `ranking_score` content keeps only the head fields of each model's metadata; get the artefact by id for the full metadata.
  * @summary List a report's artefacts
  */
 export const SignalsReportArtefactsListParams = () => zod.object({
@@ -1643,6 +1675,12 @@ export const SignalsReportArtefactsListParams = () => zod.object({
 export const SignalsReportArtefactsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.'
+        ),
 })
 
 /**
@@ -2953,6 +2991,19 @@ export const SignalsScoutConfigCreateBody = () => zod
     )
 
 /**
+ * Return one scout config by its `id`, with every field the list returns: schedule, posture, output destinations, write grants, pre-check queries, structured output schema, and owners.
+ * @summary Get a scout config
+ */
+export const SignalsScoutConfigRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
@@ -3906,7 +3957,7 @@ export const SignalsScoutRubricsGenerateBody = () => zod.object({
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = () => zod.object({
@@ -3935,6 +3986,13 @@ export const SignalsScoutRunsListQueryParams = () => zod.object({
         .nullish()
         .describe(
             'Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.'
+        ),
+    exclude_skill_name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. Use it on a fleet-wide `text` search, so your own runs don't fill the page."
         ),
     limit: zod
         .number()
@@ -4522,7 +4580,7 @@ export const SignalsScoutRunsEmissionReportsParams = () => zod.object({
 })
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate. A report for a GitHub issue that an open report already names is refused with `source_issue_already_reported` and that report's id, unless a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link names it.
  * @summary Author a full report for a run
  */
 export const SignalsScoutEmitReportParams = () => zod.object({
@@ -5456,7 +5514,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `content_offset` to start each `content` at a character, and page a long entry with the `content_next_offset` each entry returns. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -5469,6 +5527,9 @@ export const SignalsScoutScratchpadSearchParams = () => zod.object({
 
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
+export const signalsScoutScratchpadSearchQueryContentOffsetMin = 0
+export const signalsScoutScratchpadSearchQueryContentOffsetMax = 50000
+
 export const signalsScoutScratchpadSearchQueryIncludeExpiredDefault = false
 export const signalsScoutScratchpadSearchQueryIncludeRevisionsDefault = false
 export const signalsScoutScratchpadSearchQueryLimitMax = 1000
@@ -5480,6 +5541,14 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .optional()
         .describe(
             "Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`."
+        ),
+    content_offset: zod
+        .number()
+        .min(signalsScoutScratchpadSearchQueryContentOffsetMin)
+        .max(signalsScoutScratchpadSearchQueryContentOffsetMax)
+        .optional()
+        .describe(
+            "Start each entry's `content` at this character. Use it with `key` to read a long entry in parts: pass the `content_next_offset` of the previous read. Combines with `content_max_chars`. Earlier versions from `include_revisions` are not paged."
         ),
     date_from: zod.iso
         .datetime({ offset: true })
@@ -6338,7 +6407,7 @@ export const SignalsSourceConfigsFilterCatalogsRetrieveParams = () => zod.object
 })
 
 /**
- * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
+ * Check a filter expression before saving it, and see what it does to the source's records created in the last 7 days: how many pass and how many it excludes, with the newest of each. Reads the records emission would read, with the source's saved team allowlist or the unsaved one in `scope_ids`, and runs with your own warehouse access. Leaves out records that never become signals, such as Linear issues without a description. Records that pass can still be skipped later by guidance or deduplication. Saves nothing and calls no AI.
  * @summary Preview a source filter
  */
 export const SignalsSourceConfigsFilterPreviewCreateParams = () => zod.object({
@@ -6355,20 +6424,31 @@ export const signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax = 100
 
 export const signalsSourceConfigsFilterPreviewCreateBodyExpressionMax = 16384
 
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax = 255
+
+export const signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax = 100
+
 export const SignalsSourceConfigsFilterPreviewCreateBody = () => zod.object({
     source_product: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceProductMax)
-        .describe('Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     source_type: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodySourceTypeMax)
-        .describe('Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.'),
+        .describe('Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.'),
     expression: zod
         .string()
         .max(signalsSourceConfigsFilterPreviewCreateBodyExpressionMax)
         .describe(
             "Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through."
+        ),
+    scope_ids: zod
+        .array(zod.string().max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsItemMax))
+        .max(signalsSourceConfigsFilterPreviewCreateBodyScopeIdsMax)
+        .nullish()
+        .describe(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it."
         ),
 })
 

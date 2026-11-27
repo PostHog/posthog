@@ -31,12 +31,9 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition
+from products.experiments.backend.facade.contracts import MAX_SESSION_CONTEXT_BATCH
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-from products.experiments.backend.session_context import (
-    MAX_SESSION_CONTEXT_BATCH,
-    _bounded_metadata_ids,
-    _query_stamped_flag_properties,
-)
+from products.experiments.backend.session_context import _bounded_metadata_ids, _query_stamped_flag_properties
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest

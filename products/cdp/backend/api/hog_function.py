@@ -26,6 +26,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -43,6 +44,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.permissions import get_authenticator_scopes
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes.catalog import APIScopeObject
 
@@ -52,6 +54,7 @@ from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSe
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
     INTERNAL_EVENT_READ_SCOPES,
+    alert_destination_edit_gate,
     generic_api_editable_alert_scopes,
     internal_event_read_scope,
     is_managed_alert_internal_event,
@@ -1165,6 +1168,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    permission_classes = [CDPPropertyAccessPermission]
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -1201,22 +1205,55 @@ class HogFunctionViewSet(
         if self.action not in self.scope_object_write_actions or not hog_function_id:
             return []
         if not hasattr(self, "_cached_editable_alert_scopes"):
-            try:
-                filters = (
-                    HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
-                    .values_list("filters", flat=True)
-                    .first()
-                )
-            except (ValueError, DjangoValidationError):
-                filters = None
             scopes = {
                 generic_api_editable_alert_scopes(event_filter.get("id"))
-                for event_filter in (filters or {}).get("events") or []
+                for event_filter in self._stored_filters(str(hog_function_id)).get("events") or []
                 if isinstance(event_filter, dict)
             }
             scopes.discard(())
             self._cached_editable_alert_scopes = sorted(scopes)
         return self._cached_editable_alert_scopes
+
+    def _stored_filters(self, hog_function_id: str) -> dict:
+        if not hasattr(self, "_cached_stored_filters"):
+            try:
+                filters = (
+                    HogFunction.objects.filter(team_id=self.team_id, id=hog_function_id)
+                    .values_list("filters", flat=True)
+                    .first()
+                )
+            except (ValueError, DjangoValidationError):
+                filters = None
+            self._cached_stored_filters = filters or {}
+        return self._cached_stored_filters
+
+    def _alert_destination_edit_refusal(self, request: Request) -> Optional[str]:
+        """Why the product that owns this request's alert destination refuses the edit, by its own per-alert
+        checks, or None. The alert is the one the stored filters pin, which an edit cannot change."""
+        hog_function_id = self.kwargs.get("pk")
+        if self.action not in self.scope_object_write_actions or not hog_function_id:
+            return None
+        filters = self._stored_filters(str(hog_function_id))
+        gates = {
+            gate
+            for event_filter in filters.get("events") or []
+            if isinstance(event_filter, dict) and (gate := alert_destination_edit_gate(event_filter.get("id")))
+        }
+        if not gates:
+            return None
+        alert_ids: list[str] = []
+        for property_filter in filters.get("properties") or []:
+            if isinstance(property_filter, dict) and property_filter.get("key") == "alert_id":
+                value = property_filter.get("value")
+                alert_ids += [str(item) for item in value] if isinstance(value, list) else [str(value)]
+        key_scopes = get_authenticator_scopes(request.successful_authenticator)
+        for gate in gates:
+            refusal = gate(
+                team_id=self.team_id, alert_ids=alert_ids, user_id=cast(User, request.user).id, key_scopes=key_scopes
+            )
+            if refusal:
+                return refusal
+        return None
 
     def _internal_event_read_scopes(self, request: Request) -> list[str]:
         """Scope objects of the product data this request lets the destination send or show."""
@@ -1269,6 +1306,8 @@ class HogFunctionViewSet(
                 cast(APIScopeObject, resource), required_level="editor"
             ):
                 raise PermissionDenied(f"Editing this alert destination requires {resource} write access.")
+        if refusal := self._alert_destination_edit_refusal(request):
+            raise PermissionDenied(refusal)
         for read_scope in self._internal_event_read_scopes(request):
             if not self.user_access_control.check_access_level_for_resource(
                 cast(APIScopeObject, read_scope), required_level="viewer"

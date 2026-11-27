@@ -30,6 +30,8 @@ function makeBucket(bucket_start: string, flag: boolean | null): AnomalyBucketAp
         flag,
         scored_at: null,
         details: null,
+        anomaly_kind: null,
+        anomaly_reason: null,
     }
 }
 

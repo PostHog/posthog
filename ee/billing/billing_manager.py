@@ -46,7 +46,7 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
-from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
+from ee.billing.billing_types import BillingLimits, BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -276,6 +276,7 @@ def build_billing_token(
 
 
 DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION = "deactivated_organizations"
+LIMITING_SERVICE_ACTION = "limiting"
 
 
 def build_billing_system_token(license: License, service_action: str) -> str:
@@ -438,6 +439,13 @@ def _parse_funding_status(data: object) -> OrganizationFundingStatus:
     )
 
 
+_ORGANIZATION_FIELDS_BESIDES_FEATURES = [
+    field.attname
+    for field in Organization._meta.concrete_fields
+    if not field.primary_key and field.name != "available_product_features"
+]
+
+
 class BillingManager:
     license: License | None
     user: User | None
@@ -574,23 +582,33 @@ class BillingManager:
         handle_billing_service_error(res)
         return res
 
-    def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
+    def update_available_product_features(
+        self, organization: Organization, *, timeout: tuple[float, float] | None = None
+    ) -> list[dict[str, Any]]:
         res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
+            timeout=timeout,
         )
 
-        handle_billing_service_error(res)
+        # Every plan, free included, carries features. Saving an empty list from an error or a
+        # partial answer would remove every entitlement the organization has, including access control.
+        handle_billing_service_error(res, valid_codes=(200,))
 
-        available_product_features_json = res.json()
-        available_product_features = available_product_features_json.get("available_product_features", [])
+        available_product_features = res.json().get("available_product_features")
+        if not available_product_features:
+            raise ValueError("Billing returned no available product features")
         previous_feature_keys = {
             feature.get("key") for feature in (organization.available_product_features or []) if feature
         }
         previous_retention_months = billed_events_retention_months(organization)
         previous_standard_retention = has_standard_retention(organization)
+        # The caller's instance can be older than the billing request. The save hooks publish the
+        # organization's other fields, such as the session lifetime, so they must read current values.
+        organization.refresh_from_db(fields=_ORGANIZATION_FIELDS_BESIDES_FEATURES)
         organization.available_product_features = available_product_features
-        organization.save()
+        # A full save could still overwrite a field another request changes after the reload.
+        organization.save(update_fields=["available_product_features", "updated_at"])
 
         if (
             available_product_features
@@ -1300,6 +1318,23 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()["deactivated_organization_ids"]
+
+    def get_limiting(self, organization_ids: list[str]) -> BillingLimits:
+        """What billing's limiting holds, and when the usage behind it was reported.
+
+        `limits` has a row per finite limit, for every customer over one and for these organizations.
+        Only a 200 is an answer: the default valid_codes would pass the 404 of a billing without the endpoint.
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/internal/limiting",
+            headers=self._system_auth_headers(LIMITING_SERVICE_ACTION),
+            json={"organization_ids": organization_ids},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

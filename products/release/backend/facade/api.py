@@ -405,4 +405,5 @@ def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
 
 
 def delete(team_id: int, release_id: UUID) -> None:
-    logic.delete_release(team_id, release_id)
+    if not logic.delete_release(team_id, release_id):
+        raise ReleaseNotFoundError(release_id)

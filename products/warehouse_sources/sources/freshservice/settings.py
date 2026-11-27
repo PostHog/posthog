@@ -72,6 +72,9 @@ class FreshserviceEndpointConfig:
     # Server-side incremental filter param name (e.g. "updated_since"). ``None`` means the
     # endpoint has no server-side timestamp filter -> full refresh only.
     updated_since_param: Optional[str] = None
+    # How the formatted watermark is written into ``updated_since_param``; the alerts filter
+    # takes it inside a query expression rather than as a bare timestamp.
+    updated_since_template: str = "{}"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
     # Stable field used for datetime partitioning. Always a creation timestamp, never a
@@ -257,6 +260,52 @@ FRESHSERVICE_ENDPOINTS: dict[str, FreshserviceEndpointConfig] = {
         primary_keys=["application_id", "id"],
         fanout=_SOFTWARE_FANOUT,
     ),
+    # The alerts listing is the filter endpoint: `query` takes `updated_at:>'<timestamp>'`, and
+    # `updated_at` is a documented sort field.
+    "alerts": FreshserviceEndpointConfig(
+        name="alerts",
+        path="/api/v2/ams/alerts",
+        data_key="alerts",
+        updated_since_param="query",
+        updated_since_template="updated_at:>'{}'",
+        default_incremental_field="updated_at",
+        incremental_fields=[_datetime_incremental_field("updated_at")],
+        partition_key="created_at",
+        extra_params={"order_by": "updated_at", "order_type": "asc"},
+    ),
+    "service_items": FreshserviceEndpointConfig(
+        name="service_items",
+        path="/api/v2/service_catalog/items",
+        data_key="service_items",
+        partition_key="created_at",
+        # The service items listing caps `per_page` at 30, below the account-wide maximum of 100.
+        page_size=30,
+    ),
+    "service_categories": FreshserviceEndpointConfig(
+        name="service_categories",
+        path="/api/v2/service_catalog/categories",
+        data_key="service_categories",
+    ),
+    "solution_categories": FreshserviceEndpointConfig(
+        name="solution_categories",
+        path="/api/v2/solutions/categories",
+        data_key="categories",
+    ),
+    "solution_folders": FreshserviceEndpointConfig(
+        name="solution_folders",
+        path="/api/v2/solutions/folders",
+        data_key="folders",
+        partition_key="created_at",
+    ),
+    # The articles listing requires `folder_id`, so it fans out over the folder listing.
+    "solution_articles": FreshserviceEndpointConfig(
+        name="solution_articles",
+        path="/api/v2/solutions/articles?folder_id={folder_id}",
+        data_key="articles",
+        partition_key="created_at",
+        primary_keys=["folder_id", "id"],
+        fanout=_parent_fanout("solution_folders", "folder_id"),
+    ),
     # Time entries have no server-side timestamp filter of their own, so this table is full
     # refresh only; the row carries no ticket reference either, hence the injected `ticket_id`.
     "ticket_time_entries": FreshserviceEndpointConfig(
@@ -272,6 +321,15 @@ FRESHSERVICE_ENDPOINTS: dict[str, FreshserviceEndpointConfig] = {
         name="ticket_conversations",
         path="/api/v2/tickets/{ticket_id}/conversations",
         data_key="conversations",
+        partition_key="created_at",
+        primary_keys=["ticket_id", "id"],
+        fanout=_TICKET_FANOUT,
+    ),
+    # One survey response per ticket, returned as a single object; a ticket with no response 404s.
+    "ticket_csat_responses": FreshserviceEndpointConfig(
+        name="ticket_csat_responses",
+        path="/api/v2/tickets/{ticket_id}/csat_response",
+        data_key="csat_response",
         partition_key="created_at",
         primary_keys=["ticket_id", "id"],
         fanout=_TICKET_FANOUT,

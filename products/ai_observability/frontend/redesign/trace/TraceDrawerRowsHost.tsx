@@ -117,14 +117,31 @@ export function useTraceFullPageHref(listId: TraceDrawerListId): (row: TraceList
 export interface TraceDrawerRowsSyncProps {
     listId: TraceDrawerListId
     rows: TraceListRow[]
+    /** Whether the list can load rows before the first of `rows`. */
+    rowsBefore?: boolean
+    /** Whether the list has rows after the last of `rows`. */
+    rowsAfter?: boolean
 }
 
-export function TraceDrawerRowsSync({ listId, rows }: TraceDrawerRowsSyncProps): null {
-    const { setRows } = useActions(traceDrawerLogic({ listId }))
+export function TraceDrawerRowsSync({
+    listId,
+    rows,
+    rowsBefore = false,
+    rowsAfter = false,
+}: TraceDrawerRowsSyncProps): null {
+    const { setRows, setRowsBefore, setRowsAfter } = useActions(traceDrawerLogic({ listId }))
 
     useEffect(() => {
         setRows(rows)
     }, [rows, setRows])
+
+    useEffect(() => {
+        setRowsBefore(rowsBefore)
+    }, [rowsBefore, setRowsBefore])
+
+    useEffect(() => {
+        setRowsAfter(rowsAfter)
+    }, [rowsAfter, setRowsAfter])
 
     return null
 }
