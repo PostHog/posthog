@@ -23,8 +23,9 @@ class GoldcastEndpointConfig:
 
 # Goldcast list endpoints return the full collection as a bare array when no `limit` is sent, and
 # expose no server-side modified-at/updated-at filter, so every endpoint is full refresh only. `agenda_items` carries no
-# creation timestamp, nor do `broadcast_polls` and `speakers`, so those are left unpartitioned; every
-# other endpoint partitions on `created_at`.
+# creation timestamp, nor do `broadcast_polls`, `speakers` and `booths`, so those are left unpartitioned.
+# `recordings` has a `created_at`, but the spec gives it no date-time format, so it is left unpartitioned
+# too. Every other endpoint partitions on `created_at`.
 GOLDCAST_ENDPOINTS: dict[str, GoldcastEndpointConfig] = {
     "organizations": GoldcastEndpointConfig(
         name="organizations",
@@ -94,6 +95,32 @@ GOLDCAST_ENDPOINTS: dict[str, GoldcastEndpointConfig] = {
         path="/event/{event}/public/v1/speakers/",
         primary_keys=["event", "id"],
         fan_out_parent="events",
+    ),
+    "tags": GoldcastEndpointConfig(
+        name="tags",
+        path="/core/tag-library/",
+        partition_key="created_at",
+    ),
+    # Fan-out: one request per event id, passed as an `?event=` query param. Booth rows carry no
+    # event field, so the parent event id is injected under `event` to link each booth to its event.
+    "booths": GoldcastEndpointConfig(
+        name="booths",
+        path="/event/booths/?event={event}",
+        primary_keys=["event", "id"],
+        fan_out_parent="events",
+    ),
+    # Fan-out: one request per event id. Recording rows have no `id`; `s3_key` names the recording
+    # file, so it forms the key together with the parent event id.
+    "recordings": GoldcastEndpointConfig(
+        name="recordings",
+        path="/event/{event}/get_recordings/",
+        primary_keys=["event", "s3_key"],
+        fan_out_parent="events",
+    ),
+    "resources": GoldcastEndpointConfig(
+        name="resources",
+        path="/event/resources/",
+        partition_key="created_at",
     ),
 }
 
