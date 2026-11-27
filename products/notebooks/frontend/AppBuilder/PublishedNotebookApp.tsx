@@ -20,7 +20,7 @@ import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLog
 import { PublishedNotebookAppControls } from './PublishedNotebookAppControls'
 import { PublishedNotebookQuery } from './PublishedNotebookQuery'
 import { ViewerComputeCell } from './ViewerComputeCell'
-import { viewerWidgetSession } from './viewerWidgetFrames'
+import { privateWidgetSourceNames, viewerWidgetSession } from './viewerWidgetFrames'
 
 export default function PublishedNotebookApp({
     shortId,
@@ -52,6 +52,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { variables, results, nativeOutputIds, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
+    const privateSources = useMemo(() => privateWidgetSourceNames(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
     const chartInputFilters = Object.fromEntries(
         variables.map((v) => [
@@ -107,6 +108,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                     privateInputs: versionId
                         ? {
                               key: JSON.stringify([release.revision, variables]),
+                              sourceNames: privateSources,
                               compute: async (slots, signal) => {
                                   const request = {
                                       node_id: nodeId,

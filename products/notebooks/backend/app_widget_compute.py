@@ -45,6 +45,12 @@ def run_widget_cells(
     slots, authors = _widget_sources(notebook, node_id, version_id, names, get_dataframe_owners(cells))
     targets = {source for source, _ in slots.values()}
     chain = source_cell_chain(cells, targets)
+    private_sources: set[str] = set()
+    for cell in chain:
+        if cell.cell_type == "python" or cell.connection_id or private_sources.intersection(cell.depends_on):
+            private_sources.add(cell.node_id)
+    if not targets.issubset(private_sources):
+        raise ValidationError("This widget reads native SQL through the app's filtered results.")
     for connection in {cell.connection_id for cell in chain if cell.connection_id}:
         for author in authors:
             if author is None or (

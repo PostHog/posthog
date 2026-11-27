@@ -189,8 +189,14 @@ class TestAppCompute(APIBaseTest):
         assert received[-2] == []
         assert len(received[-1]) == 3 and all(value is None and size > 42 for value, size in received[-1])
 
-        request.sql = "SELECT 42 AS total WHERE false"
+        request.sql = 'SELECT 1 AS source_row, 2 AS source_row_1, 3 AS "_POSTHOG_RESULT_BYTES"'
         request.values = None
+        request.settings.max_result_bytes = 120
+        named_columns = execute_with_result_limit(adapter, request)
+        assert named_columns.print_columns == ["source_row", "source_row_1", "_POSTHOG_RESULT_BYTES"]
+        assert named_columns.results == [(1, 2, 3)]
+
+        request.sql = "SELECT 42 AS total WHERE false"
         assert execute_with_result_limit(adapter, request).results == []
 
     def test_private_frames_use_notebook_expression_semantics_and_bound_intermediate_sql(self, _flag) -> None:

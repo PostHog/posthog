@@ -6,6 +6,7 @@ export interface WidgetFrameSession {
     revision: string
     privateInputs?: {
         key: string
+        sourceNames: ReadonlySet<string>
         compute: (slots: string[], signal: AbortSignal) => Promise<WidgetFrameApi[]>
     }
     read: (

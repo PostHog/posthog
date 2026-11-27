@@ -19,7 +19,8 @@ const frame: WidgetFrameApi = {
 it('runs on demand, pages the same private result, and clears data when a widget version changes', async () => {
     const compute = jest.fn().mockResolvedValue([frame, { ...frame, name: 'comparison' }])
     const { result, rerender } = renderHook(
-        ({ version, inputs }) => usePrivateWidgetFrames(version, { key: inputs, compute }),
+        ({ version, inputs }) =>
+            usePrivateWidgetFrames(version, { key: inputs, sourceNames: new Set(['records']), compute }),
         { initialProps: { version: 'first', inputs: '240' } }
     )
     expect(compute).not.toHaveBeenCalled()

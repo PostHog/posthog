@@ -1112,6 +1112,21 @@ class TestWidgetData(APIBaseTest):
         frame = response.json()["widget_frame"]
         assert frame["columns"] == [{"name": "shifts", "type": "unknown"}] and frame["rows"] == [[8]]
 
+        connected = self.notebook.content
+        self.notebook.content = markdown_content(
+            f'<SQLV2 nodeId="staffing" returnVariable="{self.INPUT_NAME}" code="SELECT 8 AS shifts" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        native = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_compute/",
+            payload,
+            format="json",
+        )
+        assert native.status_code == 400 and "filtered results" in native.json()["detail"]
+        self.notebook.content = connected
+        self.notebook.save(update_fields=["content"])
+
         other = self._create_user("widget-author@example.com")
         version.created_by = other
         version.save(update_fields=["created_by"])

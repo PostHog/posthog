@@ -148,6 +148,11 @@ function ExpandedWidget({
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
     const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
     const privateFrames = usePrivateWidgetFrames(selectedVersionId, frameSession.privateInputs)
+    const privateNames = activeFrameNames.filter((slot) => {
+        const mapped = status?.input_bindings?.[slot]?.source
+        const declared = status?.input_contract?.find((input) => input.slot === slot)?.sourceName
+        return frameSession.privateInputs?.sourceNames.has(mapped || declared || slot)
+    })
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -314,11 +319,11 @@ function ExpandedWidget({
                     ) : null}
                     <PrivateWidgetDataControls
                         enabled={!!frameSession.privateInputs}
-                        names={activeFrameNames}
+                        names={privateNames}
                         data={privateFrames}
                         onRun={() => {
                             setRuntimeError(null)
-                            void privateFrames.run(activeFrameNames)
+                            void privateFrames.run(privateNames)
                         }}
                     />
                     {runtimeError ? (
