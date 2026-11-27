@@ -41,6 +41,15 @@ class ScoutSuggestionItemSerializer(serializers.Serializer):
     )
     title = serializers.CharField(help_text="Short sentence-case title: what the scout watches.")
     why_here = serializers.CharField(help_text="Project-specific evidence for this suggestion, in prose.")
+    goal = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "One plain sentence saying what the scout would do. Blank on batches stored before the field "
+            "existed, so a client falls back to `description`, then to the first sentence of `why_here`."
+        ),
+    )
     description = serializers.CharField(
         allow_blank=True, help_text="Custom only: the one-line description the scout would be created with."
     )

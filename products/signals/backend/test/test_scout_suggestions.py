@@ -34,6 +34,7 @@ from products.signals.backend.scout_harness.suggestions import (
     ACTIVITY_READ_MAX_ROWS,
     ACTIVITY_READ_MAX_ROWS_READ,
     MAX_DESCRIPTION_CHARS,
+    MAX_GOAL_CHARS,
     FleetContext,
     PlannedSuggestionRun,
     ScoutSuggestionBatch,
@@ -190,6 +191,16 @@ class TestValidateSuggestionItems(SimpleTestCase):
             reserved_names={"signals-scout-disabled-custom"},
         )
         self.assertEqual(kept, [])
+
+    @parameterized.expand(
+        [
+            ("trimmed", "  Checks each day whether errors are rising.  ", "Checks each day whether errors are rising."),
+            ("overlong_is_cleared", "x" * (MAX_GOAL_CHARS + 1), ""),
+        ]
+    )
+    def test_keeps_the_item_whatever_its_goal(self, _name, goal, expected):
+        kept = validate_suggestion_items([_item(goal=goal)], enabled_skill_names=set(), canonical_names=CANONICAL)
+        self.assertEqual([item.goal for item in kept], [expected])
 
     def test_blank_cron_normalizes_to_none(self):
         kept = validate_suggestion_items(
@@ -1061,6 +1072,17 @@ class TestScoutSuggestionsAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/suggestions/nope/dismiss/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_reads_a_batch_stored_before_the_goal_field(self):
+        row = persist_suggestion_batch(
+            self.team.id, [_item(goal="Checks errors daily.")], task_run_id=None, model="m", fleet_snapshot=[]
+        )
+        legacy_items = [{key: value for key, value in record.items() if key != "goal"} for record in row.items]
+        SignalScoutSuggestionSet.all_teams.filter(pk=row.pk).update(items=legacy_items)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/suggestions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["items"][0]["goal"], "")
 
     def test_creating_a_scout_from_a_suggestion_stops_it_being_offered(self):
         row = persist_suggestion_batch(

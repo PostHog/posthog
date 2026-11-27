@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.skill_loader import reserved_scout_n
 from products.signals.backend.scout_harness.suggestions import (
     MAX_DESCRIPTION_CHARS,
     MAX_DRAFT_BODY_CHARS,
+    MAX_GOAL_CHARS,
     MAX_SUGGESTIONS_PER_BATCH,
     SUGGESTIONS_AI_STAGE,
     ScoutSuggestionBatch,
@@ -112,10 +113,17 @@ def validate_suggestion_items(
             continue
         if not item.title.strip() or not item.why_here.strip():
             continue
+        # The goal is optional, because the row falls back to other text without it, so an overlong
+        # goal is cleared rather than costing the project the whole suggestion.
+        goal = item.goal.strip()
         seen.add(name)
         kept.append(
             item.model_copy(
-                update={"skill_name": name, "proposed_config": config.model_copy(update={"run_cron_schedule": cron})}
+                update={
+                    "skill_name": name,
+                    "goal": goal if len(goal) <= MAX_GOAL_CHARS else "",
+                    "proposed_config": config.model_copy(update={"run_cron_schedule": cron}),
+                }
             )
         )
         if len(kept) == MAX_SUGGESTIONS_PER_BATCH:

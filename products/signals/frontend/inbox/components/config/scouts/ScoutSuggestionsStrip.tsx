@@ -1,24 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconChevronDown, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconEllipsis, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSkeleton, Link, Popover, Spinner } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-import { cn } from 'lib/utils/css-classes'
+import { TZLabel } from 'lib/components/TZLabel'
 
-import type { ScoutSuggestionSurface } from '../../../inboxAnalytics'
+import { captureScoutSuggestionDisclosureOpened, type ScoutSuggestionSurface } from '../../../inboxAnalytics'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
 import { ScoutSuggestionCreateHost } from './ScoutSuggestionCreateHost'
 
-/** Titles named on the collapsed line before it gives up and counts the rest. */
+/** Titles named on the collapsed bar before it gives up and counts the rest. */
 const COLLAPSED_TITLE_PREVIEW = 2
 
 /**
- * The "Suggested for this project" strip above the roster: a pre-computed batch of scouts worth
- * running here, each ready to turn on or create without waiting for a scan.
+ * The "Suggested scouts" strip above the roster: a pre-computed batch of scouts worth running here,
+ * each ready to turn on or create without waiting for a scan.
  *
  * Nothing renders without picks to read, so a project with an empty batch sees the roster exactly
  * as it was. `stale` is a footer note rather than an error: any fleet change flips it and the picks
@@ -28,81 +27,194 @@ const COLLAPSED_TITLE_PREVIEW = 2
  * "Suggest a scout" header button, so the picks are never more than one click away.
  */
 export function ScoutSuggestionsStrip(): JSX.Element | null {
-    const { suggestions, stripVisible, collapsed, isRefreshing, suggestionSet } = useValues(scoutSuggestionsLogic)
-    const { setCollapsed, hideStrip, requestRefresh } = useActions(scoutSuggestionsLogic)
+    const { stripVisible, collapsed } = useValues(scoutSuggestionsLogic)
     useReportSuggestionsShown('strip')
 
     if (!stripVisible) {
         return null
     }
 
-    const generatedAt = suggestionSet?.generated_at
-
     return (
         <section className="flex flex-col gap-3 rounded border border-primary bg-surface-secondary p-3">
-            <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <div className="flex items-center gap-1.5">
-                        <IconSparkles className="text-secondary" />
-                        <h3 className="m-0 text-sm font-semibold">Suggested for this project</h3>
-                        {suggestions.length > 0 && (
-                            <span className="text-xs tabular-nums text-muted">{suggestions.length}</span>
-                        )}
-                    </div>
-                    <span className="text-xs text-muted">
-                        Picked by scanning this project's data against the scouts you already run.
-                        {generatedAt ? ` Refreshed ${dayjs(generatedAt).fromNow()}.` : ''}
-                    </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        loading={isRefreshing}
-                        disabledReason={isRefreshing ? 'Scanning the project…' : undefined}
-                        onClick={() => requestRefresh('strip')}
-                        data-attr="scout-suggestions-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconChevronDown className={cn('transition-transform', collapsed && '-rotate-90')} />}
-                        onClick={() => setCollapsed(!collapsed)}
-                        aria-label={collapsed ? 'Show suggested scouts' : 'Hide suggested scouts'}
-                        data-attr="scout-suggestions-collapse"
-                    />
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconX />}
-                        tooltip="Close. Bring the suggestions back with the Suggest a scout button."
-                        onClick={() => hideStrip()}
-                        aria-label="Close suggested scouts"
-                        data-attr="scout-suggestions-hide"
-                    />
-                </div>
-            </div>
-
+            {collapsed ? <CollapsedHeader /> : <ExpandedHeader />}
             <StripBody />
             <ScoutSuggestionCreateHost surface="strip" />
         </section>
     )
 }
 
+/** One bar that names the picks. The bar and its labeled button both expand it. */
+function CollapsedHeader(): JSX.Element {
+    const { suggestions } = useValues(scoutSuggestionsLogic)
+    const { setCollapsed, hideStrip } = useActions(scoutSuggestionsLogic)
+    const count = suggestions.length
+    const titles = suggestions.map((item) => item.title)
+    const rest = titles.length - COLLAPSED_TITLE_PREVIEW
+
+    return (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <button
+                type="button"
+                onClick={() => setCollapsed(false)}
+                className="flex min-w-0 flex-1 basis-60 cursor-pointer flex-col items-start gap-0.5 text-left"
+            >
+                <span className="flex items-center gap-1.5 text-sm font-semibold">
+                    <IconSparkles className="shrink-0 text-secondary" />
+                    {count > 0
+                        ? `${count} ${count === 1 ? 'scout' : 'scouts'} suggested for this project`
+                        : 'Suggested scouts'}
+                </span>
+                {count > 0 && (
+                    <span className="max-w-full truncate text-xs text-secondary">
+                        {titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')}
+                        {rest > 0 ? ` and ${rest} more` : ''}
+                    </span>
+                )}
+            </button>
+            <div className="flex shrink-0 items-center gap-1">
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setCollapsed(false)}
+                    data-attr="scout-suggestions-collapse"
+                >
+                    Show suggestions
+                </LemonButton>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconX />}
+                    tooltip="Close. Bring the suggestions back with the Suggest a scout button."
+                    onClick={() => hideStrip()}
+                    aria-label="Close suggested scouts"
+                    data-attr="scout-suggestions-hide"
+                />
+            </div>
+        </div>
+    )
+}
+
+function ExpandedHeader(): JSX.Element {
+    const { suggestions } = useValues(scoutSuggestionsLogic)
+    return (
+        <div className="flex items-start gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <IconSparkles className="text-secondary" />
+                    <h3 className="m-0 text-sm font-semibold">Suggested scouts</h3>
+                    {suggestions.length > 0 && (
+                        <span className="text-xs tabular-nums text-muted">{suggestions.length}</span>
+                    )}
+                    <WhatIsAScoutLink />
+                </div>
+                <span className="text-xs text-muted">
+                    Based on what this project tracks. Nothing runs until you turn it on.
+                </span>
+            </div>
+            <StripMenu />
+        </div>
+    )
+}
+
+/** The strip's own actions, folded into one menu so the rows below hold the only visible buttons. */
+function StripMenu(): JSX.Element {
+    const { isRefreshing, suggestionSet, runningChatType, aiConsentDisabledReason, scoutChatDisabledReason } =
+        useValues(scoutSuggestionsLogic)
+    const { requestRefresh, startScoutChatTask, setCollapsed } = useActions(scoutSuggestionsLogic)
+    // The chat ends in a skill write, so it carries the same editor gate as the other authoring paths.
+    const creationDisabledReason = useScoutCreateDisabledReason()
+    const generatedAt = suggestionSet?.generated_at
+
+    return (
+        <LemonMenu
+            placement="bottom-end"
+            items={[
+                {
+                    label: (
+                        <span className="flex flex-col items-start">
+                            <span>Refresh suggestions</span>
+                            {generatedAt && (
+                                <span className="text-xs text-muted">
+                                    Refreshed <TZLabel time={generatedAt} showPopover={false} />
+                                </span>
+                            )}
+                        </span>
+                    ),
+                    icon: <IconRefresh />,
+                    disabledReason: isRefreshing ? 'Scanning the project…' : undefined,
+                    onClick: () => requestRefresh('strip'),
+                    'data-attr': 'scout-suggestions-refresh',
+                },
+                {
+                    label: 'Suggest a scout with AI',
+                    icon: <IconSparkles />,
+                    // The request only shows on screen once it navigates, so without this a second
+                    // click lands in the gap and mints a second cloud task.
+                    disabledReason:
+                        runningChatType !== null
+                            ? 'Starting a task…'
+                            : (creationDisabledReason ??
+                              aiConsentDisabledReason ??
+                              scoutChatDisabledReason ??
+                              undefined),
+                    onClick: () => startScoutChatTask('author_scout', 'scout authoring task'),
+                    'data-attr': 'scout-suggestions-author-with-ai',
+                },
+                {
+                    label: 'Hide suggestions',
+                    icon: <IconChevronDown />,
+                    onClick: () => setCollapsed(true),
+                    'data-attr': 'scout-suggestions-collapse',
+                },
+            ]}
+        >
+            <LemonButton
+                size="xsmall"
+                icon={<IconEllipsis />}
+                aria-label="Suggested scouts options"
+                data-attr="scout-suggestions-menu"
+            />
+        </LemonMenu>
+    )
+}
+
+/** Opens on press rather than hover, so a phone can read it too. */
+function WhatIsAScoutLink(): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const toggle = (): void => {
+        if (!open) {
+            captureScoutSuggestionDisclosureOpened({ disclosure: 'whats_a_scout', surface: 'strip' })
+        }
+        setOpen(!open)
+    }
+    return (
+        <Popover
+            visible={open}
+            onClickOutside={() => setOpen(false)}
+            placement="bottom-start"
+            overlay={
+                <div className="flex max-w-80 flex-col gap-2 p-1 text-sm">
+                    <p className="m-0">A scout is an agent that checks one part of your project on a schedule.</p>
+                    <p className="m-0">
+                        When it finds something worth your attention, it files a report in your inbox. You choose what
+                        each scout watches and how often it runs.
+                    </p>
+                </div>
+            }
+        >
+            <Link className="text-xs" onClick={toggle} aria-expanded={open} data-attr="scout-suggestions-whats-a-scout">
+                What's a scout?
+            </Link>
+        </Popover>
+    )
+}
+
 /** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the rows. */
-function StripBody(): JSX.Element {
+function StripBody(): JSX.Element | null {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
     if (collapsed) {
-        // The strip opens collapsed, so most Refresh presses land here. Without titles the strip is
-        // only up because a scan is running, so the note is all there is to show.
-        return (
-            <>
-                {suggestions.length > 0 && <CollapsedLine titles={suggestions.map((item) => item.title)} />}
-                {isRefreshing && <ScanningNote />}
-            </>
-        )
+        // Without titles the strip is only up because a scan is running, so the note is all there is to show.
+        return isRefreshing ? <ScanningNote /> : null
     }
     if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
         return (
@@ -116,26 +228,22 @@ function StripBody(): JSX.Element {
         <>
             <SuggestionList surface="strip" />
             {isRefreshing && <ScanningNote />}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                {batchStatus === 'stale' && (
-                    <span>
-                        Your scouts changed since these were picked, or the picks are due a refresh, so some may already
-                        be covered.
-                    </span>
-                )}
-                {batchStatus === 'failed' && (
-                    <span>The last scan didn't finish, so these are the picks from before it.</span>
-                )}
-                {batchStatus === 'low_activity' && (
-                    <span>
-                        This project has been quiet, so the last scan was skipped and these are the picks from before
-                        it.
-                    </span>
-                )}
-                <span>
-                    Want something else? <SuggestWithAiLink />.
+            {batchStatus === 'stale' && (
+                <span className="text-xs text-muted">
+                    Your scouts changed since these were picked, or the picks are due a refresh, so some may already be
+                    covered.
                 </span>
-            </div>
+            )}
+            {batchStatus === 'failed' && (
+                <span className="text-xs text-muted">
+                    The last scan didn't finish, so these are the picks from before it.
+                </span>
+            )}
+            {batchStatus === 'low_activity' && (
+                <span className="text-xs text-muted">
+                    This project has been quiet, so the last scan was skipped and these are the picks from before it.
+                </span>
+            )}
         </>
     )
 }
@@ -183,17 +291,6 @@ function ScanningNote(): JSX.Element {
     )
 }
 
-function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
-    const named = titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')
-    const rest = titles.length - COLLAPSED_TITLE_PREVIEW
-    return (
-        <span className="truncate text-xs text-secondary">
-            {named}
-            {rest > 0 ? ` and ${rest} more` : ''}
-        </span>
-    )
-}
-
 function SuggestionsSkeleton(): JSX.Element {
     return (
         <div className="divide-y divide-primary rounded border border-primary bg-surface-primary">
@@ -205,29 +302,6 @@ function SuggestionsSkeleton(): JSX.Element {
                 </div>
             ))}
         </div>
-    )
-}
-
-function SuggestWithAiLink(): JSX.Element {
-    const { aiConsentDisabledReason, scoutChatDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
-    const { startScoutChatTask } = useActions(scoutSuggestionsLogic)
-    // The chat ends in a skill write, so it carries the same editor gate as the other authoring paths.
-    const creationDisabledReason = useScoutCreateDisabledReason()
-    if (creationDisabledReason) {
-        return <span>suggest a scout with AI once you can edit skills</span>
-    }
-    if (aiConsentDisabledReason) {
-        return <span>suggest a scout with AI once AI data processing is on</span>
-    }
-    return (
-        <Link
-            // The request only shows on screen once it navigates, so without this a second click
-            // lands in the gap and mints a second cloud task.
-            disabledReason={runningChatType !== null ? 'Starting a task…' : (scoutChatDisabledReason ?? undefined)}
-            onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}
-        >
-            suggest a scout with AI
-        </Link>
     )
 }
 
