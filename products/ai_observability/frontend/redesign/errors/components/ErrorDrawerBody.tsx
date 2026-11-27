@@ -6,19 +6,15 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { ErrorListItemApi, TraceListItemApi, TracePreviewApi } from '../../../generated/api.schemas'
 import { ChangeTag } from '../../diagnostics/components/ChangeTag'
-import { EntityTrendChart } from '../../diagnostics/components/EntityTrendChart'
-import { ListEmptyState } from '../../lists/components/ListEmptyState'
-import { ListErrorState } from '../../lists/components/ListErrorState'
+import { EntityDetailChart } from '../../diagnostics/components/EntityDetailChart'
+import { RecentTracesList } from '../../diagnostics/components/RecentTracesList'
 import type { CellLoads, TraceCellLoad } from '../../shared/cellLoads'
 import { EntityDrawer, EntityDrawerProps, EntityDrawerTile } from '../../shared/components/EntityDrawer'
-import { TraceCellValue } from '../../traces/components/TraceCellValue'
-import { MISSING_REASON_LABELS } from '../../traces/components/TracePreviewCell'
 import type { ErrorDetailLoad } from '../errorDrawerLogic'
 
 // pinned: data-attrs feed autocapture; dashboards and tests find the drawer and its controls by this value and its suffixes
 const DATA_ATTR = 'error-drawer'
 const TILE_LABELS = ['Occurrences', 'Traces', 'Users', 'Last seen']
-const RETRY_DESCRIPTION = 'Try again. If it keeps happening, contact support.'
 
 export interface ErrorDrawerBodyProps extends Pick<
     EntityDrawerProps,
@@ -51,25 +47,6 @@ function tilesOf(item: ErrorListItemApi | null, detail: ErrorDetailLoad): Entity
     }
     // With no row and a settled detail, the chart's place says why the numbers are missing.
     return detail.status === 'loading' ? TILE_LABELS.map((label) => ({ label, value: null, loading: true })) : []
-}
-
-// The input is the customer's own prompt. ph-sensitive keeps the click on the row in autocapture without its text, and
-// ph-mask masks the text in session replay.
-function RecentTraceInput({ preview }: { preview: TraceCellLoad<TracePreviewApi> | undefined }): JSX.Element {
-    const value = preview?.status === 'ready' ? preview.value : null
-    return (
-        <TraceCellValue
-            status={preview?.status ?? 'loading'}
-            skeletonWidth="w-32"
-            failedMessage="Couldn't load the input. Reopen the error to try again."
-        >
-            {value?.input ? (
-                <span className="ph-sensitive ph-mask min-w-0 truncate">{value.input}</span>
-            ) : value?.inputMissingReason ? (
-                <span className="text-muted whitespace-nowrap">{MISSING_REASON_LABELS[value.inputMissingReason]}</span>
-            ) : null}
-        </TraceCellValue>
-    )
 }
 
 export function ErrorDrawerBody({
@@ -116,67 +93,33 @@ export function ErrorDrawerBody({
             }
             tiles={tilesOf(item, detail)}
             chart={
-                detail.status === 'ready' ? (
-                    <div className="rounded border p-3">
-                        <EntityTrendChart
-                            series={detail.value.item.series}
-                            previousSeries={detail.value.previousSeries}
-                            bucketStarts={detail.value.bucketStarts}
-                            timezone={timezone}
-                        />
-                    </div>
-                ) : detail.status === 'not_found' ? (
-                    <ListEmptyState
-                        title="No occurrences in this date range"
-                        description="This error didn't occur in the selected date range. Pick a wider date range to see it."
-                    />
-                ) : detail.status === 'error' ? (
-                    <ListErrorState
-                        title="Could not load this error"
-                        description={RETRY_DESCRIPTION}
-                        retry={{ onClick: onRetry, 'data-attr': `${DATA_ATTR}-retry` }}
-                    />
-                ) : (
-                    <LemonSkeleton className="h-54" />
-                )
+                <EntityDetailChart
+                    detail={detail}
+                    timezone={timezone}
+                    notFound={{
+                        title: 'No occurrences in this date range',
+                        description:
+                            "This error didn't occur in the selected date range. Pick a wider date range to see it.",
+                    }}
+                    failedTitle="Could not load this error"
+                    onRetry={onRetry}
+                    data-attr={DATA_ATTR}
+                />
             }
             sections={[
                 {
                     title: 'Recent traces',
-                    content:
-                        recentTraces.status === 'loading' ? (
-                            <LemonSkeleton repeat={5} className="h-8" />
-                        ) : recentTraces.status === 'error' ? (
-                            <ListErrorState
-                                title="Could not load recent traces"
-                                description={RETRY_DESCRIPTION}
-                                retry={{ onClick: onRetry, 'data-attr': `${DATA_ATTR}-recent-traces-retry` }}
-                            />
-                        ) : recentTraces.value.length === 0 ? (
-                            <p className="m-0 text-secondary">No traces with this error match the filters.</p>
-                        ) : (
-                            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-                                {recentTraces.value.map((trace) => (
-                                    <li key={trace.id}>
-                                        <LemonButton
-                                            fullWidth
-                                            size="small"
-                                            onClick={() => onOpenTrace(trace)}
-                                            data-attr={`${DATA_ATTR}-recent-trace`}
-                                        >
-                                            <span className="flex w-full min-w-0 items-center justify-between gap-3 font-normal">
-                                                <RecentTraceInput preview={previews.get(trace.id)} />
-                                                <TZLabel
-                                                    time={trace.createdAt}
-                                                    showPopover={false}
-                                                    className="shrink-0 text-xs text-secondary"
-                                                />
-                                            </span>
-                                        </LemonButton>
-                                    </li>
-                                ))}
-                            </ul>
-                        ),
+                    content: (
+                        <RecentTracesList
+                            traces={recentTraces}
+                            previews={previews}
+                            emptyMessage="No traces with this error match the filters."
+                            inputFailedMessage="Couldn't load the input. Reopen the error to try again."
+                            onRetry={onRetry}
+                            onOpenTrace={onOpenTrace}
+                            data-attr={DATA_ATTR}
+                        />
+                    ),
                 },
             ]}
             footer={

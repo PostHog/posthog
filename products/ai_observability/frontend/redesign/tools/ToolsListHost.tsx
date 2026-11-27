@@ -20,6 +20,8 @@ import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { ToolsSetupState } from './components/ToolsSetupState'
 import { toolsTableColumns } from './components/ToolsTableColumns'
+import { ToolDrawerHost } from './ToolDrawerHost'
+import { toolDrawerLogic } from './toolDrawerLogic'
 import { TOOLS_LIST_FILTERS, toolsListLogic } from './toolsListLogic'
 import { toolTraceSharesLogic } from './toolTraceSharesLogic'
 
@@ -42,6 +44,7 @@ export function ToolsListHost(): JSX.Element {
     } = useValues(toolsListLogic)
     const { setPageIndex, setOrder, reload } = useActions(toolsListLogic)
     const { traceShares } = useValues(toolTraceSharesLogic)
+    const { openTool } = useActions(toolDrawerLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(TOOLS_LIST_FILTERS))
     const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearFilters } = useActions(
         listFiltersLogic(TOOLS_LIST_FILTERS)
@@ -107,7 +110,7 @@ export function ToolsListHost(): JSX.Element {
                 rows={items}
                 rowKey={(item) => item.key}
                 refreshing={refreshing}
-                onRow={() => ROW_PROPS}
+                onRow={(item) => ({ ...ROW_PROPS, className: 'cursor-pointer', onClick: () => openTool(item) })}
                 onPrevious={canShowPrevious ? () => setPageIndex(pageIndex - 1) : undefined}
                 onNext={canShowNext ? () => setPageIndex(pageIndex + 1) : undefined}
                 emptyState={
@@ -144,6 +147,7 @@ export function ToolsListHost(): JSX.Element {
                 }
                 data-attr={DATA_ATTR}
             />
+            <ToolDrawerHost />
         </div>
     )
 }
