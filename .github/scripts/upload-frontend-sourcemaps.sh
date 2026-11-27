@@ -30,18 +30,21 @@ jq --arg ignore "**/$STABLE_CHUNKS" \
     "$config" >posthog.json
 export HOG_NO_UPDATE_CHECK=1
 
-# Fails the script unless every symbol set reached PostHog and hog skipped no file, so the image ships
-# without maps only when error tracking holds each of them. hog exits 0 after skipping a map that is
-# too large or unreadable, and --delete-after deletes those maps too.
+# Fails the script unless every symbol set reached PostHog and hog skipped only bundles whose map is
+# empty, so the image ships without maps only when error tracking holds each of them. hog exits 0
+# after skipping a map that is too large or unreadable, and --delete-after deletes those maps too.
+# esbuild writes an empty map for a chunk that only re-exports other chunks, which leaves nothing to
+# upload. hog-version pins the wording of that reason, and a hog that words it differently fails here.
 check() {
     local result
     result=$(cat)
-    jq -c '{release, symbolSets: (.symbolSets | group_by(.status) | map({key: .[0].status, value: length}) | from_entries), skipped}' <<<"$result"
-    jq -e '(.skipped | length == 0) and all(.symbolSets[]; .status == "uploaded" or .status == "already_present")' \
+    jq -c '{release, symbolSets: (.symbolSets | group_by(.status) | map({key: .[0].status, value: length}) | from_entries), emptyMaps: ([.skipped[] | select(.reason | startswith("the sourcemap is empty"))] | length), skipped: [.skipped[] | select(.reason | startswith("the sourcemap is empty") | not)]}' <<<"$result"
+    jq -e 'all(.skipped[]; .reason | startswith("the sourcemap is empty")) and all(.symbolSets[]; .status == "uploaded" or .status == "already_present")' \
         <<<"$result" >/dev/null
 }
 
 "$hog" error-tracking process -o json \
+    --kind js \
     --public-path-prefix /static \
     --release-mode event \
     --release-name posthog \
@@ -53,6 +56,7 @@ check() {
 stable=$(find frontend/dist -type f -name "$STABLE_CHUNKS" -exec grep -l 'sourceMappingURL=' {} + || true)
 if [ -n "$stable" ]; then
     env -u GITHUB_SHA "$hog" error-tracking process - -o json \
+        --kind js \
         --public-path-prefix /static \
         --release-mode event \
         --delete-after <<<"$stable" | check

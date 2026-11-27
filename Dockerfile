@@ -226,6 +226,13 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 # so they never import every source module, and a source module that fails to import fails the build.
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
 
+# No sourcemap ships as a static file. Error tracking reads the maps that CI uploads, and Python
+# packages such as Django REST framework bring maps that nothing uploads. When CI could not upload,
+# /code/frontend/dist keeps the only copy of the frontend maps, so this deletes only the collected
+# duplicates and their compressed variants. This runs here, not in the final stage, so that the bytes
+# never enter the COPYed layers.
+RUN find /code/staticfiles \( -name '*.map' -o -name '*.map.gz' -o -name '*.map.br' \) -delete
+
 
 #
 # ---------------------------------------------------------
