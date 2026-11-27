@@ -13015,10 +13015,10 @@ Today (5): `company_rollup`, `package_events`, `packages`, `tracking_pixel_event
 
 Diffed against: <https://api.scarf.sh/static/api-v2.yaml>
 
-- [ ] `Company Scarf scores (GET /v2/companies/{owner}/scoring)` — Per-company engagement scores, the main lead-qualification signal (high)
-- [ ] `Package aggregates export (GET /v2/packages/{owner}/aggregates)` — Aggregated download counts per package and period, cheaper than raw events (medium)
-- [ ] `Company package rollup (GET /v2/companies/{owner}/package-rollup)` — Event rollup per company and package (medium)
-- [ ] `Company pixel rollup (GET /v2/companies/{owner}/pixel-rollup)` — Event rollup per company and tracking pixel (medium)
+- [ ] `Company Scarf scores (GET /v2/companies/{owner}/scoring)` — Per-company engagement scores, the main lead-qualification signal (high). Skipped: the spec marks the route deprecated and names no replacement.
+- [x] `Package aggregates export (GET /v2/packages/{owner}/aggregates)` — Aggregated download counts per package and period, cheaper than raw events (medium) → `daily_aggregates` (built on `GET /v3/insights/{owner}/aggregations/export`, which the spec names as the replacement for the deprecated v2 route; daily rollup, by-total breakdown, incremental on `date`)
+- [x] `Company package rollup (GET /v2/companies/{owner}/package-rollup)` — Event rollup per company and package (medium) → `company_package_rollup` (daily rollup, incremental on `date`)
+- [x] `Company pixel rollup (GET /v2/companies/{owner}/pixel-rollup)` — Event rollup per company and tracking pixel (medium) → `company_pixel_rollup` (daily rollup, incremental on `date`)
 - [ ] `Collections (GET /v2/collections/{owner})` — Groupings of packages, to roll up downloads by product (medium)
 - [ ] `Organization members (GET /v2/organizations/{organization_name}/members)` — Members and roles of the organization (low)
 - [ ] `Package domains (GET /v2/packages/{owner}/{package_id}/domains)` — Custom domains per package, a fan-out under packages (low)
