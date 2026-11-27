@@ -404,12 +404,20 @@ def _hog_templates(content: HogFunctionContent) -> Iterator[str]:
 def _hog_template_inputs(inputs: JsonValue, inputs_schema: JsonValue) -> Iterator[str]:
     if not isinstance(inputs, dict):
         return
-    schema = inputs_schema if isinstance(inputs_schema, list) else []
-    literal_keys = {item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False}
+    literal_keys = _literal_keys(inputs_schema)
     for key, entry in inputs.items():
-        # The runtime renders an input with Hog unless it is Liquid or the input or its schema turns templating off.
-        if isinstance(entry, dict) and key not in literal_keys and entry.get("templating") not in ("liquid", False):
-            yield from (text for text in _strings(entry.get("value")) if "{" in text)
+        yield from _hog_templates_of(key, entry, literal_keys)
+
+
+def _literal_keys(inputs_schema: JsonValue) -> frozenset[JsonValue]:
+    schema = inputs_schema if isinstance(inputs_schema, list) else []
+    return frozenset(item.get("key") for item in schema if isinstance(item, dict) and item.get("templating") is False)
+
+
+def _hog_templates_of(key: str, entry: JsonValue, literal_keys: frozenset[JsonValue]) -> Iterator[str]:
+    # The runtime renders an input with Hog unless it is Liquid or the input or its schema turns templating off.
+    if isinstance(entry, dict) and key not in literal_keys and entry.get("templating") not in ("liquid", False):
+        yield from (text for text in _strings(entry.get("value")) if "{" in text)
 
 
 @dataclass(frozen=False, eq=False)
@@ -1271,7 +1279,7 @@ def _host_rules(host: str, *, is_target: bool, is_reference: bool) -> Iterator[R
 def _located_values(content: HogFunctionContent) -> Iterator[tuple[str, str | None, JsonValue]]:
     """Every value the host rules read, with where it sits and its input key."""
     yield "code", None, content.hog
-    for location, key, entry, _schema in _located_inputs(content):
+    for location, key, entry, _literal in _located_inputs(content):
         yield location, key, entry
     yield "masking", None, content.masking
 
@@ -1285,22 +1293,24 @@ def _location_key(key: str) -> str:
     return key if len(key) <= _MAX_LOCATION_KEY_CHARS else f"{key[:_MAX_LOCATION_KEY_CHARS]} [truncated]"
 
 
-def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, JsonValue, JsonValue]]:
+def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, JsonValue, frozenset[JsonValue]]]:
+    """Each input with its location and the literal keys of its schema, read once per schema."""
     sources: list[tuple[str, JsonValue, JsonValue]] = [("", content.inputs, content.inputs_schema)]
     for index, mapping in enumerate(content.mappings):
         if isinstance(mapping, dict):
             sources.append((f"mapping {index} ", mapping.get("inputs"), mapping.get("inputs_schema")))
     for prefix, inputs, schema in sources:
         if isinstance(inputs, dict):
+            literal_keys = _literal_keys(schema)
             for key, entry in inputs.items():
-                yield f"{prefix}input:{_location_key(key)}", key, entry, schema
+                yield f"{prefix}input:{_location_key(key)}", key, entry, literal_keys
 
 
 def _located_code_rules(content: HogFunctionContent) -> Iterator[tuple[str, Rule]]:
     if content.code_modified_from_template is not False:
         yield from (("code", rule) for rule in _hog_code_rules(_parse_code, content.hog))
-    for location, key, entry, schema in _located_inputs(content):
-        for template in _hog_template_inputs({key: entry}, schema):
+    for location, key, entry, literal_keys in _located_inputs(content):
+        for template in _hog_templates_of(key, entry, literal_keys):
             yield from ((location, rule) for rule in _hog_code_rules(_parse_template, template))
         if isinstance(entry, dict) and entry.get("templating") == "liquid":
             if any(_has_huge_liquid_range(text) for text in _strings(entry.get("value"))):

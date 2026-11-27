@@ -218,7 +218,24 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert classification["rule_evidence_omitted"] == 26 - case_file.MAX_RULE_EVIDENCE
 
     def test_no_secret_value_reaches_the_case_file(self) -> None:
-        destination = self.create_destination(encrypted_inputs={"api_key": {"value": SECRET_VALUE}})
+        legacy_secret = "legacy-mapping-token-0042"
+        destination = self.create_destination(
+            encrypted_inputs={"api_key": {"value": SECRET_VALUE}},
+            # Only top-level secrets move to the encrypted field, so an older mapping keeps its secret in plain text.
+            mappings=[
+                {
+                    "name": "Orders",
+                    "inputs_schema": [{"key": "token", "type": "string", "label": "Token", "secret": True}],
+                    "inputs": {"token": {"value": legacy_secret}},
+                }
+            ],
+        )
+        # Code saved before the credential moved into a secret input.
+        self.log(
+            destination,
+            "updated",
+            changes=[{"field": "hog", "after": f"fetch('https://x.example.com/?key={SECRET_VALUE}')"}],
+        )
         # The activity log masks inputs but not the inputs schema, whose secret default holds the value.
         self.log(
             destination,
@@ -241,6 +258,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
                 "hog": "fetch(inputs.url)",
                 "request_origins": [
                     f"https://{SECRET_VALUE}.example.com",
+                    f"https://{legacy_secret}.example.com",
                     f"https://{SECRET_VALUE}." + "a" * 60 + "." + ("b" * 60 + ".") * 5 + "example.com",
                 ],
             },
@@ -256,6 +274,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
         serialized = build_case_file(destination, score(destination)).to_json()
 
         assert SECRET_VALUE not in serialized
+        assert legacy_secret not in serialized
         assert "https://hooks.example.com/orders" in serialized
 
     def test_history_and_the_org_function_check_are_capped_to_the_latest(self) -> None:
@@ -306,6 +325,14 @@ class TestAbuseReview(AbuseClassificationTestCase):
                     "masking": None,
                 },
             ),
+            (
+                "escaped_hosts_beside_a_full_config",
+                {
+                    "hog": "".join(f"fetch('http://h{index:02}{'%01' * 250}.example.com/');" for index in range(25))
+                    + "\n// "
+                    + " ".join(f"w{index}" for index in range(12_000)),
+                },
+            ),
         ]
     )
     def test_a_huge_name_cannot_push_the_history_out(self, _name: str, overrides: dict[str, Any]) -> None:
@@ -314,7 +341,7 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         case = self.case_of(destination)
 
-        assert len(json.dumps(case)) <= case_file.MAX_CASE_FILE_CHARS
+        assert len(json.dumps(case, ensure_ascii=False, separators=(",", ":"))) <= case_file.MAX_CASE_FILE_CHARS
         assert [entry["code"] for entry in case["history"]] == ["fetch('http://127.0.0.1')"]
 
 
