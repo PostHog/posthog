@@ -38,7 +38,7 @@ function faultRuleOf(fault: FakeSesFault, dose: FaultRule['dose'] = { share: 1 }
         case 'accept-then-drop-connection':
             return { name: 'ses.accept_then_drop', answer: { kind: 'ambiguous', accepted: true }, dose }
         case 'accept-then-hold-answer':
-            return { name: 'ses.accept_then_hold', answer: { kind: 'hold-answer' }, dose }
+            return { name: 'ses.accept_then_hold', answer: { kind: 'hold-answer' }, dose: { count: 1 } }
         case 'answer-without-message-id':
             return {
                 name: 'ses.no_message_id',
