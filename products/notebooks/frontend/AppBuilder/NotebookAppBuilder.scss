@@ -18,6 +18,47 @@
     &__slot {
         grid-column: span var(--app-block-width, 12);
         min-width: 0;
+        container: notebook-app-card / inline-size;
+    }
+
+    &__slot--sized {
+        align-self: start;
+
+        > .LemonCard,
+        .NotebookAppBuilder__cell-block,
+        .NotebookAppBuilder__published-query {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .NotebookAppBuilder__card-body {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+        }
+
+        .NotebookAppBuilder__cell-block > * {
+            flex-shrink: 0;
+        }
+
+        .NotebookAppBuilder__cell-output {
+            flex: 1 0 4rem;
+            container-type: size;
+        }
+
+        .MarkdownNotebook__real-node-content {
+            height: 100cqh !important;
+            min-height: 0;
+        }
+
+        .NotebookAppBuilder__published-query > div {
+            flex: 1;
+        }
+
+        .BoldNumber.HogQL {
+            padding: 0.25rem 0.5rem;
+        }
     }
 
     &__page {
@@ -53,7 +94,23 @@
 
     @container (max-width: 30rem) {
         &__slot {
+            --app-grid-stacked: 1;
+
             grid-column: span 12;
+        }
+    }
+
+    @container notebook-app-card (max-width: 9rem) {
+        &__slot > .LemonCard {
+            --app-card-padding: 1rem 2cqw;
+        }
+
+        &__toolbar-shortcut {
+            display: none;
+        }
+
+        &__card-body {
+            overflow: auto;
         }
     }
 }

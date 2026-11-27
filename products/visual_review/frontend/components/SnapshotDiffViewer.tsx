@@ -25,6 +25,8 @@ import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
 import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
+import { SnapshotDecisionActions, type SnapshotDecisionActionsProps } from './SnapshotDecisionActions'
+import { SnapshotDecisionLine } from './SnapshotDecisionLine'
 import { SnapshotShiftSummary } from './SnapshotShiftSummary'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
@@ -70,8 +72,16 @@ function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): J
     )
 }
 
+export type ReviewDecisionsProps = Omit<SnapshotDecisionActionsProps, 'snapshot' | 'isQuarantined' | 'onTolerate'> & {
+    /** A finalized run shows its decisions but takes no new ones. */
+    finalized: boolean
+    headPictureLine: string | null
+}
+
 interface SnapshotDiffViewerProps {
     snapshot: SnapshotApi
+    /** Set in ledger mode, where accepts and rejections count across the runs of the pull request. */
+    reviewDecisions?: ReviewDecisionsProps | null
     toleratedHashes?: ToleratedHashEntryApi[]
     toleratedHashesLoading?: boolean
     recentTolerations?: RecentTolerations | null
@@ -100,6 +110,7 @@ interface SnapshotDiffViewerProps {
 
 export function SnapshotDiffViewer({
     snapshot,
+    reviewDecisions,
     toleratedHashes,
     toleratedHashesLoading,
     recentTolerations,
@@ -183,7 +194,9 @@ export function SnapshotDiffViewer({
         isQuarantined &&
         (snapshot.result === 'changed' || snapshot.result === 'new') &&
         !isApproved &&
+        snapshot.review_state !== 'rejected' &&
         !isReportingOnly &&
+        !reviewDecisions?.finalized &&
         !!onApprove
 
     // A snapshot that keeps needing a toleration is flaky, and one more toleration
@@ -280,7 +293,25 @@ export function SnapshotDiffViewer({
                         classificationReason={snapshot.classification_reason}
                     />
 
-                    {needsAction && (
+                    {/* A rejected unchanged pair is tolerated, but its rejection still blocks finalize until undone here.
+                        Once accepted anyway, it keeps the actions so the accept can be undone. */}
+                    {reviewDecisions &&
+                        !reviewDecisions.finalized &&
+                        (hasChanges || snapshot.review_state === 'rejected' || snapshot.review_state === 'approved') &&
+                        !isReportingOnly && (
+                            <SnapshotDecisionActions
+                                snapshot={snapshot}
+                                isQuarantined={isQuarantined}
+                                onTolerate={openTolerateDialog}
+                                currentUserId={reviewDecisions.currentUserId}
+                                lockedReason={reviewDecisions.lockedReason}
+                                decidingAction={reviewDecisions.decidingAction}
+                                onAccept={reviewDecisions.onAccept}
+                                onReject={reviewDecisions.onReject}
+                                onUndo={reviewDecisions.onUndo}
+                            />
+                        )}
+                    {needsAction && !reviewDecisions && (
                         <>
                             <LemonButton
                                 type="secondary"
@@ -322,6 +353,7 @@ export function SnapshotDiffViewer({
                             size="small"
                             onClick={openAcceptQuarantinedDialog}
                             loading={isApproving}
+                            disabledReason={reviewDecisions?.lockedReason ?? undefined}
                             tooltip="This change does not block the pull request because the story is quarantined. Accept it only if your pull request changes this story."
                             data-attr="visual-review-snapshot-accept-quarantined"
                         >
@@ -330,6 +362,10 @@ export function SnapshotDiffViewer({
                     )}
                 </div>
             </div>
+
+            {reviewDecisions && (
+                <SnapshotDecisionLine snapshot={snapshot} headPictureLine={reviewDecisions.headPictureLine} />
+            )}
 
             {/* Content + sidebar */}
             <div className="flex flex-col gap-4 @4xl/snapshot-review:flex-row">
@@ -453,7 +489,7 @@ export function SnapshotDiffViewer({
                                 )}
                                 {isApproved && snapshot.reviewed_at && (
                                     <div className="flex items-center justify-between text-xs">
-                                        <span className="text-muted">Approved</span>
+                                        <span className="text-muted">Accepted</span>
                                         <div className="flex items-center gap-1">
                                             {snapshot.reviewed_by && (
                                                 <ProfilePicture user={snapshot.reviewed_by} size="xs" />

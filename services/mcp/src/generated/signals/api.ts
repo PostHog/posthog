@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 97 enabled ops
+ * PostHog API - MCP 98 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -821,9 +821,9 @@ export const signalsReportsCreateBodyChartsItemCaptionMax = 500
 
 export const signalsReportsCreateBodyChartsMax = 20
 
-export const signalsReportsCreateBodySuggestedPromptsItemMax = 200
+export const signalsReportsCreateBodySuggestedPromptsItemMax = 2000
 
-export const signalsReportsCreateBodySuggestedPromptsMax = 3
+export const signalsReportsCreateBodySuggestedPromptsMax = 10
 
 export const signalsReportsCreateBodyLinksItemReasonMax = 500
 
@@ -992,7 +992,7 @@ export const SignalsReportsCreateBody = () => zod
             .max(signalsReportsCreateBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out."
             ),
         links: zod
             .array(
@@ -2775,6 +2775,21 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyMax = 64
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyRegExp = new RegExp(
+    '^[a-z0-9]+(?:-[a-z0-9]+)\*$'
+)
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemWhenMax = 300
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserMax = 255
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelMax = 255
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToMax = 5
+
+export const signalsScoutConfigCreateBodyOutputDestinationsOneMessagesMax = 10
+
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyDisplayNameMax = 200
@@ -2949,7 +2964,55 @@ export const SignalsScoutConfigCreateBody = () => zod
                     .describe(
                         "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                     ),
+                messages: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyMax)
+                                .regex(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemKeyRegExp)
+                                .describe('Slug the scout names to send on this route.'),
+                            when: zod
+                                .string()
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemWhenMax)
+                                .describe('When the scout should send, shown in its run prompt.'),
+                            to: zod
+                                .array(
+                                    zod.object({
+                                        type: zod
+                                            .enum(['slack_dm', 'slack_channel'])
+                                            .describe(
+                                                '\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
+                                            ),
+                                        user: zod
+                                            .string()
+                                            .max(
+                                                signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemUserMax
+                                            )
+                                            .optional()
+                                            .describe('Slack member ID, for `slack_dm`.'),
+                                        channel: zod
+                                            .string()
+                                            .max(
+                                                signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToItemChannelMax
+                                            )
+                                            .optional()
+                                            .describe('Slack channel ID, for `slack_channel`. Never a shared channel.'),
+                                    })
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesItemToMax),
+                        })
+                    )
+                    .max(signalsScoutConfigCreateBodyOutputDestinationsOneMessagesMax)
+                    .optional()
+                    .describe(
+                        'Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.'
+                    ),
             })
+            .describe(
+                'Output destinations plus message routes. Only the config create and update paths take routes, so the\nscout and source-product create tools keep their schemas small.'
+            )
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
         network_access: zod
@@ -3031,6 +3094,21 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
     '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyMax = 64
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyRegExp = new RegExp(
+    '^[a-z0-9]+(?:-[a-z0-9]+)\*$'
+)
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemWhenMax = 300
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserMax = 255
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelMax = 255
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToMax = 5
+
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesMax = 10
 
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
@@ -3152,7 +3230,55 @@ export const SignalsScoutConfigUpdateBody = () => zod
                     .describe(
                         "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value."
                     ),
+                messages: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyMax)
+                                .regex(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemKeyRegExp)
+                                .describe('Slug the scout names to send on this route.'),
+                            when: zod
+                                .string()
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemWhenMax)
+                                .describe('When the scout should send, shown in its run prompt.'),
+                            to: zod
+                                .array(
+                                    zod.object({
+                                        type: zod
+                                            .enum(['slack_dm', 'slack_channel'])
+                                            .describe(
+                                                '\* `slack_dm` - Slack direct message\n\* `slack_channel` - Slack channel'
+                                            ),
+                                        user: zod
+                                            .string()
+                                            .max(
+                                                signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemUserMax
+                                            )
+                                            .optional()
+                                            .describe('Slack member ID, for `slack_dm`.'),
+                                        channel: zod
+                                            .string()
+                                            .max(
+                                                signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToItemChannelMax
+                                            )
+                                            .optional()
+                                            .describe('Slack channel ID, for `slack_channel`. Never a shared channel.'),
+                                    })
+                                )
+                                .min(1)
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesItemToMax),
+                        })
+                    )
+                    .max(signalsScoutConfigUpdateBodyOutputDestinationsOneMessagesMax)
+                    .optional()
+                    .describe(
+                        'Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.'
+                    ),
             })
+            .describe(
+                'Output destinations plus message routes. Only the config create and update paths take routes, so the\nscout and source-product create tools keep their schemas small.'
+            )
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
@@ -4141,9 +4267,9 @@ export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
 
 export const signalsScoutEditReportBodyMetricsMax = 6
 
-export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
+export const signalsScoutEditReportBodySuggestedPromptsItemMax = 2000
 
-export const signalsScoutEditReportBodySuggestedPromptsMax = 3
+export const signalsScoutEditReportBodySuggestedPromptsMax = 10
 
 export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
@@ -4442,7 +4568,7 @@ export const SignalsScoutEditReportBody = () => zod
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
             .nullish()
             .describe(
-                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report."
+                "The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were."
             ),
         links: zod
             .array(
@@ -4627,9 +4753,9 @@ export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
 
 export const signalsScoutEmitReportBodyMetricsMax = 6
 
-export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
+export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 2000
 
-export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+export const signalsScoutEmitReportBodySuggestedPromptsMax = 10
 
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
@@ -4902,7 +5028,7 @@ export const SignalsScoutEmitReportBody = () => zod
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
-                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+                "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out."
             ),
         links: zod
             .array(
@@ -5456,6 +5582,63 @@ export const SignalsScoutReportCheckCreateBody = () => zod
     .describe(
         'Request body for `scout-report-check-create`: one forward-looking check on a report.\n\nThe REST body plus the report it attaches to. Subclassed rather than restated so the schedule\nbounds a scout writes under are the ones the endpoint enforces, with no second copy to drift.'
     )
+
+/**
+ * Ask to message a person or channel through one of the scout config's routes (`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the message must point at a report this run wrote or edited. Nothing is posted during the run: the message is queued and sent when the run ends, and a second call with the same route and `dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key sent in the last 30 days is refused as a duplicate.
+ * @summary Send a message through an owner-set route
+ */
+export const SignalsScoutSendMessageParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutSendMessageBodyRouteMax = 64
+
+export const signalsScoutSendMessageBodyReportIdMax = 64
+
+export const signalsScoutSendMessageBodyTitleMax = 80
+
+export const signalsScoutSendMessageBodyBodyMax = 500
+
+export const signalsScoutSendMessageBodyDedupeKeyMax = 200
+
+export const SignalsScoutSendMessageBody = () => zod
+    .object({
+        route: zod
+            .string()
+            .max(signalsScoutSendMessageBodyRouteMax)
+            .describe(
+                "Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient."
+            ),
+        report_id: zod
+            .string()
+            .max(signalsScoutSendMessageBodyReportIdMax)
+            .nullish()
+            .describe(
+                'Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.'
+            ),
+        title: zod
+            .string()
+            .max(signalsScoutSendMessageBodyTitleMax)
+            .describe('Short plain-text title. At most 80 characters.'),
+        body: zod
+            .string()
+            .max(signalsScoutSendMessageBodyBodyMax)
+            .describe(
+                'Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+            ),
+        dedupe_key: zod
+            .string()
+            .max(signalsScoutSendMessageBodyDedupeKeyMax)
+            .describe(
+                'Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.'
+            ),
+    })
+    .describe('Request body for `scout-send-message`: one message on an owner-set route.')
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).

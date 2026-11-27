@@ -320,7 +320,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 "name": "many-files-skill",
                 "description": "Has too many files.",
                 "body": "# Body",
-                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(201)],
+                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(MAX_SKILL_FILE_COUNT + 1)],
             },
             format="json",
         )
@@ -2092,10 +2092,16 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_create_file_enforces_max_file_count(self):
+    @parameterized.expand(
+        [
+            ("last_file_fits", MAX_SKILL_FILE_COUNT - 1, status.HTTP_201_CREATED),
+            ("one_past_the_limit", MAX_SKILL_FILE_COUNT, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_create_file_enforces_max_file_count(self, _name: str, existing_count: int, expected_status: int):
         skill = self.create_skill(name="crud-max")
         LLMSkillFile.objects.bulk_create(
-            [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(MAX_SKILL_FILE_COUNT)]
+            [LLMSkillFile(skill=skill, path=f"f{i}.md", content="x") for i in range(existing_count)]
         )
 
         response = self.client.post(
@@ -2104,8 +2110,11 @@ class TestLLMSkillAPI(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert str(MAX_SKILL_FILE_COUNT) in response.json()["detail"]
+        else:
+            assert len(response.json()["files"]) == MAX_SKILL_FILE_COUNT
 
     def test_create_file_on_unknown_skill_returns_404(self):
         response = self.client.post(

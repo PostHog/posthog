@@ -78,7 +78,12 @@ function NotebookAppSceneEnabled({ shortId, children }: { shortId: string; child
             ) : (
                 <Suspense fallback={<Spinner />}>
                     {view === 'app' ? (
-                        <PublishedNotebookApp key={shortId} shortId={shortId} />
+                        <PublishedNotebookApp
+                            key={JSON.stringify([shortId, hashParams.appView?.tab, hashParams.appView?.inputs])}
+                            shortId={shortId}
+                            initialInputs={hashParams.appView?.inputs}
+                            initialTab={hashParams.appView?.tab}
+                        />
                     ) : (
                         <NotebookAppBuilder shortId={shortId} />
                     )}

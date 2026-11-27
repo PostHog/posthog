@@ -8,7 +8,12 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { PRBrowserPageApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { MONITORING_MOCK_NOW, monitoringRows } from '../../__mocks__/monitoringMocks'
+import {
+    MONITORING_MOCK_NOW,
+    monitoringChecksForReport,
+    monitoringMetricQueryHandler,
+    monitoringRows,
+} from '../../__mocks__/monitoringMocks'
 import { monitoringTabLogic } from '../../logics/monitoringTabLogic'
 import { MonitoringTab } from './MonitoringTab'
 
@@ -72,6 +77,17 @@ const meta: Meta = {
                     { results: monitoringRows, count: monitoringRows.length, next: null, previous: null },
                 ],
                 '/api/projects/:id/signals/pull_requests': () => [200, prPage],
+                '/api/projects/:id/signals/reports/:reportId/checks/': ({ params }) => [
+                    200,
+                    {
+                        results: monitoringChecksForReport(
+                            monitoringRows.find((report) => report.id === params.reportId) ?? monitoringRows[0]
+                        ),
+                    },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': monitoringMetricQueryHandler,
             },
         }),
     ],

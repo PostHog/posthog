@@ -1995,30 +1995,49 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
     matches the ticket's email_from field.
     """
 
-    def _create_email_ticket(self, email_from, distinct_id=None):
+    def _create_email_ticket(self, email_from, distinct_id=None, anonymous_traits=None, identity_verified=False):
         return Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
             distinct_id=distinct_id or email_from,
             email_from=email_from,
             status=Status.NEW,
+            anonymous_traits=anonymous_traits or {},
+            identity_verified=identity_verified,
         )
 
-    def test_email_fallback_matches_person_by_email_property(self, mock_on_commit):
+    @parameterized.expand(
+        [
+            ("direct_email", {}, False, True),
+            ("unverified_relayed_email", {"email_relayed": True}, False, False),
+            ("verified_relayed_email", {"email_relayed": True}, True, True),
+        ]
+    )
+    def test_email_fallback_matches_person_by_email_property(
+        self, mock_on_commit, _name, anonymous_traits, identity_verified, expect_person
+    ):
         _create_person(
             team=self.team,
             distinct_ids=["some-other-id"],
             properties={"email": "alice@example.com"},
             immediate=True,
         )
-        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+        self._create_email_ticket(
+            email_from="alice@example.com",
+            distinct_id="alice@example.com",
+            anonymous_traits=anonymous_traits,
+            identity_verified=identity_verified,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
 
         assert response.status_code == status.HTTP_200_OK
         person_data = response.json()["results"][0]["person"]
-        assert person_data is not None
-        assert person_data["properties"]["email"] == "alice@example.com"
+        if expect_person:
+            assert person_data is not None
+            assert person_data["properties"]["email"] == "alice@example.com"
+        else:
+            assert person_data is None
 
     def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
         person = _create_person(

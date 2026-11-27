@@ -73,6 +73,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     ParquetStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
+    TypeTupleToCastMapping,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
 from products.batch_exports.backend.temporal.queue import (
@@ -1363,12 +1364,34 @@ class BigQueryConsumer(Consumer):
         self.current_buffer = io.BytesIO()
 
 
-def _make_parquet_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: int) -> PipelineTransformer:
+def _seconds_since_epoch_to_timestamp_us(arr: pa.Array) -> pa.Array:
+    """Convert expected timestamp columns that are expressed as seconds.
+
+    This is intended only for to resolve incompatibilities with the persons model.
+    """
+    # NOTE: Lossless. Required as Arrow does not support straight uint32 to timestamp.
+    int64_array = arr.cast(pa.int64())
+    # NOTE: Convert first to timestamp with second precision so that each number is treated as number of seconds. Going directly to us precision would treat each as number of microseconds!
+    ts_array = int64_array.cast(pa.timestamp("s", tz="UTC"))
+    return ts_array.cast(pa.timestamp("us", tz="UTC"))
+
+
+def _make_parquet_pipeline_transformer(
+    table: BigQueryTable, max_file_size_bytes: int, model_name
+) -> PipelineTransformer:
     """Helper to initialize a transformer for Parquet files."""
+    if model_name == "persons":
+        extra_compatible_types: TypeTupleToCastMapping | None = {
+            (pa.uint32(), pa.timestamp("us", tz="UTC")): _seconds_since_epoch_to_timestamp_us
+        }
+    else:
+        extra_compatible_types = None
+
     transformer = PipelineTransformer(
         transformers=(
             SchemaTransformer(
                 table=table,
+                extra_compatible_types=extra_compatible_types,
             ),
             ParquetStreamTransformer(
                 compression="zstd",
@@ -1657,7 +1680,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     for index, consumer_table in enumerate(consumer_tables):
                         if can_perform_merge:
                             transformer = _make_parquet_pipeline_transformer(
-                                consumer_table, max_file_size_bytes_per_consumer
+                                consumer_table, max_file_size_bytes_per_consumer, model.name
                             )
                         else:
                             transformer = _make_jsonl_pipeline_transformer(
@@ -1771,6 +1794,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
+            use_new_events_schema=inputs.use_new_events_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=bigquery_default_fields(),
             integration_id=inputs.integration_id,

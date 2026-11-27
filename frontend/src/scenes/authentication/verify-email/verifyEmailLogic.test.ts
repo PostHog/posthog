@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -79,5 +80,24 @@ describe('verifyEmailLogic', () => {
 
         expect(router.values.location.pathname).toEqual(urls.login())
         expect(router.values.searchParams).toEqual({ next: '/insights' })
+    })
+
+    it('shows why a resend failed when the email provider refuses the address', async () => {
+        jest.spyOn(lemonToast, 'error')
+        const detail = "We can't send email to this address, so we can't send you a verification code."
+        useMocks({
+            post: {
+                '/api/users/request_email_verification/': () => [
+                    400,
+                    { type: 'validation_error', code: 'email_verification_code_undeliverable', detail },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.requestVerificationCode('abc-123')).toDispatchActions([
+            'requestVerificationCodeSuccess',
+        ])
+
+        expect(lemonToast.error).toHaveBeenCalledWith(detail)
     })
 })
