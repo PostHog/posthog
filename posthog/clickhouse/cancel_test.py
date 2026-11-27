@@ -48,7 +48,7 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
     monkeypatch.setattr(settings, "CLICKHOUSE_EVENTS_ONLINE_HOST", events_online)
     monkeypatch.setattr(settings, "CLICKHOUSE_EVENTS_OFFLINE_HOST", events_offline)
     monkeypatch.setattr(settings, "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", True)
-    kills: list[tuple[str, str, dict[str, str]]] = []
+    kills: list[tuple[str, str, dict[str, Any]]] = []
 
     @contextmanager
     def connect(*, host: str, **_kwargs: object) -> "Iterator[str]":
@@ -56,7 +56,7 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
             raise ConnectionError("Legacy cluster unavailable")
         yield host
 
-    def execute(query: str, params: dict[str, str], *, sync_client: str) -> list[list[str]]:
+    def execute(query: str, params: dict[str, Any], *, sync_client: str) -> list[list[str]]:
         if query.lstrip().startswith("SELECT"):
             assert "startsWith(query_id, %(client_query_id)s)" in query
             assert params["client_query_id"] == "42_requested"
@@ -78,14 +78,14 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
 
     assert [host for host, _query, _params in kills] == expected_kill_hosts
     if running_cluster:
-        assert kills[0][1] == "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5"
-        assert kills[0][2] == {"query_id": "42_requested_suffix"}
+        assert kills[0][1] == "KILL QUERY WHERE query_id IN %(query_ids)s ASYNC SETTINGS max_execution_time = 5"
+        assert kills[0][2] == {"query_ids": ["42_requested_suffix"]}
     else:
         for host, query, params in kills:
             cluster = "legacy" if host == "legacy.example.com" else "events"
-            assert f"KILL QUERY ON CLUSTER '{cluster}'" in query
+            assert "KILL QUERY ON CLUSTER %(cluster)s" in query
             assert "startsWith(query_id, %(client_query_id)s)" in query
-            assert params == {"client_query_id": "42_requested"}
+            assert params == {"cluster": cluster, "client_query_id": "42_requested"}
 
 
 def _running(tag: str) -> int:
@@ -113,53 +113,66 @@ def _connect_to_the_test_host(*, host: str, **kwargs: Any) -> Any:
 
 
 @pytest.mark.django_db
-def test_stops_a_running_query_that_carries_the_id_of_the_query_it_was_started_for() -> None:
+def test_cancels_all_series_and_the_build_for_one_request() -> None:
     team_id = 42
-    requester_query_id = f"alert-check:{uuid4()}"
+    requester_query_id = f"anomaly_scoring_{uuid4().hex}"
     errors: list[Exception] = []
-
-    thread = _start_slow_query(team_id, f"{uuid4()}_{requester_query_id}", errors)
+    ids = [requester_query_id, requester_query_id, f"{uuid4()}_{requester_query_id}"]
+    threads = [_start_slow_query(team_id, query_id, errors) for query_id in ids]
     try:
-        wait_until(lambda: _running(requester_query_id) == 1, timeout=15, message="the slow query did not start")
-        with patch("posthog.clickhouse.cancel.default_client", side_effect=_connect_to_the_test_host):
-            cancel_queries_started_for(team_id, requester_query_id)
-    finally:
-        thread.join(timeout=40)
-
-    assert not thread.is_alive()
-    [error] = errors
-    assert isinstance(error, CHQueryErrorQueryWasCancelled)
-
-
-@pytest.mark.django_db
-def test_a_kill_that_fails_does_not_stop_the_other_kills() -> None:
-    team_id = 42
-    requester_query_id = f"alert-check:{uuid4()}"
-    errors: list[Exception] = []
-    connections = 0
-
-    # The first connection is the lookup, and the second is the first kill.
-    def fail_the_first_kill(*, host: str, **kwargs: Any) -> Any:
-        nonlocal connections
-        connections += 1
-        if connections == 2:
-            raise ConnectionError("host unreachable")
-        return _connect_to_the_test_host(host=host, **kwargs)
-
-    threads = [_start_slow_query(team_id, f"{uuid4()}_{requester_query_id}", errors) for _ in range(2)]
-    try:
-        wait_until(lambda: _running(requester_query_id) == 2, timeout=15, message="the slow queries did not start")
-        with patch("posthog.clickhouse.cancel.default_client", side_effect=fail_the_first_kill):
-            cancel_queries_started_for(team_id, requester_query_id)
-        wait_until(lambda: _running(requester_query_id) == 1, timeout=15, message="the second kill did not land")
-        with patch("posthog.clickhouse.cancel.default_client", side_effect=_connect_to_the_test_host):
+        wait_until(lambda: _running(requester_query_id) == 3, timeout=15, message="the slow queries did not start")
+        with (
+            tags_context(team_id=team_id, client_query_id=requester_query_id),
+            patch("posthog.clickhouse.cancel.default_client", side_effect=_connect_to_the_test_host),
+        ):
             cancel_queries_started_for(team_id, requester_query_id)
     finally:
         for thread in threads:
             thread.join(timeout=40)
 
     assert not any(thread.is_alive() for thread in threads)
-    assert [type(error) for error in errors] == [CHQueryErrorQueryWasCancelled] * 2
+    assert [type(error) for error in errors] == [CHQueryErrorQueryWasCancelled] * 3
+
+
+def test_a_failed_host_does_not_stop_the_batch_for_the_next_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "CLICKHOUSE_EVENTS_ONLINE_HOST", None)
+    monkeypatch.setattr(settings, "CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
+    killed: list[tuple[str, list[str]]] = []
+
+    def execute(query: str, params: dict[str, Any], *, sync_client: str) -> list:
+        if query.lstrip().startswith("SELECT"):
+            return [("down", "a"), ("up", "b"), ("up", "c"), ("up", "b")]
+        if sync_client == "down":
+            raise ConnectionError("host unreachable")
+        killed.append((sync_client, params["query_ids"]))
+        return []
+
+    with (
+        patch("posthog.clickhouse.cancel.default_client", side_effect=lambda **kwargs: nullcontext(kwargs["host"])),
+        patch("posthog.clickhouse.cancel.sync_execute", side_effect=execute),
+    ):
+        cancel_queries_started_for(42, "request")
+
+    assert killed == [("up", ["b", "c"])]
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_a_group_fallback_uses_the_same_match_as_discovery(fallback: bool) -> None:
+    with (
+        patch("posthog.clickhouse.cancel._lookup_hosts", return_value={"legacy": "lookup"}),
+        patch("posthog.clickhouse.cancel.default_client", return_value=nullcontext("lookup")),
+        patch("posthog.clickhouse.cancel.sync_execute", return_value=[]) as execute,
+    ):
+        cancel_queries_started_for(42, "attempt:1", fallback_on_cluster=fallback)
+
+    lookup, *kills = execute.call_args_list
+    assert len(kills) == int(fallback)
+    if fallback:
+        (kill,) = kills
+        predicate = "match(query_id, concat(%(start)s, regexpQuoteMeta(%(client_query_id)s), %(end)s))"
+        assert predicate in lookup.args[0] and predicate in kill.args[0]
+        assert "KILL QUERY ON CLUSTER" in kill.args[0]
+        assert kill.args[1] == lookup.args[1]
 
 
 @pytest.mark.django_db
