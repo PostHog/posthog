@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isFeedReplayLayout, playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { replayLayoutFeedbackLogic } from 'scenes/session-recordings/playlist/replayLayoutFeedbackLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -161,7 +162,14 @@ function SessionRecordingPlayerInternal({
     const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelLayout } =
         useValues(playerSettingsLogic)
     const { setWatchDebugDock, setWatchPanelLayout } = useActions(playerSettingsLogic)
-    const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
+    const { recordingEnded } = useActions(replayLayoutFeedbackLogic)
+    const watchLayout = playerUsesWatchLayout(replayLayout, logicProps)
+    useEffect(() => {
+        if (endReached && watchLayout) {
+            recordingEnded()
+        }
+    }, [endReached, watchLayout, recordingEnded])
     const visionSurfaceShown = useVisionSurfaceShown()
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
@@ -170,7 +178,7 @@ function SessionRecordingPlayerInternal({
     // The player modal covers the side panel, so the conversation would open out of sight.
     const debugReplayAction = showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
 
-    if (playerUsesWatchLayout(replayLayout, logicProps)) {
+    if (watchLayout) {
         const feed = isFeedReplayLayout(replayLayout)
         const rightDock = debugMode && !feed && watchDebugDock === 'right' && !isFullScreen
         return (

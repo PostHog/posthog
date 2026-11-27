@@ -26,6 +26,7 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { FeedDebugSlotContext } from '../player/watch/FeedDebugPanel'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
+import { replayLayoutFeedbackLogic } from './replayLayoutFeedbackLogic'
 import { ReplayListColumn } from './ReplayListColumn'
 import { replayListColumnLogic } from './replayListColumnLogic'
 import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
@@ -55,13 +56,19 @@ export function SessionRecordingsPlaylist({
         watchLayout,
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { canOverrideLayout } = useValues(playerSettingsLogic)
+    const { canOverrideLayout, replayLayout } = useValues(playerSettingsLogic)
     useEffect(() => {
         // Opening the Replay page is the exposure. An override is not the flag's arm.
         if (watchLayout && receivedFeatureFlags && !canOverrideLayout) {
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
     }, [watchLayout, receivedFeatureFlags, featureFlags, canOverrideLayout])
+    const { replayPageOpened } = useActions(replayLayoutFeedbackLogic)
+    useEffect(() => {
+        if (watchLayout && receivedFeatureFlags) {
+            replayPageOpened()
+        }
+    }, [watchLayout, receivedFeatureFlags, replayLayout, replayPageOpened])
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
@@ -74,7 +81,6 @@ export function SessionRecordingsPlaylist({
     }
     const isVerticalLayout = layoutRef.current
 
-    const { replayLayout } = useValues(playerSettingsLogic)
     const feedLayout = watchLayout && isFeedReplayLayout(replayLayout)
 
     const columns = isVerticalLayout ? (

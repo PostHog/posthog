@@ -10,8 +10,10 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { REPLAY_LAYOUT_FEEDBACK_SURVEY_ID } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -26,6 +28,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { replayLayoutFeedbackLogic } from 'scenes/session-recordings/playlist/replayLayoutFeedbackLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -60,7 +63,8 @@ function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
-    const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
+    const { setStaffLayoutOverride } = useActions(playerSettingsLogic)
+    const { switchLayout } = useActions(replayLayoutFeedbackLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { hasAvailableFeature } = useValues(userLogic)
@@ -87,7 +91,7 @@ function Header(): JSX.Element {
                             <LemonSegmentedButton
                                 size="small"
                                 value={replayLayout === 'classic' ? 'classic' : 'new'}
-                                onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
+                                onChange={(value) => switchLayout(value === 'classic', 'header_switch')}
                                 options={[
                                     { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
                                     { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
@@ -95,6 +99,13 @@ function Header(): JSX.Element {
                             />
                         ) : null}
                     </span>
+                    {watchLayoutOffered && !canOverrideLayout && isNewReplayLayout(replayLayout) && (
+                        <FeedbackSurveyButton
+                            surveyId={REPLAY_LAYOUT_FEEDBACK_SURVEY_ID}
+                            properties={{ replay_layout: replayLayout, trigger: 'button' }}
+                            data-attr="replay-layout-feedback-button"
+                        />
+                    )}
                     <LiveRecordingsCount />
                     {filePlaybackAvailable &&
                         (todayRailNav ? (

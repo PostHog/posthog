@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { replayLayoutFeedbackLogic } from './replayLayoutFeedbackLogic'
 
 export function useHideRecordingsMenuItems(): LemonMenuItem[] {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
@@ -53,7 +54,7 @@ export function useTimestampFormatMenuItems(): LemonMenuItem[] {
 
 export function useLayoutMenuItems(): LemonMenuItem[] {
     const { watchLayoutOffered, replayLayout, canOverrideLayout } = useValues(playerSettingsLogic)
-    const { setPreferClassicReplayLayout } = useActions(playerSettingsLogic)
+    const { switchLayout } = useActions(replayLayoutFeedbackLogic)
 
     if (!watchLayoutOffered || canOverrideLayout) {
         return []
@@ -62,13 +63,13 @@ export function useLayoutMenuItems(): LemonMenuItem[] {
     return [
         {
             label: 'New',
-            onClick: () => setPreferClassicReplayLayout(false),
+            onClick: () => switchLayout(false, 'layout_menu'),
             active: replayLayout !== 'classic',
             'data-attr': 'list-layout-new',
         },
         {
             label: 'Legacy',
-            onClick: () => setPreferClassicReplayLayout(true),
+            onClick: () => switchLayout(true, 'layout_menu'),
             active: replayLayout === 'classic',
             'data-attr': 'list-layout-classic',
         },
