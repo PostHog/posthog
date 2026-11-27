@@ -4,6 +4,8 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import type { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import { type KeyObject, generateKeyPairSync, randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 
@@ -24,6 +26,7 @@ import { insertIntegration } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
 import { createApp } from '@/http/app'
 import { AuditQueue, insertAuditRows } from '@/integrations/audit'
+import { MirrorService } from '@/integrations/mirror'
 import { IntegrationsService } from '@/integrations/service'
 import { logger } from '@/lib/logging'
 import { register } from '@/metrics'
@@ -34,7 +37,8 @@ const CDP = 'cdp-api'
 const REVERSE_SYNC = 'posthog-integrations-reverse-sync'
 const BATCH_EXPORTS = 'temporal-worker-batch-exports'
 const TASKS_AGENT = 'temporal-worker-tasks-agent'
-const DEPLOYMENTS = [WEB, WORKER, CDP, REVERSE_SYNC, BATCH_EXPORTS, TASKS_AGENT]
+const CELERY = 'posthog-worker-django'
+const DEPLOYMENTS = [WEB, WORKER, CDP, REVERSE_SYNC, BATCH_EXPORTS, TASKS_AGENT, CELERY]
 const PAIRS: Record<string, { privateKey: KeyObject; publicKey: KeyObject }> = Object.fromEntries(
     DEPLOYMENTS.map((deployment) => [deployment, generateKeyPairSync('ed25519')])
 )
@@ -198,17 +202,24 @@ async function create(overrides: Record<string, unknown> = {}, opts: CallOptions
     return res.json
 }
 
-function buildApp(kms: Kms, replay?: ReplayStore, changesSettleSeconds = 0): Hono {
+function buildApp(
+    kms: Kms,
+    replay?: ReplayStore,
+    changesSettleSeconds = 0,
+    mirrorBeforeWrite?: (legacyId: number, attempt: number) => Promise<void>
+): Hono {
     const verifier = replay
         ? new IntegrationVerifier(integrationLoader, { replay })
         : new IntegrationVerifier(integrationLoader)
+    const envelope = new Envelope(kms)
     return createApp({
         verifier: new JwtVerifier(platformLoader),
         lifecycle: { ready: true, shuttingDown: false },
         secrets: () => null,
         integrations: {
             verifier,
-            service: new IntegrationsService({ pool, envelope: new Envelope(kms), audit, changesSettleSeconds }),
+            service: new IntegrationsService({ pool, envelope, audit, changesSettleSeconds }),
+            mirror: new MirrorService({ pool, envelope, beforeWrite: mirrorBeforeWrite }),
         },
     })
 }
@@ -1328,7 +1339,7 @@ describe('by external id', () => {
         const audited = (
             await pool.query(
                 `SELECT outcome, owner_id, fields, user_id, occurred_at FROM audit_log
-             WHERE operation = 'write_by_external_id' ORDER BY occurred_at, owner_id`
+             WHERE operation = 'write_by_external_id' ORDER BY outcome, owner_id`
             )
         ).rows
         expect(audited.map((row) => [row.outcome, row.owner_id])).toEqual([
@@ -1664,5 +1675,271 @@ describe('reverse_sync', () => {
         }
         const res = await changes('', { target: buildApp(new DownKms()) })
         expect(res.status).toBe(503)
+    })
+})
+
+describe('mirror', () => {
+    const OLDER_ACCESS_TOKEN = 'fake-older-access-token-j0k1'
+
+    function mirrorRow(legacyId: number, sourceVersion: number, overrides: Record<string, unknown> = {}) {
+        return {
+            legacy_id: legacyId,
+            deleted: false,
+            source_version: sourceVersion,
+            kind: 'hubspot',
+            integration_id: `portal-${legacyId}`,
+            auth_type: 'oauth',
+            is_source_row: false,
+            config: { region: 'us' },
+            sensitive_config: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN },
+            legacy_unreadable_keys: [],
+            errors: '',
+            created_by_id: 5,
+            created_at: '2024-01-01T00:00:00.123456+00:00',
+            ...overrides,
+        }
+    }
+
+    function deleteRow(legacyId: number, tombstone: boolean) {
+        return { legacy_id: legacyId, deleted: true, kind: 'hubspot', tombstone }
+    }
+
+    async function mirror(
+        rows: unknown[],
+        opts: CallOptions & { force?: boolean; origin?: string } = {}
+    ): Promise<CallResult> {
+        const { force = false, origin = 'write', ...callOpts } = opts
+        return call('PUT', '/mirror', {
+            deployment: CELERY,
+            ops: ['mirror'],
+            ...callOpts,
+            body: { origin, force, rows },
+        })
+    }
+
+    async function outcomes(rows: unknown[], opts: Parameters<typeof mirror>[1] = {}): Promise<string[]> {
+        const res = await mirror(rows, opts)
+        expect(res.status).toBe(200)
+        return res.json.results.map((result: { outcome: string }) => result.outcome)
+    }
+
+    async function stored(legacyId: number) {
+        const result = await pool.query(
+            `SELECT i.owner_id, i.source_version, i.deleted_at, i.version, i.kind, s.integration_id AS secret_id
+             FROM integrations i LEFT JOIN integration_secrets s ON s.integration_id = i.id
+             WHERE i.legacy_id = $1`,
+            [legacyId]
+        )
+        return result.rows[0]
+    }
+
+    async function resolveAccessToken(legacyId: number): Promise<unknown> {
+        const res = await call('POST', '/resolve', { body: { refs: [String(legacyId)] } })
+        expect(res.status).toBe(200)
+        return res.json.records[String(legacyId)]?.credentials.access_token ?? res.json.errors[String(legacyId)]
+    }
+
+    it('creates, updates, answers a resend with unchanged without KMS or audit, and replaces on force', async () => {
+        expect(await outcomes([mirrorRow(501, 1, { sensitive_config: { access_token: OLDER_ACCESS_TOKEN } })])).toEqual(
+            ['created']
+        )
+        expect(await outcomes([mirrorRow(501, 2)], { origin: 'retry' })).toEqual(['updated'])
+        const generateDataKey = vi.spyOn(kms, 'generateDataKey')
+        try {
+            expect(await outcomes([mirrorRow(501, 2)])).toEqual(['unchanged'])
+            expect(generateDataKey).not.toHaveBeenCalled()
+            expect(await outcomes([mirrorRow(501, 2)], { force: true, origin: 'repair' })).toEqual(['updated'])
+            expect(generateDataKey).toHaveBeenCalledTimes(1)
+        } finally {
+            generateDataKey.mockRestore()
+        }
+
+        expect(await stored(501)).toMatchObject({ owner_id: String(TEAM_A), source_version: '2', version: 3 })
+        expect(await resolveAccessToken(501)).toBe(ACCESS_TOKEN)
+        // Two requests can share an occurred_at millisecond, so compare the rows sorted by origin.
+        const rows = (await auditRows())
+            .filter((row) => row.operation === 'mirror')
+            .map((row: any) => [row.outcome, row.fields, row.details])
+            .sort((a, b) => a[2].origin.localeCompare(b[2].origin))
+        expect(rows).toEqual([
+            ['updated', ['access_token', 'refresh_token'], { origin: 'repair', legacy_id: 501, source_version: 2 }],
+            ['updated', ['access_token', 'refresh_token'], { origin: 'retry', legacy_id: 501, source_version: 2 }],
+            ['created', ['access_token'], { origin: 'write', legacy_id: 501, source_version: 1 }],
+        ])
+    })
+
+    it('refuses a lower version after a higher one and keeps the newer secret', async () => {
+        expect(await outcomes([mirrorRow(502, 5)])).toEqual(['created'])
+        expect(
+            await outcomes([mirrorRow(502, 4, { sensitive_config: { access_token: OLDER_ACCESS_TOKEN } })], {
+                force: true,
+            })
+        ).toEqual(['stale'])
+
+        expect(await resolveAccessToken(502)).toBe(ACCESS_TOKEN)
+        expect(await stored(502)).toMatchObject({ source_version: '5', version: 1 })
+    })
+
+    it('deletes, keeps the tombstone, and tombstones an unknown id only when asked', async () => {
+        expect(await outcomes([mirrorRow(503, 1)])).toEqual(['created'])
+        // A delete with an older version still wins, and the stored version does not go down.
+        expect(await outcomes([{ ...deleteRow(503, false), source_version: 0 }])).toEqual(['deleted'])
+        expect(await stored(503)).toMatchObject({ secret_id: null, version: 2, source_version: '1' })
+        expect((await stored(503)).deleted_at).not.toBeNull()
+        expect(await outcomes([mirrorRow(503, 9)])).toEqual(['stale'])
+        expect(await outcomes([deleteRow(503, true)])).toEqual(['unchanged'])
+
+        expect(await outcomes([deleteRow(504, true), deleteRow(505, false)])).toEqual(['deleted', 'absent'])
+        expect(await stored(504)).toMatchObject({ owner_id: String(TEAM_A), secret_id: null })
+        expect((await stored(504)).deleted_at).not.toBeNull()
+        expect(await stored(505)).toBeUndefined()
+        expect(await outcomes([mirrorRow(504, 1)])).toEqual(['stale'])
+
+        const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
+        expect(rows.map((row) => row.outcome).sort()).toEqual(['created', 'deleted', 'deleted'])
+    })
+
+    it("answers owner_mismatch for another team's legacy id and writes nothing", async () => {
+        expect(await outcomes([mirrorRow(506, 1)])).toEqual(['created'])
+        const res = await mirror([mirrorRow(506, 2)], { team: TEAM_B })
+        expect(res.json.results).toEqual([{ legacy_id: 506, outcome: 'owner_mismatch' }])
+        expect(await outcomes([deleteRow(506, false)], { team: TEAM_B })).toEqual(['owner_mismatch'])
+
+        expect(await stored(506)).toMatchObject({ owner_id: String(TEAM_A), source_version: '1', version: 1 })
+        expect((await stored(506)).deleted_at).toBeNull()
+        const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
+        expect(rows.map((row) => row.owner_id)).toEqual([String(TEAM_A)])
+    })
+
+    it('answers conflict with the legacy id that holds the same (kind, external id)', async () => {
+        expect(await outcomes([mirrorRow(507, 1, { integration_id: 'shared' })])).toEqual(['created'])
+        const res = await mirror([
+            mirrorRow(508, 1, { integration_id: 'shared' }),
+            mirrorRow(509, 1, { auth_type: 'magic' }),
+            mirrorRow(510, 1),
+        ])
+        expect(res.status).toBe(200)
+        expect(res.json.results).toEqual([
+            { legacy_id: 508, outcome: 'conflict', conflicting_legacy_id: 507 },
+            { legacy_id: 509, outcome: 'rejected', code: 'unsupported_auth_type' },
+            { legacy_id: 510, outcome: 'created', id: expect.any(String) },
+        ])
+        expect(await stored(508)).toBeUndefined()
+    })
+
+    it('stores legacy_unreadable_keys, so resolve answers unreadable_secret', async () => {
+        expect(
+            await outcomes([mirrorRow(511, 1, { sensitive_config: {}, legacy_unreadable_keys: ['access_token'] })])
+        ).toEqual(['created'])
+        expect(await resolveAccessToken(511)).toMatchObject({
+            code: 'unreadable_secret',
+            details: { keys: ['access_token'] },
+        })
+        const rows = (await auditRows()).filter((row) => row.operation === 'mirror')
+        expect(rows.map((row) => row.fields)).toEqual([['access_token']])
+    })
+
+    it('removes the old secret when a newer row has an empty secret', async () => {
+        expect(await outcomes([mirrorRow(515, 1)])).toEqual(['created'])
+        expect(await outcomes([mirrorRow(515, 2, { sensitive_config: {} })])).toEqual(['updated'])
+
+        expect(await stored(515)).toMatchObject({ secret_id: null, source_version: '2' })
+        const res = await call('POST', '/resolve', { body: { refs: ['515'] } })
+        expect(res.json.records['515'].credentials).toEqual({})
+        expect(res.text).not.toContain(ACCESS_TOKEN)
+    })
+
+    describe('a concurrent writer between the lookup and the write', () => {
+        // Commits on another connection, so the mirror's own INSERT or UPDATE hits a unique violation.
+        async function commitRow(legacyId: number, externalId: string): Promise<void> {
+            const inserted = await insertIntegration(pool, {
+                owner: { type: 'team', id: TEAM_A },
+                kind: 'hubspot',
+                externalId,
+                authType: 'oauth',
+                legacyId,
+            })
+            expect(inserted.status).toBe('ok')
+        }
+
+        it('retries once and writes over the row that won the first race', async () => {
+            const target = buildApp(kms, undefined, 0, async (legacyId, attempt) => {
+                if (attempt === 0) {
+                    await commitRow(legacyId, `portal-${legacyId}-concurrent`)
+                }
+            })
+
+            const res = await mirror([mirrorRow(516, 1)], { target })
+
+            expect(res.json.results).toEqual([{ legacy_id: 516, outcome: 'updated', id: expect.any(String) }])
+            expect(await stored(516)).toMatchObject({ source_version: '1', owner_id: String(TEAM_A) })
+            expect(await resolveAccessToken(516)).toBe(ACCESS_TOKEN)
+        })
+
+        it('answers a retryable conflict for a row that loses twice, and the other rows still write', async () => {
+            const target = buildApp(kms, undefined, 0, async (legacyId, attempt) => {
+                if (legacyId !== 517) {
+                    return
+                }
+                // The first attempt loses the legacy id, the retry loses the external id.
+                await (attempt === 0 ? commitRow(517, 'portal-517-concurrent') : commitRow(9517, 'portal-517'))
+            })
+
+            const res = await mirror([mirrorRow(517, 1), mirrorRow(518, 1)], { target })
+
+            expect(res.status).toBe(200)
+            expect(res.json.results).toEqual([
+                { legacy_id: 517, outcome: 'conflict', code: 'concurrent_write' },
+                { legacy_id: 518, outcome: 'created', id: expect.any(String) },
+            ])
+            expect(await stored(517)).toMatchObject({ source_version: null, secret_id: null })
+            const raced = logLines
+                .map((line) => JSON.parse(line))
+                .filter((line) => line.event === 'integrations:mirror_row_changed')
+                .map((line) => [line.fields.legacyId, line.fields.reason])
+            expect(raced).toEqual([
+                [517, 'legacy_id_taken'],
+                [517, 'key_taken'],
+            ])
+        })
+    })
+
+    it('stores no secret row for an empty blob with no unreadable keys', async () => {
+        expect(await outcomes([mirrorRow(512, 1, { sensitive_config: {} })])).toEqual(['created'])
+        expect(await stored(512)).toMatchObject({ secret_id: null })
+    })
+
+    it.each([
+        ['web', WEB],
+        ['cdp', CDP],
+    ])('refuses a %s token with forbidden_op', async (_name, deployment) => {
+        const res = await mirror([mirrorRow(513, 1)], { deployment })
+        expect(res.status).toBe(403)
+        expect(res.json.error.code).toBe('forbidden_op')
+        expect(await stored(513)).toBeUndefined()
+    })
+
+    it('answers kms_unavailable for the whole request when KMS is down', async () => {
+        const down: Kms = {
+            provider: 'local',
+            generateDataKey: () => Promise.reject(new KmsError('unavailable', 'KMS did not answer')),
+            decrypt: () => Promise.reject(new KmsError('unavailable', 'KMS did not answer')),
+            rewrap: () => Promise.reject(new KmsError('unavailable', 'KMS did not answer')),
+        }
+        const res = await mirror([mirrorRow(514, 1)], { target: buildApp(down) })
+        expect(res.status).toBe(503)
+        expect(res.json.error.code).toBe('kms_unavailable')
+    })
+
+    it('accepts the committed golden request as-is', async () => {
+        const fixture = readFileSync(join(import.meta.dirname, '../fixtures/mirror-request.json'), 'utf8')
+        const res = await call('PUT', '/mirror', { deployment: CELERY, ops: ['mirror'], body: fixture })
+        expect(res.status).toBe(200)
+        expect(res.json.results.map((result: { outcome: string }) => result.outcome)).toEqual([
+            'created',
+            'created',
+            'deleted',
+            'absent',
+        ])
     })
 })
