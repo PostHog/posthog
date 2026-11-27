@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
@@ -24,32 +24,39 @@ export default function NotebookAppSavedViews({
     dirty: boolean
     onClose: () => void
 }): JSX.Element {
-    const { shortcutData, shortcutDataHasLoaded, shortcutDataLoading } = useValues(projectTreeDataLogic)
-    const { loadShortcuts } = useActions(projectTreeDataLogic)
+    const { shortcutData, shortcutDataHasLoaded, shortcutDataLoading, shortcutLoadFailed } =
+        useValues(projectTreeDataLogic)
+    const { loadShortcuts, shortcutCreated, shortcutRemoved } = useActions(projectTreeDataLogic)
     const [name, setName] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
+    useEffect(() => {
+        loadShortcuts()
+    }, [loadShortcuts])
     const prefix = urls.project(project, urls.notebook(shortId)) + '?view=app#appView='
     const views = shortcutData.filter((item) => item.href?.startsWith(prefix))
     const path = escapePath(name.trim())
-    const disabledReason = dirty
-        ? 'Apply your filters before saving this view.'
-        : !path
-          ? 'Enter a name for this view.'
-          : views.some((view) => view.path === path)
-            ? 'Choose a different name for this view.'
-            : undefined
+    const disabledReason = shortcutLoadFailed
+        ? 'Load your saved views first.'
+        : dirty
+          ? 'Apply your filters before saving this view.'
+          : !path
+            ? 'Enter a name for this view.'
+            : views.some((view) => view.path === path)
+              ? 'Choose a different name for this view.'
+              : undefined
 
     async function save(): Promise<void> {
-        if (disabledReason || busy) {
+        if (disabledReason || busy || shortcutDataLoading) {
             return
         }
         setBusy(true)
         setError('')
         try {
-            await fileSystemShortcutCreate(project, { path, type: 'notebook', href })
+            const item = { path, type: 'notebook', ref: shortId, href }
+            const saved = await fileSystemShortcutCreate(project, item)
+            shortcutCreated({ ...item, id: saved.id, created_at: saved.created_at })
             setName('')
-            loadShortcuts()
             posthog.capture('notebook app view saved', { short_id: shortId })
         } catch {
             setError('Could not save the view. Try again.')
@@ -63,7 +70,7 @@ export default function NotebookAppSavedViews({
         setError('')
         try {
             await fileSystemShortcutDestroy(project, id)
-            loadShortcuts()
+            shortcutRemoved(id)
             posthog.capture('notebook app view removed', { short_id: shortId })
         } catch {
             setError('Could not remove the view. Try again.')
@@ -100,6 +107,14 @@ export default function NotebookAppSavedViews({
                 </div>
             )}
             <div className="mt-4">
+                {shortcutLoadFailed && (
+                    <div role="alert" className="flex items-center gap-2">
+                        Could not load saved views.
+                        <LemonButton type="secondary" size="small" onClick={() => loadShortcuts()}>
+                            Try again
+                        </LemonButton>
+                    </div>
+                )}
                 {views.length > 0 ? (
                     <ul className="list-none p-0 m-0 divide-y">
                         {views.map((view) => (
@@ -117,7 +132,7 @@ export default function NotebookAppSavedViews({
                                     size="small"
                                     status="danger"
                                     aria-label={`Remove ${unescapePath(view.path)}`}
-                                    disabled={busy}
+                                    disabled={busy || shortcutDataLoading}
                                     onClick={() => void remove(view.id)}
                                 >
                                     Remove
@@ -125,11 +140,13 @@ export default function NotebookAppSavedViews({
                             </li>
                         ))}
                     </ul>
-                ) : (
+                ) : !shortcutLoadFailed ? (
                     <p className="text-secondary" role="status">
-                        {shortcutDataHasLoaded ? 'No saved views for this app yet.' : 'Loading saved views…'}
+                        {shortcutDataHasLoaded && !shortcutDataLoading
+                            ? 'No saved views for this app yet.'
+                            : 'Loading saved views…'}
                     </p>
-                )}
+                ) : null}
             </div>
         </LemonModal>
     )

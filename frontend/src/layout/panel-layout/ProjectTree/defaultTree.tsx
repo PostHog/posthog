@@ -677,6 +677,12 @@ let sidebarProductHrefsByName: Map<string, string> | undefined
 
 // Stars created by the backend carry no href, because product URLs exist only in the frontend.
 export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry {
+    if (entry.type === 'notebook' && !entry.ref && entry.href) {
+        const notebook = /^\/project\/[^/]+\/notebooks\/([^/?#]+)\?view=app#appView=/.exec(entry.href)
+        if (notebook) {
+            return { ...entry, ref: notebook[1] }
+        }
+    }
     if (entry.href || entry.ref || entry.type === 'folder') {
         return entry
     }

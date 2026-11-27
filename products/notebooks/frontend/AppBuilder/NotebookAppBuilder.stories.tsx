@@ -58,6 +58,7 @@ const notebook = {
     variables: appBuilderDemoVariables,
 }
 let shortcuts: FileSystemEntry[] = []
+let failShortcutLoad = false
 let runNumber = 0
 let results = appBuilderDemoResults(appBuilderDemoVariables)
 let saved = structuredClone(notebook)
@@ -68,6 +69,7 @@ const meta: Meta = {
     title: 'Scenes-App/Notebooks/App builder',
     beforeEach: () => {
         shortcuts = []
+        failShortcutLoad = false
         saved = structuredClone(notebook)
         failNextQuery = false
         runNumber = 0
@@ -87,10 +89,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/file_system_shortcut': () => [
-                    200,
-                    { count: shortcuts.length, next: null, results: shortcuts },
-                ],
+                '/api/projects/:team_id/file_system_shortcut': () =>
+                    failShortcutLoad ? [503, {}] : [200, { count: shortcuts.length, next: null, results: shortcuts }],
                 '/api/projects/:team_id/notebooks/kernel/compute_options': {
                     currency: 'USD',
                     presets: [],
@@ -165,7 +165,7 @@ const meta: Meta = {
             post: {
                 '/api/projects/:team_id/file_system_shortcut': async ({ request }) => {
                     const view = {
-                        ...((await request.json()) as Pick<FileSystemEntry, 'path' | 'type' | 'href'>),
+                        ...((await request.json()) as Pick<FileSystemEntry, 'path' | 'type' | 'href' | 'ref'>),
                         id: crypto.randomUUID(),
                     }
                     shortcuts.push(view)
@@ -349,6 +349,10 @@ export const SharedView: Story = {
 
 export const SavedViews: Story = {
     ...SharedView,
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+        failShortcutLoad = true
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('tab', { name: 'Overview' }, { timeout: 60000 }))
@@ -356,11 +360,18 @@ export const SavedViews: Story = {
         await userEvent.click(canvas.getByRole('button', { name: 'Saved views' }))
         const heading = await within(document.body).findByRole('heading', { name: 'Saved views' })
         const modal = within(heading.closest<HTMLElement>('.LemonModal__container')!)
+        await modal.findByText('Could not load saved views.')
+        expect(modal.queryByText('No saved views for this app yet.')).not.toBeInTheDocument()
+        failShortcutLoad = false
+        await userEvent.click(modal.getByRole('button', { name: 'Try again' }))
+        await modal.findByText('No saved views for this app yet.')
+        failShortcutLoad = true
         await userEvent.type(modal.getByLabelText('View name'), 'Europe / biweekly')
         const save = modal.getByRole('button', { name: 'Save view' })
         await waitFor(() => expect(save).toHaveAttribute('aria-disabled', 'false'), { timeout: 10000 })
         await userEvent.click(save)
         const link = await modal.findByRole('link', { name: 'Europe / biweekly' }, { timeout: 10000 })
+        expect(shortcuts[0].ref).toBe(SHORT_ID)
         const url = new URL(link.getAttribute('href')!, window.location.origin)
         expect(JSON.parse(new URLSearchParams(url.hash.slice(1)).get('appView')!)).toMatchObject({
             tab: 'overview',

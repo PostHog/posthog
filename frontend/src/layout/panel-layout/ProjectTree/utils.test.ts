@@ -8,12 +8,13 @@ import { ProjectTreeRef } from '~/types'
 
 import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
-import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
+import { getDefaultTreeData, getDefaultTreeProducts, iconForType, withProductShortcutHref } from './defaultTree'
 import {
     DATA_SOURCE_SHORTCUT_TYPE,
     calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    findProductShortcut,
     isFileSystemEntryTypeEnabled,
     isProjectTreeItemActive,
     joinPath,
@@ -28,6 +29,14 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    it('keeps a named notebook app view out of the matching product shortcuts', () => {
+        const href = '/project/1/notebooks/weekly?view=app#appView=%7B%7D'
+        const saved = withProductShortcutHref({ id: 'view', type: 'notebook', path: 'Logs', href })
+
+        expect(saved).toMatchObject({ ref: 'weekly', href, path: 'Logs' })
+        expect(findProductShortcut({ path: 'Logs', href: '/logs' }, [saved])).toBeUndefined()
+    })
+
     describe('isFileSystemEntryTypeEnabled', () => {
         it.each([
             ['a Today type with its flag on', 'canvas', { 'today-rail-nav': true }, true],
