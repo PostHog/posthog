@@ -23,8 +23,16 @@ function dayOfDate(now: Date): number {
     return clampDay(now.getDate())
 }
 
-export function adventToday(now: Date, { requestedDay, canPickDay }: AdventDayOverride): number {
+function pickedDay(now: Date, { requestedDay, canPickDay }: AdventDayOverride): number {
     const mayPick = canPickDay || isBeforeDecember(now)
-    const day = mayPick && requestedDay?.trim() ? Number(requestedDay) : NaN
+    return mayPick && requestedDay?.trim() ? Number(requestedDay) : NaN
+}
+
+export function adventPicksDay(now: Date, override: AdventDayOverride): boolean {
+    return Number.isFinite(pickedDay(now, override))
+}
+
+export function adventToday(now: Date, override: AdventDayOverride): number {
+    const day = pickedDay(now, override)
     return Number.isFinite(day) ? clampDay(day) : dayOfDate(now)
 }

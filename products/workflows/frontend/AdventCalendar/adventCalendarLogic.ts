@@ -31,7 +31,7 @@ import {
 } from './adventGraph'
 import { adventHasWorkflows } from './adventHasWorkflows'
 import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from './adventProgressStorage'
-import { adventToday } from './adventToday'
+import { adventPicksDay, adventToday } from './adventToday'
 
 // pinned: analytics event names and property keys. Usage insights query them, so a rename breaks them.
 const EVENTS = {
@@ -232,7 +232,12 @@ export interface adventCalendarLogicMeta {
             user: UserType | null,
             preflight: PreflightStatus | null
         ) => number
-        isLive: (today: number, localDate: number) => boolean
+        isLive: (
+            localDate: number,
+            searchParams: Record<string, any>,
+            user: UserType | null,
+            preflight: PreflightStatus | null
+        ) => boolean
         rewards: (user: UserType | null) => AdventRewards
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
         pollShares: (pollResults: AdventCalendarResultsApi | null, progress: AdventProgress) => AdventPollShares
@@ -392,9 +397,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }),
         ],
         isLive: [
-            (s) => [s.today, s.localDate],
-            (today: number, localDate: number): boolean =>
-                today === adventToday(new Date(localDate), { requestedDay: null, canPickDay: false }),
+            (s) => [s.localDate, s.searchParams, s.user, s.preflight],
+            (
+                localDate: adventCalendarLogicValues['localDate'],
+                searchParams: adventCalendarLogicValues['searchParams'],
+                user: adventCalendarLogicValues['user'],
+                preflight: adventCalendarLogicValues['preflight']
+            ): boolean =>
+                !adventPicksDay(new Date(localDate), {
+                    requestedDay: searchParams.day != null ? String(searchParams.day) : null,
+                    canPickDay: !!user?.is_staff || !!preflight?.is_debug,
+                }),
         ],
         rewards: [
             (s) => [s.user],

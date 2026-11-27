@@ -13,6 +13,7 @@ import { UserType } from '~/types'
 
 import { workflowsSetupLogic } from '../emptyState/workflowsSetupLogic'
 import { adventCalendarLogic } from './adventCalendarLogic'
+import { ADVENT_QUESTIONS } from './adventContent'
 
 const KEY = 'workflows-advent-calendar-progress'
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
@@ -438,6 +439,34 @@ describe('adventCalendarLogic', () => {
         router.actions.push('/workflows/advent', { day: '24' })
 
         expect(logic.values.today).toBe(today)
+    })
+
+    it.each([
+        ['previews the real day with ?day=2 and sends and stores nothing', { day: '2' }, [], 0, false],
+        ['sends the opens and the answer without ?day=', {}, [1, 2], 1, true],
+    ])('for a staff user on 2 December, %s', async (_, searchParams, opens, answers, storesProgress) => {
+        const api = calendarApi()
+        useMocks(api.mocks)
+        jest.setSystemTime(new Date(2026, 11, 2, 9, 0))
+        logic.actions.refreshClock()
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', searchParams)
+        const storedBefore = window.localStorage.getItem('workflows-advent-calendar-progress')
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
+
+        await waitFor(() => expect(api.opens).toHaveLength(opens.length))
+        await waitFor(() => expect(api.answers).toHaveLength(answers))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(doorOf(logic, 'door-2')?.status).toBe('open')
+        expect({
+            opens: api.opens.map((open) => (open as { day: number }).day),
+            answers: api.answers.length,
+            storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
+        }).toEqual({ opens, answers, storesProgress })
     })
 
     it('reports a tip click with its day', () => {
