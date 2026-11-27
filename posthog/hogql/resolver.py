@@ -1701,8 +1701,8 @@ class Resolver(CloningVisitor):
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if node.column_aliases:
-                # Build alias→original mapping from the table's visible columns. A column-aliased table cannot
-                # resolve a field through a join, so the mapping leaves out the traversers that `SELECT *` returns.
+                # Build alias→original mapping from the table's visible columns
+                # A column-aliased table cannot resolve a join, so traversers stay out of the mapping.
                 asterisk_fields = [
                     key for key, field in database_table.get_asterisk().items() if not isinstance(field, FieldTraverser)
                 ]

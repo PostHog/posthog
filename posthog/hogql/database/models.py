@@ -268,8 +268,7 @@ class Table(FieldOrTable):
     # When True, a persons join from this table applies personIdPushdown when the modifier is unset.
     person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
-    # Keys of the `FieldTraverser`s that `SELECT *` returns. Each one resolves through its join, so `SELECT *`
-    # pays for that join on every query. `get_asterisk()` leaves out all other traversers.
+    # `FieldTraverser` keys that `SELECT *` returns. Each one makes every `SELECT *` on the table run its join.
     asterisk_traversers: list[str] = []
     model_config = ConfigDict(extra="forbid")
 
