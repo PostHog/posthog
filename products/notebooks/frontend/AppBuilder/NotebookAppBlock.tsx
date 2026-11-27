@@ -13,8 +13,7 @@ import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/N
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
-import type { TableDraft } from './notebookAppTableDraftsLogic'
-import { NotebookAppTableInput } from './NotebookAppTableInput'
+import { NotebookAppTableBlock } from './NotebookAppTableInput'
 
 export function NotebookAppBlock({
     block,
@@ -24,8 +23,6 @@ export function NotebookAppBlock({
     variables,
     canInteract,
     onInput,
-    tableDraft,
-    onTableDraftChange,
     onCellOutput,
     renderOutput,
 }: {
@@ -36,8 +33,6 @@ export function NotebookAppBlock({
     variables: NotebookVariable[]
     canInteract: boolean
     onInput: (changes: Record<string, NotebookVariableValue>) => void
-    tableDraft: TableDraft | undefined
-    onTableDraftChange: (draft: TableDraft | undefined) => void
     onCellOutput?: (nodeId: string, markdown: string) => void
     renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
@@ -62,12 +57,11 @@ export function NotebookAppBlock({
             return <LemonBanner type="warning">Choose a list variable for every table column.</LemonBanner>
         }
         return (
-            <NotebookAppTableInput
+            <NotebookAppTableBlock
+                blockId={block.id}
                 key={JSON.stringify(lists)}
                 title={block.title || block.variable || 'Table'}
                 columns={lists}
-                draft={tableDraft}
-                onDraftChange={onTableDraftChange}
                 disabled={!canInteract}
                 onApply={onInput}
             />

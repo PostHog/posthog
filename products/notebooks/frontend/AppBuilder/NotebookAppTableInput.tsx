@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { type ComponentProps, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
@@ -9,7 +10,7 @@ import {
     MAX_NOTEBOOK_VARIABLE_VALUE_CHARS,
 } from 'scenes/notebooks/Notebook/notebookVariables'
 
-import type { TableDraft } from './notebookAppTableDraftsLogic'
+import { type TableDraft, notebookAppTableDraftsLogic } from './notebookAppTableDraftsLogic'
 
 export function NotebookAppTableInput({
     title,
@@ -142,5 +143,16 @@ export function NotebookAppTableInput({
                 </LemonButton>
             </div>
         </section>
+    )
+}
+
+export function NotebookAppTableBlock({
+    blockId,
+    ...props
+}: Omit<ComponentProps<typeof NotebookAppTableInput>, 'draft' | 'onDraftChange'> & { blockId: string }): JSX.Element {
+    const { drafts } = useValues(notebookAppTableDraftsLogic)
+    const { setDraft } = useActions(notebookAppTableDraftsLogic)
+    return (
+        <NotebookAppTableInput {...props} draft={drafts[blockId]} onDraftChange={(draft) => setDraft(blockId, draft)} />
     )
 }

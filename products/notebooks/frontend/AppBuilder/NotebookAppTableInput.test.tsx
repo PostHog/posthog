@@ -5,8 +5,8 @@ import type { NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVa
 
 import { initKeaTests } from '~/test/init'
 
-import { NotebookAppCanvas } from './NotebookAppCanvas'
 import { emptyAppLayout } from './notebookAppLayout'
+import { NotebookAppTableCanvas } from './NotebookAppTableCanvas'
 
 it('stages cell edits and row changes until all columns are applied together', () => {
     function Form(): JSX.Element {
@@ -18,7 +18,7 @@ it('stages cell edits and row changes until all columns are applied together', (
         return (
             <>
                 <button onClick={() => setVisible(!visible)}>Switch tab</button>
-                <NotebookAppCanvas
+                <NotebookAppTableCanvas
                     layout={{
                         ...emptyAppLayout(),
                         blocks: [
