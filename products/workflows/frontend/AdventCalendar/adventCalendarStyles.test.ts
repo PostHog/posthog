@@ -18,13 +18,33 @@ function stylesheets(directory: string): string[] {
     })
 }
 
+const CUSTOM_PROPERTY_REFERENCE = /^var\(\s*(--[\w-]+)/
+
+function isRepeatCount(value: string): boolean {
+    return value === 'infinite' || (/^\d*\.?\d+$/.test(value) && Number(value) > 1)
+}
+
 function loopingAnimationNames(roots: Root[]): Set<string> {
+    const repeatingProperties = new Set<string>()
+    for (const root of roots) {
+        root.walkDecls(/^--/, (declaration) => {
+            if (isRepeatCount(declaration.value.trim())) {
+                repeatingProperties.add(declaration.prop)
+            }
+        })
+    }
+    const repeats = (token: string): boolean => {
+        const reference = CUSTOM_PROPERTY_REFERENCE.exec(token)
+        return reference ? repeatingProperties.has(reference[1]) : isRepeatCount(token)
+    }
+
     const names = new Set<string>()
     for (const root of roots) {
         root.walkDecls(/^animation(-name)?$/, (declaration) => {
             for (const layer of postcss.list.comma(declaration.value)) {
-                if (declaration.prop === 'animation-name' || layer.includes('infinite')) {
-                    postcss.list.space(layer).forEach((token) => names.add(token))
+                const tokens = postcss.list.space(layer)
+                if (declaration.prop === 'animation-name' || tokens.some(repeats)) {
+                    tokens.forEach((token) => names.add(token))
                 }
             }
         })
