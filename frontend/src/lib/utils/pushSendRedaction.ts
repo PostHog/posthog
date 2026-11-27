@@ -6,6 +6,8 @@ const PUSH_SEND_PATH = /\/messaging\/send\/push(_batch)?\/?(\?|#|$)/
 const HOG_FLOW_TEST_SEND_PATH = /\/hog_(flows|functions)\/[^/?#]+\/invocations\/?(\?|#|$)/
 // The push log lists each send's title and recipient.
 const PUSH_LOG_PATH = /\/transactional_push_log\/?(\?|#|$)/
+// The email log lists each send's recipient address. Its counts under stats/ hold no recipient.
+const EMAIL_LOG_PATH = /\/transactional_email_log\/(?!stats)[^?#]*(\?|#|$)/
 
 const isSet = (body: unknown): boolean => body !== undefined && body !== null
 
@@ -16,12 +18,15 @@ function redactPushSend(request: unknown): unknown {
     const { name, requestBody, responseBody } = request as Record<string, unknown>
     if (
         typeof name !== 'string' ||
-        ![PUSH_SEND_PATH, HOG_FLOW_TEST_SEND_PATH, PUSH_LOG_PATH].some((path) => path.test(name))
+        ![PUSH_SEND_PATH, HOG_FLOW_TEST_SEND_PATH, PUSH_LOG_PATH, EMAIL_LOG_PATH].some((path) => path.test(name))
     ) {
         return request
     }
-    // A push log search is a recipient's distinct ID.
-    const scrubbedName = PUSH_LOG_PATH.test(name) ? name.replace(/([?&]search=)[^&#]*/g, '$1[redacted]') : name
+    // A log search is part of a recipient's distinct ID or email address.
+    const scrubbedName =
+        PUSH_LOG_PATH.test(name) || EMAIL_LOG_PATH.test(name)
+            ? name.replace(/([?&]search=)[^&#]*/g, '$1[redacted]')
+            : name
     if (!isSet(requestBody) && !isSet(responseBody) && scrubbedName === name) {
         return request
     }

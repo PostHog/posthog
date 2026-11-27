@@ -26,6 +26,7 @@ describe('push send redaction', () => {
         ['the workflow list', '/api/projects/1/hog_flows/', BODY],
         ['an email send', '/api/projects/1/messaging/send/email/', BODY],
         ['the push numbers', '/api/projects/1/transactional_push_log/stats/', BODY],
+        ['the email numbers', '/api/projects/1/transactional_email_log/stats/?date_from=-7d', BODY],
         ['the push page', '/api/projects/1/messaging_templates/push/', BODY],
     ])('redacts only the bodies of a push send: %s', (_name, name, body) => {
         const response = body === BODY ? RESPONSE : REDACTED
@@ -37,10 +38,22 @@ describe('push send redaction', () => {
     it.each([
         ['a test send', '/api/projects/1/hog_flows/new/invocations/'],
         ['the push log', '/api/projects/1/transactional_push_log/?limit=50&date_from=2026-11-01'],
+        ['the email log', '/api/projects/1/transactional_email_log/?limit=50'],
+        ['one email log entry', '/api/projects/1/transactional_email_log/0190-abc/'],
     ])('redacts a response recorded without its request: %s', (_name, name) => {
         const event = redactPushSendsInReplay(recorded([{ name, responseBody: RESPONSE }]))
 
         expect(requestsOf(event)).toEqual([{ name, responseBody: REDACTED }])
+    })
+
+    it('removes the searched recipient from an email log request', () => {
+        const event = redactPushSendsInReplay(
+            recorded([{ name: '/api/projects/1/transactional_email_log/?search=ada%40example.com&limit=50' }])
+        )
+
+        expect(requestsOf(event)).toEqual([
+            { name: '/api/projects/1/transactional_email_log/?search=[redacted]&limit=50' },
+        ])
     })
 
     it('removes the searched recipient from a push log request', () => {
