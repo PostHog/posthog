@@ -48,9 +48,12 @@ teams:
     team-replay:
         notifications:
             stamphog: false
-    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-managed-warehouse:
+        notifications:
+            mcp_tool_health: '#team-warehouse'
     team-warehouse-sources:
         notifications:
+            mcp_tool_health: '#team-warehouse-pipelines'
             stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
@@ -319,6 +322,8 @@ rules:
       owners: team-self-driving
     - match:
           - '/frontend/src/lib/integrations/AdsAccountIdPickers.test.tsx'
+          - '/frontend/src/lib/utils/pushSendRedaction.ts'
+          - '/frontend/src/lib/utils/pushSendRedaction.test.ts'
       owners: team-workflows
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'

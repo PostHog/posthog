@@ -27,6 +27,22 @@
             box-shadow 0.2s ease;
     }
 
+    .MessageTemplateItem__preview {
+        container-type: size;
+    }
+
+    // Lays the email out at 600px, the width email layouts are designed for, then scales it down to the card,
+    // so a narrow card shows the whole email width instead of cropping it. CSS can't divide two lengths, and
+    // tan(atan2(a, b)) is a / b as the plain number that scale() needs.
+    .MessageTemplateItem__preview-frame {
+        --preview-scale: min(1, tan(atan2(100cqw, 600px)));
+
+        width: max(600px, 100cqw);
+        height: calc(100cqh / var(--preview-scale));
+        transform: scale(var(--preview-scale));
+        transform-origin: top left;
+    }
+
     &:hover .MessageTemplateItemInner {
         z-index: 1;
         box-shadow: 0 8px 24px rgb(0 0 0 / 12%);

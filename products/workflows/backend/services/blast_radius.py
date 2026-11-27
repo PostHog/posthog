@@ -1,17 +1,15 @@
-"""Batch audience sizing and paging: the preview counts the editor shows, and the pages the Node
+"""Batch audience sizing: the preview counts the editor shows, and the account audience pages the Node
 batch resolver walks when it sends."""
 
 import json
 import hashlib
 from typing import Any
 
-from django.conf import settings
 from django.core.cache import cache
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
-from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
 from products.workflows.backend.services.account_audience import (
@@ -21,7 +19,6 @@ from products.workflows.backend.services.account_audience import (
     get_account_group_type_name as _get_account_group_type_name,
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -163,25 +160,6 @@ def get_account_audience_size(
         dedupe_key=None,
         rate_limited=audience_limit.rate_limited,
     )
-
-
-def get_audience_person_page(
-    *,
-    team_id: int,
-    filters: dict,
-    group_type_index: GroupTypeIndex | None,
-    cursor: str | None,
-    dedupe_key: str | None,
-) -> AudiencePage:
-    team = Team.objects.get(id=team_id)
-    enumeration_settings = None
-    if group_type_index is None:
-        enumeration_settings = bounded_memory_settings()
-        enumeration_settings.max_execution_time = settings.WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS
-    ids = get_batch_audience_person_ids(
-        team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
-    )
-    return AudiencePage(ids=ids, has_more=len(ids) == audience_page_size(group_type_index))
 
 
 def get_account_audience_ids_page(*, team_id: int, filters: dict, cursor: str | None) -> AudiencePage:

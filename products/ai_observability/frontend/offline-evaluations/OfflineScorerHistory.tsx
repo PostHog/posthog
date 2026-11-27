@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
+import { ScorerBadges } from '../scoreDefinitions/ScorerBadges'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { OFFLINE_HISTORY_BREAKDOWN_OPTIONS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
@@ -92,7 +93,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                     <div className="space-y-4 min-w-0 @container/scorer-history">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center flex-wrap gap-2">
-                                <LemonTag>{definition.kind}</LemonTag>
+                                <ScorerBadges scorer={selectedVersion ?? definition} />
                                 {definition.archived && <LemonTag type="warning">Archived</LemonTag>}
                                 <span className="text-muted">{definition.description}</span>
                             </div>
@@ -174,7 +175,11 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 <LemonSelect
                                     size="small"
                                     value={filters.version}
-                                    options={versionOptions}
+                                    options={
+                                        definition.scope === 'experiment'
+                                            ? [{ value: '', label: 'All versions' }, ...versionOptions]
+                                            : versionOptions
+                                    }
                                     onChange={(version) => setFilters({ version })}
                                     loading={selectedVersionLoading || versionsLoading}
                                     data-attr="offline-history-version"
@@ -255,7 +260,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 {versionsError}
                             </LemonBanner>
                         )}
-                        {selectedVersionError && (
+                        {filters.version && selectedVersionError && (
                             <LemonBanner
                                 type="error"
                                 action={{ children: 'Retry', onClick: () => loadOfflineHistoryVersion() }}
@@ -263,7 +268,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 {selectedVersionError}
                             </LemonBanner>
                         )}
-                        {selectedVersion && !selectedVersionLoading && !selectedVersionError && (
+                        {filters.version && selectedVersion && !selectedVersionLoading && !selectedVersionError && (
                             <div className="text-xs text-muted space-y-1">
                                 <div className="break-all">{`Version ${selectedVersion.version} · ${selectedVersion.id}`}</div>
                                 <div>{offlineScoreConfigurationLabel(selectedVersion)}</div>
@@ -290,7 +295,10 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                             />
                                         </div>
                                     </div>
-                                    {primaryPageLoading || comparisonPageLoading || (!primaryPage && !primaryError) ? (
+                                    {definition.scope === 'experiment' &&
+                                    definition.kind !== 'numeric' ? null : primaryPageLoading ||
+                                      comparisonPageLoading ||
+                                      (!primaryPage && !primaryError) ? (
                                         <Spinner />
                                     ) : (
                                         <>
@@ -312,9 +320,13 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         </>
                                     )}
                                     <p className="text-muted text-xs mt-2 mb-0">
-                                        {filters.breakdown
-                                            ? 'Each point is one experiment, scorer version, and breakdown value. Points use successful results only. Different periods and versions remain separate.'
-                                            : 'Each point is one experiment and scorer version. Points use successful results only. Different periods and versions remain separate.'}
+                                        {definition.scope === 'experiment'
+                                            ? definition.kind === 'numeric'
+                                                ? 'Each point is one experiment, calculated with its pinned scorer version. Runs without a score appear in the table.'
+                                                : 'Each row shows the result from the scorer version pinned to that experiment.'
+                                            : filters.breakdown
+                                              ? 'Each point is one experiment, scorer version, and breakdown value. Points use successful results only. Different periods and versions remain separate.'
+                                              : 'Each point is one experiment and scorer version. Points use successful results only. Different periods and versions remain separate.'}
                                     </p>
                                 </LemonCard>
                                 {[
@@ -384,6 +396,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                     </div>
                                                 )}
                                                 <OfflineScorerHistoryTable
+                                                    experimentScope={definition.scope === 'experiment'}
                                                     breakdown={filters.breakdown || undefined}
                                                     periodKey={period.key}
                                                     page={period.page}

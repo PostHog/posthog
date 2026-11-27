@@ -412,6 +412,14 @@ def _render_event_node(
     if collapsed:
         return [_render_collapsed_node(prefix, current_prefix, node_prefix, summary)]
 
+    repeated_input = None
+    history = options.get("repeated_input_history") if options else None
+    if event_type == "$ai_generation" and history is not None:
+        ai_input = event.get("properties", {}).get("$ai_input")
+        repeated_input = history.add(ai_input if isinstance(ai_input, list) else [])
+        # Numbered so a repeated input can name the generation it repeats.
+        node_prefix = f"[GEN {history.generations}]"
+
     if not _is_expandable_event(event_type):
         if include_markers:
             clickable_prefix = f"<<<EVENT_LINK|{event_id}|{node_prefix}>>>"
@@ -422,7 +430,7 @@ def _render_event_node(
     event_options: FormatterOptions = (
         {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
     )
-    event_content = format_event_text_repr(event, event_options)
+    event_content = format_event_text_repr(event, event_options, repeated_input)
 
     if include_markers:
         return [

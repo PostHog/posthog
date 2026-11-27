@@ -23,7 +23,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     ScratchpadEntry,
     ScratchpadRevivedExpiry,
     _clamp_search_limit,
-    _project_content,
+    _paged_content,
     _validate_entry,
 )
 
@@ -211,6 +211,7 @@ class ScoutTrialStore:
         limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
         keys_only: bool = False,
         content_max_chars: int | None = None,
+        content_offset: int = 0,
         include_expired: bool = False,
     ) -> list[ScratchpadEntry]:
         entries = self._merge_memory(self._memory_snapshot(), self._read_state()).values()
@@ -238,9 +239,16 @@ class ScoutTrialStore:
             result.append(entry)
         result.sort(key=lambda entry: (entry.updated_at or "", entry.key), reverse=True)
         return [
-            replace(
+            entry
+            if entry.expired
+            else replace(
                 entry,
-                content=_project_content(entry.content, keys_only=keys_only, content_max_chars=content_max_chars),
+                **_paged_content(
+                    entry.content,
+                    keys_only=keys_only,
+                    content_max_chars=content_max_chars,
+                    content_offset=content_offset,
+                ),
             )
             for entry in result[: _clamp_search_limit(limit)]
         ]

@@ -1,11 +1,16 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import {
+    MarketingAnalyticsTab,
+    RecommendationsActionLocation,
     RecommendationsEntryPoint,
     RecommendationsShownState,
+    SetupSection,
     marketingAnalyticsLogic,
     marketingAnalyticsLogicActions,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -22,6 +27,7 @@ import {
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSource,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
@@ -41,12 +47,16 @@ import {
     RecommendationSection,
     RecommendationTotal,
     ResolutionOverrides,
+    DataGapNavigation,
+    ServerDataGap,
     groupRecommendations,
     reconcileResolutionOverrides,
     recommendationDataGaps,
     recommendationsShownState,
     recommendationsSource,
+    resolved,
     sectionRecommendations,
+    serverDataGaps,
     sumImpact,
     summarizeImpact,
     unresolved,
@@ -62,8 +72,14 @@ const RECOMMENDATIONS_DATA_NODE = {
     key: RECOMMENDATIONS_QUERY_KEY,
 } as DataNodeLogicProps
 
+function recommendationsResponse(
+    response: dataNodeLogicValues['response']
+): MarketingAnalyticsRecommendationsQueryResponse | null {
+    return response as MarketingAnalyticsRecommendationsQueryResponse | null
+}
+
 function responseRecommendations(response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendation[] {
-    return (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.results ?? []
+    return recommendationsResponse(response)?.results ?? []
 }
 
 interface DateFilter {
@@ -82,6 +98,11 @@ export interface recommendationsLogicValues {
     selectedSources: ExternalDataSource[]
     sources: MarketingAnalyticsRecommendationsSource[]
     dataGaps: RecommendationDataGap[]
+    serverDataGaps: ServerDataGap[]
+    conversionSource: MarketingAnalyticsRecommendationsConversionSource | null
+    setupEnabled: boolean
+    featureFlags: FeatureFlagsSet
+    utmAuditEnabled: boolean
     hasAdsSource: boolean
     connectedSourceTypes: string[]
     query: MarketingAnalyticsRecommendationsQuery
@@ -92,9 +113,11 @@ export interface recommendationsLogicValues {
     resolutionOverrides: ResolutionOverrides
     pendingKeys: string[]
     showResolved: boolean
+    showingResolved: boolean
     disclaimer: string | undefined
     recommendations: MarketingAnalyticsRecommendation[]
     activeRecommendations: MarketingAnalyticsRecommendation[]
+    resolvedRecommendations: MarketingAnalyticsRecommendation[]
     resolvedCount: number
     detectedCount: number
     totals: RecommendationTotal[]
@@ -122,7 +145,13 @@ export interface recommendationsLogicActions
             | 'reportRecommendationsActionClicked'
             | 'reportRecommendationResolved'
             | 'reportRecommendationRestored'
+            | 'openSetup'
+            | 'setActiveTab'
         > {
+    openDataGapTarget: (
+        action: DataGapNavigation,
+        location: RecommendationsActionLocation
+    ) => { action: DataGapNavigation; location: RecommendationsActionLocation }
     openRecommendations: (
         rule: MarketingAnalyticsRecommendationRule,
         entryPoint: RecommendationsEntryPoint,
@@ -173,9 +202,11 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            ['dataWarehouseSources', 'integrationFilter', 'dateFilter'],
+            ['dataWarehouseSources', 'integrationFilter', 'dateFilter', 'setupEnabled'],
             teamLogic,
             ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
             dataNodeLogic(RECOMMENDATIONS_DATA_NODE),
             ['response', 'responseLoading', 'responseError', 'queryId'],
         ],
@@ -194,6 +225,8 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 'reportRecommendationsActionClicked',
                 'reportRecommendationResolved',
                 'reportRecommendationRestored',
+                'openSetup',
+                'setActiveTab',
             ],
         ],
     })),
@@ -228,6 +261,10 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         resolutionRemoved: (key: string) => ({ key }),
         resolutionRequestFailed: (key: string) => ({ key }),
         setShowResolved: (showResolved: boolean) => ({ showResolved }),
+        openDataGapTarget: (action: DataGapNavigation, location: RecommendationsActionLocation) => ({
+            action,
+            location,
+        }),
     }),
     reducers({
         resolutionOverrides: [
@@ -251,7 +288,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         ],
         showResolved: [
             false,
-            { setShowResolved: (_, { showResolved }) => showResolved, closeRecommendations: () => false },
+            {
+                setShowResolved: (_, { showResolved }) => showResolved,
+                // The resolved recommendations replace the rule tables, so picking a rule goes back to its table.
+                selectRule: () => false,
+                closeRecommendations: () => false,
+            },
         ],
         selectedRule: [
             null as MarketingAnalyticsRecommendationRule | null,
@@ -286,6 +328,24 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (s) => [s.selectedSources],
             (selectedSources: ExternalDataSource[]): RecommendationDataGap[] =>
                 selectedSources.flatMap(recommendationDataGaps),
+        ],
+        utmAuditEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT],
+        ],
+        serverDataGaps: [
+            (s) => [s.response, s.selectedSources, s.utmAuditEnabled],
+            (
+                response: dataNodeLogicValues['response'],
+                selectedSources: ExternalDataSource[],
+                utmAuditEnabled: boolean
+            ): ServerDataGap[] =>
+                serverDataGaps(recommendationsResponse(response)?.dataGaps ?? [], selectedSources, utmAuditEnabled),
+        ],
+        conversionSource: [
+            (s) => [s.response],
+            (response: dataNodeLogicValues['response']): MarketingAnalyticsRecommendationsConversionSource | null =>
+                recommendationsResponse(response)?.conversionSource ?? null,
         ],
         connectedSourceTypes: [
             (s) => [s.dataWarehouseSources],
@@ -322,7 +382,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         disclaimer: [
             (s) => [s.response],
             (response: dataNodeLogicValues['response']): string | undefined =>
-                (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.disclaimer,
+                recommendationsResponse(response)?.disclaimer,
         ],
         recommendations: [
             (s) => [s.response, s.resolutionOverrides],
@@ -337,12 +397,21 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
                 unresolved(recommendations),
         ],
+        resolvedRecommendations: [
+            (s) => [s.recommendations],
+            (recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] =>
+                resolved(recommendations),
+        ],
         resolvedCount: [
             (s) => [s.recommendations, s.activeRecommendations],
             (
                 recommendations: MarketingAnalyticsRecommendation[],
                 activeRecommendations: MarketingAnalyticsRecommendation[]
             ): number => recommendations.length - activeRecommendations.length,
+        ],
+        showingResolved: [
+            (s) => [s.showResolved, s.resolvedCount],
+            (showResolved: boolean, resolvedCount: number): boolean => showResolved && resolvedCount > 0,
         ],
         detectedCount: [
             (s) => [s.recommendations],
@@ -358,20 +427,17 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         activeGroups: [
             (s) => [s.recommendations],
             (recommendations: MarketingAnalyticsRecommendation[]): RecommendationGroup[] =>
-                groupRecommendations(recommendations, false, null),
+                groupRecommendations(recommendations, null),
         ],
         groups: [
-            (s) => [s.recommendations, s.activeRecommendations, s.resolvedCount, s.showResolved, s.selectedRule],
+            (s) => [s.recommendations, s.activeRecommendations, s.selectedRule],
             (
                 recommendations: MarketingAnalyticsRecommendation[],
                 activeRecommendations: MarketingAnalyticsRecommendation[],
-                resolvedCount: number,
-                showResolved: boolean,
                 selectedRule: MarketingAnalyticsRecommendationRule | null
             ): RecommendationGroup[] =>
                 groupRecommendations(
                     recommendations,
-                    showResolved && resolvedCount > 0,
                     // With nothing left anywhere, the modal says so for every rule instead of one empty rule.
                     activeRecommendations.length > 0 ? selectedRule : null
                 ),
@@ -404,7 +470,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         selectedGroupTotals: [
             (s) => [s.selectedGroup],
             (selectedGroup: RecommendationGroup | null): RecommendationTotal[] =>
-                sumImpact(unresolved(selectedGroup?.recommendations ?? [])),
+                sumImpact(selectedGroup?.recommendations ?? []),
         ],
         shownState: [
             (s) => [
@@ -491,7 +557,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             actions.loadData('force_async')
         },
         resolutionRemoved: () => {
-            // With nothing resolved the toggle is hidden, so a later dismiss must hide its row again.
+            // With nothing resolved the toggle is hidden, so a later dismiss must not open the resolved view again.
             if (values.showResolved && values.resolvedCount === 0) {
                 actions.setShowResolved(false)
             }
@@ -515,6 +581,20 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         },
         dismissIntro: () => {
             actions.reportRecommendationsIntroDismissed()
+        },
+        openDataGapTarget: ({ action, location }) => {
+            actions.reportRecommendationsActionClicked(action, location)
+            if (values.selectedRule !== null) {
+                actions.closeRecommendations()
+            }
+            if (action === 'edit_conversion_goals') {
+                actions.openSetup(SetupSection.CONVERSION_GOALS, 'recommendations_data_gaps')
+            } else if (values.setupEnabled) {
+                actions.openSetup(SetupSection.INTEGRATION_HEALTH, 'recommendations_data_gaps')
+            } else {
+                // Without Setup, the audit is a tab of its own.
+                actions.setActiveTab(MarketingAnalyticsTab.INTEGRATION_HEALTH)
+            }
         },
     })),
     afterMount(({ values, actions }) => {

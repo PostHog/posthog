@@ -5,7 +5,7 @@ import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProduct
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
-import type { TodayRecent, TodayRecentTypeCopy } from './todayRecents'
+import type { TodayRecent } from './todayRecents'
 
 export interface TodayPaneProductSpec {
     href: string
@@ -42,8 +42,12 @@ export function paneProductsFor(pages: FileSystemImport[], specs: TodayPaneProdu
 }
 
 /** Whether the Products pane shows this product for these flags, so a pane never lists a page the Products pane hides. */
-export function isPaneProductShown(product: TodayPaneProduct, featureFlags: FeatureFlagsSet): boolean {
-    return isFileSystemImportShown(product.item, featureFlags)
+export function isPaneProductShown(
+    product: TodayPaneProduct,
+    featureFlags: FeatureFlagsSet,
+    isOrganizationAdmin = false
+): boolean {
+    return isFileSystemImportShown(product.item, featureFlags, isOrganizationAdmin)
 }
 
 /** The product that owns this page. The longest matching path wins, so a nested product beats its parent. */
@@ -82,7 +86,6 @@ export interface TodayProductPaneConfig {
     lead: TodayPaneGroup
     sections: TodayPaneSection[]
     recentTypes: readonly string[]
-    recentTypeInfo: Record<string, TodayRecentTypeCopy & { iconType: FileSystemIconType }>
     /** Records viewed before this pane existed, newest first, to fill Recents on a first visit. */
     loadRecentHistory?: () => Promise<TodayRecent[]>
 }

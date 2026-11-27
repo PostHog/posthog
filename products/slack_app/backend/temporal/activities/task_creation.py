@@ -26,6 +26,8 @@ from products.slack_app.backend.services.slack_messages import (
     project_web_url,
     thread_permalink,
 )
+from products.slack_app.backend.services.slack_settings import resolve_chatgpt_apps_enabled
+from products.slack_app.backend.services.slack_user_oauth import linked_slack_user_id
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.task_profiles import REPORT_IMPLEMENTATION, SLACK
 from products.slack_app.backend.temporal.attachments import (
@@ -89,19 +91,39 @@ def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str,
     return tasks_facade.slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id)
 
 
-def _own_plan_state(integration: Any, user: Any, *, runtime_adapter: str | None) -> dict[str, Any]:
+def _own_plan_state(
+    integration: Any,
+    user: Any,
+    *,
+    slack_workspace_id: str,
+    runtime_adapter: str | None,
+) -> dict[str, Any]:
     """The run-state keys that bill a new run to this user's own plan, or none to keep PostHog credits.
 
     The caller passes the thread creator, whose plan pays for every turn in the thread.
     A failed check keeps the run on credits rather than blocking the mention.
     """
-    from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled  # noqa: PLC0415
+    from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
+        is_slack_app_byos_enabled,
+        is_slack_app_chatgpt_apps_setting_enabled,
+    )
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     try:
         state: dict[str, Any] = tasks_facade.unattended_model_access_state(user, runtime_adapter=runtime_adapter)
         # The flag is a network call, so the local plan checks run first.
         if state and is_slack_app_byos_enabled(integration, user.distinct_id, adapter=str(runtime_adapter)):
+            # Anyone who joins the thread talks to this run, so the plan's apps stay off unless the owner allowed them.
+            # The owner's linked Slack user is read, not the thread's mentioner: a handoff or a workflow thread
+            # splits the two, and the settings page saves the choice under the linked user.
+            if (
+                "codex_model_access" in state
+                and is_slack_app_chatgpt_apps_setting_enabled(integration, user.distinct_id)
+                and not resolve_chatgpt_apps_enabled(
+                    slack_workspace_id, linked_slack_user_id(user=user, slack_team_id=slack_workspace_id)
+                )
+            ):
+                state["codex_apps_disabled"] = True
             return state
     except Exception:
         logger.exception("slack_app_own_plan_resolution_failed", user_id=user.id)
@@ -894,6 +916,7 @@ def create_posthog_code_task_for_repo_activity(
         own_plan_state = _own_plan_state(
             integration,
             mentioner,
+            slack_workspace_id=inputs.slack_team_id,
             runtime_adapter=resolve_effective_runtime_adapter(
                 run_prefs.runtime_adapter, team_id=integration.team_id, user_id=user_id
             ),
@@ -1931,6 +1954,7 @@ def _resume_task_with_new_run(
     own_plan_state = _own_plan_state(
         integration,
         created_by,
+        slack_workspace_id=mapping.slack_workspace_id,
         runtime_adapter=resolve_effective_runtime_adapter(
             extra_state.get("runtime_adapter"), team_id=mapping.task.team_id, user_id=run_actor.id
         ),

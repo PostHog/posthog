@@ -20,53 +20,20 @@ export function fallbackGatewayProduct(isInternal = false): GatewayProduct {
   return isInternal ? "background_agents" : "posthog_code";
 }
 
-// The legacy gateway accepts sandbox OAuth under background_agents; review_hog
-// is API-key-only there, and account_audit and autoresearch have no legacy
-// product config.
-const LEGACY_PRODUCT_OVERRIDES: Partial<
-  Record<GatewayProduct, GatewayProduct>
-> = {
-  review_hog: "background_agents",
-  account_audit: "background_agents",
-  autoresearch: "background_agents",
-};
-
-function legacyProduct(product: GatewayProduct): GatewayProduct {
-  return LEGACY_PRODUCT_OVERRIDES[product] ?? product;
-}
-
 export function getAiGatewayUrl(posthogHost: string): string {
   return getCloudTaskGatewayUrl(posthogHost);
 }
 
 /**
- * Resolve the gateway URL for a request. The Python gateway is reachable only
- * through an explicit `LLM_GATEWAY_URL`, treated as a *base* URL — the product
- * slug is always appended so the gateway can route to the correct product
- * config. Without this, a bare-host override lost the product suffix and every
- * request fell into the catch-all `llm_gateway` product which OAuth tokens
- * cannot use (403).
+ * Strips a trailing `/v1` because callers re-append it: the Anthropic SDK adds
+ * `/v1/messages`, and the OpenAI base URL appends `/v1`.
  */
-export function resolveLlmGatewayUrl(
+export function resolveAiGatewayBaseUrl(
   envUrl: string | undefined,
   posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-  { slugless = false }: { slugless?: boolean } = {},
 ): string {
-  if (slugless) {
-    // The Go gateway routes by credential and header, not path, so the product
-    // slug would 404. A trailing `/v1` is stripped because callers re-append
-    // it: the Anthropic SDK adds `/v1/messages`, and the OpenAI base URL is
-    // derived by appending `/v1`.
-    const base = (envUrl ?? getAiGatewayUrl(posthogHost)).replace(/\/+$/, "");
-    return base.replace(/\/v1$/, "");
-  }
-  if (envUrl) {
-    return `${envUrl.replace(/\/$/, "")}/${legacyProduct(product)}`;
-  }
-  throw new Error(
-    `No gateway for ${product}: it is not routed to the AI gateway and LLM_GATEWAY_URL is unset`,
-  );
+  const base = (envUrl || getAiGatewayUrl(posthogHost)).replace(/\/+$/, "");
+  return base.replace(/\/v1$/, "");
 }
 
 /** Products routed to the Go gateway, from a comma-separated env value. */
@@ -132,31 +99,23 @@ export function resolveAiProduct({
 }
 
 export interface GatewayTarget {
-  /** Base URL: slugless for the Go gateway, product-slugged for the Python one. */
+  /** Go gateway base URL, with no product slug. */
   baseUrl: string;
-  /** True when the Go gateway is selected, which also changes the header format. */
-  isAiGateway: boolean;
-  /** Product tag; only the Go gateway needs it sent explicitly. */
+  /** True when `AI_GATEWAY_URL` is set and `AI_GATEWAY_PRODUCTS` lists the product. */
+  routed: boolean;
+  /** Product tag, sent explicitly because the gateway has no product route. */
   aiProduct: string;
   /** Stage the product was resolved from: the worker's, else the caller's, else none. */
   aiStage: string | null;
 }
 
 /**
- * Choose which gateway a request targets.
- *
- * The two gateways run on separate hosts (`ai-gateway.*` vs `gateway.*`), so
- * the base URL is what distinguishes them. `AI_GATEWAY_URL` selects the Go
- * gateway, and `AI_GATEWAY_PRODUCTS` limits that to named products so one
- * product can migrate without moving every other caller sharing this server.
- *
- * Both must be set: an unlisted product, or a listed one with no URL, stays on
- * the Python gateway. Migration is therefore opt-in per product, and clearing
- * either value rolls everything back.
+ * A run is routed only when `AI_GATEWAY_URL` is set and `AI_GATEWAY_PRODUCTS`
+ * lists its product. The worker sets both, and mints a token, only for
+ * products it routes, so an unrouted run has no way to reach a model.
  *
  * Scout entries may qualify by skill (`signals_scout:web-analytics`), matching
- * only runs of that skill, so the scout fleet can migrate in batches. A plain
- * `signals_scout` entry matches every skill.
+ * only runs of that skill. A plain `signals_scout` entry matches every skill.
  *
  * `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE` name the product the worker pinned the token
  * to. They win over the local derivation, whose task-run fetch can fail and leave no stage.
@@ -187,27 +146,17 @@ export function resolveGatewayTarget({
     (routedProducts.has(aiProduct) ||
       (skillQualified !== null && routedProducts.has(skillQualified)));
 
-  if (routed) {
-    return {
-      baseUrl: resolveLlmGatewayUrl(aiGatewayUrl, posthogHost, product, {
-        slugless: true,
-      }),
-      isAiGateway: true,
-      aiProduct,
-      aiStage: effectiveStage,
-    };
-  }
   return {
-    baseUrl: resolveLlmGatewayUrl(env.LLM_GATEWAY_URL, posthogHost, product),
-    isAiGateway: false,
+    baseUrl: resolveAiGatewayBaseUrl(aiGatewayUrl, posthogHost),
+    routed,
     aiProduct,
     aiStage: effectiveStage,
   };
 }
 
+/** The Go gateway has no `@cf/` alias, so a saved Cloudflare id loses its prefix. */
 export function modelIdForGatewayRoute<T extends string | undefined>(
   model: T,
-  isAiGateway: boolean,
 ): T {
-  return (isAiGateway ? model?.replace(/^@cf\//, "") : model) as T;
+  return model?.replace(/^@cf\//, "") as T;
 }

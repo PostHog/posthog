@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.workload import Workload
 
@@ -541,6 +541,55 @@ def join_metrics_with_metric_series_table(
         constraint_type="ON",
     )
     return join_expr
+
+
+METRICS_TABLE_CLASSES: tuple[type[Table], ...] = (
+    MetricsTable,
+    MetricSamplesTable,
+    MetricNamesTable,
+    MetricSeriesTable,
+    MetricAttributesTable,
+)
+
+# A FROM source that reads no table itself: its own FROM clauses are checked where they appear.
+_SUBQUERY_TYPES = (
+    ast.SelectQueryType,
+    ast.SelectSetQueryType,
+    ast.SelectQueryAliasType,
+    ast.CTETableType,
+    ast.CTETableAliasType,
+)
+
+
+class _TableCollector(TraversingVisitor):
+    """Collects every FROM and JOIN source of a resolved query that is not a metrics table.
+
+    It reads the resolved types, not the raw AST: the resolver applies the CTE scope rules and
+    expands HogQLX tags, so a CTE name or a tag cannot hide another table.
+    """
+
+    def __init__(self) -> None:
+        self.other_tables: list[str] = []
+
+    def visit_join_expr(self, node: JoinExpr) -> None:
+        table_type = node.type
+        while isinstance(table_type, ast.TableAliasType):
+            table_type = table_type.table_type
+        if not isinstance(table_type, _SUBQUERY_TYPES) and not (
+            isinstance(table_type, ast.TableType) and isinstance(table_type.table, METRICS_TABLE_CLASSES)
+        ):
+            name = ".".join(str(part) for part in node.table.chain) if isinstance(node.table, ast.Field) else None
+            self.other_tables.append(name or "a table that is not a metrics table")
+        super().visit_join_expr(node)
+
+
+def tables_outside_metrics(query: SelectQuery | ast.SelectSetQuery, context: HogQLContext) -> list[str]:
+    """The names of the tables a query reads that are not metrics tables."""
+    from posthog.hogql.resolver import resolve_types
+
+    collector = _TableCollector()
+    collector.visit(resolve_types(query, context, dialect="clickhouse"))
+    return collector.other_tables
 
 
 class MetricsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
