@@ -10,6 +10,7 @@ import {
     CDP_EVENTS_DLQ_OUTPUT,
     CDP_INTAKE_DLQ_OUTPUT,
     CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     EMAIL_STATUS_OUTPUT,
     SES_WEBHOOKS_OUTPUT,
@@ -68,6 +69,10 @@ export function createCdpOutputsRegistry() {
         })
         .register(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, {
             topicKey: 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
+            producerKey: 'CDP_INTAKE_MSK_PRODUCER',
+        })
+        .register(CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT, {
+            topicKey: 'CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC',
             producerKey: 'CDP_INTAKE_MSK_PRODUCER',
         })
         .register(SES_WEBHOOKS_OUTPUT, {
