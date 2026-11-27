@@ -32,6 +32,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -82,7 +83,9 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
                             >
                                 <IconLetter />
-                                Email this cohort
+                                <MessageAudienceSpot source="cohort" destination="broadcast">
+                                    Email this cohort
+                                </MessageAudienceSpot>
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() => {
@@ -94,7 +97,9 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
                             >
                                 <IconSend />
-                                Build a custom workflow
+                                <MessageAudienceSpot source="cohort" destination="workflow">
+                                    Build a custom workflow
+                                </MessageAudienceSpot>
                             </SceneMenuBarItem>
                             {/* Adding to notebooks is deprecated under the rail redesign. */}
                             {!todayRailNav && (

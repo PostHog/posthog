@@ -4,8 +4,9 @@ import { IconSend } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 
-import { surveyRespondentsBroadcastLogic } from './surveyRespondentsBroadcastLogic'
+import { SURVEY_RESPONDENTS_SOURCE, surveyRespondentsBroadcastLogic } from './surveyRespondentsBroadcastLogic'
 
 export function SurveyRespondentsBroadcastButton({ surveyId }: { surveyId: string }): JSX.Element {
     const logic = surveyRespondentsBroadcastLogic({ surveyId })
@@ -22,7 +23,9 @@ export function SurveyRespondentsBroadcastButton({ surveyId }: { surveyId: strin
             tooltip="Send a one-time email to the people behind the responses shown"
             data-attr="survey-email-respondents"
         >
-            {hasActiveFilters ? 'Email these respondents' : 'Email respondents'}
+            <MessageAudienceSpot source={SURVEY_RESPONDENTS_SOURCE} destination="broadcast">
+                {hasActiveFilters ? 'Email these respondents' : 'Email respondents'}
+            </MessageAudienceSpot>
         </LemonButton>
     )
 }

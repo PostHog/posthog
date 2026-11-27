@@ -24,7 +24,7 @@ import { draftMessage } from 'products/workflows/frontend/MessageAudience/messag
 
 export const AFFECTED_LOOKBACK_DAYS = 30
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
-const SOURCE = 'error_tracking_affected'
+export const ISSUE_AFFECTED_SOURCE = 'error_tracking_affected'
 const RESOLVED_SOURCE = 'error_tracking_resolved'
 const MAX_NAME_LENGTH = 200
 
@@ -169,9 +169,9 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             },
         ],
         source: [
-            SOURCE as string,
+            ISSUE_AFFECTED_SOURCE as string,
             {
-                openModal: () => SOURCE,
+                openModal: () => ISSUE_AFFECTED_SOURCE,
                 openModalAfterResolve: () => RESOLVED_SOURCE,
             },
         ],
@@ -190,7 +190,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             {
                 // The audience cohort doesn't exist until Continue, so only the sender problems apply here.
                 loadSendWarnings: async () =>
-                    await loadMessageAudienceWarnings({ properties: [], source: SOURCE }, 'broadcast'),
+                    await loadMessageAudienceWarnings({ properties: [], source: ISSUE_AFFECTED_SOURCE }, 'broadcast'),
             },
         ],
         affectedCount: [
@@ -221,7 +221,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
     listeners(({ actions, props, values, cache }) => ({
         openModal: () => {
             // The click on the entry point, before any outcome, so abandoned attempts count too.
-            captureMessageAudienceClicked(SOURCE, 'broadcast')
+            captureMessageAudienceClicked(ISSUE_AFFECTED_SOURCE, 'broadcast')
             actions.loadAffectedCount()
             actions.loadSendWarnings()
         },

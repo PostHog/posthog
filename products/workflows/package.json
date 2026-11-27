@@ -47,6 +47,7 @@
         "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
+        "react-intersection-observer": "^9.16.0",
         "rrule": "*"
     }
 }

@@ -4,8 +4,14 @@ import { IconSend } from '@posthog/icons'
 
 import { DropdownMenuItem } from 'lib/ui/quill'
 
-import { openIssueWorkflow } from './issueWorkflow'
-import { IssueAffectedBroadcastLogicProps, issueAffectedBroadcastLogic } from './ScenePanel/issueAffectedBroadcastLogic'
+import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
+
+import { ISSUE_WORKFLOW_SOURCE, openIssueWorkflow } from './issueWorkflow'
+import {
+    ISSUE_AFFECTED_SOURCE,
+    IssueAffectedBroadcastLogicProps,
+    issueAffectedBroadcastLogic,
+} from './ScenePanel/issueAffectedBroadcastLogic'
 
 export function IssueEmailMenuItems(props: IssueAffectedBroadcastLogicProps): JSX.Element {
     const { openModal } = useActions(issueAffectedBroadcastLogic(props))
@@ -14,14 +20,18 @@ export function IssueEmailMenuItems(props: IssueAffectedBroadcastLogicProps): JS
         <>
             <DropdownMenuItem onClick={openModal} data-attr="error-tracking-issue-email-affected">
                 <IconSend />
-                Email people affected
+                <MessageAudienceSpot source={ISSUE_AFFECTED_SOURCE} destination="broadcast">
+                    Email people affected
+                </MessageAudienceSpot>
             </DropdownMenuItem>
             <DropdownMenuItem
                 onClick={() => openIssueWorkflow(props.issueId)}
                 data-attr="error-tracking-issue-start-workflow"
             >
                 <IconSend />
-                Email anyone who hits this
+                <MessageAudienceSpot source={ISSUE_WORKFLOW_SOURCE} destination="workflow">
+                    Email anyone who hits this
+                </MessageAudienceSpot>
             </DropdownMenuItem>
         </>
     )

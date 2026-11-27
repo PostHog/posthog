@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 
 import {
     AccessControlLevel,
@@ -61,9 +62,38 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
     )
 }
 
+const attemptsOnScreen = new Map<string, string>()
+
+export function holdMessageAudienceAttempt(
+    source: string,
+    destination: MessageAudienceDestination,
+    attemptId: string
+): () => void {
+    const key = `${source}:${destination}`
+    attemptsOnScreen.set(key, attemptId)
+    return () => {
+        if (attemptsOnScreen.get(key) === attemptId) {
+            attemptsOnScreen.delete(key)
+        }
+    }
+}
+
+export function captureMessageAudienceShown(
+    source: string,
+    destination: MessageAudienceDestination,
+    attemptId: string
+): void {
+    // pinned: analytics event name
+    posthog.capture('message audience shown', { source, destination, attempt_id: attemptId })
+}
+
 export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
     // pinned: analytics event name
-    posthog.capture('message audience clicked', { source, destination })
+    posthog.capture('message audience clicked', {
+        source,
+        destination,
+        attempt_id: attemptsOnScreen.get(`${source}:${destination}`) ?? uuid(),
+    })
 }
 
 /** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */

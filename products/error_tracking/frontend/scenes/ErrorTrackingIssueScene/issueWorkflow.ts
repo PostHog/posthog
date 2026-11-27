@@ -8,7 +8,7 @@ import {
 } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 // pinned: reported as the click event's source, so renaming it splits the entry point's history
-const SOURCE = 'error_tracking'
+export const ISSUE_WORKFLOW_SOURCE = 'error_tracking'
 
 function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
     return {
@@ -22,11 +22,16 @@ function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
 
 /** Opens a new workflow that emails people each time they hit this issue. */
 export function openIssueWorkflow(issueId: string): void {
-    captureMessageAudienceClicked(SOURCE, 'workflow')
+    captureMessageAudienceClicked(ISSUE_WORKFLOW_SOURCE, 'workflow')
     router.actions.push(
-        urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId), SOURCE, draftMessage({ kind: 'issue_hit' }), {
-            source: 'error_tracking',
-            source_id: issueId,
-        })
+        urlForNewWorkflowWithTrigger(
+            issueWorkflowTrigger(issueId),
+            ISSUE_WORKFLOW_SOURCE,
+            draftMessage({ kind: 'issue_hit' }),
+            {
+                source: 'error_tracking',
+                source_id: issueId,
+            }
+        )
     )
 }

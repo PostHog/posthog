@@ -5,6 +5,7 @@ import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
 
 import { MessageAudience, MessageAudienceDestination, messageAudienceAccessDisabledReason } from './messageAudience'
 import { messageAudienceOpenLogic } from './messageAudienceOpenLogic'
+import { MessageAudienceSpot } from './MessageAudienceSpot'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
     broadcast: 'Send a one-time email',
@@ -48,14 +49,20 @@ export function MessageAudienceButton({
                 onClick={() => open(destinations[0])}
                 data-attr={`message-audience-${audience.source}-${destinations[0]}`}
             >
-                {label}
+                <MessageAudienceSpot source={audience.source} destination={destinations[0]}>
+                    {label}
+                </MessageAudienceSpot>
             </LemonButton>
         )
     }
     return (
         <LemonMenu
             items={destinations.map((destination) => ({
-                label: DESTINATION_LABELS[destination],
+                label: (
+                    <MessageAudienceSpot source={audience.source} destination={destination}>
+                        {DESTINATION_LABELS[destination]}
+                    </MessageAudienceSpot>
+                ),
                 onClick: () => open(destination),
                 'data-attr': `message-audience-${audience.source}-${destination}`,
             }))}

@@ -10,6 +10,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
@@ -52,7 +53,9 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />
-            Email everyone who responds
+            <MessageAudienceSpot source={SOURCE} destination="workflow">
+                Email everyone who responds
+            </MessageAudienceSpot>
         </ButtonPrimitive>
     )
 }

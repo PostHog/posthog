@@ -87,6 +87,7 @@ import {
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceOpenLogic'
+import { MessageAudienceSpot } from 'products/workflows/frontend/MessageAudience/MessageAudienceSpot'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -325,7 +326,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             tooltip="Send a one-time email to everyone in this cohort"
                             menuItem
                         >
-                            <IconLetter /> Email this cohort
+                            <IconLetter />{' '}
+                            <MessageAudienceSpot source="cohort" destination="broadcast">
+                                Email this cohort
+                            </MessageAudienceSpot>
                         </ButtonPrimitive>
 
                         <ButtonPrimitive
@@ -341,7 +345,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             tooltip="Open a workflow for this cohort to add delays, branches, or more steps"
                             menuItem
                         >
-                            <IconSend /> Build a custom workflow
+                            <IconSend />{' '}
+                            <MessageAudienceSpot source="cohort" destination="workflow">
+                                Build a custom workflow
+                            </MessageAudienceSpot>
                         </ButtonPrimitive>
 
                         <SceneAddToNotebookDropdownMenu
