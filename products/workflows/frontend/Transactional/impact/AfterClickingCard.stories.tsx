@@ -111,7 +111,14 @@ const Template: StoryFn<AfterClickingStoryArgs> = ({ sessions, scan = [202, SCAN
 async function askWhereStuck(canvasElement: HTMLElement, shows: string): Promise<void> {
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByText('Where do people get stuck after clicking?'))
-    await waitFor(() => canvas.getByText((_, element) => element?.tagName === 'SPAN' && element.textContent === shows))
+    // The copy wraps each number in its own element, so match the innermost element that holds the whole sentence.
+    await waitFor(() =>
+        canvas.getByText(
+            (_, element) =>
+                element?.textContent === shows &&
+                !Array.from(element.children).some((child) => child.textContent === shows)
+        )
+    )
 }
 
 export const Questions: StoryObj<AfterClickingStoryArgs> = {

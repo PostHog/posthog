@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -83,6 +85,7 @@ describe('afterClickingScanLogic', () => {
     let createBodies: Record<string, unknown>[]
     let createGate: Promise<void>
     let retrieveAnswers: [number, unknown][]
+    let retrieveGate: Promise<void>
     let retrievedPaths: string[]
 
     beforeEach(() => {
@@ -92,6 +95,7 @@ describe('afterClickingScanLogic', () => {
         createBodies = []
         createGate = Promise.resolve()
         retrieveAnswers = []
+        retrieveGate = Promise.resolve()
         retrievedPaths = []
         useMocks({
             get: {
@@ -100,9 +104,11 @@ describe('afterClickingScanLogic', () => {
                     sessionsParams.push(new URL(request.url).searchParams)
                     return sessionsAnswer
                 },
-                '/api/projects/:team_id/vision/requests/:id/': ({ request }) => {
+                '/api/projects/:team_id/vision/requests/:id/': async ({ request }) => {
                     retrievedPaths.push(new URL(request.url).pathname)
-                    return retrieveAnswers.shift() ?? [500, {}]
+                    const answer = retrieveAnswers.shift() ?? [500, {}]
+                    await retrieveGate
+                    return answer
                 },
             },
             post: {
@@ -201,6 +207,7 @@ describe('afterClickingScanLogic', () => {
             name: 'AI analysis is not allowed',
             answer: [400, { type: 'validation_error', code: 'ai_data_processing_not_approved', detail: 'off' }],
             state: { kind: 'ai-analysis-not-allowed' },
+            finished: [],
         },
         {
             name: 'the credits are used up',
@@ -212,6 +219,7 @@ describe('afterClickingScanLogic', () => {
                 ]),
             ],
             state: { kind: 'credits-used-up' },
+            finished: [{ sessions: 2, sessions_with_result: 0, sessions_skipped: 2, credits_used_up: true }],
         },
         {
             name: 'some sessions are skipped',
@@ -223,25 +231,81 @@ describe('afterClickingScanLogic', () => {
                 ]),
             ],
             state: { kind: 'finished', withResult: 1, scanned: 1, skipped: { busy: 1, quota: 0 } },
+            finished: [{ sessions: 2, sessions_with_result: 1, sessions_skipped: 1, credits_used_up: false }],
         },
         {
             name: 'the server fails',
             answer: [500, { detail: 'Server error' }],
             state: { kind: 'scan-error', message: "Replay vision couldn't scan these sessions. Try again." },
+            finished: [],
         },
-    ] as { name: string; answer: [number, unknown]; state: unknown }[])(
+    ] as { name: string; answer: [number, unknown]; state: unknown; finished: Record<string, unknown>[] }[])(
         'says so when $name',
-        async ({ answer, state }) => {
+        async ({ answer, state, finished }) => {
             await expectLogic(logic).toFinishAllListeners()
             createAnswer = answer
+            const capture = jest.spyOn(posthog, 'capture')
 
             await expectLogic(logic, () =>
                 logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
             )
                 .toFinishAllListeners()
                 .toMatchValues({ scanState: state })
+            expect(
+                capture.mock.calls
+                    .filter(([event]) => event === 'transactional email impact scan finished')
+                    .map(([, properties]) => properties)
+            ).toEqual(finished)
         }
     )
+
+    it('stops polling once a poll fails for good', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        retrieveAnswers = [[404, { detail: 'Not found.' }]]
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+        await expectLogic(logic).toFinishAllListeners()
+
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
+        const failed = { kind: 'scan-error', message: "Replay vision couldn't scan these sessions. Try again." }
+        expect(logic.values.scanState).toEqual(failed)
+
+        setTabHidden(true)
+        setTabHidden(false)
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 3)
+        expect(retrievedPaths).toHaveLength(1)
+        expect(logic.values.scanState).toEqual(failed)
+    })
+
+    it("ends the new scan after its own failed polls, even when an old scan's poll answers late", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
+        await expectLogic(logic).toFinishAllListeners()
+
+        let answerOldPoll: () => void = () => {}
+        retrieveGate = new Promise((resolve) => (answerOldPoll = resolve))
+        retrieveAnswers = [[200, scanRequest('running', [scanSession('session-a'), scanSession('session-b')])]]
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
+        expect(retrievedPaths).toHaveLength(1)
+
+        logic.actions.setDays(1)
+        await expectLogic(logic).toDispatchActions(['loadSessionsSuccess'])
+        retrieveGate = Promise.resolve()
+        retrieveAnswers = Array(5).fill([503, { detail: 'Service unavailable' }])
+        logic.actions.askQuestion('Do people find the pricing page?', null)
+        await expectLogic(logic).toDispatchActions(['startScanSuccess'])
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS * 4)
+        expect(retrievedPaths).toHaveLength(5)
+
+        answerOldPoll()
+        await expectLogic(logic).toDispatchActions(['refreshScanSuccess'])
+        await jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS)
+        expect(logic.values.scanState).toEqual({
+            kind: 'scan-error',
+            message: "Replay vision couldn't scan these sessions. Try again.",
+        })
+    })
 
     it('starts the scan again with the same idempotency key on retry', async () => {
         await expectLogic(logic).toFinishAllListeners()
@@ -289,7 +353,7 @@ describe('afterClickingScanLogic', () => {
         expect(sessionsParams[1].get('workflow_id')).toBe(WORKFLOW_ID)
         expect(Math.round(dayjs().diff(dayjs(sessionsParams[1].get('date_from')), 'hour', true))).toBe(24)
     })
-    it('keeps the new period when a scan of the old one fails late', async () => {
+    it("keeps the new period's scan when a scan of the old one fails late", async () => {
         await expectLogic(logic).toFinishAllListeners()
         let failOldScan: () => void = () => {}
         createGate = new Promise((resolve) => (failOldScan = resolve))
@@ -297,12 +361,27 @@ describe('afterClickingScanLogic', () => {
         const capture = jest.spyOn(posthog, 'capture')
         logic.actions.askQuestion('Where do people get stuck after clicking?', 'stuck')
 
-        await expectLogic(logic, () => logic.actions.setDays(1)).toDispatchActions(['loadSessionsSuccess'])
+        logic.actions.setDays(1)
+        await waitFor(() =>
+            expect(logic.values.scanState).toEqual({ kind: 'questions', sessionCount: 2, hasMore: false })
+        )
+
+        let answerNewScan: () => void = () => {}
+        createGate = new Promise((resolve) => (answerNewScan = resolve))
+        createAnswer = [202, scanRequest('completed', [scanSession('session-a', SUCCEEDED)])]
+        logic.actions.askQuestion('Do people find the pricing page?', null)
+        await waitFor(() => expect(createBodies).toHaveLength(2))
+        const shown: string[] = []
+        const unsubscribe = getContext().store.subscribe(() => shown.push(logic.values.scanState.kind))
+
         failOldScan()
+        answerNewScan()
         await expectLogic(logic)
             .toFinishAllListeners()
-            .toMatchValues({ scanState: { kind: 'questions', sessionCount: 2, hasMore: false } })
+            .toMatchValues({ scanState: { kind: 'finished', withResult: 1, scanned: 1, skipped: NO_SKIPS } })
+        unsubscribe()
 
+        expect(shown).not.toContain('questions')
         expect(capture).not.toHaveBeenCalledWith('transactional email impact scan failed', expect.anything())
     })
 

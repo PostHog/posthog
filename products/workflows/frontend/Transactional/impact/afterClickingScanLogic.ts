@@ -114,17 +114,18 @@ function isSkipped(session: ObservationRequestSessionApi): boolean {
     )
 }
 
+function scanSkips(request: ObservationRequestApi): ScanSkips {
+    const quota = request.sessions.filter((session) => session.scan_outcome === 'skipped_quota').length
+    return { busy: request.sessions.filter(isSkipped).length - quota, quota }
+}
+
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
     const total = request.sessions.length
     if (total > 0 && request.sessions.every((session) => session.scan_outcome === 'skipped_quota')) {
         return { kind: 'credits-used-up' }
     }
     const started = request.sessions.filter((session) => !isSkipped(session))
-    const skipped = {
-        busy: request.sessions.filter((session) => isSkipped(session) && session.scan_outcome !== 'skipped_quota')
-            .length,
-        quota: request.sessions.filter((session) => session.scan_outcome === 'skipped_quota').length,
-    }
+    const skipped = scanSkips(request)
     if (request.status === 'completed') {
         const withResult = started.filter((session) => session.state === 'succeeded').length
         return { kind: 'finished', withResult, scanned: started.length, skipped }
@@ -325,7 +326,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
         scanRequest: [
             null as ObservationRequestApi | null,
             {
-                startScan: async () => {
+                startScan: async (_: void, breakpoint) => {
                     const asked = values.askedQuestion
                     if (!asked || !values.sessions) {
                         return null
@@ -337,8 +338,11 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                             reference: `workflows-email:${props.workflowId}`,
                             idempotency_key: asked.idempotencyKey,
                         })
+                        breakpoint()
                         return values.askedQuestion === asked ? request : values.scanRequest
                     } catch (error) {
+                        // A newer question started its own scan, so this answer belongs to nobody.
+                        breakpoint()
                         if (values.askedQuestion !== asked) {
                             return values.scanRequest
                         }
@@ -352,8 +356,11 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                     }
                     try {
                         const request = await visionRequestsRetrieve(String(values.currentTeamId), current.id)
+                        if (values.scanRequest !== current) {
+                            return values.scanRequest
+                        }
                         cache.pollFailures = 0
-                        return values.scanRequest === current ? request : values.scanRequest
+                        return request
                     } catch (error) {
                         if (values.scanRequest !== current) {
                             return values.scanRequest
@@ -475,15 +482,16 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             }
             cache.finishedRequestId = request.id
             const state = scanRequestState(request)
+            const skipped = scanSkips(request)
             posthog.capture('transactional email impact scan finished', {
                 sessions: request.sessions.length,
                 sessions_with_result: state.kind === 'finished' ? state.withResult : 0,
-                sessions_skipped: state.kind === 'finished' ? state.skipped.busy + state.skipped.quota : 0,
-                credits_used_up:
-                    state.kind === 'credits-used-up' || (state.kind === 'finished' && state.skipped.quota > 0),
+                sessions_skipped: skipped.busy + skipped.quota,
+                credits_used_up: skipped.quota > 0,
             })
         }
         const reportFailure = (): void => {
+            cache.disposables.dispose('scanPoll')
             posthog.capture('transactional email impact scan failed', { reason: values.scanFailure?.kind })
         }
         return {
