@@ -112,6 +112,14 @@ describe('evaluateFeatureFlags', () => {
                 'flag-on': flag('flag-on', true, undefined, { message: 'Example invitation' }),
                 'flag-off': flag('flag-off', false, undefined, { message: 'Off' }),
                 'flag-legacy': flag('flag-legacy', true, '', { message: 'Legacy variant' }),
+                'flag-without-payload': {
+                    ...flag('flag-without-payload', true),
+                    metadata: { id: 3, version: 1, payload: null },
+                },
+                'flag-empty-payload': {
+                    ...flag('flag-empty-payload', true),
+                    metadata: { id: 4, version: 1, payload: '' },
+                },
                 'xpm-mcp-placement': flag('xpm-mcp-placement', true, 'after_cohorts_create', {
                     label: 'Email the people in this cohort',
                 }),
@@ -123,7 +131,7 @@ describe('evaluateFeatureFlags', () => {
 
     it('returns the values and payloads of the requested flags without reporting an exposure', async () => {
         const result = await evaluateFeatureFlags(
-            ['flag-on', 'flag-off', 'flag-legacy', 'xpm-mcp-placement'],
+            ['flag-on', 'flag-off', 'flag-legacy', 'flag-without-payload', 'flag-empty-payload', 'xpm-mcp-placement'],
             'user-123',
             { organization: 'org-abc' }
         )
@@ -133,6 +141,8 @@ describe('evaluateFeatureFlags', () => {
                 'flag-on': true,
                 'flag-off': false,
                 'flag-legacy': '',
+                'flag-without-payload': true,
+                'flag-empty-payload': true,
                 'xpm-mcp-placement': 'after_cohorts_create',
             },
             payloads: {
@@ -145,7 +155,14 @@ describe('evaluateFeatureFlags', () => {
             {
                 distinct_id: 'user-123',
                 groups: { organization: 'org-abc' },
-                flag_keys_to_evaluate: ['flag-on', 'flag-off', 'flag-legacy', 'xpm-mcp-placement'],
+                flag_keys_to_evaluate: [
+                    'flag-on',
+                    'flag-off',
+                    'flag-legacy',
+                    'flag-without-payload',
+                    'flag-empty-payload',
+                    'xpm-mcp-placement',
+                ],
             },
         ])
         expect(await flagCalledEvents()).toEqual([])

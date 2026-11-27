@@ -48,7 +48,8 @@ export async function evaluateFeatureFlags(
         const value = snapshot.getFlag(key, { sendFeatureFlagEvents: false })
         flags[key] = value
         const payload = snapshot.getFlagPayload(key)
-        if (value !== undefined && value !== false && payload !== undefined) {
+        const hasPayload = payload !== undefined && payload !== null && payload !== ''
+        if (value !== undefined && value !== false && hasPayload) {
             payloads[key] = payload
         }
     }
