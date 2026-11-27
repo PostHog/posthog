@@ -482,8 +482,8 @@ export const GithubOptional: Story = {
         },
     },
     play: async ({ canvas }) => {
-        await canvas.findByText('Activate Self-driving')
-        await expect(canvas.queryByText('Connect GitHub')).not.toBeInTheDocument()
+        await canvas.findByText('Connect GitHub')
+        await expect(canvas.queryByText('Activate Self-driving')).not.toBeInTheDocument()
     },
     decorators: [
         mswDecorator({

@@ -167,6 +167,7 @@ export interface inboxSetupLogicValues {
     quickSetupDraft: InboxOnboardingDraftApi | null
     quickSetupGithubReturnUrl: string
     quickSetupReady: boolean
+    quickSetupSkipsGithub: boolean
     ready: boolean
     refreshingSources: boolean
     resumingSetup: boolean
@@ -323,6 +324,7 @@ export interface inboxSetupLogicMeta {
         quickSetupGithubReturnUrl: (onboardingOrigin: NonNullable<InboxOnboardingOriginEnumApi | undefined>) => string
         isGithubOptionalSetup: (savedState: InboxOnboardingStateApi | null) => boolean
         isQuickSetup: (searchParams: Record<string, any>, savedState: InboxOnboardingStateApi | null) => boolean
+        quickSetupSkipsGithub: (isGithubOptionalSetup: boolean, searchParams: Record<string, any>) => boolean
         shouldResumeQuickSetup: (
             isQuickSetup: boolean,
             savedState: InboxOnboardingStateApi | null,
@@ -597,6 +599,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 params.onboarding_step === 'quick' ||
                 (!state?.draft && !['signals', 'scouts', 'github'].includes(String(params.onboarding_step))),
         ],
+        // The welcome screen asks for GitHub even in the pilot, so that a person who skips it goes through the guided
+        // steps and their confirmation. The pilot link that the MCP offers to agents is the one quick path without it.
+        quickSetupSkipsGithub: [
+            (s) => [s.isGithubOptionalSetup, s.searchParams],
+            (pilot: boolean, params: Record<string, any>): boolean => pilot && params.agent_setup === 'without_github',
+        ],
         shouldResumeQuickSetup: [
             (s) => [
                 s.isQuickSetup,
@@ -836,7 +844,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             if (!activationSource || values.error || values.saving || values.completed) {
                 return
             }
-            if (values.quickSetupReady && (values.hasGithubIntegration || values.isGithubOptionalSetup)) {
+            if (values.quickSetupReady && (values.hasGithubIntegration || values.quickSetupSkipsGithub)) {
                 actions.activateQuickSetup(activationSource)
                 return
             }
@@ -1210,7 +1218,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 if (values.saving || values.completed) {
                     return
                 }
-                if (!values.quickSetupReady || (!values.hasGithubIntegration && !values.isGithubOptionalSetup)) {
+                if (!values.quickSetupReady || (!values.hasGithubIntegration && !values.quickSetupSkipsGithub)) {
                     actions.setPendingQuickActivation(activationSource)
                     // Restart every prerequisite load: one that already failed would never re-enter the continuation.
                     actions.startSetup()

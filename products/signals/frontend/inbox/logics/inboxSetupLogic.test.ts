@@ -497,21 +497,34 @@ describe('Inbox setup', () => {
         }
     )
 
-    it('keeps the pilot activation mode of a quick setup draft when GitHub is connected', async () => {
-        githubOptional = true
-        savedDraft = null
-        failCompletion = false
-        hasEvents = true
-        canonicalScouts = [generalScoutConfig()]
-        useMocks({
-            get: { '/api/projects/:id/integrations/': { results: [githubIntegration], next: null, count: 1 } },
-        })
-        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
-        logic.actions.activateQuickSetup()
-        await waitFor(() => expect(logic.values.completed).toBe(true))
-        expect(logic.values.hasGithubIntegration).toBe(true)
-        expect(logic.values.savedState?.draft?.activation_mode).toBe('github_optional')
-    })
+    it.each([true, false])(
+        'activates the welcome screen in the pilot only with GitHub connected (%s), and keeps the pilot activation mode',
+        async (connected) => {
+            githubOptional = true
+            savedDraft = null
+            failCompletion = false
+            hasEvents = true
+            canonicalScouts = [generalScoutConfig()]
+            useMocks({
+                get: {
+                    '/api/projects/:id/integrations/': {
+                        results: connected ? [githubIntegration] : [],
+                        next: null,
+                        count: connected ? 1 : 0,
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.activateQuickSetup()).toFinishAllListeners()
+            if (connected) {
+                await waitFor(() => expect(logic.values.completed).toBe(true))
+                expect(logic.values.savedState?.draft?.activation_mode).toBe('github_optional')
+            } else {
+                expect(logic.values.completed).toBe(false)
+                expect(savedDraft).toBeNull()
+            }
+        }
+    )
 
     it.each([
         ['a missing general scout', 'scouts', 'app'],

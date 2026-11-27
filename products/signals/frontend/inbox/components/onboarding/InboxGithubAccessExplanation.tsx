@@ -12,7 +12,8 @@ import { InboxGithubAccessReasons } from './InboxGithubAccessReasons'
 
 export function InboxGithubAccessExplanation({ children }: { children?: ReactNode }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasGithubIntegration, isGithubOptionalSetup } = useValues(inboxSetupLogic)
+    const { hasGithubIntegration, isGithubOptionalSetup, isQuickSetup, quickSetupSkipsGithub } =
+        useValues(inboxSetupLogic)
     const [visible, setVisible] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
     const contentId = useId()
@@ -22,7 +23,7 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
 
     if (
         hasGithubIntegration ||
-        isGithubOptionalSetup ||
+        (isQuickSetup ? quickSetupSkipsGithub : isGithubOptionalSetup) ||
         featureFlags[FEATURE_FLAGS.SELF_DRIVING_GITHUB_ACCESS_EXPLANATION] !== 'test'
     ) {
         return <>{children}</>
