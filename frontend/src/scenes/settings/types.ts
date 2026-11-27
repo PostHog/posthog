@@ -192,6 +192,7 @@ export type SettingId =
     | 'error-tracking-ai-features'
     | 'error-tracking-alerting'
     | 'error-tracking-auto-assignment'
+    | 'error-tracking-auto-resolve'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-general'

@@ -218,6 +218,20 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
         return { description: null }
     }
 
+    if (logItem.activity === 'auto_resolved') {
+        const issue = nameAndLink(logItem)
+        return {
+            summary: activityLogSummary(
+                logItem,
+                'automatically resolved after a period without exceptions',
+                issue,
+                undefined,
+                <span>PostHog</span>
+            ),
+            description: <>PostHog automatically resolved {issue} after a period without exceptions.</>,
+        }
+    }
+
     if (logItem.activity == 'merged' || logItem.activity == 'split') {
         return describeIssueMergeOrSplit(logItem)
     }

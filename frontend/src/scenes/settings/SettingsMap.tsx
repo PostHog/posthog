@@ -6,6 +6,7 @@ import { ParserRecipesSettings } from '@posthog/products-ai-observability/fronte
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
+import { AutoResolveSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/auto_resolve/AutoResolveSettings'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
@@ -987,6 +988,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AIFeaturesSettings />,
                 allowForTeam: (t) => !!t?.available_error_tracking_ai_features?.length,
                 keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
+            },
+            {
+                id: 'error-tracking-auto-resolve',
+                title: 'Auto-resolve inactive issues',
+                description:
+                    'After you turn this on, active issues must go the full number of days without exceptions. The next daily check resolves eligible issues. If another exception occurs, the issue reopens.',
+                component: <AutoResolveSettings />,
+                flag: 'ERROR_TRACKING_AUTO_RESOLVE',
+                keywords: ['resolve', 'inactive', 'stale', 'cleanup'],
             },
             {
                 id: 'error-tracking-auto-assignment',
