@@ -77,7 +77,14 @@ export function chartSpec(vizTypes: VizSpec[]): PanelSpec<ChartConfig, 'chart'> 
             .strictObject({
                 query: panelQuerySchema.optional(),
                 targets: z.array(chartTargetSchema).min(1).max(MAX_CHART_TARGETS).optional(),
-                viz: vizSchemas.length > 0 ? z.union(vizSchemas) : z.never(),
+                // Documents saved before the rename still say `stat`.
+                viz: z.preprocess(
+                    (viz) =>
+                        viz && typeof viz === 'object' && (viz as { type?: unknown }).type === 'stat'
+                            ? { ...viz, type: 'metric' }
+                            : viz,
+                    vizSchemas.length > 0 ? z.union(vizSchemas) : z.never()
+                ),
                 time: timeRangeSchema.optional(),
             })
             .refine((config) => (config.query === undefined) !== (config.targets === undefined), {
