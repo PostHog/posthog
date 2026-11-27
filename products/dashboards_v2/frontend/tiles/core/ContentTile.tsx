@@ -30,6 +30,8 @@ import { isPartShown } from './tileParts'
 
 export const INTERACTIVE_ONLY_CLASS = 'dash-ContentTile--interactive-only'
 /** An image has no hover, so it leaves the description icon out and shows the description under the title instead. */
+/** On a description's text that only an image or a printed page shows, in place of the icon. */
+export const DESCRIPTION_IMAGE_ONLY_CLASS = 'dash-ContentTile__description--image-only'
 export const DESCRIPTION_ICON_CLASS = 'dash-ContentTile__description-icon'
 
 const NO_ACTIONS: MenuAction[] = []
@@ -49,7 +51,7 @@ function cardLook(
     }
 }
 
-function DescriptionInfo({ description }: { description: string }): JSX.Element {
+export function DescriptionInfo({ description }: { description: string }): JSX.Element {
     const [open, setOpen] = useState(false)
     return (
         <Tooltip open={open} onOpenChange={setOpen}>
@@ -132,7 +134,7 @@ export function ContentTile({
                             <CardDescription
                                 className={clsx(
                                     'dash-ContentTile__description TileGrid__text',
-                                    descriptionMode === 'icon' && 'dash-ContentTile__description--image-only'
+                                    descriptionMode === 'icon' && DESCRIPTION_IMAGE_ONLY_CLASS
                                 )}
                                 title={description}
                             >

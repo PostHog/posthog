@@ -39,6 +39,8 @@ export const panelRefSchema = z.object({
 export const sectionPanelSchema = z.object({
     type: z.literal('section'),
     title: z.string(),
+    /** Opens from an icon next to the title. */
+    description: z.string().optional(),
     collapsed: z.boolean().optional(),
     appearance: tileAppearanceSchema.optional(),
     /** The height a person resized the section to, in rows. It still grows past this when its tiles need more. */

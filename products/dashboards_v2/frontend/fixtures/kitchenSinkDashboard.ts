@@ -43,8 +43,16 @@ const tile = (id: string, x: number, y: number, w: number, h: number, panel: Til
     place: { x, y, w, h },
     panel,
 })
-const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
-    tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
+const section = (
+    id: string,
+    x: number,
+    y: number,
+    w: number,
+    title: string,
+    tiles: Tile[],
+    collapsed = false,
+    description?: string
+): Tile => tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, description, tiles, collapsed })
 
 const METRIC_ROWS = metricSpec.size.h
 // Spreads the leftover columns over the row, so five metrics still fill 24 columns.
@@ -229,7 +237,7 @@ export const kitchenSinkDashboard: Dashboard = {
                     ]),
                 ]),
                 section('ks-left', 0, 66, 12, 'Half width', [tile('ks-l-bar', 0, 0, 12, 12, bar('Revenue by product', SQL.revenueByProduct))]),
-                section('ks-right', 12, 66, 12, 'Half width, empty', []),
+                section('ks-right', 12, 66, 12, 'Half width, empty', [], false, 'A section can carry a description too.'),
                 section('ks-closed', 0, 86, 24, 'Closed section', [tile('ks-c-line', 0, 0, 24, 12, line('Hidden', SQL.pageviewsOverTime))], true),
                 tile('ks-headless', 0, 90, 8, 8, text('A tile without a title is dragged by its body.')),
                 section('ks-queries', 0, 98, 24, 'Every query language and chart option', [
