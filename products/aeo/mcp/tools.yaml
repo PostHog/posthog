@@ -491,8 +491,8 @@ tools:
             Move every AI citation tracking prompt of `topic`, archived ones included, to `into_topic`, which keeps its
             current spelling. Past checks that ran with `topic` move too, so the reports show one history under
             `into_topic`, and `topic` is gone afterwards. This can't be undone by a split, so confirm with the user
-            first. Letter case is ignored in both names; take them from `aeo-prompts-topics-list`. No prompt version
-            is added. Fails with 404 when a topic is missing and 400 when both name the same topic. Returns how many
+            first. Letter case is ignored in both names; take them from `aeo-prompts-topics-list`. No prompt version is
+            added. Fails with 404 when a topic is missing and 400 when both name the same topic. Returns how many
             prompts and past checks changed.
         feature_flag: web-analytics-content-autopilot
     aeo-prompts-topics-remove:
@@ -521,8 +521,8 @@ tools:
             Rename `topic` to `new_topic` on every AI citation tracking prompt that has it, archived ones included, and
             on the past checks that ran with it, so the reports show its history under the new name. Letter case is
             ignored when matching `topic`, and `new_topic` may differ from it only in letter case to fix the spelling.
-            Fails with 409 when another topic already has `new_topic`: use `aeo-prompts-topics-merge` instead. No
-            prompt version is added. Returns how many prompts and past checks changed.
+            Fails with 409 when another topic already has `new_topic`: use `aeo-prompts-topics-merge` instead. No prompt
+            version is added. Returns how many prompts and past checks changed.
         feature_flag: web-analytics-content-autopilot
     aeo-prompts-update:
         operation: aeo_prompts_partial_update
