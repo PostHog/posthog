@@ -280,6 +280,8 @@ For local development without your own gateway, set `SANDBOX_AI_GATEWAY_URL=http
 The worker passes that token to every sandbox as is, in place of minting a per-run token, and never revokes it.
 Runs on it have no per-run model pin, no run attribution, and no usage or compute settlement, and private runs are captured.
 It only works with `DEBUG` on: outside `DEBUG` the worker refuses to provision runs while it is set.
+Every sandbox shares the token and can spend up to its cap, so mint it with a small cap (for example `hogli gateway:token --cap 25 --ttl 7d`) and revoke it in the dev mode settings when you're done.
+Don't run untrusted repositories or content in sandboxes while it is set.
 
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the

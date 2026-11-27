@@ -286,3 +286,23 @@ class TestScoutSpendSettlement(BaseTest):
         assert not spend.accounting_failed
         assert spend.spend == Decimal("4.015")
         assert scout.total_spend == Decimal("4.0150")
+
+    @override_settings(DEBUG=True, SANDBOX_AI_GATEWAY_DEV_TOKEN="phe_dev_mode_token")
+    def test_dev_token_scout_spend_finalizes_unpriced(self) -> None:
+        task = Task.objects.create(
+            team=self.team, title="Example scout", description="", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        run.state = {"unprocessed_request_ids": ["pending-request"], "token_cost": {}}
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["state", "status"])
+        scout = SignalScoutRun.objects.for_team(self.team.id).create(
+            team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+        )
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), scout_run_id=str(scout.id), stage="scout")
+
+        complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+
+        spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
+        assert spend.finalized_at is not None
+        assert not spend.accounting_failed

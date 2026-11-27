@@ -22,6 +22,7 @@ from products.tasks.backend.facade.billing import (
     get_task_run_token_usage,
     get_task_runs_spend,
 )
+from products.tasks.backend.facade.contracts import TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.gateway_usage import (
     process_pending_gateway_usage,
@@ -85,7 +86,11 @@ class TestGatewayUsage(BaseTest):
 
         assert pending == 0
         get.assert_not_called()
-        assert get_task_run_token_usage(run_id=run.id, team_id=self.team.id).complete
+        run.refresh_from_db()
+        assert run.state["token_cost_unpriced"] == "dev_token"
+        assert get_task_run_token_usage(run_id=run.id, team_id=self.team.id) == TaskRunTokenUsage(
+            cost_microusd=None, complete=True
+        )
 
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
     @patch("aiohttp.ClientSession._request", autospec=True)
