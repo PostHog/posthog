@@ -9632,7 +9632,7 @@ export namespace Schemas {
         severity: ErrorTrackingIssueSeverity | null;
         name: string | null;
         description: string | null;
-        resolved_until: ResolvedUntilEnum;
+        resolved_until: ResolvedUntilEnum | NullEnum;
     }>;
     /**
      * * `agent_reported` - agent_reported
@@ -16890,7 +16890,7 @@ export namespace Schemas {
         severity: ErrorTrackingIssueSeverity | null;
         name: string | null;
         description: string | null;
-        resolved_until: ResolvedUntilEnum;
+        resolved_until: ResolvedUntilEnum | NullEnum;
     }>;
     /**
      * An evaluation that scores LLM generations, traces, or sessions.
