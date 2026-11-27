@@ -13,6 +13,7 @@ from django.contrib.admin.models import CHANGE, LogEntry
 from django.utils import timezone
 
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
 
 from products.experiments.backend.facade.contracts import (
     RecalculationStart,
@@ -308,14 +309,11 @@ def team_experiment_counts(team_id: int) -> StaffTeamExperimentCounts:
     )
 
 
-def list_team_experiments(team_id: int, limit: int) -> list[StaffExperiment]:
-    experiments = (
-        Experiment.objects.select_related("team")
-        .filter(team_id=team_id)
-        .exclude(deleted=True)
-        .order_by("-created_at")[:limit]
-    )
-    return [_to_staff_experiment(experiment) for experiment in experiments]
+def list_team_experiments(team_id: int, page: PageRequest) -> Page[StaffExperiment]:
+    experiments = Experiment.objects.select_related("team").filter(team_id=team_id).exclude(deleted=True)
+    # Experiments created in the same instant need a fixed order, or a row could show on two pages.
+    rows = experiments.order_by("-created_at", "-id")[page.offset : page.offset + page.limit]
+    return Page(results=[_to_staff_experiment(experiment) for experiment in rows], count=experiments.count())
 
 
 def get_experiment(experiment_id: int) -> StaffExperiment | None:

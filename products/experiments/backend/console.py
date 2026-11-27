@@ -10,7 +10,17 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.panels import Fact, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Row, Table, ToolOperation
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    Live,
+    Notice,
+    Page,
+    Row,
+    Table,
+    ToolOperation,
+    paginate_facade,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -22,7 +32,7 @@ EXPERIMENTS = Owner(name="Experiments", crest="experiments")
 
 EXPERIMENTS_TOOL_URL = "/admin/console/tools/experiments/"
 RECALCULATIONS_TOOL_URL = "/admin/console/tools/experiment-recalculations/"
-TEAM_EXPERIMENTS_LIMIT = 100
+TEAM_EXPERIMENTS_PER_PAGE = 100
 RECENT_RUNS = 25
 EXPERIMENT_RUNS = 10
 REFRESH_SECONDS_WHILE_RUNNING = 10
@@ -295,7 +305,7 @@ class ExperimentsTool(ConsoleTool):
             return self._saved_metric_page(saved_metric_id)
         team_id = _int_param(request, "team")
         if team_id is not None:
-            return self._team_page(team_id)
+            return self._team_page(request, team_id)
         return Page(
             blocks=(
                 Notice(
@@ -306,20 +316,26 @@ class ExperimentsTool(ConsoleTool):
             )
         )
 
-    def _team_page(self, team_id: int) -> Page:
-        experiments = staff.list_team_experiments(team_id, TEAM_EXPERIMENTS_LIMIT)
+    def _team_page(self, request: HttpRequest, team_id: int) -> Page:
+        experiments = paginate_facade(
+            request,
+            lambda page: staff.list_team_experiments(team_id, page),
+            noun="experiment",
+            per_page=TEAM_EXPERIMENTS_PER_PAGE,
+        )
         return Page(
             blocks=(
                 Notice(
-                    text=f"Experiments of team {team_id}, newest first. The page shows up to {TEAM_EXPERIMENTS_LIMIT}.",
+                    text=f"Experiments of team {team_id}, newest first.",
                     link_text="Back to the team",
                     href=f"/admin/console/teams/{team_id}/",
                 ),
                 Table(
                     columns=("Experiment", "ID", "Status", "Engine", "Metric properties", "Created"),
-                    rows=tuple(_experiment_row(experiment) for experiment in experiments),
+                    rows=tuple(_experiment_row(experiment) for experiment in experiments.rows),
                     empty_text="This team has no experiments.",
                 ),
+                *((experiments.paging,) if experiments.paging else ()),
             )
         )
 
