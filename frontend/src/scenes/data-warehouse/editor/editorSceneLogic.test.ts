@@ -64,7 +64,7 @@ describe('editorSceneLogic', () => {
             let createdCohort: unknown
             useMocks({
                 post: {
-                    '/api/cohort/': async ({ request }) => {
+                    '/api/projects/:team_id/cohorts/': async ({ request }) => {
                         createdCohort = await request.json()
                         return [201, { id: 42 }]
                     },

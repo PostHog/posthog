@@ -76,6 +76,7 @@ rules:
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
+                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -160,6 +161,7 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -196,6 +198,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinitionMetadata
                               |EventFilterConfig
                               |EventFilterPipelineOverride
                               |EventStream
@@ -228,6 +231,7 @@ rules:
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
@@ -376,6 +380,7 @@ rules:
                               |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PropertyDefinitionMetadata
                               |PullRequestAudience
                               |PurgedTicketThread
                               |QuarantineLiftRequest
@@ -466,6 +471,8 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutMessage
+                              |SignalScoutMessageDelivery
                               |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
@@ -722,6 +729,7 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
@@ -758,6 +766,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventStream
@@ -790,6 +799,7 @@ rules:
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob
@@ -925,6 +935,7 @@ rules:
                         |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |PullRequestAudience
                         |PurgedTicketThread
                         |QuarantineLiftRequest
@@ -1015,6 +1026,8 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutMessage
+                        |SignalScoutMessageDelivery
                         |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
@@ -1265,9 +1278,11 @@ rules:
                         |EvaluationContext
                         |EvaluationReport
                         |Event
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1347,6 +1362,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |QueryTabState
                         |QueueJob
                         |QueueSchedulerDecision
@@ -1495,7 +1511,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              BillingAlertConfiguration
+                              AgentTranscriptSubmission
+                              |BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -1583,7 +1600,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        BillingAlertConfiguration
+                        AgentTranscriptSubmission
+                        |BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
@@ -1706,6 +1724,7 @@ rules:
                       regex: |
                           (?x)(
                               AccountAuditCredential
+                              |AdventCalendarAnswer
                               |CommunitySkillVote
                               |GitHubInstallRequest
                               |IdentityProviderEmailVerification
@@ -1764,6 +1783,7 @@ rules:
                 regex: |
                     (?x)(
                         AccountAuditCredential
+                        |AdventCalendarAnswer
                         |CommunitySkillVote
                         |GitHubInstallRequest
                         |IdentityProviderEmailVerification

@@ -56,7 +56,7 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Kalshi's market data endpoints are public, so this source needs no API key for them.
 
-It syncs markets, events, series, trades, milestones, daily market candlesticks, and the per-minute weather index and its calibration history for each city. It also syncs the historical archive of markets and trades.
+It syncs markets, events, series, series fee changes, trades, milestones, daily market candlesticks, the current order books of open markets, and the per-minute weather index and its calibration history for each city. It also syncs the historical archive of markets and trades.
 
 To sync your own fills, orders, positions, settlements, and credit history, add an API key. Create one in your [Kalshi account settings](https://kalshi.com/account/profile) and paste the key ID and the private key file contents below. The key only needs read access.""",
             iconPath="/static/services/kalshi.png",

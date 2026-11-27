@@ -1,6 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
 
 import { authLogic } from '../authLogic'
 import { loginLogic } from '../loginLogic'
@@ -8,11 +9,25 @@ import { signupLogic } from '../signupLogic'
 
 export function EmailStepSubmitButton(): JSX.Element | null {
     const { entry, step, isEmailSubmitting, isLoginPasswordHidden } = useValues(authLogic)
-    const { isLoginSubmitting } = useValues(loginLogic)
+    const { isLoginSubmitting, loginChallenge, loginTurnstileToken, login } = useValues(loginLogic)
+    const { setLoginTurnstileToken } = useActions(loginLogic)
     const { validatedPassword, passkeyRegistered, isSignupPanelAuthSubmitting } = useValues(signupLogic)
 
     if (step === 'login') {
-        return isLoginPasswordHidden ? null : (
+        if (isLoginPasswordHidden) {
+            return null
+        }
+        if (loginChallenge && !loginTurnstileToken) {
+            return (
+                <TurnstileChallenge
+                    siteKey={loginChallenge.siteKey}
+                    onSuccess={setLoginTurnstileToken}
+                    troublePrompt="Having trouble logging in?"
+                    email={login.email}
+                />
+            )
+        }
+        return (
             <LemonButton
                 type="primary"
                 size="large"

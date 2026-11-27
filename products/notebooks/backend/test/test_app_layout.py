@@ -30,6 +30,7 @@ LAYOUT = {
         {**LAYOUT, "blocks": [{"id": "missing", "kind": "cell", "tab_id": "overview"}]},
         {**LAYOUT, "blocks": [{"id": "orphan", "kind": "text", "tab_id": "absent"}]},
         {**LAYOUT, "blocks": [{"id": "wide", "kind": "text", "tab_id": "overview", "width": 13}]},
+        {**LAYOUT, "blocks": [{"id": "short", "kind": "text", "tab_id": "overview", "height": 119}]},
         {
             **LAYOUT,
             "blocks": [
@@ -180,7 +181,8 @@ class TestNotebookAppLayout(APIBaseTest):
         )
         url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
         release_url = url + "app_release/"
-        first = self.client.patch(url, {"app_revision": 0, "app_published": LAYOUT}, format="json")
+        sized = {**LAYOUT, "blocks": [{**LAYOUT["blocks"][0], "width": 5, "height": 240}]}
+        first = self.client.patch(url, {"app_revision": 0, "app_published": sized}, format="json")
         assert first.status_code == 200, first.json()
         changes = {
             "title": "Second title",
@@ -191,6 +193,8 @@ class TestNotebookAppLayout(APIBaseTest):
         assert self.client.patch(url, changes, format="json").status_code == 200
         release = self.client.get(release_url).json()
         assert release["title"] == "First title"
+        assert release["layout"]["blocks"][0]["height"] == 240
+        assert release["layout"]["blocks"][0]["width"] == 5
         assert release["variables"] == variables
         assert not release["has_previous"]
 

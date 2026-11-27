@@ -31,7 +31,7 @@ function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Eleme
 }
 
 export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.Element {
-    const { hasAdsSource, dataGaps, connectedSourceTypes, activeRecommendations, totals } =
+    const { hasAdsSource, dataGaps, serverDataGaps, connectedSourceTypes, activeRecommendations, totals } =
         useValues(recommendationsLogic)
 
     return (
@@ -51,9 +51,10 @@ export function RecommendationsSummary({ onOpen }: { onOpen: () => void }): JSX.
             ) : (
                 <span className="text-secondary">All recommendations for this period are dismissed or applied.</span>
             )}
-            {dataGaps.length > 0 && (
+            {dataGaps.length + serverDataGaps.length > 0 && (
                 <RecommendationDataGapButton
                     gaps={dataGaps}
+                    serverGaps={serverDataGaps}
                     dataAttr="marketing-recommendations-data-gaps"
                     location="section_data_gaps"
                 />

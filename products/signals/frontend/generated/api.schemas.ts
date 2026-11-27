@@ -470,6 +470,25 @@ export const AnomalyIntervalEnumApi = {
 } as const
 
 /**
+ * * `spike` - Spike
+ * * `drop` - Drop
+ * * `flatline` - Flatline
+ * * `trend_break` - Trend break
+ * * `level_shift` - Level shift
+ * * `pattern_change` - Pattern change
+ */
+export type AnomalyJudgeKindEnumApi = (typeof AnomalyJudgeKindEnumApi)[keyof typeof AnomalyJudgeKindEnumApi]
+
+export const AnomalyJudgeKindEnumApi = {
+    Spike: 'spike',
+    Drop: 'drop',
+    Flatline: 'flatline',
+    TrendBreak: 'trend_break',
+    LevelShift: 'level_shift',
+    PatternChange: 'pattern_change',
+} as const
+
+/**
  * Detector-specific values for the bucket. The keys depend on the detector.
  * @nullable
  */
@@ -505,6 +524,20 @@ export interface AnomalyBucketApi {
      * @nullable
      */
     details: AnomalyBucketApiDetails
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyInsightSeriesApi {
@@ -643,6 +676,20 @@ export interface AnomalySeriesPointApi {
     value: number | null
     /** Whether the detector flagged the bucket. */
     flag: boolean
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalySeriesPointsApi {
@@ -719,6 +766,20 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyDashboardApi {
@@ -4007,19 +4068,19 @@ export interface ReportQualityHintApi {
 
 export interface EmitReportResponseApi {
     /**
-     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
      * @nullable
      */
     report_id: string | null
     /**
-     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
      * @nullable
      */
     report_status: string | null
     /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
     emitted: boolean
     /**
-     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
      * @nullable
      */
     skipped_reason: string | null
@@ -9218,6 +9279,69 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+/**
+ * * `slack_dm` - Slack direct message
+ * * `slack_channel` - Slack channel
+ */
+export type SignalScoutMessageDeliveryTargetTypeEnumApi =
+    (typeof SignalScoutMessageDeliveryTargetTypeEnumApi)[keyof typeof SignalScoutMessageDeliveryTargetTypeEnumApi]
+
+export const SignalScoutMessageDeliveryTargetTypeEnumApi = {
+    SlackDm: 'slack_dm',
+    SlackChannel: 'slack_channel',
+} as const
+
+export interface SignalScoutMessageTargetApi {
+    type: SignalScoutMessageDeliveryTargetTypeEnumApi
+    /**
+     * Slack member ID, for `slack_dm`.
+     * @maxLength 255
+     */
+    user?: string
+    /**
+     * Slack channel ID, for `slack_channel`. Never a shared channel.
+     * @maxLength 255
+     */
+    channel?: string
+}
+
+export interface SignalScoutMessageRouteApi {
+    /**
+     * Slug the scout names to send on this route.
+     * @maxLength 64
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * When the scout should send, shown in its run prompt.
+     * @maxLength 300
+     */
+    when: string
+    /**
+     * @minItems 1
+     * @maxItems 5
+     */
+    to: SignalScoutMessageTargetApi[]
+}
+
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
+export interface SignalScoutRoutedOutputDestinationsApi {
+    /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
+    slack?: SignalScoutSlackDestinationApi | null
+    /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
+    webhook?: SignalScoutWebhookDestinationApi | null
+    /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
+    inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
+}
+
 export type ScoutPrecheckQuerySourceEnumApi =
     (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
 
@@ -9309,7 +9433,7 @@ export interface SignalScoutConfigApi {
      */
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
-    readonly output_destinations: SignalScoutOutputDestinationsApi
+    readonly output_destinations: SignalScoutRoutedOutputDestinationsApi
     /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
@@ -9566,7 +9690,7 @@ export interface SignalScoutConfigCreateApi {
      */
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
-    output_destinations?: SignalScoutOutputDestinationsApi
+    output_destinations?: SignalScoutRoutedOutputDestinationsApi
     /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
      *
      * * `trusted` - Trusted domains only
@@ -9623,6 +9747,10 @@ export interface SignalScoutSlackDestinationUpdateApi {
     thread_reports?: boolean
 }
 
+/**
+ * Output destinations plus message routes. Only the config create and update paths take routes, so the
+ * scout and source-product create tools keep their schemas small.
+ */
 export interface SignalScoutOutputDestinationsUpdateApi {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
     slack?: SignalScoutSlackDestinationUpdateApi | null
@@ -9630,6 +9758,11 @@ export interface SignalScoutOutputDestinationsUpdateApi {
     webhook?: SignalScoutWebhookDestinationApi | null
     /** Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value. */
     inbox?: boolean
+    /**
+     * Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.
+     * @maxItems 10
+     */
+    messages?: SignalScoutMessageRouteApi[]
 }
 
 /**
@@ -9885,8 +10018,9 @@ export const RunStatusEnumApi = {
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
- * today; kept distinct so future detail-only extensions (linked Signal rows,
- * LLMA token-cost join) can land here without bloating the list response.
+ * minus `summary_lead`, which only shortens a list row; kept distinct so future detail-only
+ * extensions (linked Signal rows, LLMA token-cost join) can land here without bloating the
+ * list response.
  */
 export interface SignalScoutRunDetailApi {
     /**
@@ -10571,8 +10705,18 @@ export interface ScratchpadRevivedExpiryApi {
 export interface ScratchpadEntryApi {
     /** Agent-chosen semantic key, unique per team. */
     key: string
-    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set, and starting at `content_offset` when one was passed. */
     content: string
+    /**
+     * Length of the whole entry body in characters, on a search that returns bodies. Null otherwise.
+     * @nullable
+     */
+    content_total_length?: number | null
+    /**
+     * Where the rest of the body starts, in characters, when `content` stops before its end. Pass it as `content_offset` with the same `key` to read on. Null when `content` reaches the end of the body.
+     * @nullable
+     */
+    content_next_offset?: number | null
     /**
      * ISO-8601 creation timestamp.
      * @nullable
@@ -12128,6 +12272,8 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /** The start of `summary` on one line, at most 600 characters, ending in `…` when the summary is longer. Read the whole summary with the run detail. */
+    readonly summary_lead: string
     /**
      * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
      * @nullable
@@ -12875,6 +13021,76 @@ export interface CreateReportCheckRequestApi {
 }
 
 /**
+ * Request body for `scout-send-message`: one message on an owner-set route.
+ */
+export interface SendScoutMessageRequestApi {
+    /**
+     * Key of the route to send on, from the scout config's `output_destinations.messages`. The route decides who receives the message; the scout never names a recipient.
+     * @maxLength 64
+     */
+    route: string
+    /**
+     * Id of the report this message is about. Required unless the scout is on a dry run. The report must belong to this project and must have been written or edited by this run.
+     * @maxLength 64
+     * @nullable
+     */
+    report_id?: string | null
+    /**
+     * Short plain-text title. At most 150 characters.
+     * @maxLength 150
+     */
+    title: string
+    /**
+     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 3000
+     */
+    body: string
+    /**
+     * Stable id for the subject of the message, for example `pr-12345`. A message whose route and key were sent in the last 30 days is refused as a duplicate. A second call in the same run with the same route and key replaces the queued message.
+     * @maxLength 200
+     */
+    dedupe_key: string
+}
+
+/**
+ * * `queued` - Queued
+ * * `replaced` - Replaced
+ * * `duplicate` - Duplicate
+ * * `over_cap` - Over Cap
+ * * `dry_run` - Dry Run
+ */
+export type SendMessageOutcomeEnumApi = (typeof SendMessageOutcomeEnumApi)[keyof typeof SendMessageOutcomeEnumApi]
+
+export const SendMessageOutcomeEnumApi = {
+    Queued: 'queued',
+    Replaced: 'replaced',
+    Duplicate: 'duplicate',
+    OverCap: 'over_cap',
+    DryRun: 'dry_run',
+} as const
+
+/**
+ * Outcome of a `scout-send-message` call.
+ */
+export interface SendScoutMessageResponseApi {
+    /** `queued`: saved and sent when the run ends. `replaced`: this run already queued a message on this route and key, and it now holds this content. `duplicate`: the route and key were sent in the last 30 days, so nothing was queued. `over_cap`: the scout reached its message limit, so nothing was queued. `dry_run`: recorded for review and never sent.
+     *
+     * * `queued` - Queued
+     * * `replaced` - Replaced
+     * * `duplicate` - Duplicate
+     * * `over_cap` - Over Cap
+     * * `dry_run` - Dry Run */
+    outcome: SendMessageOutcomeEnumApi
+    /**
+     * Id of the queued message, or null when nothing was queued.
+     * @nullable
+     */
+    message_id: string | null
+    /** On `duplicate`: the keys recently sent on this route, newest first. Empty otherwise. */
+    recent_dedupe_keys: string[]
+}
+
+/**
  * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
  * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
  * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
@@ -13314,6 +13530,8 @@ export interface SourceFilterCatalogApi {
     filter_fields: SourceFilterCatalogFieldApi[]
     /** Example expressions that are valid for this source. */
     starter_expressions: string[]
+    /** True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can still be saved, but the preview returns an error. */
+    preview_supported: boolean
 }
 
 export interface SourceFilterCatalogListApi {
@@ -14839,6 +15057,11 @@ export type SignalsScoutRunsListParams = {
      */
     emitted?: boolean | null
     /**
+     * Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. Use it on a fleet-wide `text` search, so your own runs don't fill the page.
+     * @minLength 1
+     */
+    exclude_skill_name?: string
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
@@ -14933,6 +15156,12 @@ export type SignalsScoutScratchpadSearchParams = {
      * @minimum 0
      */
     content_max_chars?: number
+    /**
+     * Start each entry's `content` at this character. Use it with `key` to read a long entry in parts: pass the `content_next_offset` of the previous read. Combines with `content_max_chars`. Earlier versions from `include_revisions` are not paged.
+     * @minimum 0
+     * @maximum 50000
+     */
+    content_offset?: number
     /**
      * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
      */

@@ -15,9 +15,7 @@ rules:
           Suppress those with the reason.
 
           Match against constant values instead: loop over the known prefixes and build one
-          uncorrelated `Exists` per prefix, as `_visible_files` in
-          `posthog/api/file_system/file_system.py` does. Or join on an exact column such as a
-          parent id. If the outer query is bounded to a few rows by construction, suppress this
+          uncorrelated `Exists` per prefix. Or join on an exact column such as a parent id. If the outer query is bounded to a few rows by construction, suppress this
           finding with `# nosemgrep: no-pattern-lookup-from-outer-row -- <why the outer query stays small>`.
       languages: [python]
       severity: ERROR

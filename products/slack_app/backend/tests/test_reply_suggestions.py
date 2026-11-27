@@ -324,6 +324,10 @@ class TestReportImplementationCompletion(SimpleTestCase):
 class TestReplySuggestionPlacement(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
+        # No database here for the shared-channel check, which only matters in a Slack Connect channel.
+        stub = patch.object(SlackThreadHandler, "_shared_channel_turned_off", return_value=False)
+        stub.start()
+        self.addCleanup(stub.stop)
 
     @patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.capture_slack_event")

@@ -55,7 +55,7 @@ table feeds a `Null` input table, materialized views fan it out to writable `Dis
 those write into the metrics4 storage tables on the `metrics` cluster (`NodeRole.METRICS`). In cloud,
 a metrics4 change targets those two roles. Migrations 0376 and 0379 removed metrics4 from the
 `ingestion-apm` and `logs` nodes in cloud. The local stacks still run it there, so a metrics4 change
-also targets `APM` and `LOGS`.
+also targets `INGESTION_APM` and `LOGS`.
 
 # Local setup parity
 

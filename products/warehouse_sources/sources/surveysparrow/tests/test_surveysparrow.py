@@ -27,6 +27,10 @@ def _page(
     return ScriptedResponse(status=status_code, json=body)
 
 
+def _list_page(items: list[dict[str, Any]], **meta: Any) -> ScriptedResponse:
+    return ScriptedResponse(status=200, json={"data": {"list": items, **meta}})
+
+
 def _raw(body: Any, status_code: int = 200) -> ScriptedResponse:
     return ScriptedResponse(status=status_code, json=body)
 
@@ -151,6 +155,42 @@ class TestFanout:
             assert request.path == path
             assert {name: request.param(name) for name in params} == params
         assert [(r[parent_column], r["id"]) for r in result.rows] == [(10, 1), (20, 1)]
+
+
+class TestTotalCountPagination:
+    def test_survey_subjects_fan_out_over_employee_360_surveys_and_walk_pages_by_count(self) -> None:
+        result = _driver().run(
+            "survey_subjects",
+            [
+                _page([{"id": 10}], has_next_page=False),
+                _list_page([{"id": 1}], count=101, limit=100, page=1),
+                _list_page([{"id": 2}], count=101, limit=100, page=2),
+            ],
+        )
+
+        assert result.raised is None
+        parent, *children = result.requests
+        assert parent.path == "/v3/surveys"
+        assert parent.param("survey_type") == "Employee360"
+        assert [(r.path, r.param("survey_id"), r.param("page")) for r in children] == [
+            ("/v3/survey/subjects", "10", "1"),
+            ("/v3/survey/subjects", "10", "2"),
+        ]
+        assert [(r["survey_id"], r["id"]) for r in result.rows] == [(10, 1), (10, 2)]
+
+    @pytest.mark.parametrize(
+        "last_page",
+        [
+            pytest.param(_list_page([{"id": 1}], count=100, limit=100, page=1), id="count_reached_exactly"),
+            pytest.param(_list_page([{"id": 1}], limit=100, page=1), id="count_missing"),
+            pytest.param(_list_page([], count=500, limit=100, page=1), id="empty_list_despite_count"),
+        ],
+    )
+    def test_stops_without_requesting_another_page(self, last_page: ScriptedResponse) -> None:
+        result = _driver().run("survey_subjects", [_page([{"id": 10}], has_next_page=False), last_page])
+
+        assert result.raised is None
+        assert len(result.requests) == 2
 
 
 class TestUnpaginated:

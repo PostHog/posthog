@@ -1,6 +1,5 @@
 from django.db import models
 
-from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.organization import Organization
 from posthog.models.utils import UUIDModel
 
@@ -15,9 +14,6 @@ class OrganizationIntegration(UUIDModel):
     integration_id = models.TextField(null=True, blank=True)
     # Any config that COULD be passed to the frontend
     config = models.JSONField(default=dict)
-    sensitive_config = EncryptedJSONField(
-        default=dict,
-    )
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

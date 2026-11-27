@@ -93,6 +93,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.scout_harness.tools.runs import RUN_SUMMARY_LEAD_CHARS, run_summary_lead
 from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
@@ -229,6 +230,20 @@ class TestScoutRunMetadataSerializer(SimpleTestCase):
         assert metadata["run_note"] == "Report context"
 
 
+class TestRunSummaryLead(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("short", "Checked  /checkout\n- nothing new", "Checked /checkout - nothing new"),
+            ("empty", None, ""),
+            ("long", "word " * 200, ("word " * 120).strip() + "…"),
+        ]
+    )
+    def test_lead_is_one_bounded_line(self, _name: str, summary: str | None, expected: str) -> None:
+        lead = run_summary_lead(summary)
+        assert lead == expected
+        assert len(lead) <= RUN_SUMMARY_LEAD_CHARS + 1
+
+
 class TestScoutHarnessRunsAPI(APIBaseTest):
     @parameterized.expand(
         [
@@ -339,6 +354,26 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [row["run_id"] for row in response.json()]
         assert ids == [str(keep.id)]
+
+    def test_list_text_matches_past_the_summary_lead(self) -> None:
+        run = _make_run(self.team, summary=f"{'scanned the fleet ' * 50}then found the /checkout regression")
+        response = self.client.get(self._list_url(), {"text": "checkout"})
+        assert response.status_code == status.HTTP_200_OK
+        [row] = response.json()
+        assert row["run_id"] == str(run.id)
+        assert "checkout" not in row["summary_lead"]
+        assert row["summary_lead"].endswith("…")
+        assert "summary_lead" not in self.client.get(self._detail_url(str(run.id))).json()
+
+    def test_list_exclude_skill_name_applies_before_the_limit(self) -> None:
+        sibling = _make_run(self.team, skill_name="signals-scout-errors", summary="checkout errors spiked")
+        _make_run(self.team, skill_name="signals-scout-general", summary="checkout funnel looked fine")
+        _make_run(self.team, skill_name="signals-scout-general", summary="checkout again, nothing new")
+        response = self.client.get(
+            self._list_url(), {"text": "checkout", "exclude_skill_name": "signals-scout-general", "limit": "1"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(sibling.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
         _make_run(
@@ -2670,11 +2705,34 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert row["key"] == "k1"
         assert row["content"] == ""
 
-    def test_search_content_max_chars_truncates_preview(self) -> None:
+    @parameterized.expand(
+        [
+            ("whole_body", {}, "abcdefghij", 10, None),
+            ("preview", {"content_max_chars": 4}, "abcd", 10, 4),
+            ("middle_page", {"content_offset": 4, "content_max_chars": 4}, "efgh", 10, 8),
+            ("last_page", {"content_offset": 8, "content_max_chars": 4}, "ij", 10, None),
+            ("rest_of_body", {"content_offset": 3}, "defghij", 10, None),
+            ("past_the_end", {"content_offset": 20}, "", 10, None),
+            ("keys_only", {"keys_only": "true", "content_offset": 4}, "", None, None),
+        ]
+    )
+    def test_search_pages_long_content(
+        self,
+        _name: str,
+        query: dict[str, str | int],
+        content: str,
+        total_length: int | None,
+        next_offset: int | None,
+    ) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="abcdefghij")
-        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        response = self.client.get(self._list_url(), {"key": "k1", **query})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[0]["content"] == "abcd"
+        [row] = response.json()
+        assert (row["content"], row["content_total_length"], row["content_next_offset"]) == (
+            content,
+            total_length,
+            next_offset,
+        )
 
     @parameterized.expand([("default", "", ["live"]), ("include_expired", "?include_expired=true", ["live", "lapsed"])])
     def test_search_hides_expired_entries_unless_asked_for(
@@ -3856,6 +3914,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [c["skill_name"] for c in response.json()] == expected
+
+    @parameterized.expand([("own", 200), ("other_team", 404), ("withheld", 404)])
+    def test_retrieve_returns_the_list_row(self, case: str, expected_status: int) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        config = SignalScoutConfig.objects.create(
+            team=other if case == "other_team" else self.team,
+            skill_name="signals-scout-error-tracking" if case == "withheld" else "signals-scout-alpha",
+            run_interval_minutes=720,
+        )
+        with patch(
+            "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.get(self._detail_url(str(config.id)))
+            listed = self.client.get(self._list_url()).json()
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert [response.json()] == listed
 
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced

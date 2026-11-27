@@ -113,6 +113,10 @@ export function reportSiteThemeCardViewed(surveyId: string, state: SiteThemeCard
     posthog.capture('survey site theme card viewed', { survey_id: surveyId, card_state: state })
 }
 
+export function reportSiteThemeReplayLinkClicked(surveyId: string): void {
+    posthog.capture('survey site theme replay link clicked', { survey_id: surveyId })
+}
+
 export function reportSiteThemeRequested(surveyId: string): void {
     posthog.capture('survey site theme requested', { survey_id: surveyId })
 }

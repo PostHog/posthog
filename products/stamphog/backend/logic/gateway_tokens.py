@@ -11,7 +11,6 @@ import random
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlparse
 
 import requests
 from prometheus_client import Counter
@@ -50,11 +49,6 @@ def active_user(user_id: int | None) -> User | None:
 def gateway_root(gateway: AIGatewayConfig) -> str:
     # The config URL carries the OpenAI /v1 base; the token routes hang off the gateway root.
     return gateway.url.rstrip("/").removesuffix("/v1")
-
-
-def is_legacy_stamphog_route(url: str) -> bool:
-    # The legacy Python gateway resolves the product from the path, so its route ends in the slug.
-    return urlparse(url).path.rstrip("/").endswith("/stamphog/v1")
 
 
 def _retry_after_seconds(response: requests.Response) -> float | None:

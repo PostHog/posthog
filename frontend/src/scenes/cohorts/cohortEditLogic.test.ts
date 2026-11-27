@@ -1,4 +1,4 @@
-import { api } from 'lib/api.mock'
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -338,6 +338,19 @@ describe('cohortEditLogic', () => {
                         realtime: { ...readyRealtime, state: 'person_properties', ready_at: null },
                     })
                 }).toMatchValues({ realtimeSwitchAction: expected })
+            }
+        )
+
+        it.each(['unsupported_time_range', 'history_over_limit'] as const)(
+            'offers no turn-on for a cohort that is off with the reason %s',
+            async (reason) => {
+                await initCohortLogic({ id: 1 })
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        realtime: { ...readyRealtime, state: 'off', ready_at: null, reason },
+                    })
+                }).toMatchValues({ realtimeSwitchAction: null })
             }
         )
 
@@ -1879,14 +1892,18 @@ describe('cohortEditLogic', () => {
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.create).toHaveBeenCalledWith('api/cohort', {
-                is_static: true,
-                name: 'Static Cohort (static copy)',
-                query: {
-                    kind: NodeKind.HogQLQuery,
-                    query: 'SELECT person_id FROM static_cohort_people WHERE cohort_id = 1',
+            expect(api.create).toHaveBeenCalledWith(
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/`,
+                {
+                    is_static: true,
+                    name: 'Static Cohort (static copy)',
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT person_id FROM static_cohort_people WHERE cohort_id = 1',
+                    },
                 },
-            })
+                expect.anything()
+            )
         })
 
         it('duplicate dynamic cohort as static', async () => {
@@ -1913,14 +1930,18 @@ describe('cohortEditLogic', () => {
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.create).toHaveBeenCalledWith('api/cohort', {
-                is_static: true,
-                name: 'Dynamic Cohort (static copy)',
-                query: {
-                    kind: NodeKind.HogQLQuery,
-                    query: 'SELECT person_id FROM cohort_people WHERE cohort_id = 1',
+            expect(api.create).toHaveBeenCalledWith(
+                `/api/projects/${MOCK_TEAM_ID}/cohorts/`,
+                {
+                    is_static: true,
+                    name: 'Dynamic Cohort (static copy)',
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT person_id FROM cohort_people WHERE cohort_id = 1',
+                    },
                 },
-            })
+                expect.anything()
+            )
         })
 
         it('duplicate dynamic cohort as dynamic', async () => {

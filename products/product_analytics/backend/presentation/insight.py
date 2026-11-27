@@ -227,6 +227,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 )
 from products.product_analytics.backend.presentation.insight_permissions import CanEditInsightDashboards
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
+from products.product_analytics.backend.presentation.metrics_sql_insight import sql_insight_for_metrics_sql
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
@@ -881,6 +882,8 @@ class InsightSerializer(InsightBasicSerializer):
         """
         if not value:
             return value
+        if sql_insight := self._sql_insight_for_metrics_sql(value):
+            return sql_insight
         try:
             if value.get("kind") == "HogQLQuery":
                 return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
@@ -893,6 +896,12 @@ class InsightSerializer(InsightBasicSerializer):
         except PydanticValidationError:
             pass
         return value
+
+    def _sql_insight_for_metrics_sql(self, value: dict[str, Any]) -> dict[str, Any] | None:
+        get_team = self.context.get("get_team")
+        if get_team is None or value.get("kind") != "MetricsQuery" or value.get("language") != "sql":
+            return None
+        return sql_insight_for_metrics_sql(get_team(), value)
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
@@ -1747,6 +1756,8 @@ class MCPInsightSerializer(InsightSerializer):
         return super().validate(attrs)
 
     def validate_query(self, value: dict[str, Any] | None) -> dict[str, Any]:
+        if value and (sql_insight := self._sql_insight_for_metrics_sql(value)):
+            return sql_insight
         # Raw HogQL → DataVisualizationNode
         try:
             return schema.DataVisualizationNode(source=schema.HogQLQuery.model_validate(value)).model_dump(
