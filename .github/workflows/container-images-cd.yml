@@ -250,9 +250,9 @@ jobs:
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_RELEASE_ID=${{ steps.release.outputs.release-id }}
-                  # Replaces the Dockerfile's sourcemap-upload stage with the processed frontend, once
+                  # Replaces the Dockerfile's frontend-dist stage with the processed frontend, once
                   # the upload above worked. Without it the image keeps the .map files.
-                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('sourcemap-upload={0}/sourcemap-upload', runner.temp) || '' }}
+                  build-contexts: ${{ steps.sourcemaps.outcome == 'success' && format('frontend-dist={0}/sourcemap-upload', runner.temp) || '' }}
 
             - name: Re-login to DockerHub (retry)
               if: steps.build.outcome == 'failure'
