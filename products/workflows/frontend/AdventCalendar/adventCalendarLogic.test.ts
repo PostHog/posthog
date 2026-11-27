@@ -312,20 +312,6 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual(shares)
     })
 
-    it('sends a pick the server never recorded once the calendar opens again', async () => {
-        const api = calendarApi({}, resultsOf({ ...DAY_TWO_ANSWERED, answer: null }))
-        useMocks(api.mocks)
-        logic.unmount()
-        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
-        logic = adventCalendarLogic()
-
-        await expectLogic(logic, () => {
-            logic.mount()
-        }).toFinishAllListeners()
-
-        expect(api.answers).toEqual([{ day: 2, option: 'tim' }])
-    })
-
     it('keeps the shares of a saved answer when the results the calendar loaded first arrive later', async () => {
         let release = (): void => {}
         const api = calendarApi(

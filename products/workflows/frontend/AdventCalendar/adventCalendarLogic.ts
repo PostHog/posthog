@@ -507,16 +507,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
                 actions.preloadImages()
             },
-            loadPollResultsSuccess: ({ pollResults }) => {
-                const picks = values.progress.answers
-                const unsent = (pollResults?.questions ?? []).find(
-                    (question) => !question.answer && picks[question.day]
-                )
-                const answer = unsent ? pollAnswerOf(unsent.day, picks[unsent.day]) : null
-                if (answer && isLive()) {
-                    actions.savePollAnswer(answer)
-                }
-            },
             clickTip: ({ day }) => {
                 posthog.capture(EVENTS.tipClicked, { day })
             },
