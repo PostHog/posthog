@@ -18,7 +18,8 @@ the exports facade, and the exports facade imports this module.
 """
 
 import re
-from collections.abc import AsyncIterator, Callable, Collection, Iterator, Mapping, Sequence
+import json
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -425,7 +426,7 @@ def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
     ]
 
 
-def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, Any] | None:
+def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, JsonValue] | None:
     """The filter overrides of the live tile that places this insight on this dashboard.
 
     None when there is no such tile, or the tile carries no overrides.
@@ -597,23 +598,71 @@ def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool =
     return manager.filter(dashboard__id=dashboard_id).values_list("insight__id", flat=True).all()
 
 
-def tile_for_insight_on_dashboard(*, insight_id: int, dashboard_id: int | str) -> DashboardTile | None:
-    """The tile that places one insight on one dashboard, with its dashboard loaded.
+def tile_for_insight_on_dashboard(
+    *, insight_id: int, dashboard_id: int | str
+) -> contracts.InsightTileOnDashboard | None:
+    """The tile that places one insight on one dashboard, with its dashboard.
 
     Returns a tile whatever the requester may see: the caller checks dashboard access on the
     result, because the checks differ between session and sharing-token callers.
     """
     # nosemgrep: idor-lookup-without-team
-    return (
+    tile = (
         DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=insight_id)
         .select_related("dashboard")
         .first()
     )
+    if tile is None:
+        return None
+    return contracts.InsightTileOnDashboard(
+        id=tile.id, dashboard=_to_summary(tile.dashboard), color=tile.color, layouts=_tile_layouts(tile.layouts)
+    )
 
 
-def tile_for_render(*, insight: "Insight", dashboard: Dashboard) -> DashboardTile | None:
-    """The tile an insight renders as on a dashboard, with the relations the render reads."""
-    return DashboardTile.dashboard_queryset(DashboardTile.objects.filter(insight=insight, dashboard=dashboard)).first()
+# Real layouts map a breakpoint to a position, two levels deep. Anything far deeper is not a layout, and the
+# contract's JSON validation recurses once per level, so such a value is dropped instead of failing the request.
+_MAX_LAYOUTS_DEPTH = 8
+
+
+def _tile_layouts(stored: JsonValue) -> JsonValue:
+    layouts = stored
+    if isinstance(layouts, str):
+        # Tiles migrated from the old schema store layouts as a JSON string. A template can store any
+        # string, so an unparseable one is passed through as stored rather than failing the request.
+        try:
+            layouts = json.loads(layouts)
+        except json.JSONDecodeError:
+            return stored
+        except RecursionError:
+            return {}
+    return layouts if _nesting_at_most(layouts, _MAX_LAYOUTS_DEPTH) else {}
+
+
+def _nesting_at_most(value: JsonValue, limit: int) -> bool:
+    pending: list[tuple[JsonValue, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        children: Iterable[JsonValue]
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > limit:
+            return False
+        pending.extend((child, depth + 1) for child in children)
+    return True
+
+
+def tile_for_render(*, insight_id: int, dashboard_id: int) -> contracts.InsightRenderTile | None:
+    """The tile an insight renders as on a dashboard, or None when the insight has no live tile there."""
+    tile = DashboardTile.dashboard_queryset(
+        DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+    ).first()
+    if tile is None:
+        return None
+    return contracts.InsightRenderTile(id=tile.id, filters_overrides=tile.filters_overrides)
 
 
 def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
@@ -934,7 +983,7 @@ def search_dashboards(
     offset: int = 0,
     with_access_levels: bool = False,
     include_count: bool = True,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, JsonValue]], int]:
     """Ranked full-text search over a project's dashboards, in the result shape of core search.
 
     Leaves out the dashboards the user may not view and the ones built from a template. Without a

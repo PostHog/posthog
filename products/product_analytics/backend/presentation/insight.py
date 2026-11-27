@@ -181,6 +181,7 @@ from products.dashboards.backend.facade.api import (
     CannotRemoveFromDashboard,
     DashboardNotFound,
     InsightTilePlacement,
+    can_access_dashboard,
     check_insight_tile_limit,
     dashboard_refs,
     hide_tiles_for_insights,
@@ -196,6 +197,7 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
+from products.dashboards.backend.facade.contracts import InsightTileOnDashboard
 from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
@@ -1730,7 +1732,7 @@ class InsightSerializer(InsightBasicSerializer):
             dashboard_tile = None
 
         if not dashboard_tile and dashboard:
-            dashboard_tile = tile_for_render(insight=insight, dashboard=dashboard)
+            dashboard_tile = tile_for_render(insight_id=insight.id, dashboard_id=dashboard.id)
 
         return dashboard_tile
 
@@ -2776,7 +2778,7 @@ When set, the specified dashboard's filters and date range override will be appl
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
 
-        dashboard_tile: Any = None
+        dashboard_tile: InsightTileOnDashboard | None = None
         dashboard_id = request.query_params.get("from_dashboard", None)
         if dashboard_id is not None:
             dashboard_tile = tile_for_insight_on_dashboard(insight_id=instance.id, dashboard_id=dashboard_id)
@@ -2787,10 +2789,10 @@ When set, the specified dashboard's filters and date range override will be appl
                     authenticator,
                     SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
                 ):
-                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard_id
+                    can_view_dashboard = authenticator.sharing_configuration.dashboard_id == dashboard_tile.dashboard.id
                 else:
-                    can_view_dashboard = self.user_access_control.check_access_level_for_object(
-                        dashboard_tile.dashboard, "viewer"
+                    can_view_dashboard = can_access_dashboard(
+                        dashboard_tile.dashboard, user_access_control=self.user_access_control
                     )
 
                 if not can_view_dashboard:
@@ -2815,12 +2817,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         if dashboard_tile is not None:
             serialized_data["color"] = dashboard_tile.color
-            layouts = dashboard_tile.layouts
-            # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-            if isinstance(layouts, str):
-                layouts = json.loads(layouts)
-
-            serialized_data["layouts"] = layouts
+            serialized_data["layouts"] = dashboard_tile.layouts
 
         response = Response(serialized_data)
 

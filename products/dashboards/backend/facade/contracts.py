@@ -226,10 +226,10 @@ class AppliedDashboard(Protocol):
     def id(self) -> int: ...
 
     @property
-    def filters(self) -> dict[str, Any]: ...
+    def filters(self) -> dict[str, JsonValue]: ...
 
     @property
-    def variables(self) -> dict[str, Any] | None: ...
+    def variables(self) -> dict[str, JsonValue] | None: ...
 
 
 @dataclass(frozen=True)
@@ -476,6 +476,26 @@ class QueryBatchInput:
     cache_only: bool = False
     max_data_points: int | None = None
     tile: str | None = None
+
+
+@dataclass(frozen=True)
+class InsightTileOnDashboard:
+    """The tile that places one insight on one dashboard, with the dashboard it sits on."""
+
+    id: int
+    dashboard: DashboardSummary
+    color: str | None
+    # A tile can still hold its layouts as stringified JSON from an old migration. The facade parses it,
+    # so this is the parsed value.
+    layouts: JsonValue
+
+
+@dataclass(frozen=True)
+class InsightRenderTile:
+    """The tile an insight renders as on a dashboard, as far as running the insight reads it."""
+
+    id: int
+    filters_overrides: dict[str, JsonValue] | None
 
 
 @frozen

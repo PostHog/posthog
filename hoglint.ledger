@@ -1236,17 +1236,8 @@ facade-signature	products.dashboards.backend.facade.api	InsightTilePlacement.cre
 facade-signature	products.dashboards.backend.facade.api	add_insight_to_dashboard	param:query	typing.Any	1
 facade-signature	products.dashboards.backend.facade.api	insight_ids_on_dashboard	return	django.db.models.query.QuerySet	1
 facade-signature	products.dashboards.backend.facade.api	plan_insight_tile_placement	param:query	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	search_dashboards	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	tile_filters_overrides	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_insight_on_dashboard	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:dashboard	products.dashboards.backend.models.dashboard.Dashboard	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	param:insight	products.product_analytics.backend.models.insight.Insight	1
-facade-signature	products.dashboards.backend.facade.api	tile_for_render	return	products.dashboards.backend.models.dashboard_tile.DashboardTile	1
 facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:insight	products.product_analytics.backend.models.insight.Insight	1
 facade-signature	products.dashboards.backend.facade.api	update_insight_dashboard_membership	param:query	typing.Any	1
-facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.filters	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.contracts	AppliedDashboard.variables	return	typing.Any	1
-facade-signature	products.dashboards.backend.facade.dashboard_creation	read_dashboard_metric_variables	return	typing.Any	1
 facade-signature	products.data_catalog.backend.facade.api	MetricSearchHit.__init__	field:metric	products.data_catalog.backend.models.metric.Metric	1
 facade-signature	products.data_catalog.backend.facade.api	accept_proposal	param:proposal	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	1
 facade-signature	products.data_catalog.backend.facade.api	accept_proposal	return	products.data_catalog.backend.models.relationship_proposal.RelationshipProposal	1
