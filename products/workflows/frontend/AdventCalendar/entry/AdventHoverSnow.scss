@@ -10,15 +10,6 @@ $advent-six-armed-flake: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org
     pointer-events: none;
     visibility: hidden;
     opacity: 0;
-    mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
-    mask-repeat: no-repeat;
-    mask-position:
-        0 0,
-        var(--advent-clear-x) var(--advent-clear-y);
-    mask-size:
-        100% 100%,
-        var(--advent-clear-width) var(--advent-clear-height);
-    mask-composite: exclude;
     transition:
         opacity 300ms ease-out,
         visibility 0s linear 300ms;
@@ -42,7 +33,7 @@ $advent-six-armed-flake: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org
     background-color: var(--advent-flake-color);
     opacity: 0.85;
     mask: $advent-six-armed-flake center / contain no-repeat;
-    animation: AdventHoverSnow__fall var(--advent-flake-duration) linear var(--advent-flake-delay) infinite;
+    animation: AdventHoverSnow__fall-0 var(--advent-flake-duration) linear var(--advent-flake-delay) infinite;
     animation-play-state: paused;
 
     .AdventHoverSnow--falling & {
@@ -50,9 +41,15 @@ $advent-six-armed-flake: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org
     }
 }
 
-@keyframes AdventHoverSnow__fall {
-    to {
-        transform: translate3d(var(--advent-flake-drift), calc(100vh + 2 * var(--advent-flake-size)), 0) rotate(180deg);
+@for $drift from -3 through 3 {
+    .AdventHoverSnow__flake--drift-#{$drift + 3} {
+        animation-name: AdventHoverSnow__fall-#{$drift + 3};
+    }
+
+    @keyframes AdventHoverSnow__fall-#{$drift + 3} {
+        to {
+            transform: translate3d($drift * 12px, calc(100vh + 32px), 0) rotate(180deg);
+        }
     }
 }
 
