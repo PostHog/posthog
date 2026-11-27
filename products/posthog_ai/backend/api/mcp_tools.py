@@ -35,7 +35,7 @@ from posthog.renderers import SafeJSONRenderer
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolError, MaxToolErrorType
 from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow
-from ee.hogai.tools.search import format_inkeep_docs_response
+from ee.hogai.tools.search import docs_library_response, format_inkeep_docs_response
 
 logger = get_logger(__name__)
 
@@ -114,14 +114,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="docs_search", required_scopes=["project:read"])
     def docs_search(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        if not settings.INKEEP_API_KEY:
-            raise _DocsSearchUnavailable()
-
         query = cast(dict, request.validated_data)["query"]
-        client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
 
         try:
-            content = async_to_sync(_run_inkeep_docs_search)(client, query, self.team)
+            content = async_to_sync(_run_docs_search)(query, self.team)
+        except _DocsSearchUnavailable:
+            raise
         except Exception as e:
             logger.exception("Error running docs_search", extra={"error": str(e)})
             capture_exception(e, properties={"tag": "mcp", "tool_name": "docs_search"})
@@ -249,6 +247,16 @@ async def _fetch_inkeep_payload(client: AsyncOpenAI, query: str) -> dict | None:
     )
     raw = response.choices[0].message.content if response.choices else None
     return json.loads(raw) if raw else None
+
+
+async def _run_docs_search(query: str, team: Team) -> str:
+    library_response = await docs_library_response(team, query, include_system_reminder=False)
+    if library_response is not None:
+        return library_response
+    if not settings.INKEEP_API_KEY:
+        raise _DocsSearchUnavailable()
+    client = AsyncOpenAI(base_url="https://api.inkeep.com/v1/", api_key=settings.INKEEP_API_KEY)
+    return await _run_inkeep_docs_search(client, query, team)
 
 
 async def _run_inkeep_docs_search(client: AsyncOpenAI, query: str, team: Team) -> str:
