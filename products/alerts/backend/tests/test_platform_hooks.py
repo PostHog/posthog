@@ -7,7 +7,8 @@ from posthog.models import OrganizationMembership, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_hooks import insight_alert_destination_edit_refusal
+from products.alerts.backend.platform_hooks import insight_alert_destination_edit_refusal, viewable_alert_insights
+from products.alerts_platform.backend.facade.contracts import PlatformAlertReader
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -62,5 +63,13 @@ class TestInsightAlertDestinationEditRefusal(BaseTest):
         refusal = insight_alert_destination_edit_refusal(
             team_id=self.team.id, alert_ids=[str(alert.id)], user_id=self.user.id, key_scopes=key_scopes
         )
+        viewable = viewable_alert_insights(
+            team_id=self.team.id,
+            object_ids=[insight.id],
+            reader=PlatformAlertReader(
+                user_id=self.user.id, key_scopes=None if key_scopes is None else frozenset(key_scopes)
+            ),
+        )
 
         assert (refusal is not None) == refused, refusal
+        assert (insight.id not in viewable) == refused
