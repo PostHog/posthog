@@ -13640,16 +13640,16 @@ Re-audited 2026-11-19 against <https://developer.simplesat.io/api/Simplesat%20AP
 
 ## Simpro — gaps
 
-Today (16): `catalog_items`, `company_customers`, `contacts`, `cost_centers`, `credit_notes`, `customer_payments`, `employees`, `individual_customers`, `invoices`, `jobs`, `leads`, `quotes`, `schedules`, `sites`, `vendor_orders`, `vendors`
+Today (19): `catalog_items`, `company_customers`, `contacts`, `cost_centers`, `credit_notes`, `customer_assets`, `customer_payments`, `employees`, `individual_customers`, `invoices`, `jobs`, `leads`, `payment_methods`, `project_status_codes`, `quotes`, `schedules`, `sites`, `vendor_orders`, `vendors`
 
 Diffed against: <https://raw.githubusercontent.com/jezweb/simpro-api-docs/main/swagger.json>
 
-- [ ] `Project status codes (GET /api/v1.0/companies/{companyID}/setup/statusCodes/projects/)` — Lookup for the status on jobs, quotes and leads, so statuses are readable (high)
-- [ ] `Employee timesheets (GET /api/v1.0/companies/{companyID}/employees/{employeeID}/timesheets/)` — Hours worked per employee, for labour cost and utilisation; fan-out over employees (high)
-- [ ] `Payment methods (GET /api/v1.0/companies/{companyID}/setup/accounts/paymentMethods/)` — Lookup for the payment method on customer payments (medium)
+- [x] `Project status codes (GET /api/v1.0/companies/{companyID}/setup/statusCodes/projects/)` — Lookup for the status on jobs, quotes and leads, so statuses are readable (high) → `project_status_codes` (full refresh)
+- [ ] `Employee timesheets (GET /api/v1.0/companies/{companyID}/employees/{employeeID}/timesheets/)` — Hours worked per employee, for labour cost and utilisation; fan-out over employees (high) Skipped: the scheduled hours per employee are already in `schedules` (Staff, Date, Blocks with start, end and hours). The timesheet route has no row ID and no paging, and its date range defaults to today, so a table needs one request per employee and date window.
+- [x] `Payment methods (GET /api/v1.0/companies/{companyID}/setup/accounts/paymentMethods/)` — Lookup for the payment method on customer payments (medium) → `payment_methods` (full refresh)
 - [ ] `Job notes (GET /api/v1.0/companies/{companyID}/notes/jobs/)` — Notes on jobs; company-wide list, no fan-out needed. Customer notes are at /notes/customers/ (medium)
 - [ ] `Customer contracts (GET /api/v1.0/companies/{companyID}/customerContracts/)` — Service contracts per customer, for recurring revenue questions (medium)
-- [ ] `Customer assets (GET /api/v1.0/companies/{companyID}/customerAssets/)` — Assets installed at customer sites, for maintenance work (medium)
+- [x] `Customer assets (GET /api/v1.0/companies/{companyID}/customerAssets/)` — Assets installed at customer sites, for maintenance work (medium) → `customer_assets` (full refresh, active and archived passes)
 - [ ] `Vendor receipts (GET /api/v1.0/companies/{companyID}/vendorReceipts/)` — Goods received against vendor orders, which pairs with vendor_orders (medium)
 - [ ] `Customer tags and project tags (GET /api/v1.0/companies/{companyID}/setup/tags/customers/; GET /api/v1.0/companies/{companyID}/setup/tags/projects/)` — Tag lookups for segmenting customers and jobs (low)
 - [ ] `Customer groups (GET /api/v1.0/companies/{companyID}/setup/customerGroups/)` — Lookup for the customer group on customers (low)
