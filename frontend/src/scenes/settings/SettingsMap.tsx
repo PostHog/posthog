@@ -204,6 +204,7 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { ServiceAccounts } from './organization/serviceAccounts/ServiceAccounts'
 import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
@@ -2674,6 +2675,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'View and manage current members of your organization and their roles.',
                 component: <Members />,
                 keywords: ['member', 'user', 'role', 'admin', 'owner'],
+            },
+            {
+                id: 'service-accounts',
+                title: 'Service accounts',
+                description: 'Manage identities for integrations and automations, and view their API keys.',
+                component: <ServiceAccounts />,
+                organizationAdminOnly: true,
+                flag: 'SERVICE_ACCOUNTS',
+                keywords: ['service account', 'integration', 'automation', 'api key'],
             },
             {
                 id: 'member-notifications',
