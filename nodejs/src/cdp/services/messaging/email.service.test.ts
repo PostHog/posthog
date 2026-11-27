@@ -88,6 +88,7 @@ import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { SesTransport } from './ses-transport'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
@@ -2858,26 +2859,73 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(sendingService)).toBe(1)
                 })
 
-                it('fails a send without sending it again when a stop cuts off its SES call', async () => {
-                    send([])
-                    const emailService = sender()
+                const sesHoldsItsAnswer = (): Promise<void> => {
                     ses.failOnce('accept-then-hold-answer')
-
-                    const sending = emailService.executeSendEmail(invocation)
-                    await waitForExpect(() => expect(deliveredTo(ses, recipient)).toHaveLength(1))
-                    emailService.stopSending()
-                    const result = await sending
-
-                    expect({
-                        finished: result.finished,
-                        error: result.error,
-                        timesSesRecordedIt: deliveredTo(ses, recipient).length,
-                    }).toEqual({
-                        finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: /),
-                        timesSesRecordedIt: 1,
+                    return waitForExpect(() => expect(deliveredTo(ses, recipient)).toHaveLength(1))
+                }
+                const itsLookupOfSesNeverAnswers = (emailService: EmailService): Promise<void> =>
+                    new Promise((lookupStarted) => {
+                        const endpoint = new URL(ses.endpoint)
+                        endpoint.hostname = 'ses-lookup-held.example.test'
+                        lookupAnswers(endpoint.hostname, () => lookupStarted())
+                        emailService.sesTransport = sesTransportFor({ endpoint: endpoint.origin })
                     })
-                })
+                const theSdkWaitsToRetryAfterSesThrottledIt = (emailService: EmailService): Promise<void> =>
+                    new Promise((backoffStarted) => {
+                        ses.failOnce({ status: 429, type: 'TooManyRequestsException', message: 'Too many requests' })
+                        const options = {
+                            region: 'us-east-1',
+                            endpoint: ses.endpoint,
+                            credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
+                            retryStrategy: {
+                                acquireInitialRetryToken: () =>
+                                    Promise.resolve({ getRetryCount: () => 0, getRetryDelay: () => 0 }),
+                                refreshRetryTokenForRetry: () => {
+                                    backoffStarted()
+                                    return new Promise<never>(() => undefined)
+                                },
+                                recordSuccess: () => undefined,
+                            },
+                        }
+                        emailService.sesTransport = new SesTransport(options)
+                    })
+
+                it.each([
+                    [
+                        'SES holds its answer',
+                        sesHoldsItsAnswer,
+                        { failed: true, requeuedAtOnce: false, timesSesRecordedIt: 1 },
+                    ],
+                    [
+                        'its lookup of the SES host has not answered',
+                        itsLookupOfSesNeverAnswers,
+                        { failed: true, requeuedAtOnce: false, timesSesRecordedIt: 0 },
+                    ],
+                    [
+                        'the SDK waits to retry after SES throttled it',
+                        theSdkWaitsToRetryAfterSesThrottledIt,
+                        { failed: false, requeuedAtOnce: true, timesSesRecordedIt: 0 },
+                    ],
+                ])(
+                    'when a stop cuts off a send while %s, fails it only if an attempt may have reached SES or is still open',
+                    async (_name, reachTheStopPoint: (emailService: EmailService) => Promise<void>, expected) => {
+                        send([])
+                        const emailService = sender()
+                        const stopPoint = reachTheStopPoint(emailService)
+
+                        const sending = emailService.executeSendEmail(invocation)
+                        await stopPoint
+                        emailService.stopSending()
+                        const result = await sending
+
+                        expect({
+                            failed: result.finished && /^Failed to send email via SES: /.test(result.error ?? ''),
+                            requeuedAtOnce:
+                                !result.finished && result.invocation.queueScheduledAt!.toMillis() <= Date.now(),
+                            timesSesRecordedIt: deliveredTo(ses, recipient).length,
+                        }).toEqual(expected)
+                    }
+                )
 
                 it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
                     const emailService = sender()
