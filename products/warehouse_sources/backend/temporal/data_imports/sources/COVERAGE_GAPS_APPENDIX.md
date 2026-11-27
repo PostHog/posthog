@@ -4891,10 +4891,10 @@ Note: Parsed all GET operations in the official eSignature v2.1 Swagger specific
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/esignature.rest.swagger-v2.1.json>
 
-- [ ] `Groups (GET /v2.1/accounts/{accountId}/groups; GET /v2.1/accounts/{accountId}/groups/{groupId}/users)` — group roster and membership, to roll envelope activity up by team for the users we sync (medium)
-- [ ] `Billing payments (GET /v2.1/accounts/{accountId}/billing_payments)` — payments made against billing invoices, to reconcile with the billing_invoices table (medium)
-- [ ] `Signing groups (GET /v2.1/accounts/{accountId}/signing_groups; GET /v2.1/accounts/{accountId}/signing_groups/{signingGroupId}/users)` — resolves signing group recipients carried on envelope_recipients to named members (medium)
-- [ ] `Account custom fields (GET /v2.1/accounts/{accountId}/custom_fields)` — definitions of the account-level envelope custom fields behind envelope_custom_fields values (low)
+- [x] `Groups (GET /v2.1/accounts/{accountId}/groups; GET /v2.1/accounts/{accountId}/groups/{groupId}/users)` — group roster and membership, to roll envelope activity up by team for the users we sync (medium)
+- [x] `Billing payments (GET /v2.1/accounts/{accountId}/billing_payments)` — payments made against billing invoices, to reconcile with the billing_invoices table (medium)
+- [x] `Signing groups (GET /v2.1/accounts/{accountId}/signing_groups; GET /v2.1/accounts/{accountId}/signing_groups/{signingGroupId}/users)` — resolves signing group recipients carried on envelope_recipients to named members (medium)
+- [x] `Account custom fields (GET /v2.1/accounts/{accountId}/custom_fields)` — definitions of the account-level envelope custom fields behind envelope_custom_fields values (low)
 - [ ] `Permission profiles (GET /v2.1/accounts/{accountId}/permission_profiles)` — resolves the permission profile on each user row (low)
 - [ ] `Brands (GET /v2.1/accounts/{accountId}/brands)` — brand lookup for brand ids stamped on envelopes and templates (low)
 - [ ] `Bulk send lists (GET /v2.1/accounts/{accountId}/bulk_send_lists)` — saved recipient lists behind bulk send batches (low)
@@ -6555,10 +6555,10 @@ Diffed against: <https://docs.gitlab.com/api/api_resources/>
 - [x] `/projects/{id}/issues/{iid}/resource_label_events` — label add/remove history, the standard way teams track workflow stage over time (medium). Added as `issue_label_events` (fan-out over `issues`).
 - [x] `/projects/{id}/environments` — lookup resolving the environment IDs carried on deployments (medium). Added as `environments` (full refresh).
 - [x] `/projects/{id}/merge_requests/{iid}/approvals` — who approved each MR and when — core review-governance reporting (medium). Added as `merge_request_approvals`, one row per approver (fan-out over `merge_requests`).
-- [ ] `/projects/{id}/events` — project activity stream covering pushes, comments, and membership changes in one table (medium)
-- [ ] `/projects/{id}/issues/{iid}/resource_milestone_events` — milestone reassignment history for scope-change analysis (medium)
-- [ ] `/projects/{id}/iterations` — iteration (sprint) definitions that resolve iteration IDs on issues (low)
-- [ ] `/projects/{id}/vulnerabilities and /projects/{id}/vulnerability_findings` — security findings per project for posture trend reporting (low)
+- [x] `/projects/{id}/events` — project activity stream covering pushes, comments, and membership changes in one table (medium). Added as `events` (incremental on `created_at` through the date-only `after` filter, merge only).
+- [x] `/projects/{id}/issues/{iid}/resource_milestone_events` — milestone reassignment history for scope-change analysis (medium). Added as `issue_milestone_events` (fan-out over `issues`).
+- [x] `/projects/{id}/iterations` — iteration (sprint) definitions that resolve iteration IDs on issues (low). Added as `iterations` (incremental on `updated_after`; Premium and Ultimate only).
+- [ ] `/projects/{id}/vulnerabilities and /projects/{id}/vulnerability_findings` — security findings per project for posture trend reporting (low). Skipped: GitLab deprecated both REST APIs (Ultimate only) and points to GraphQL, which this source does not use.
 
 Note: Source is single-project scoped (every path templates {project} into /projects/{project}/...), so the missing items below are all project-scoped and reachable with the existing transport. GitLab exposes ~230 documented REST resources; 10 tables covers the obvious nouns but omits CI job granularity, comments, and all state-transition history. Individual paths confirmed against docs.gitlab.com/api/{jobs,notes,resource_state_events,dora/metrics,deployments,environments,events,merge_request_approvals}.
 
@@ -7033,7 +7033,7 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (12): `crons`, `event_keys`, `events`, `logs`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
+Today (13): `crons`, `event_keys`, `events`, `logs`, `rate_limits`, `scheduled_runs`, `task_events`, `task_timings`, `tasks`, `tenant_members`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
@@ -7049,7 +7049,7 @@ Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-
 - [x] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [x] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low). Skipped: the tenant endpoint returns one status-count object for whatever `createdAfter`/`createdBefore` window is requested, so it has no stable row grain (the counts derive from `workflow_runs`). The per-workflow endpoint returns concurrency group-key counts, not success/failure counts.
-- [ ] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
+- [x] `rate limits (GET /api/v1/tenants/{tenant}/rate-limits)` — current vs limit consumption per key - explains queued-but-not-running tasks (low)
 
 Note: The connector targets the stable v1 API (/api/v1/stable/tenants/{tenant}/...), but several still-current resources (workflows, workers, crons, scheduled, members, queue-metrics) live only under the older /api/v1/tenants/{tenant}/... prefix in the same spec. Webhooks, API tokens, feature flags, SNS/Slack integrations and alerting email groups were excluded as configuration.
 
@@ -10000,7 +10000,7 @@ Note: Spec has ~230 paths. Excluded inference endpoints (chat/embeddings/ocr/mod
 
 ## MixMax — gaps
 
-Today (19): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `live_feed_events`, `meeting_types`, `messages`, `polls`, `rules`, `sequence_folders`, `sequence_recipients`, `sequences`, `snippet_tags`, `team_members`, `teams`, `unsubscribes`, `user_preferences`, `users`
+Today (24): `appointment_links`, `code_snippets`, `file_requests`, `insights_reports`, `live_feed`, `live_feed_events`, `meeting_summaries`, `meeting_transcripts`, `meeting_types`, `messages`, `polls`, `qa_forms`, `rules`, `sequence_folders`, `sequence_recipients`, `sequences`, `snippet_tags`, `snippets`, `team_members`, `teams`, `unsubscribes`, `user_preferences`, `users`, `yes_no_questions`
 
 Diffed against: <https://developer.mixmax.com/reference>
 
@@ -10012,10 +10012,10 @@ Diffed against: <https://developer.mixmax.com/reference>
 - [ ] `contact groups and their members (GET /v1/contactgroups, GET /v1/contactgroups/{id}/contacts)` — segment definitions plus the membership join to contacts (medium). Skipped: Mixmax marks both `/contactgroups` operations as deprecated with no replacement, like `/contacts`.
 - [x] `teams and team members (GET /v1/teams, GET /v1/teams/{id}/members)` — org structure lookup that resolves the user IDs we already sync (medium). Added as `teams` and `team_members` (fan-out over `teams`).
 - [x] `unsubscribes (GET /v1/unsubscribes)` — suppression list needed to interpret sequence and message outcomes (medium). Added as `unsubscribes`.
-- [ ] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium)
-- [ ] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low)
-- [ ] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low)
-- [ ] `meeting transcripts and summaries (GET /v1/meetings/transcripts/{id}, POST /v1/meetings/summaries/search)` — meeting content alongside the meeting_types we sync (low)
+- [x] `snippets (GET /v1/snippets)` — message snippets, a distinct resource from the code_snippets table already synced, and the target of the synced snippet_tags (medium). Added as `snippets` (templates and inline snippets).
+- [x] `yes/no enhancements (GET /v1/yesno)` — recipient responses to yes/no prompts embedded in emails (low). Added as `yes_no_questions`.
+- [x] `Q&A enhancements (GET /v1/qa)` — recipient answers to in-email questions, parallel to the polls table (low). Added as `qa_forms`.
+- [x] `meeting transcripts and summaries (GET /v1/meetings/transcripts/{id}, POST /v1/meetings/summaries/search)` — meeting content alongside the meeting_types we sync (low). Added as `meeting_summaries` (the search is a GET with `skip`/`limit` paging) and `meeting_transcripts` (fan-out over `meeting_summaries`). Both are opt-in.
 
 Note: Slug inventory from the ReadMe reference nav (155 pages); each reported path confirmed by fetching the individual reference page and reading its method/path. Excluded the /v1/salesforce\* proxy family (passthrough to Salesforce, redundant with a Salesforce source) and the /v1/integrations\* app-config family.
 
@@ -11582,7 +11582,7 @@ Note: Full vendor resource list read from the docs navigation plus each resource
 
 ## Pinecone — gaps
 
-Today (7): `assistant_files`, `assistants`, `backups`, `collections`, `indexes`, `namespaces`, `restore_jobs`
+Today (10): `assistant_files`, `assistants`, `backup_schedule_history`, `backup_schedules`, `backups`, `collections`, `conversion_jobs`, `indexes`, `namespaces`, `restore_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2026-07/db_data_2026-07.oas.yaml>
 
@@ -11595,9 +11595,9 @@ Note: Parsed Pinecone's official 2026-07 database and assistant specifications. 
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2026-07/db_control_2026-07.oas.yaml>
 
-- [ ] `Backup schedules (GET /indexes/{index_name}/backup-schedules)` — which indexes have scheduled backups, with cron and retention; fan-out per index (medium)
-- [ ] `Backup schedule history (GET /backup-schedules/{schedule_id}/history)` — backup runs per schedule, to audit whether scheduled backups ran; fan-out per schedule (low)
-- [ ] `Conversion jobs (GET /conversion-jobs)` — progress and status of index to document index conversions, same shape as restore_jobs (low)
+- [x] `Backup schedules (GET /indexes/{index_name}/backup-schedules)` — which indexes have scheduled backups, with cron and retention; fan-out per index (medium). Added as `backup_schedules` (fan-out over non-pod `indexes` on the control plane). Schedules carry a frequency, not a cron expression.
+- [x] `Backup schedule history (GET /backup-schedules/{schedule_id}/history)` — backup runs per schedule, to audit whether scheduled backups ran; fan-out per schedule (low). Added as `backup_schedule_history` (fan-out over `backup_schedules`).
+- [x] `Conversion jobs (GET /conversion-jobs)` — progress and status of index to document index conversions, same shape as restore_jobs (low). Added as `conversion_jobs`.
 
 Note (2026-11-19): Parsed the 2026-07 control plane and assistant control plane specs. Everything else listable there (indexes, collections, backups, restore jobs, assistants) is already synced. Data plane record export stays skipped per the earlier audit, and bulk import listing was treated as import plumbing. Coverage is proportionate to a small, config-focused API.
 
@@ -13277,10 +13277,10 @@ Diffed against: <https://raw.githubusercontent.com/SerpstatGlobal/serpstat-mcp-s
 - [x] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
 - [x] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
 - [x] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
-- [ ] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
-- [ ] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
-- [ ] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium)
-- [ ] `getTopCompetitorsDomainsHistory (POST /v4/, JSON-RPC RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory)` — track competing domains in the search results for project keywords over time (medium)
+- [x] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
+- [x] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
+- [x] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium). Built with getOrganicCompetitorsPage, because getCompetitors is deprecated.
+- [x] `getTopCompetitorsDomainsHistory (POST /v4/, JSON-RPC RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory)` — track competing domains in the search results for project keywords over time (medium)
 - [ ] `getList (POST /v4/, JSON-RPC AuditSite.getList)` — list completed site audits and establish an audit history for each project (medium)
 - [ ] `getErrorElements (POST /v4/, JSON-RPC AuditSite.getErrorElements)` — analyze pages with technical SEO issues and distinguish new, existing, and resolved problems (medium)
 

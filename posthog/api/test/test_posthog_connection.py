@@ -15,8 +15,9 @@ from posthog.api.posthog_connection import CONNECTION_MAX_INFLIGHT_PER_CONNECTIO
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER
+from posthog.oauth_provenance import ID_JAG_ORIGIN_HEADER, SANDBOX_ORIGIN_HEADER
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.id_jag import id_jag_access_token
 
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
@@ -193,6 +194,7 @@ class TestPostHogConnectionForward:
         headers = mock_request.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer AT"
         assert headers.get(SANDBOX_ORIGIN_HEADER) == ("1" if sandbox else None)
+        assert ID_JAG_ORIGIN_HEADER not in headers
 
     def test_forward_sends_body_only_for_write_methods(self, client: HttpClient):
         client.force_login(self.user)
@@ -307,6 +309,36 @@ class TestPostHogConnectionForward:
                 )
         assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
         assert mock_request.called == forwarded
+
+    @pytest.mark.parametrize(
+        "token_scopes,forwarded",
+        [
+            ("integration:write query:read", True),
+            ("integration:write", False),
+        ],
+    )
+    def test_forward_accepts_id_jag_token_that_covers_the_connection_scopes(
+        self, client: HttpClient, token_scopes: str, forwarded: bool
+    ):
+        self.integration.config["granted_scopes"] = ["query:read"]
+        self.integration.save()
+        token = id_jag_access_token(self.user, self.organization, token_scopes)
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(200, {"results": []})
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/insights/"},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN), (
+            response.content
+        )
+        assert mock_request.called == forwarded
+        if forwarded:
+            assert mock_request.call_args.kwargs["headers"][ID_JAG_ORIGIN_HEADER] == "1"
 
     def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):
         # If the target's token response omitted `scope`, `granted_scopes` is empty and we can't bound

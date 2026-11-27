@@ -10,61 +10,6 @@
 import * as zod from 'zod'
 
 /**
- * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
- * @summary Prepare attachment uploads
- */
-export const messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
-
-export const messagingAttachmentsUploadsCreateBodyFilesMax = 10
-
-export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object({
-    files: zod
-        .array(
-            zod.object({
-                sha256: zod
-                    .string()
-                    .regex(messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp)
-                    .describe(
-                        "SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it."
-                    ),
-                size: zod.number().min(1).describe('Size of the file in bytes.'),
-            })
-        )
-        .min(1)
-        .max(messagingAttachmentsUploadsCreateBodyFilesMax)
-        .describe(
-            'The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.'
-        ),
-})
-
-/**
- * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
- * @summary Set a recipient's topic preferences
- */
-export const messagingPreferencesCreateBodyIdentifierMax = 512
-
-export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
-    identifier: zod
-        .string()
-        .max(messagingPreferencesCreateBodyIdentifierMax)
-        .describe(
-            "The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients."
-        ),
-    all_marketing: zod
-        .boolean()
-        .optional()
-        .describe(
-            '`false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`.'
-        ),
-    topics: zod
-        .record(zod.string(), zod.boolean())
-        .optional()
-        .describe(
-            'Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.'
-        ),
-})
-
-/**
  * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
@@ -87,6 +32,8 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
 export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
+
+export const messagingSendEmailCreateBodyCategoryMax = 64
 
 export const messagingSendEmailCreateBodyFromMax = 1024
 
@@ -226,12 +173,74 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive template opted in or `tracking` enables clicks), record only the site address of a clicked link when click tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive."
         ),
+    category: zod
+        .string()
+        .max(messagingSendEmailCreateBodyCategoryMax)
+        .optional()
+        .describe(
+            "Key of one of the project's message categories, such as `newsletter`, for the email your code rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own category. Categories on emails your code rendered are on only in some projects so far, and a project without them refuses this field with a 400."
+        ),
     from: zod
         .string()
         .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
             "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default. A project with no verified sending domain can send from the PostHog test sender only when PostHog offers that sender to its organization, and then only to members of the organization. That sender ignores this field and says so in the response's `warnings`."
+        ),
+})
+
+/**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
+export const messagingAttachmentsUploadsCreateBodyFilesMax = 10
+
+export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object({
+    files: zod
+        .array(
+            zod.object({
+                sha256: zod
+                    .string()
+                    .regex(messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp)
+                    .describe(
+                        "SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it."
+                    ),
+                size: zod.number().min(1).describe('Size of the file in bytes.'),
+            })
+        )
+        .min(1)
+        .max(messagingAttachmentsUploadsCreateBodyFilesMax)
+        .describe(
+            'The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.'
+        ),
+})
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesCreateBodyIdentifierMax)
+        .describe(
+            "The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients."
+        ),
+    all_marketing: zod
+        .boolean()
+        .optional()
+        .describe(
+            '`false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`.'
+        ),
+    topics: zod
+        .record(zod.string(), zod.boolean())
+        .optional()
+        .describe(
+            'Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.'
         ),
 })
 

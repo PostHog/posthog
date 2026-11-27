@@ -1,12 +1,11 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, Heading, Spinner, Text, cn } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
 import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
@@ -55,12 +54,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (overviewError === 'failed') {
         return (
-            <LemonBanner
+            <AiVisibilityBanner
                 type="error"
                 action={{ children: 'Try again', onClick: loadPromptSetOverview, loading: overviewLoading }}
             >
                 Couldn't load the overview. Try again, and if it keeps happening contact support.
-            </LemonBanner>
+            </AiVisibilityBanner>
         )
     }
     // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
@@ -73,17 +72,22 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h3 className="m-0 flex items-center gap-2 text-sm font-semibold">
+                <Heading size="sm" render={<h3 className="m-0 flex items-center gap-2" />}>
                     {filtersHeading(overview)}
                     {overviewLoading ? <Spinner data-attr="content-autopilot-prompts-overview-loading" /> : null}
-                </h3>
-                <p className="m-0 text-xs text-secondary" data-attr="content-autopilot-prompts-overview-answers">
+                </Heading>
+                <Text
+                    size="xs"
+                    variant="muted"
+                    render={<p className="m-0" />}
+                    data-attr="content-autopilot-prompts-overview-answers"
+                >
                     {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
                     {overview.current.failed
                         ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
                         : ''}
                     Each number is compared with the {overview.days} days before.
-                </p>
+                </Text>
             </div>
         </div>
     )
@@ -92,17 +96,15 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
                 {header}
-                <LemonCard
-                    hoverEffect={false}
-                    className="p-4"
-                    data-attr="content-autopilot-prompts-overview-segment-empty"
-                >
-                    <h4 className="m-0">
-                        No answers to {segmentPrompts(overview.branded)} {windowRange(overview)}
-                        {narrowed ? ' that match these filters' : ''}
-                    </h4>
-                    <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
-                </LemonCard>
+                <Empty data-attr="content-autopilot-prompts-overview-segment-empty">
+                    <EmptyHeader>
+                        <EmptyTitle>
+                            No answers to {segmentPrompts(overview.branded)} {windowRange(overview)}
+                            {narrowed ? ' that match these filters' : ''}
+                        </EmptyTitle>
+                        <EmptyDescription>Choose other filters above to see the other answers.</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
             </section>
         )
     }
@@ -123,7 +125,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
 
     return (
         <section
-            className={clsx(
+            className={cn(
                 '@container/prompts-overview flex flex-col gap-4 transition-opacity motion-reduce:transition-none',
                 // The numbers on screen belong to the previous filters until the new overview arrives.
                 overviewLoading && 'opacity-50'
@@ -178,14 +180,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             <ContentAutopilotMovers />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="By engine" />
+                <AiVisibilityCard title="By engine">
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
-                </PagePerformanceCard>
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="Visibility by topic" />
+                </AiVisibilityCard>
+                <AiVisibilityCard title="Visibility by topic">
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable
                             rows={overview.topics}
@@ -193,7 +193,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                             onSelect={selectOverviewTopic}
                         />
                     </div>
-                </PagePerformanceCard>
+                </AiVisibilityCard>
             </div>
 
             <ContentAutopilotEngineTopicHeatmap
@@ -203,16 +203,15 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader
-                        title="Sites the engines cite most"
-                        actions={
-                            <ContentAutopilotOpenInsightButton
-                                query={sourcesQuery}
-                                data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
-                            />
-                        }
-                    />
+                <AiVisibilityCard
+                    title="Sites the engines cite most"
+                    actions={
+                        <ContentAutopilotOpenInsightButton
+                            query={sourcesQuery}
+                            data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
+                        />
+                    }
+                >
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
                         <ContentAutopilotCitedSitesTable
                             domains={overview.top_domains}
@@ -221,9 +220,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                             branded={overview.branded}
                         />
                     </div>
-                </PagePerformanceCard>
-                <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="What the engines searched for" />
+                </AiVisibilityCard>
+                <AiVisibilityCard title="What the engines searched for">
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                         <ContentAutopilotPromptsSearchTable
                             rows={overview.top_searches}
@@ -233,7 +231,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                             onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>
-                </PagePerformanceCard>
+                </AiVisibilityCard>
             </div>
         </section>
     )

@@ -493,6 +493,8 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
             _add_warnings(progress, saved.warnings)
             _add_counts(progress, saved.counts)
             _add_items(progress, saved.items)
+            if saved.skipped:
+                progress["skipped"] = True
             if saved.people_imports:
                 progress["people_imports"] = progress.get("people_imports", []) + [
                     _stored_plan(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
@@ -607,12 +609,23 @@ def _report_finished(run: ProviderImportRun) -> None:
             "stage": "failed" if failed else "completed",
             "dry_run": False,
             "steps": run.steps,
+            "failed_steps": [
+                step
+                for step, step_progress in progress.items()
+                if step_progress.get("status") != ImportStepStatus.COMPLETED
+            ],
             "counts": {step: _step_outcomes(step_progress) for step, step_progress in progress.items()},
             "duration_seconds": int((run.finished_at - run.created_at).total_seconds()) if run.finished_at else None,
             "retried_chunks": sum(
                 step_progress.get("people_import", {}).get("retried_chunks", 0) for step_progress in progress.values()
             ),
         }
+        for step, step_progress in progress.items():
+            properties.update({f"{step}_{key}": value for key, value in step_progress.get("counts", {}).items()})
+            properties[f"{step}_status"] = step_progress.get("status")
+            properties[f"{step}_processed"] = step_progress.get("processed", 0)
+            properties[f"{step}_imported"] = step_progress.get("imported", 0)
+            properties[f"{step}_skipped"] = properties["counts"][step]["skipped"]
         if failed:
             properties["error_class"] = next(
                 (

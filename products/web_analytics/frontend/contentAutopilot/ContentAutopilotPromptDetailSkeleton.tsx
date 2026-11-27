@@ -1,4 +1,4 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { Skeleton } from '@posthog/quill'
 
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotTileSkeleton } from './ContentAutopilotTileSkeleton'
@@ -10,10 +10,10 @@ const REPORT_TABS = 6
 export const ContentAutopilotPromptDetailSkeleton = (): JSX.Element => (
     <div className="@container/prompt-report flex flex-col gap-4" data-attr="content-autopilot-prompt-report-loading">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <LemonSkeleton className="h-5 w-20" />
-            <LemonSkeleton className="h-5 w-20" />
-            <LemonSkeleton className="h-5 w-16" />
-            <LemonSkeleton className="h-4 w-40" />
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-5 w-20" />
+            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-4 w-40" />
         </div>
         <ContentAutopilotStatStrip
             className="grid-cols-1 @2xl/prompt-report:grid-cols-3"
@@ -21,15 +21,15 @@ export const ContentAutopilotPromptDetailSkeleton = (): JSX.Element => (
         >
             {Array.from({ length: KPI_CARDS }, (_, index) => (
                 <div key={index} className="p-3 flex flex-col gap-1 min-w-0">
-                    <LemonSkeleton className="h-4 w-32" />
-                    <LemonSkeleton className="h-8 w-16" />
-                    <LemonSkeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-8 w-16" />
+                    <Skeleton className="h-4 w-24" />
                 </div>
             ))}
         </ContentAutopilotStatStrip>
         <div className="flex gap-4 border-b pb-2">
             {Array.from({ length: REPORT_TABS }, (_, index) => (
-                <LemonSkeleton key={index} className="h-5 w-16" />
+                <Skeleton key={index} className="h-5 w-16" />
             ))}
         </div>
         <ContentAutopilotTileSkeleton

@@ -420,6 +420,7 @@ CAN_LOGIN_AS = lambda request, target_user: (
     request.user.is_staff
     # cannot impersonate other staff
     and not target_user.is_staff
+    and target_user.is_human
     # target user must not have opted out of impersonation (None treated as allowed)
     and target_user.allow_impersonation is not False
 )
@@ -631,6 +632,7 @@ SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "SORT_OPERATIONS": "posthog.api.documentation.sort_operations",
     "POSTPROCESSING_HOOKS": [
         # The guard pair around postprocess_schema_enums fails the build when two
         # different choice sets resolve to one component name, which the enum hook
