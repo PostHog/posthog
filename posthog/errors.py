@@ -23,6 +23,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
 )
 
 
@@ -336,6 +337,20 @@ def _user_caused_not_implemented_message(raw_message: str) -> str | None:
     return None
 
 
+_FUNNEL_UDF_FAILED = re.compile(r"User defined function '?aggregate_funnel\w*'? failed")
+_INNER_TIMEOUT = re.compile(r"\bCode: 159\b|\(TIMEOUT_EXCEEDED\)")
+
+
+def _is_udf_timeout(name: str, raw_message: str) -> bool:
+    # A funnel UDF (aggregate_funnel_*) that times out raises UDF_EXECUTION_FAILED with the inner
+    # TIMEOUT_EXCEEDED error in the message. Other executable UDFs, such as JSONDropKeysPool, stay internal.
+    return (
+        name == "UDF_EXECUTION_FAILED"
+        and _FUNNEL_UDF_FAILED.search(raw_message) is not None
+        and _INNER_TIMEOUT.search(raw_message) is not None
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
@@ -358,6 +373,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return ClickHouseAtCapacity()
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
+    elif _is_udf_timeout(name, raw_message):
+        return ClickHouseUDFTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
         # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
@@ -455,6 +472,8 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
             isinstance(e, CHQueryErrorNotImplemented) or _user_caused_not_implemented_message(e.message or "")
         ):
             return QueryErrorCategory.USER_ERROR
+        if _is_udf_timeout(meta.name, e.message or ""):
+            return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
         return meta.get_category()
 
     # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
