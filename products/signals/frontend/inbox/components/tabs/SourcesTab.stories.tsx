@@ -86,7 +86,7 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         ...(state.linearConnected
             ? [
                   {
-                      ...sourceConfig(SignalSourceProduct.Linear, SignalSourceType.Issue, false),
+                      ...sourceConfig(SignalSourceProduct.Linear, SignalSourceType.Issue, true),
                       config: { hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 1 } },
                   },
               ]

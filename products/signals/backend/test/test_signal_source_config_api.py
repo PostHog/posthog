@@ -319,7 +319,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
             ("malformed_config", ["team-example"]),
         ]
     )
-    def test_linear_enablement_requires_selected_teams(self, _case: str, legacy_config: dict | list) -> None:
+    def test_linear_enablement_requires_a_filter(self, _case: str, legacy_config: dict | list) -> None:
         config = SignalSourceConfig.objects.create(
             team=self.team, source_product="linear", source_type="issue", enabled=True, config=legacy_config
         )
@@ -751,6 +751,42 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.config == {"hogql_filter": saved, "steering": "Skip", "linear_team_ids": ["team-example"]}
 
+    @patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=True)
+    def test_linear_enablement_accepts_an_expression_without_teams(self, _flag: object) -> None:
+        self._linear_filter_catalog()
+        identity = {"source_product": "linear", "source_type": "issue"}
+        blank = self.client.post(self._url(), {**identity, "config": {"hogql_filter": "  "}}, format="json")
+        assert blank.status_code == status.HTTP_400_BAD_REQUEST, blank.json()
+
+        expression = "project_name = 'Core'"
+        response = self.client.post(self._url(), {**identity, "config": {"hogql_filter": expression}}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["enabled"] is True
+        assert emit_signals_enabled(self.team.id, "Linear", "issues", ai_data_processing_approved=True)
+        url = self._url(response.json()["id"])
+
+        for body in ({"config_remove": ["hogql_filter"]}, {"config_set": {"hogql_filter": " "}}):
+            response = self.client.patch(url, body, format="json")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+        response = self.client.patch(
+            url,
+            {"config_set": {"linear_team_ids": ["team-example"]}, "config_remove": ["hogql_filter"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response = self.client.patch(
+            url,
+            {"config_set": {"linear_team_ids": [], "hogql_filter": expression}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["enabled"] is True
+        assert response.json()["config"] == {
+            "linear_team_ids": [],
+            "hogql_filter": {"expression": expression, "catalog_version": 1},
+        }
+
     @parameterized.expand([("writable", True, True), ("flag_off", False, True), ("not_eligible", True, False)])
     def test_filter_catalogs_list_only_sources_this_project_can_filter(
         self, _name: str, flag_enabled: bool, eligible: bool
@@ -988,7 +1024,12 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid() is expected_valid, serializer.errors
         if not expected_valid:
-            assert "linear_team_ids" in str(serializer.errors["config"])
+            expected_error = (
+                "Select at least one Linear team or add a filter."
+                if not config or config.get("linear_team_ids") == []
+                else "linear_team_ids"
+            )
+            assert expected_error in str(serializer.errors["config"])
 
     def test_linear_team_ids_are_stored_stripped(self):
         serializer = SignalSourceConfigSerializer(

@@ -39,7 +39,7 @@ export function SourceFilterLinearTeams({
         )
     }
     return linearIntegration ? (
-        <LemonField name="teamIds" label="Linear teams">
+        <LemonField name="teamIds" label="Linear teams" help="Leave empty to apply your filter across all teams.">
             <LinearTeamsSelect integrationId={linearIntegration.id} disabled={!!disabledReason} />
         </LemonField>
     ) : (

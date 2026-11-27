@@ -63,7 +63,7 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
   Receives `table_name`, `last_synced_at` and the team's `source_config` blob via the runtime context dict.
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
-  An absent, empty, or malformed list skips the record query for a source that declares a scope.
+  A source that declares a scope requires selected scope IDs or a non-empty saved expression. A malformed list or the absence of both restrictions skips the record query.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
   A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
   A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.

@@ -9,7 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SourceFilterModalLogicProps, sourceFilterModalLogic } from '../../logics/sourceFilterModalLogic'
-import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig, linearTeamIdsFromConfig } from '../../types'
+import { LINEAR_FILTER_REQUIRED, SignalSourceConfig, linearTeamIdsFromConfig } from '../../types'
 import { SourceFilterFieldList } from './SourceFilterFieldList'
 import { SourceFilterFieldSnippets } from './SourceFilterFieldSnippets'
 import { SourceFilterLinearTeams } from './SourceFilterLinearTeams'
@@ -20,6 +20,7 @@ export interface SourceFilterModalProps {
     catalog: SourceFilterCatalogApi
     /** The roster label of the source, for the title. */
     sourceLabel: string
+    enableOnSave?: SourceFilterModalLogicProps['enableOnSave']
     onClose: () => void
 }
 
@@ -27,10 +28,11 @@ export function SourceFilterModal({
     sourceConfig,
     catalog,
     sourceLabel,
+    enableOnSave,
     onClose,
 }: SourceFilterModalProps): JSX.Element {
     const formId = useId()
-    const logicProps: SourceFilterModalLogicProps = { sourceConfig, catalog, onClose }
+    const logicProps: SourceFilterModalLogicProps = { sourceConfig, catalog, enableOnSave, onClose }
     const logic = sourceFilterModalLogic(logicProps)
     const {
         sourceFilter,
@@ -64,8 +66,8 @@ export function SourceFilterModal({
     const busy = isSourceFilterSubmitting || isRemovingFilter
     const noun = catalog.source_type
     const hasSavedFilter = !!savedFilter?.expression.trim()
-    const teamsRequired = teamsEditable && sourceFilter.teamIds.length === 0
-    const savedTeamsRequired =
+    const filterRequired = teamsEditable && sourceFilter.teamIds.length === 0 && !sourceFilter.expression.trim()
+    const removingOnlyFilter =
         teamsEditable && sourceConfig.enabled && linearTeamIdsFromConfig(sourceConfig.config).length === 0
 
     const handleClose = (): void => {
@@ -87,7 +89,7 @@ export function SourceFilterModal({
             title={`Filter ${sourceLabel} ${noun}s`}
             description={
                 teamsEditable
-                    ? 'Select at least one Linear team. Add an optional rule to narrow the issues from those teams.'
+                    ? 'Which Linear issues should Self-driving respond to? Select teams, filter by fields such as project or label, or use both.'
                     : `Set a rule each ${sourceLabel} ${noun} must pass before the agent reads it. ${noun.charAt(0).toUpperCase()}${noun.slice(1)}s that don't pass are skipped before any AI work starts. Leave it empty to let every ${noun} through.`
             }
             width={760}
@@ -103,8 +105,8 @@ export function SourceFilterModal({
                             disabledReason={
                                 isSourceFilterSubmitting
                                     ? 'Saving'
-                                    : savedTeamsRequired
-                                      ? LINEAR_TEAMS_REQUIRED
+                                    : removingOnlyFilter
+                                      ? LINEAR_FILTER_REQUIRED
                                       : undefined
                             }
                             data-attr="signal-source-filter-remove"
@@ -128,11 +130,11 @@ export function SourceFilterModal({
                             htmlType="submit"
                             loading={isSourceFilterSubmitting}
                             disabledReason={
-                                isRemovingFilter ? 'Removing' : teamsRequired ? LINEAR_TEAMS_REQUIRED : undefined
+                                isRemovingFilter ? 'Removing' : filterRequired ? LINEAR_FILTER_REQUIRED : undefined
                             }
                             data-attr="signal-source-filter-save"
                         >
-                            Save
+                            {enableOnSave ? 'Turn on Linear' : 'Save'}
                         </LemonButton>
                     </div>
                 </div>

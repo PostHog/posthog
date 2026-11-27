@@ -181,7 +181,7 @@ def preview_source_filter(
     previews: list[SourceFilterPreview] = []
     for table in tables:
         table_scope_ids = scope_ids_from_source_config(table.config, source_config) if scope_ids is None else scope_ids
-        if table.config.scope_config_key is not None and not table_scope_ids:
+        if table.config.scope_config_key is not None and not table_scope_ids and not expression.strip():
             continue
         try:
             previews.append(

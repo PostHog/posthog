@@ -33,6 +33,7 @@ function linearConfig(config: Record<string, any>): SignalSourceConfig {
 
 describe('sourceFilterModalLogic', () => {
     let logic: ReturnType<typeof sourceFilterModalLogic.build>
+    let createBodies: unknown[]
     let patchBodies: Record<string, any>[]
     let rejectWith: string | null
     let integrationsFail: boolean
@@ -44,6 +45,7 @@ describe('sourceFilterModalLogic', () => {
     }
 
     beforeEach(() => {
+        createBodies = []
         patchBodies = []
         rejectWith = null
         integrationsFail = false
@@ -59,6 +61,12 @@ describe('sourceFilterModalLogic', () => {
                     200,
                     { results: [], count: 0, next: null, previous: null },
                 ],
+            },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/': async ({ request }) => {
+                    createBodies.push(await request.json())
+                    return [201, linearConfig({ linear_team_ids: [] })]
+                },
             },
             patch: {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
@@ -101,6 +109,12 @@ describe('sourceFilterModalLogic', () => {
             { config_set: { linear_team_ids: ['team-b'] } },
         ],
         [
+            'clears the last team while keeping the saved expression',
+            { hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 2 } },
+            { teamIds: [] },
+            { config_set: { linear_team_ids: [] } },
+        ],
+        [
             'saves teams and the filter in one request',
             {},
             { expression: 'assignee_id IS NULL', teamIds: ['team-b'] },
@@ -118,6 +132,30 @@ describe('sourceFilterModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it('turns on a new Linear source with an expression and no teams', async () => {
+        logic = sourceFilterModalLogic({
+            sourceConfig: { ...linearConfig({}), id: 'new_linear_issue', enabled: false, config: {} },
+            catalog,
+            enableOnSave: { viaSetupWizard: true },
+            onClose,
+        })
+        logic.mount()
+        logic.actions.setSourceFilterValue('expression', 'assignee_id IS NULL')
+
+        await expectLogic(logic, () => logic.actions.submitSourceFilter()).toDispatchActions([
+            'submitSourceFilterSuccess',
+        ])
+
+        expect(createBodies).toEqual([
+            {
+                source_product: 'linear',
+                source_type: 'issue',
+                enabled: true,
+                config: { hogql_filter: 'assignee_id IS NULL' },
+            },
+        ])
+    })
+
     it('refuses to save after the last Linear team is removed', async () => {
         mountWith({})
         logic.actions.setSourceFilterValue('teamIds', [])
@@ -128,6 +166,18 @@ describe('sourceFilterModalLogic', () => {
 
         expect(patchBodies).toEqual([])
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('keeps the last expression when it is the only filter on an enabled source', async () => {
+        mountWith({ linear_team_ids: [], hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 2 } })
+        logic.actions.setSourceFilterValue('expression', '  ')
+
+        await expectLogic(logic, () => logic.actions.submitSourceFilter()).toDispatchActions([
+            'submitSourceFilterFailure',
+        ])
+        await expectLogic(logic, () => logic.actions.removeFilter()).toDispatchActions(['removeFilterFinished'])
+
+        expect(patchBodies).toEqual([])
     })
 
     it('shows a rejected expression under the field until it is edited', async () => {

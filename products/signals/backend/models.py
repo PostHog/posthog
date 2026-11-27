@@ -47,7 +47,7 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.contracts import SCOPE_CONFIG_KEYS, has_required_source_scope
+from products.signals.backend.contracts import SCOPE_CONFIG_KEYS, has_required_source_filter
 from products.signals.backend.enums import (
     ReportLinkKind,
     ReportLinkWritePath,
@@ -143,7 +143,7 @@ class SignalSourceConfig(ModelActivityMixin, UUIDModel):
 
     @property
     def effectively_enabled(self) -> bool:
-        return self.enabled and has_required_source_scope(self.source_product, self.source_type, self.config)
+        return self.enabled and has_required_source_filter(self.source_product, self.source_type, self.config)
 
     @classmethod
     def config_source_type(cls, source_product: str, source_type: str) -> str:
@@ -164,7 +164,7 @@ class SignalSourceConfig(ModelActivityMixin, UUIDModel):
         """Check whether a given signal source is enabled for a team.
 
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True and any scope the source requires.
+        SignalSourceConfig row with enabled=True and any filter the source requires.
         """
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
@@ -196,7 +196,7 @@ class SignalSourceConfig(ModelActivityMixin, UUIDModel):
         )
         if (source_product, config_source_type) in SCOPE_CONFIG_KEYS:
             config = configs.values_list("config", flat=True).first()
-            return has_required_source_scope(source_product, config_source_type, config)
+            return has_required_source_filter(source_product, config_source_type, config)
         return configs.exists()
 
     class Meta:

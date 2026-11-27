@@ -32,6 +32,7 @@ import {
     SignalSourceType,
     ToggleSignalSourceParams,
     linearTeamIdsFromConfig,
+    sourceFilterIsSet,
 } from '../types'
 
 export interface LinearTeamsFormValues {
@@ -189,7 +190,10 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
         linearTeams: {
             defaults: formDefaults(logicProps.config),
             errors: ({ teamIds }: LinearTeamsFormValues) => ({
-                _form: teamIds.length === 0 ? LINEAR_TEAMS_REQUIRED : undefined,
+                _form:
+                    teamIds.length === 0 && !sourceFilterIsSet(logicProps.config?.config)
+                        ? LINEAR_TEAMS_REQUIRED
+                        : undefined,
             }),
             submit: ({ teamIds }: LinearTeamsFormValues) => {
                 actions.toggleSignalSource({
@@ -231,7 +235,11 @@ export const linearTeamsModalLogic: LogicWrapper<linearTeamsModalLogicType> = ke
                 selectedCount: teamCount,
                 success: true,
             })
-            lemonToast.success(`Linear reads ${teamCount} ${teamCount === 1 ? 'team' : 'teams'} from the next sync.`)
+            lemonToast.success(
+                teamCount > 0
+                    ? `Linear reads ${teamCount} ${teamCount === 1 ? 'team' : 'teams'} from the next sync.`
+                    : 'Linear uses your saved filter from the next sync.'
+            )
             logicProps.onClose()
         },
         // signalSourcesLogic already shows the error toast; the modal stays open for a retry.

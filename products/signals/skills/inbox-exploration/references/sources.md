@@ -37,5 +37,13 @@ inbox-source-configs-partial-update
 To edit individual source settings, send only the top-level keys to change in `config_set` and keys to delete in `config_remove`.
 These edits preserve unrelated settings even when another editor saves at the same time.
 For guidance, set `config_set.steering` and include `default_not_actionable` in `config_remove`.
-An enabled Linear issue source requires at least one Linear team ID. Set the selection with `config_set.linear_team_ids`.
-Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.
+
+## Configure Linear
+
+When setting up Linear or changing what it reads, use the criteria the user already gave. If they have not described which tickets they want, ask a focused question before choosing a filter. For example, ask “Which Linear issues should Self-driving respond to? Unassigned bugs, issues from a particular project, or something else?”
+
+- Resolve team names with `integrations-linear-teams-retrieve` and set `linear_team_ids` if the user wants to limit issues by team.
+- For issue criteria, read the available fields with `inbox-source-filter-catalogs-list`. Use `inbox-source-filter-preview` to check the expression and its matches before saving it as `hogql_filter`, when the project supports expression filters. If the requested filter cannot be expressed with the available fields or teams, explain the limit and ask what to use.
+- An enabled Linear issue source needs selected teams, a non-empty issue expression, or both. With expression-only filtering, matching issues can come from any team. When both filters are set, an issue must pass both.
+- Use `config` when creating a source and `config_set` for key edits to an existing one. Reuse an existing filter when re-enabling the source for the same criteria.
+  Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.

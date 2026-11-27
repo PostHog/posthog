@@ -226,6 +226,34 @@ class TestSourceFilterPreview(ClickhouseTestMixin, _LinearSourceFilterTest):
         assert preview["status"] == "ok", preview
         assert {record["id"] for record in preview["passing"]} == expected_ids
 
+    def test_expression_alone_filters_preview_and_ingestion_across_teams(self) -> None:
+        self._linear_issues(
+            [
+                _issue("allowed-team", days_ago=0),
+                _issue("other-team", days_ago=0, linear_team="linear-team-b"),
+                _issue("other-project", days_ago=0, project='{"id": "p2", "name": "Web"}'),
+            ]
+        )
+
+        expression = "project_name = 'Core'"
+        preview = self._preview(expression, scope_ids=[])
+
+        assert preview["status"] == "ok", preview
+        assert {record["id"] for record in preview["passing"]} == {"allowed-team", "other-team"}
+        assert {record["id"] for record in preview["excluded"]} == {"other-project"}
+
+        fetch_config = LINEAR_ISSUES_CONFIG.model_copy(update={"fields": ("id",)})
+        source_config: dict[str, object] = {"hogql_filter": {"expression": expression, "catalog_version": 1}}
+        records = fetch_config.record_fetcher(
+            self.team, fetch_config, {"table_name": "linear_issues", "source_config": source_config}
+        )
+        assert {record["id"] for record in records} == {"allowed-team", "other-team"}
+        source_config["linear_team_ids"] = [_ALLOWED_TEAM]
+        records = fetch_config.record_fetcher(
+            self.team, fetch_config, {"table_name": "linear_issues", "source_config": source_config}
+        )
+        assert {record["id"] for record in records} == {"allowed-team"}
+
     def test_preview_without_a_saved_or_unsaved_selection_reads_no_issues(self) -> None:
         self._linear_issues([_issue("in-allowed-team")])
 

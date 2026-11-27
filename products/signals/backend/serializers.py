@@ -49,6 +49,7 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     AlertScope,
     alert_patterns_problem,
+    has_required_source_filter,
     scope_ids_problem,
 )
 from products.signals.backend.credential_redaction import redact_credentials
@@ -265,8 +266,8 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "session analysis. "
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
-    "whole Linear workspace, and only issues from the selected teams become signals. "
-    "An enabled Linear issue source requires at least one team id. Get the ids from the Linear integration's teams endpoint. "
+    "whole Linear workspace. Enabling the Linear issue source requires at least one team id or a non-empty "
+    "hogql_filter. Get team ids from the Linear integration's teams endpoint. "
     "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
     "with a `properties` list of event property filters, the same shape error tracking alert "
     "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
@@ -528,28 +529,27 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 if problem is not None:
                     raise serializers.ValidationError({"config": f"{patterns_key} {problem}"})
         scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
-        if scope_key is not None:
-            scope_config = config if config is not None else getattr(self.instance, "config", {})
-            team_ids = scope_config.get(scope_key) if isinstance(scope_config, dict) else None
-            currently_enabled = self.instance.effectively_enabled if self.instance is not None else True
-            scope_enabled = attrs.get("enabled", currently_enabled)
-            if self.instance is not None and self.instance.enabled and not currently_enabled:
-                attrs.setdefault("enabled", False)
-            if scope_enabled and (team_ids is None or team_ids == []):
-                raise serializers.ValidationError({"config": f"{scope_key} must include at least one Linear team"})
-            if scope_enabled or (config is not None and scope_key in config):
-                problem = scope_ids_problem(team_ids)
-                if problem is not None:
-                    raise serializers.ValidationError({"config": f"{scope_key} {problem}"})
-            if config is not None and scope_key in config:
-                # Emission matches ids exactly, so whitespace around a pasted id would exclude its team.
-                config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        if scope_key is not None and config is not None and scope_key in config:
+            problem = scope_ids_problem(config[scope_key])
+            if problem is not None:
+                raise serializers.ValidationError({"config": f"{scope_key} {problem}"})
+            # Emission matches ids exactly, so whitespace around a pasted id would exclude its team.
+            config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
         if config is not None and ISSUE_FILTERS_KEY in config:
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
                 source_product, source_type, config[ISSUE_FILTERS_KEY]
             )
         if config is not None and HOGQL_FILTER_KEY in config:
             config[HOGQL_FILTER_KEY] = self._saved_hogql_filter(source_product, source_type, config[HOGQL_FILTER_KEY])
+        if source_product and source_type and scope_key is not None:
+            current_config = self.instance.config if self.instance is not None else None
+            currently_enabled = self.instance.effectively_enabled if self.instance is not None else True
+            if attrs.get("enabled", currently_enabled) and not has_required_source_filter(
+                source_product, source_type, config if config is not None else current_config
+            ):
+                raise serializers.ValidationError({"config": "Select at least one Linear team or add a filter."})
+            if self.instance is not None and self.instance.enabled and not currently_enabled:
+                attrs.setdefault("enabled", False)
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -772,8 +772,9 @@ class SourceFilterExpressionRequestSerializer(serializers.Serializer):
         help_text=(
             "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, "
             "these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved "
-            "allowlist, pass an empty list to preview zero records, or pass a list of non-empty ids "
-            f"(at most {SCOPE_IDS_MAX_COUNT}) to read only those. Sources without an allowlist ignore it."
+            "allowlist, or pass an empty list to preview the expression across all teams. When both are empty, "
+            "the preview returns zero records. Pass a list of non-empty ids "
+            f"(at most {SCOPE_IDS_MAX_COUNT}) to preview only those teams. Sources without an allowlist ignore it."
         ),
     )
 

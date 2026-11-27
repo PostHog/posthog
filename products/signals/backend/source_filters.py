@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.contracts import is_saved_source_filter_config
 from products.signals.backend.filter_catalog_schema import CatalogBundle
 from products.signals.backend.filter_expression import FilterExpression, FilterValidationError
 from products.signals.backend.filter_recipes import FilterPredicate, WarehouseFilterBindings
@@ -53,13 +54,7 @@ class SavedSourceFilter:
 
     @classmethod
     def from_config(cls, raw: object) -> "SavedSourceFilter":
-        if (
-            not isinstance(raw, dict)
-            or set(raw) != {"expression", "catalog_version"}
-            or not isinstance(raw["expression"], str)
-            or isinstance(raw["catalog_version"], bool)
-            or not isinstance(raw["catalog_version"], int)
-        ):
+        if not is_saved_source_filter_config(raw):
             raise FilterValidationError("saved_filter_shape", "The saved filter is not in the stored format.")
         return cls(expression=raw["expression"], catalog_version=raw["catalog_version"])
 

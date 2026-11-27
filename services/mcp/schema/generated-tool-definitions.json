@@ -9766,7 +9766,7 @@
         "feature_flag": "signals-reviewer-exclusions-mcp"
     },
     "inbox-source-configs-create": {
-        "description": "Switch an inbox source on for the current project. A source config ties a `source_product` and a `source_type` to an `enabled` flag and optional `config`. A project has at most one config per (source_product, source_type); if one exists, update it instead. To surface AI observability evaluation report findings, create `source_product=llm_analytics`, `source_type=evaluation_report`; there is no per-evaluation-run source. The scout source is on by default, so scout findings reach the inbox with no config row. Create a `source_product=signals_scout`, `source_type=cross_source_issue` row only to opt out, with `enabled=false`; set each scout's own `emit` flag with `scout-config-update`. Get Linear team ids from `integrations-linear-teams-retrieve`.",
+        "description": "Switch an inbox source on for the current project. A source config ties a `source_product` and a `source_type` to an `enabled` flag and optional `config`. A project has at most one config per (source_product, source_type); if one exists, update it instead. To surface AI observability evaluation report findings, create `source_product=llm_analytics`, `source_type=evaluation_report`; there is no per-evaluation-run source. The scout source is on by default, so scout findings reach the inbox with no config row. Create a `source_product=signals_scout`, `source_type=cross_source_issue` row only to opt out, with `enabled=false`; set each scout's own `emit` flag with `scout-config-update`. When setting up Linear, ask which kinds of tickets Self-driving should respond to if the user has not already described them. For example, ask about teams, projects, priorities, or labels. Use their criteria to set `config.linear_team_ids`, a non-empty `config.hogql_filter`, or both. Get team IDs from `integrations-linear-teams-retrieve` and expression fields from `inbox-source-filter-catalogs-list`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create inbox source config",
@@ -9796,7 +9796,7 @@
         }
     },
     "inbox-source-configs-partial-update": {
-        "description": "Partially update an inbox source config by ID, usually to flip `enabled` or adjust `config`. Only the fields you pass change. To turn the scout source off, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Prefer `config_set` and `config_remove` over `config`, which replaces the whole object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The full resulting configuration is validated before saving.",
+        "description": "Partially update an inbox source config by ID, usually to flip `enabled` or adjust `config`. Only the fields you pass change. To turn the scout source off, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Prefer `config_set` and `config_remove` over `config`, which replaces the whole object. For example, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. The full resulting configuration is validated before saving. When choosing or changing Linear's filters, ask which kinds of tickets Self-driving should respond to if the user has not already given criteria. Keep at least one selected team or a non-empty issue expression while Linear is enabled.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update inbox source config",
@@ -9826,7 +9826,7 @@
         }
     },
     "inbox-source-configs-update": {
-        "description": "Replace an inbox source config by ID. `enabled` and `config` keep their current values when omitted. Prefer `inbox-source-configs-partial-update` to flip `enabled` or change part of `config`.",
+        "description": "Replace an inbox source config by ID. `enabled` and `config` keep their current values when omitted. Prefer `inbox-source-configs-partial-update` to flip `enabled` or change part of `config`. When replacing Linear's filters, ask which kinds of tickets Self-driving should respond to if the user has not already given criteria.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Replace inbox source config",

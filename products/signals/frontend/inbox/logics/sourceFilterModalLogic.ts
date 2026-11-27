@@ -24,7 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExternalDataSource, IntegrationType } from '~/types'
 
-import { signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
+import { signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from 'products/signals/frontend/generated/api'
 import type {
     SignalSourceConfigApi,
     SourceFilterCatalogApi,
@@ -32,6 +32,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import {
+    captureSignalSourceConnected,
     captureSignalSourceFilterEditorOpened,
     captureSignalSourceFilterExpressionChanged,
     captureSignalSourceFiltersChanged,
@@ -39,7 +40,7 @@ import {
 import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
-    LINEAR_TEAMS_REQUIRED,
+    LINEAR_FILTER_REQUIRED,
     SOURCE_HOGQL_FILTER_KEY,
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SavedSourceFilter,
@@ -101,6 +102,7 @@ function changeFrom(values: SourceFilterFormValues, config: SignalSourceConfig):
 export interface SourceFilterModalLogicProps {
     sourceConfig: SignalSourceConfig
     catalog: SourceFilterCatalogApi
+    enableOnSave?: { viaSetupWizard: boolean }
     onClose: () => void
 }
 
@@ -243,7 +245,8 @@ export type sourceFilterModalLogicType = MakeLogicType<
 /** Write one change in a single request. Throws when the save fails. */
 async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFilterChange): Promise<void> {
     const { props: logicProps, actions, values } = logic
-    const { sourceConfig } = logicProps
+    const { sourceConfig, enableOnSave } = logicProps
+    const isFirstConnection = sourceConfig.id.startsWith('new_')
     if (values.currentTeamId === null) {
         lemonToast.error('Select a project before saving')
         throw new Error('No project selected')
@@ -258,7 +261,7 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
     if (change.teamIds !== undefined) {
         configSet[SOURCE_LINEAR_TEAM_IDS_KEY] = change.teamIds
     }
-    if (Object.keys(configSet).length === 0 && configRemove.length === 0) {
+    if (!enableOnSave && Object.keys(configSet).length === 0 && configRemove.length === 0) {
         logicProps.onClose()
         return
     }
@@ -286,10 +289,19 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
 
     let updated: SignalSourceConfigApi
     try {
-        updated = await signalsSourceConfigsPartialUpdate(String(values.currentTeamId), sourceConfig.id, {
-            ...(Object.keys(configSet).length > 0 ? { config_set: configSet } : {}),
-            ...(configRemove.length > 0 ? { config_remove: configRemove } : {}),
-        })
+        const projectId = String(values.currentTeamId)
+        updated = isFirstConnection
+            ? await signalsSourceConfigsCreate(projectId, {
+                  source_product: sourceConfig.source_product,
+                  source_type: SignalSourceType.Issue,
+                  enabled: true,
+                  config: configSet,
+              })
+            : await signalsSourceConfigsPartialUpdate(projectId, sourceConfig.id, {
+                  ...(enableOnSave ? { enabled: true } : {}),
+                  ...(Object.keys(configSet).length > 0 ? { config_set: configSet } : {}),
+                  ...(configRemove.length > 0 ? { config_remove: configRemove } : {}),
+              })
     } catch (error) {
         capture(false)
         const expressionError = expressionErrorFrom(error)
@@ -313,6 +325,14 @@ async function persistFilter(logic: sourceFilterModalLogicType, change: SourceFi
         status: (updated.status ?? null) as SignalSourceConfig['status'],
     })
     capture(true)
+    if (enableOnSave) {
+        captureSignalSourceConnected({
+            sourceProduct: sourceConfig.source_product,
+            sourceType: sourceConfig.source_type,
+            isFirstConnection,
+            viaSetupWizard: enableOnSave.viaSetupWizard,
+        })
+    }
     lemonToast.success(
         change.expression === null && change.teamIds === undefined
             ? 'Filter removed. It stops applying from the next sync.'
@@ -402,10 +422,10 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
     forms((logic) => ({
         sourceFilter: {
             defaults: formDefaults(logic.props.sourceConfig),
-            errors: ({ teamIds }: SourceFilterFormValues) => ({
+            errors: ({ teamIds, expression }: SourceFilterFormValues) => ({
                 _form:
-                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamIds.length === 0
-                        ? LINEAR_TEAMS_REQUIRED
+                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamIds.length === 0 && !expression.trim()
+                        ? LINEAR_FILTER_REQUIRED
                         : undefined,
             }),
             submit: async (values: SourceFilterFormValues) => {
@@ -422,6 +442,14 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
         },
         removeFilter: async () => {
             try {
+                const { sourceConfig } = logic.props
+                if (
+                    sourceConfig.enabled &&
+                    sourceReadsLinearTeams(sourceConfig) &&
+                    linearTeamIdsFromConfig(sourceConfig.config).length === 0
+                ) {
+                    return
+                }
                 await persistFilter(logic, { expression: null })
             } catch {
                 // persistFilter already told the person what failed.

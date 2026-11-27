@@ -7,13 +7,14 @@ import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/le
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { LinearTeamsModalLogicProps, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
-import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig } from '../../types'
+import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig, sourceFilterIsSet } from '../../types'
 import { LinearTeamsSelect } from './LinearTeamsSelect'
 
 export interface LinearTeamsModalProps {
     config: SignalSourceConfig | null
     enableOnSave: boolean
     viaSetupWizard: boolean
+    onUseFilter?: () => void
     onClose: () => void
 }
 
@@ -21,6 +22,7 @@ export function LinearTeamsModal({
     config,
     enableOnSave,
     viaSetupWizard,
+    onUseFilter,
     onClose,
 }: LinearTeamsModalProps): JSX.Element {
     const formId = useId()
@@ -40,10 +42,23 @@ export function LinearTeamsModal({
             isOpen
             onClose={handleClose}
             title="Linear teams"
-            description="Select at least one team. Self-driving reads open issues from the teams you select."
+            description={
+                sourceFilterIsSet(config?.config)
+                    ? 'Choose teams to narrow your saved filter. Leave empty to apply the filter across all teams.'
+                    : 'Which Linear issues should Self-driving respond to? Select the teams whose open issues you want it to read.'
+            }
             width={480}
             footer={
                 <>
+                    {onUseFilter && (
+                        <LemonButton
+                            type="tertiary"
+                            onClick={onUseFilter}
+                            disabledReason={isLinearIssuesToggling ? 'Saving' : undefined}
+                        >
+                            Use an issue filter
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="secondary"
                         onClick={handleClose}

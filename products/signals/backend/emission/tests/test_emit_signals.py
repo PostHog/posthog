@@ -214,6 +214,9 @@ class TestQueryNewRecords:
             ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
             ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
             ({"linear_team_ids": []}, None),
+            ({"hogql_filter": {"expression": " ", "catalog_version": 1}}, None),
+            ({"hogql_filter": {"expression": "priority = 2"}}, None),
+            ({"linear_team_ids": [" "], "hogql_filter": {"expression": "priority = 2", "catalog_version": 1}}, None),
             ({}, None),
             (None, None),
             ({"linear_team_ids": "team-1"}, None),
@@ -224,7 +227,12 @@ class TestQueryNewRecords:
         ],
     )
     def test_scope_filter_comes_from_source_config(self, source_config, expected_ids):
-        config = _make_config(scope_field="JSONExtractString(team, 'id')", scope_config_key="linear_team_ids")
+        config = _make_config(
+            source_product="linear",
+            source_type="issue",
+            scope_field="JSONExtractString(team, 'id')",
+            scope_config_key="linear_team_ids",
+        )
         mock_result = MagicMock()
         mock_result.columns = []
         mock_result.results = []
