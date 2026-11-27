@@ -3,10 +3,7 @@ import pytest
 from products.alerts_platform.backend.delivery.message import _SOURCE_LABELS
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind
-from products.alerts_platform.backend.presentation.views.platform_alert import (
-    SOURCE_KIND_RESOURCE,
-    UNSERVED_SOURCE_KINDS,
-)
+from products.alerts_platform.backend.presentation.views.platform_alert import SOURCE_KIND_RESOURCE
 
 
 def test_a_storable_source_kind_is_one_the_contract_names() -> None:
@@ -18,10 +15,7 @@ def test_a_storable_source_kind_is_one_the_contract_names() -> None:
 def test_every_source_kind_names_the_resource_that_gates_reading_it() -> None:
     # A kind absent from the map never enters `readable`, so its configurations are missing from
     # the read API with nothing raised to say why.
-    assert {kind.value for kind in PlatformAlertConfigurationSourceKind} == set(
-        SOURCE_KIND_RESOURCE
-    ) | UNSERVED_SOURCE_KINDS
-    assert not set(SOURCE_KIND_RESOURCE) & UNSERVED_SOURCE_KINDS
+    assert {kind.value for kind in PlatformAlertConfigurationSourceKind} == set(SOURCE_KIND_RESOURCE)
 
 
 @pytest.mark.parametrize("source", list(SourceKind))
