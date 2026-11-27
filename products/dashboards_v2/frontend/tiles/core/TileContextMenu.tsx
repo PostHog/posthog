@@ -45,6 +45,13 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
     return actions.some(isUsable)
 }
 
+function whileLoading(action: MenuAction): MenuAction {
+    if (!action.needsLoaded) {
+        return action
+    }
+    return { ...action, disabledReason: action.disabledReason ?? 'Still loading', loading: true }
+}
+
 /**
  * Opens the tile's actions on right-click. When the person may use none of them, it renders the children alone so the
  * browser's own menu still shows.
@@ -52,17 +59,7 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
 export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
     const trigger = useRef<HTMLDivElement>(null)
     const [loading, setLoading] = useState(false)
-    const shown = useMemo(
-        () =>
-            loading
-                ? actions.map((action) =>
-                      action.needsLoaded
-                          ? { ...action, disabledReason: action.disabledReason ?? 'Still loading', loading: true }
-                          : action
-                  )
-                : actions,
-        [actions, loading]
-    )
+    const shown = useMemo(() => (loading ? actions.map(whileLoading) : actions), [actions, loading])
     if (!hasTileMenu(actions)) {
         return <>{children}</>
     }
