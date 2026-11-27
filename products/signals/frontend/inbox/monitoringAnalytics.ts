@@ -10,10 +10,15 @@ export function captureMonitoringRowExpanded(params: { reportId: string; status:
     })
 }
 
-export function captureMonitoringScopeChanged(params: { everyone: boolean; connections: string[] }): void {
+export function captureMonitoringScopeChanged(params: {
+    everyone: boolean
+    connections: string[]
+    needsAttention?: boolean
+}): void {
     captureInboxEvent(INBOX_EVENTS.MONITORING_SCOPE_CHANGED, {
         everyone: params.everyone,
         connections: params.connections,
+        needs_attention: !!params.needsAttention,
     })
 }
 
@@ -25,6 +30,7 @@ export type MonitoringAction =
     | 'load_more'
     | 'retry'
     | 'show_everyone'
+    | 'show_all_statuses'
 
 export function captureMonitoringAction(params: { action: MonitoringAction; reportId?: string }): void {
     captureInboxEvent(INBOX_EVENTS.MONITORING_ACTION, {

@@ -20,6 +20,7 @@ PRODUCT_API_VERSIONS: dict[str, str] = {
     "services": "2018-11-01",
     "calendar": "2026-06-22",
     "registrations": "2025-05-01",
+    "publishing": "2024-03-25",
 }
 
 PRODUCT_LABELS: dict[str, str] = {
@@ -30,6 +31,7 @@ PRODUCT_LABELS: dict[str, str] = {
     "services": "Services",
     "calendar": "Calendar",
     "registrations": "Registrations",
+    "publishing": "Publishing",
 }
 
 UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -58,6 +60,22 @@ class ChainedFanoutConfig:
 
 
 @dataclass(frozen=True)
+class IncludedResourceConfig:
+    """A table read from the `included` resources of its parent list, via `?include=`.
+
+    One parent page carries the children of up to 100 parents, where a per-parent fan-out would
+    need one request per parent.
+    """
+
+    include: str
+    resource_type: str
+    # Relationship on the parent resource that names the included children.
+    relationship: str
+    # Column that holds the parent id on each child row.
+    parent_id_field: str
+
+
+@dataclass(frozen=True)
 class PlanningCenterEndpointConfig:
     name: str
     product: str
@@ -74,6 +92,10 @@ class PlanningCenterEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     fanout: Optional[DependentEndpointConfig] = None
     chained_fanout: Optional[ChainedFanoutConfig] = None
+    included: Optional[IncludedResourceConfig] = None
+    # Checkpoint the fan-out parent's page, not every completed parent. Set for a parent list that
+    # can hold thousands of rows.
+    resume_parent_pagination: bool = False
     page_size: int = PAGE_SIZE
 
     @property
@@ -104,6 +126,29 @@ WORKFLOWS_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "workflow_id"},
 )
 
+FORMS_FANOUT = DependentEndpointConfig(
+    parent_name="forms",
+    resolve_param="form_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "form_id"},
+)
+
+# Schedules are only listed per person. Without a filter the list holds only the person's future
+# accepted schedules, and it also holds schedules from other organizations the person belongs to.
+SCHEDULES_FANOUT = DependentEndpointConfig(
+    parent_name="services_people",
+    resolve_param="person_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "person_id"},
+    # A stable parent order, so a run that resumes from a saved parent offset skips no person.
+    parent_params={"order": "created_at"},
+    child_params={"filter": "all,with_declined,not_across_organizations"},
+    # A person removed from Services between the people page and this fetch must not fail the run.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
 # Plan rows carry the service type id that their request was bound to, as `_service_types_id`.
 PLAN_ITEMS_FANOUT = ChainedFanoutConfig(
     parent_name="plans",
@@ -131,6 +176,23 @@ _ENDPOINTS: list[PlanningCenterEndpointConfig] = [
     _endpoint("field_data", "people", "field_data", incremental=True, orders_by_updated_at=True),
     _endpoint("notes", "people", "notes", incremental=True, orders_by_updated_at=True),
     _endpoint("forms", "people", "forms"),
+    PlanningCenterEndpointConfig(
+        name="form_submissions",
+        product="people",
+        path="/people/v2/forms/{form_id}/form_submissions",
+        incremental=True,
+        orders_by_updated_at=True,
+        primary_keys=["form_id", "id"],
+        fanout=FORMS_FANOUT,
+    ),
+    PlanningCenterEndpointConfig(
+        name="form_fields",
+        product="people",
+        path="/people/v2/forms/{form_id}/fields",
+        full_refresh_order="sequence",
+        primary_keys=["form_id", "id"],
+        fanout=FORMS_FANOUT,
+    ),
     # People lookups: the five value lists have no timestamps, so they are full refresh tables.
     _endpoint("marital_statuses", "people", "marital_statuses", full_refresh_order="sequence", partition_key=None),
     _endpoint("membership_types", "people", "membership_types", full_refresh_order="sequence", partition_key=None),
@@ -172,6 +234,29 @@ _ENDPOINTS: list[PlanningCenterEndpointConfig] = [
     _endpoint("pledge_campaigns", "giving", "pledge_campaigns", full_refresh_order=None),
     _endpoint("in_kind_donations", "giving", "in_kind_donations", incremental=True, orders_by_updated_at=True),
     _endpoint("payment_sources", "giving", "payment_sources", full_refresh_order=None),
+    # Designations and refunds have no `updated_at` of their own, so they are full refresh tables.
+    PlanningCenterEndpointConfig(
+        name="donation_designations",
+        product="giving",
+        path="/giving/v2/donations",
+        partition_key=None,
+        primary_keys=["donation_id", "id"],
+        included=IncludedResourceConfig(
+            include="designations",
+            resource_type="Designation",
+            relationship="designations",
+            parent_id_field="donation_id",
+        ),
+    ),
+    PlanningCenterEndpointConfig(
+        name="donation_refunds",
+        product="giving",
+        path="/giving/v2/donations",
+        primary_keys=["donation_id", "id"],
+        included=IncludedResourceConfig(
+            include="refund", resource_type="Refund", relationship="refund", parent_id_field="donation_id"
+        ),
+    ),
     # Check-Ins
     _endpoint("check_ins", "check-ins", "check_ins", incremental=True, orders_by_updated_at=True),
     _endpoint("check_in_events", "check-ins", "events"),
@@ -201,6 +286,16 @@ _ENDPOINTS: list[PlanningCenterEndpointConfig] = [
     _endpoint("songs", "services", "songs"),
     _endpoint("teams", "services", "teams"),
     _endpoint("series", "services", "series"),
+    PlanningCenterEndpointConfig(
+        name="schedules",
+        product="services",
+        path="/services/v2/people/{person_id}/schedules",
+        full_refresh_order=None,
+        partition_key=None,
+        primary_keys=["person_id", "id"],
+        fanout=SCHEDULES_FANOUT,
+        resume_parent_pagination=True,
+    ),
     # Calendar
     _endpoint("calendar_events", "calendar", "events", incremental=True, full_refresh_order=None),
     _endpoint("event_instances", "calendar", "event_instances", incremental=True, orders_by_updated_at=True),
@@ -212,9 +307,20 @@ _ENDPOINTS: list[PlanningCenterEndpointConfig] = [
     _endpoint("signups", "registrations", "signups"),
     _endpoint("registrations", "registrations", "registrations"),
     _endpoint("attendees", "registrations", "attendees"),
+    # Publishing: no Publishing resource accepts an `updated_at` filter or a stable sort.
+    _endpoint("episodes", "publishing", "episodes", full_refresh_order=None),
+    _endpoint("publishing_series", "publishing", "series", full_refresh_order=None),
+    _endpoint("channels", "publishing", "channels", full_refresh_order=None),
+    _endpoint("speakers", "publishing", "speakers", full_refresh_order=None, partition_key=None),
 ]
 
 PLANNING_CENTER_ENDPOINTS: dict[str, PlanningCenterEndpointConfig] = {e.name: e for e in _ENDPOINTS}
+
+# Fan-out parents that are not tables. Services people are listed only to bind the schedules requests.
+FANOUT_ENDPOINTS: dict[str, PlanningCenterEndpointConfig] = {
+    **PLANNING_CENTER_ENDPOINTS,
+    "services_people": _endpoint("services_people", "services", "people"),
+}
 
 ENDPOINTS = tuple(PLANNING_CENTER_ENDPOINTS)
 
