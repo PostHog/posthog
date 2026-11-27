@@ -532,10 +532,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
             const isOpeningRequest = !payload?.clear && payload?.offset === undefined
             if (isOpeningRequest && values.isModalOpen) {
                 const query = values.query
-                const audience = await retryImport(
+                const { captureFunnelDropOffAudienceChecked } = await retryImport(
                     () => import('products/workflows/frontend/MessageAudience/funnelDropOffAudience')
-                ).catch(() => null)
-                audience?.captureFunnelDropOffAudienceChecked(query, actorsResponse?.results?.[0]?.people ?? [])
+                )
+                captureFunnelDropOffAudienceChecked(query, actorsResponse?.results?.[0]?.people ?? [])
             }
         },
         updateActorsQuery: ({ query: q }) => {
