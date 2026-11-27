@@ -396,6 +396,7 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
                     journal()
                 } catch (error) {
                     record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                    journal()
                 }
                 try {
                     const hits = await hitSource?.hits?.()

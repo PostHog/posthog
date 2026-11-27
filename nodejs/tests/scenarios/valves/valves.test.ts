@@ -381,10 +381,19 @@ describe('valves', () => {
         }
     )
 
-    it('terminates the role with its grace and records how the role exited', async () => {
+    it.each([
+        ['records how the role exited', undefined, { releasedAt: expect.any(String), error: undefined }],
+        [
+            'keeps the exit of a role that outlived its SIGKILL, unreleased',
+            'cdp-cyclotron-worker-email did not exit 10s after its grace',
+            { error: 'cdp-cyclotron-worker-email did not exit 10s after its grace', releasedAt: undefined },
+        ],
+    ])('terminates the role with its grace and %s', async (_story, releaseFailure, expected) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
-        const exit = { signalledAt: '2026-01-01T00:00:00.000Z', exitedAt: '2026-01-01T00:00:03.000Z', code: 0 }
+        const signalledAt = '2026-01-01T00:00:00.000Z'
+        const exit = { signalledAt, killedAt: '2026-01-01T00:00:20.000Z', exitedAt: '2026-01-01T00:00:21.000Z' }
+        let releaseRan = false
         const terminated: unknown[] = []
         const context: ValveContext = {
             ...stack.context,
@@ -393,19 +402,25 @@ describe('valves', () => {
                     terminated.push(action)
                     return Promise.resolve({
                         observed: () => Promise.resolve(true),
-                        release: () => Promise.resolve(),
-                        journal: () => ({ exit }),
+                        release: () => {
+                            releaseRan = true
+                            return releaseFailure === undefined
+                                ? Promise.resolve()
+                                : Promise.reject(new Error(releaseFailure))
+                        },
+                        journal: () => ({ exit: releaseRan ? exit : { signalledAt } }),
                     })
                 },
             },
         }
 
         await valves.start([{ ...kill({ at: '0ms' }), valve: 'role.terminate', dose: { grace: '20s' } }], context)
-        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
         expect(terminated).toEqual([{ kind: 'terminate', role: EMAIL_WORKER, graceMs: 20_000 }])
-        expect(valves.timeline()).toEqual([expect.objectContaining({ observedAt: expect.any(String), exit })])
+        const { exit: recorded, error, releasedAt } = valves.timeline()[0]
+        expect({ exit: recorded, error, releasedAt }).toEqual({ exit, ...expected })
     })
 
     it('never kills when its offset comes due only after the drive was due to end, though no release ran', async () => {

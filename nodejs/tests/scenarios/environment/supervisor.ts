@@ -209,19 +209,15 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 signal(-child.pid, 'SIGKILL')
             }, graceMs)
             void exited.then(() => clearTimeout(kill))
-            let gaveUp = false
             return {
                 observed: () => Promise.resolve(true),
                 release: async () => {
                     const waitMs = Date.parse(exit.signalledAt) + graceMs + KILLED_EXIT_WITHIN_MS - Date.now()
-                    gaveUp = !(await Promise.race([exited.then(() => true), sleep(waitMs, false, { ref: false })]))
+                    if (!(await Promise.race([exited.then(() => true), sleep(waitMs, false, { ref: false })]))) {
+                        throw new Error(`${nameOf(id)} did not exit ${KILLED_EXIT_WITHIN_MS / 1000}s after its grace`)
+                    }
                 },
-                journal: () => ({
-                    exit: { ...exit },
-                    ...(gaveUp && exit.exitedAt === undefined
-                        ? { unobserved: `${nameOf(id)} did not exit ${KILLED_EXIT_WITHIN_MS / 1000}s after its grace` }
-                        : {}),
-                }),
+                journal: () => ({ exit: { ...exit } }),
             }
         },
 
