@@ -211,9 +211,9 @@ export class CdpCyclotronWorker<
         return loadedInvocations
     }
 
-    protected async recordTerminalFailuresAndDequeue(failedInvocations: TerminalFailure[]): Promise<void> {
+    protected async recordTerminalFailuresAndDequeue(failedInvocations: TerminalFailure[]): Promise<TerminalFailure[]> {
         if (!failedInvocations.length) {
-            return
+            return []
         }
         const recorded = await Promise.all(
             failedInvocations.map(({ invocation, errorKind, error }) =>
@@ -227,6 +227,7 @@ export class CdpCyclotronWorker<
             (_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED
         )
         await this.cyclotronJobQueue.dequeueInvocations(dequeueable.map((x) => x.invocation))
+        return dequeueable
     }
 
     public async processBatch(

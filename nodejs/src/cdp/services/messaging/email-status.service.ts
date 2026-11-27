@@ -315,8 +315,7 @@ export class EmailStatusService {
         })
     }
 
-    // A job whose workflow or team is gone, or whose organization is deactivated, is dropped without a result, so
-    // nothing else records it.
+    // A job whose workflow or team is gone is dropped without a result, so nothing else records it.
     queueUnavailableRun(job: CyclotronJobInvocation, reason: EmailStatusReason = 'workflow_unavailable'): void {
         if (!isTransactionalEmailJob(job)) {
             return

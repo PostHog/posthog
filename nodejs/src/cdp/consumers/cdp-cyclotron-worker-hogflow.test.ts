@@ -866,22 +866,35 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
-        it('closes the email status of a transactional email in enforce mode', async () => {
-            await setOrganizationActive(false)
-            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
-                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
-            })
+        it.each([
+            [true, [expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })]],
+            [false, []],
+        ])(
+            'closes the email status of a transactional email in enforce mode only once its failed run is written (%s)',
+            async (written, statuses) => {
+                await setOrganizationActive(false)
+                const worker = workerIn('enforce')
+                if (!written) {
+                    jest.spyOn(
+                        worker['invocationResultsService'].invocationResultsRowsService,
+                        'recordTerminalFailureDurably'
+                    ).mockResolvedValue(false)
+                }
+                const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+                })
 
-            const { backgroundTask } = await workerIn('enforce').processBatch([invocation])
-            await backgroundTask
+                const { backgroundTask } = await worker.processBatch([invocation])
+                await backgroundTask
 
-            expect(
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
-                    .map((x) => x.value)
-                    .filter((row) => row.message_id === invocation.id)
-            ).toEqual([expect.objectContaining({ status: 'failed', reason: 'organization_deactivated' })])
-        })
+                expect(
+                    mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                        .map((x) => x.value)
+                        .filter((row) => row.message_id === invocation.id)
+                ).toEqual(statuses)
+            }
+        )
 
         it('runs the next invocation once the organization is active again', async () => {
             const worker = workerIn('enforce')

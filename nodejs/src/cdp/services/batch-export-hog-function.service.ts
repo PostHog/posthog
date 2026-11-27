@@ -20,7 +20,6 @@ import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogWatcherService } from './monitoring/hog-watcher.service'
-import { OrganizationAdmission } from './organization-admission'
 
 // TODO: This might be too strict so we need to validate that it matches well what we would expect to get from batch exports
 const batchExportRequestBodySchema = z.object({
@@ -50,8 +49,7 @@ export class BatchExportHogFunctionService {
         private hogExecutorAsync: HogExecutorAsyncService,
         private hogWatcher: HogWatcherService,
         private invocationResultsService: InvocationResultsService,
-        private hogWatcherMirror: HogWatcherService,
-        private organizationAdmission: OrganizationAdmission
+        private hogWatcherMirror: HogWatcherService
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -76,9 +74,6 @@ export class BatchExportHogFunctionService {
         }
         if (!team) {
             throw new NotFoundError('Missing team with id: ' + params.team_id)
-        }
-        if (!this.organizationAdmission.admits(team, 'batch_export_invocation')) {
-            throw new OrganizationDeactivatedError('The organization of team ' + params.team_id + ' is deactivated')
         }
 
         const hogFunction = await this.hogFunctionManager.getHogFunction(params.hog_function_id)
@@ -155,13 +150,6 @@ export class NotFoundError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'NotFoundError'
-    }
-}
-
-export class OrganizationDeactivatedError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'OrganizationDeactivatedError'
     }
 }
 

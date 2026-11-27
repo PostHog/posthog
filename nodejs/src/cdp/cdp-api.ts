@@ -37,12 +37,7 @@ import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
-import {
-    BatchExportHogFunctionService,
-    NotFoundError,
-    OrganizationDeactivatedError,
-    ParseError,
-} from './services/batch-export-hog-function.service'
+import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -138,7 +133,6 @@ import {
 } from './services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
-import { OrganizationAdmission, parseDeactivatedOrganizationsMode } from './services/organization-admission'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import {
@@ -488,11 +482,7 @@ export class CdpApi {
             this.hogExecutorAsync,
             this.hogWatcher,
             this.invocationResultsService,
-            this.hogWatcherMirror,
-            new OrganizationAdmission(
-                parseDeactivatedOrganizationsMode(config.CDP_DEACTIVATED_ORGANIZATIONS_MODE),
-                deps.teamManager
-            )
+            this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
         this.rescheduleJwt = new ScopedServiceJwt(
@@ -2603,8 +2593,6 @@ export class CdpApi {
                     return res.status(404).json({ errors: [e.message] })
                 } else if (e instanceof ParseError) {
                     return res.status(400).json({ errors: [e.message] })
-                } else if (e instanceof OrganizationDeactivatedError) {
-                    return res.status(403).json({ errors: [e.message] })
                 } else {
                     console.error(e)
                     return res.status(500).json({ errors: [e.message] })

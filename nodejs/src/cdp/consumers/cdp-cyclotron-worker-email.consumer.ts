@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { canSendEmail } from '~/cdp/services/hogflows/hogflow-utils'
 import { logger } from '~/common/utils/logger'
-import { PluginsServerConfig } from '~/types'
+import { PluginsServerConfig, Team } from '~/types'
 
 import { CONSUMER_STOP_DEADLINE_MS, reportResultWriteFailure } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -85,12 +85,10 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         const withFiles = invocations.filter(
             (invocation) => !invocation.cancelRequestedAt && filesOf(invocation) !== null
         )
-        const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
+        const { hogFlows, teams } = withFiles.length
+            ? await this.lookupsWithHeartbeat(invocations, withFiles)
+            : { hogFlows: {}, teams: null }
         withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
-        const teams =
-            withFiles.length && this.organizationAdmission.mode === 'enforce'
-                ? await this.organizationAdmission.teamsOf(withFiles.map((invocation) => invocation.teamId))
-                : null
         for (const invocation of invocations) {
             const files = filesOf(invocation)
             if (
@@ -138,15 +136,21 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         }
     }
 
-    private async workflowsWithHeartbeat(
+    private async lookupsWithHeartbeat(
         batch: CyclotronJobInvocation[],
         withFiles: CyclotronJobInvocation[]
-    ): Promise<Record<string, HogFlow | null>> {
+    ): Promise<{ hogFlows: Record<string, HogFlow | null>; teams: Record<string, Team | null> | null }> {
         const stopHeartbeat = this.startPeriodicHeartbeat(batch)
         try {
-            return await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
-                ...new Set(withFiles.map((invocation) => invocation.functionId)),
+            const [hogFlows, teams] = await Promise.all([
+                this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss([
+                    ...new Set(withFiles.map((invocation) => invocation.functionId)),
+                ]),
+                this.organizationAdmission.mode === 'enforce'
+                    ? this.organizationAdmission.teamsOf(withFiles.map((invocation) => invocation.teamId))
+                    : null,
             ])
+            return { hogFlows, teams }
         } finally {
             stopHeartbeat()
         }

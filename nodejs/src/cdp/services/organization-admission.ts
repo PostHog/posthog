@@ -6,12 +6,7 @@ import { Team } from '~/types'
 
 export type DeactivatedOrganizationsMode = 'off' | 'shadow' | 'enforce'
 
-export type AdmissionStage =
-    | 'hog_function_trigger'
-    | 'hog_flow_trigger'
-    | 'hog_function_dispatch'
-    | 'hog_flow_dispatch'
-    | 'batch_export_invocation'
+export type AdmissionStage = 'hog_function_trigger' | 'hog_flow_trigger' | 'hog_function_dispatch' | 'hog_flow_dispatch'
 
 export const ORGANIZATION_DEACTIVATED_FAILURE = {
     errorKind: 'organization_deactivated',

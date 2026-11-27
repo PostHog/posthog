@@ -13,7 +13,6 @@ import { HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -165,58 +164,6 @@ describe('BatchExportHogFunctionService', () => {
 
             expect(res.status).toEqual(404)
             expect(res.body.errors[0]).toContain(nonBatchFunction.id)
-        })
-    })
-
-    describe('an organization that is deactivated', () => {
-        const serverIn = (mode: string): { app: express.Application; server: Server; api: CdpApi } => {
-            const modeApi = new CdpApi(
-                { ...hub, CDP_DEACTIVATED_ORGANIZATIONS_MODE: mode },
-                createCdpConsumerDeps(hub),
-                {
-                    hogQueue: createMockJobQueue(),
-                    hogflowQueue: createMockJobQueue(),
-                }
-            )
-            modeApi['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [hogFunction.id])
-            const modeApp = setupExpressApp()
-            modeApp.use('/', modeApi.router())
-            return { app: modeApp, server: modeApp.listen(0, () => {}), api: modeApi }
-        }
-
-        beforeEach(async () => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'UPDATE posthog_organization SET is_active = false WHERE id = $1',
-                [team.organization_id],
-                'deactivateOrganization'
-            )
-        })
-
-        it.each<[string, number]>([
-            ['shadow', 200],
-            ['enforce', 403],
-        ])('answers %s mode with %s', async (mode, status) => {
-            const { app: modeApp, server: modeServer, api: modeApi } = serverIn(mode)
-            if (status === 200) {
-                mockFetch.mockImplementationOnce(() =>
-                    Promise.resolve({
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json' },
-                        json: () => Promise.resolve({ ok: true }),
-                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
-                        dump: () => Promise.resolve(),
-                    })
-                )
-            }
-
-            const res = await Promise.resolve(
-                supertest(modeApp).post(invocationUrl()).send({ clickhouse_event: clickhouseEvent })
-            ).finally(() => modeServer.close())
-            await modeApi.stop()
-
-            expect(res.status).toEqual(status)
-            expect(mockFetch).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
         })
     })
 
