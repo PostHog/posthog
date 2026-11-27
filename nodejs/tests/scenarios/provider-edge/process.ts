@@ -4,7 +4,10 @@ import { pathToFileURL } from 'url'
 import { FaultRule } from './faults'
 import { FaultHold, ProviderEdge, ProviderEdgeOptions, holdOf, startProviderEdge } from './index'
 
-export type EdgeProcessOptions = Pick<ProviderEdgeOptions, 'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl'>
+export type EdgeProcessOptions = Pick<
+    ProviderEdgeOptions,
+    'port' | 'trackingKeys' | 'caDir' | 'feedbackUrl' | 'configurationSets'
+>
 
 export type EdgeProcess = Pick<ProviderEdge, 'url' | 'caCertPath' | 'pgProxyOf'> & {
     hold(rule: FaultRule): Promise<FaultHold>

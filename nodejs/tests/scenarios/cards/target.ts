@@ -24,7 +24,7 @@ function devProblems(
         valves: valves.map(({ valve }) => valve),
         profile: [
             ...(['settings', 'replicas'] as const).filter((key) => Object.keys(profile[key]).length > 0),
-            ...(['backlog', 'load', 'host'] as const).filter((key) => profile[key] !== undefined),
+            ...(['backlog', 'load', 'host', 'feedback'] as const).filter((key) => profile[key] !== undefined),
             ...(shapes.some((shape) => (shape?.parks ?? 0) > 0) ? ['parks'] : []),
         ],
     }

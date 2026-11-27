@@ -19,12 +19,6 @@ drive:
           for: 2m
         - scale: 10
           for: 2m
-valves:
-    - valve: role.freeze
-      target: cdp-ses-webhooks
-      dose: {}
-      at: 4m
-      for: 2m
 convergeWithin: 10m
 invariants:
     - name: at_least_once
