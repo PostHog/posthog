@@ -250,6 +250,7 @@ class TestErrorViews(APIBaseTest):
             ("unknown order", "list", {"order": "newest"}),
             ("unparsable filters", "list", {"properties": "{"}),
             ("group key alone", "retrieve", {"group_key": "acme"}),
+            ("group key too long", "list", {"group_key": "g" * (MAX_SCOPE_TEXT_LENGTH + 1), "group_type_index": 0}),
             ("unparsable date", "first_seen", {"date_from": "last tuesday"}),
         ]
     )
