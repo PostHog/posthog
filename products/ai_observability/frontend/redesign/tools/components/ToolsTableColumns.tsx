@@ -18,6 +18,7 @@ export interface ToolsTableColumnsOptions {
     /** The order the list is sorted by, or null before the list knows it. */
     order: AiObservabilityToolsListOrder | null
     onOrder: (order: AiObservabilityToolsListOrder) => void
+    onOpen: (item: ToolListItemApi) => void
     traceShares: CellLoads<number>
     'data-attr': string
 }
@@ -26,6 +27,7 @@ export function toolsTableColumns({
     maxCalls,
     order,
     onOrder,
+    onOpen,
     traceShares,
     'data-attr': dataAttr,
 }: ToolsTableColumnsOptions): LemonTableColumns<ToolListItemApi> {
@@ -39,8 +41,18 @@ export function toolsTableColumns({
         {
             title: 'Tool',
             key: 'name',
-            render: (_, { name }) => (
-                <span className="ph-sensitive ph-mask block min-w-40 max-w-80 break-all font-mono text-xs">{name}</span>
+            // The name is the button that opens the tool, so a keyboard reaches what a row click opens.
+            render: (_, item) => (
+                <button
+                    type="button"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onOpen(item)
+                    }}
+                    className="ph-sensitive ph-mask block cursor-pointer border-0 bg-transparent p-0 text-left text-inherit hover:text-primary"
+                >
+                    <span className="block min-w-40 max-w-80 break-all font-mono text-xs">{item.name}</span>
+                </button>
             ),
         },
         {

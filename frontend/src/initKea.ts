@@ -174,6 +174,9 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadErrorDetail: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic', // The error drawer shows the failure with a retry
     loadErrorRecentTraces: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic', // The error drawer shows the failure with a retry
     loadToolsPage: 'products.ai_observability.frontend.redesign.tools.toolsListLogic', // The tools list shows the error or the range banner, or toasts its own when rows stay on screen
+    loadToolDetail: 'products.ai_observability.frontend.redesign.tools.toolDrawerLogic', // The tool drawer shows the failure with a retry
+    loadToolRecentFailures: 'products.ai_observability.frontend.redesign.tools.toolDrawerLogic', // The tool drawer shows the failure with a retry
+    loadToolRecentCalls: 'products.ai_observability.frontend.redesign.tools.toolDrawerLogic', // The tool drawer shows the failure with a retry
     loadConversationPage: 'products.ai_observability.frontend.redesign.sessions.sessionConversationLogic', // The conversation shows the error in place, with a retry
     loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
@@ -233,6 +236,8 @@ const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     loadMetric: 'products.data_catalog.frontend.dataCatalogMetricSceneLogic',
     // The error drawer says the error has no occurrences in the selected range
     loadErrorDetail: 'products.ai_observability.frontend.redesign.errors.errorDrawerLogic',
+    // The tool drawer says the tool has no calls in the selected range
+    loadToolDetail: 'products.ai_observability.frontend.redesign.tools.toolDrawerLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {

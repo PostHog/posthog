@@ -1,6 +1,12 @@
-import type { ToolListApi, ToolListItemApi, ToolTraceShareListApi } from '../../generated/api.schemas'
+import type {
+    ToolGroupDetailApi,
+    ToolListApi,
+    ToolListItemApi,
+    ToolTraceShareListApi,
+} from '../../generated/api.schemas'
 
 export const TOOLS_URL = '/api/projects/:team_id/ai_observability/tools/'
+export const TOOL_DETAIL_URL = '/api/projects/:team_id/ai_observability/tools/:key/'
 export const TOOL_TRACE_SHARES_URL = '/api/projects/:team_id/ai_observability/tools/trace_shares/'
 
 export function makeToolListItem(overrides: Partial<ToolListItemApi> = {}): ToolListItemApi {
@@ -38,4 +44,12 @@ export function makeToolListPage(keys: string[], overrides: Partial<ToolListApi>
 
 export function makeToolTraceShares(shares: [key: string, traceShare: number][]): ToolTraceShareListApi {
     return { items: shares.map(([key, traceShare]) => ({ key, traceShare })) }
+}
+
+export function makeToolDetail(overrides: Partial<ToolListItemApi> = {}): ToolGroupDetailApi {
+    return {
+        item: makeToolListItem(overrides),
+        bucketStarts: Array.from({ length: 7 }, (_, day) => `2026-09-0${day + 1}T00:00:00Z`),
+        previousSeries: [140, 150, 150, 170, 160, 180, 175],
+    }
 }
