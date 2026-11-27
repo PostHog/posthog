@@ -112,6 +112,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
+    SCOUT_SUGGESTION_DISCLOSURE_OPENED: 'Scout suggestion disclosure opened',
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
@@ -1664,6 +1665,9 @@ export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
 /** What the person did with the strip itself. Desktop sends the same values as click targets. */
 export type ScoutSuggestionsStripClickTarget = 'expand' | 'collapse' | 'close'
 
+/** Text the strip keeps folded away: the scout explainer, or one row's evidence. */
+export type ScoutSuggestionDisclosure = 'whats_a_scout' | 'why_this'
+
 /** What the person pressed to reach that target: the action row's button, or the card body. */
 export type ScoutSuggestionClickVia = 'button' | 'card'
 
@@ -1784,4 +1788,19 @@ export function captureScoutSuggestionsRefreshed(params: {
 /** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
 export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
+}
+
+/** A folded explanation was opened. Only `why_this` names a suggestion. */
+export function captureScoutSuggestionDisclosureOpened(params: {
+    disclosure: ScoutSuggestionDisclosure
+    surface: ScoutSuggestionSurface
+    suggestion?: { id: string; kind: ScoutSuggestionKind; skillName: string }
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_DISCLOSURE_OPENED, {
+        disclosure: params.disclosure,
+        surface: params.surface,
+        suggestion_id: params.suggestion?.id,
+        suggestion_kind: params.suggestion?.kind,
+        skill_name: params.suggestion?.skillName,
+    })
 }
