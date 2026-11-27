@@ -242,7 +242,7 @@ For an in-progress run, `get_live_query_progress` reads `system.processes` and `
 
 ### Scheduled recalculation
 
-`ScheduledExperimentRecalculationWorkflow` (`scheduled_recalculation_workflow.py`) runs on one hourly schedule at `:30`, after the daily timeseries schedule at `:00`. It is behind the `experiments-scheduled-recalculation` flag. Each firing starts ordinary recalculation runs with trigger `SCHEDULED`, through the same dispatch the API uses.
+`ScheduledExperimentRecalculationWorkflow` (`scheduled_recalculation/workflow.py`) runs on one hourly schedule at `:30`, after the daily timeseries schedule at `:00`. It is behind the `experiments-scheduled-recalculation` flag. Each firing starts ordinary recalculation runs with trigger `SCHEDULED`, through the same dispatch the API uses.
 
 - **Kill switch.** While `EXPERIMENTS_RECALCULATION_ENABLED` is False, discovery returns no candidates. A pause that starts later makes each remaining exposure check and start return before any query (`recalculation_paused`).
 - **Discovery** (`find_scheduled_recalculation_candidates`) selects running experiments whose team recalculates at the current UTC hour (`experiment_recalculation_times`, default 02:00). It skips, before any ClickHouse query, a flag that serves nobody, no computable metric, an active or recent run, and an exposure back-off. Candidates come oldest scheduled run first, never-run first, so an experiment deferred one day starts first the next day.

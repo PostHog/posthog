@@ -1247,7 +1247,8 @@ filters:
         - products/experiments/backend/temporal/recalculation/routing.py
         - 'products/experiments/backend/temporal/canary_*.py'
         - 'products/experiments/backend/temporal/enrollment_census_*.py'
-        - 'products/experiments/backend/temporal/scheduled_recalculation_*.py'
+        - 'products/experiments/backend/temporal/scheduled_recalculation/**'
+        - '!products/experiments/backend/temporal/scheduled_recalculation/test_*.py'
         - 'products/experiments/backend/temporal/timeseries/**'
         - '!products/experiments/backend/temporal/timeseries/test_*.py'
         - 'products/experiments/backend/hogql_queries/**'

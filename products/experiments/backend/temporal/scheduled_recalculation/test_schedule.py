@@ -3,15 +3,15 @@ from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
-from products.experiments.backend.temporal.models import SCHEDULED_RECALCULATION_WORKFLOW_NAME
-from products.experiments.backend.temporal.schedule import (
+from products.experiments.backend.temporal.scheduled_recalculation.schedule import (
     SCHEDULED_RECALCULATION_SCHEDULE_ID,
     create_experiment_scheduled_recalculation_schedules,
 )
+from products.experiments.backend.temporal.scheduled_recalculation.types import SCHEDULED_RECALCULATION_WORKFLOW_NAME
 
 pytestmark = pytest.mark.asyncio
 
-MODULE = "products.experiments.backend.temporal.schedule"
+MODULE = "products.experiments.backend.temporal.scheduled_recalculation.schedule"
 
 
 async def test_creates_one_hourly_schedule_offset_from_the_timeseries_run():

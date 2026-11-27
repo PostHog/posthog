@@ -1,6 +1,6 @@
 """Activities for the scheduled experiment recalculation workflow.
 
-Each one wraps `scheduled_recalculation_logic` and reports its outcome to product analytics.
+Each one wraps `scheduled_recalculation.selection` and reports its outcome to product analytics.
 A failure skips one experiment and never stops the batch, because the recalculation workflow
 it starts owns its own retries and error reporting.
 """
@@ -28,9 +28,8 @@ from products.experiments.backend.recalculation.admission import (
     start_metrics_recalculation,
 )
 from products.experiments.backend.recalculation.kill_switch import recalculation_enabled
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.recalculation.dispatch import metrics_recalculation_workflow_id
-from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+from products.experiments.backend.temporal.scheduled_recalculation.selection import (
     MIN_TOTAL_EXPOSURES,
     SKIP_ACTIVE_RUN,
     SKIP_DISPATCH_UNCERTAIN,
@@ -44,6 +43,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     recent_recalculation_skip,
     record_exposure_check,
 )
+from products.experiments.backend.temporal.scheduled_recalculation.types import ScheduledRecalculationStartResult
 
 logger = structlog.get_logger(__name__)
 

@@ -31,8 +31,10 @@
                 "backend/temporal/recalculation/workflow.py",
                 "backend/temporal/registry.py",
                 "backend/temporal/schedule.py",
-                "backend/temporal/scheduled_recalculation_activities.py",
-                "backend/temporal/scheduled_recalculation_workflow.py",
+                "backend/temporal/scheduled_recalculation/activities.py",
+                "backend/temporal/scheduled_recalculation/schedule.py",
+                "backend/temporal/scheduled_recalculation/types.py",
+                "backend/temporal/scheduled_recalculation/workflow.py",
                 "backend/temporal/timeseries/activities.py",
                 "backend/temporal/timeseries/schedule.py",
                 "backend/temporal/timeseries/workflows.py"

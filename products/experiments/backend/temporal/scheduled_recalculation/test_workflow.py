@@ -19,16 +19,16 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.recalculation.runs import STALE_RECALC_THRESHOLD
-from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
-from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+from products.experiments.backend.temporal.scheduled_recalculation.activities import (
     discover_scheduled_recalculation_candidates,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+from products.experiments.backend.temporal.scheduled_recalculation.selection import (
     SKIP_DISPATCH_UNCERTAIN,
     ScheduledRecalculationCandidate,
     ScheduledRecalculationDiscovery,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+from products.experiments.backend.temporal.scheduled_recalculation.types import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.scheduled_recalculation.workflow import (
     RUN_START_WINDOW,
     RUN_WAIT_TIMEOUT,
     SCHEDULE_INTERVAL,
@@ -38,7 +38,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_workflow impo
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
-WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation_workflow"
+WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation.workflow"
 
 
 def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
@@ -299,10 +299,10 @@ class TestScheduledRecalculationWorkflowDiscovery(NonAtomicBaseTest):
 
         with (
             patch(
-                "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+                "products.experiments.backend.temporal.scheduled_recalculation.selection.feature_enabled_or_false",
                 return_value=True,
             ),
-            patch("products.experiments.backend.temporal.scheduled_recalculation_activities.posthoganalytics"),
+            patch("products.experiments.backend.temporal.scheduled_recalculation.activities.posthoganalytics"),
         ):
             result = async_to_sync(_execute)(discover_scheduled_recalculation_candidates, exposures, lambda eid: None)
         assert checked == [candidate.id]

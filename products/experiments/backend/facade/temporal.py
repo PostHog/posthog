@@ -40,6 +40,8 @@ from products.experiments.backend.temporal.registry import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+)
+from products.experiments.backend.temporal.scheduled_recalculation.schedule import (
     create_experiment_scheduled_recalculation_schedules,
 )
 from products.experiments.backend.temporal.timeseries.schedule import (

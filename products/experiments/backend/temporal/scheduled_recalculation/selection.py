@@ -1,7 +1,7 @@
 """Selection rules for the scheduled experiment recalculation workflow.
 
 Pure synchronous functions, no Temporal imports, so every rule is testable on its own. The
-workflow's activities in `scheduled_recalculation_activities` are thin wrappers over these.
+workflow's activities in `scheduled_recalculation.activities` are thin wrappers over these.
 """
 
 import json

@@ -28,7 +28,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+from products.experiments.backend.temporal.scheduled_recalculation.selection import (
     EXPOSURE_BACKOFF_INTERVAL,
     EXPOSURE_BACKOFF_KEY_PREFIX,
     EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS,
@@ -53,7 +53,7 @@ def _metric() -> dict[str, Any]:
 
 
 FULL_ROLLOUT_FILTERS: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
-LOGIC = "products.experiments.backend.temporal.scheduled_recalculation_logic"
+LOGIC = "products.experiments.backend.temporal.scheduled_recalculation.selection"
 FLAG_PATH = f"{LOGIC}.feature_enabled_or_false"
 
 
@@ -277,7 +277,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         for _ in range(3):
             self._experiment()
         with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.feature_enabled_or_false",
             return_value=True,
         ) as flag:
             find_scheduled_recalculation_candidates()
@@ -415,7 +415,7 @@ class TestScheduledRecalculationLogic(BaseTest):
 
     def test_flag_helper_passes_group_properties(self):
         with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.feature_enabled_or_false",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.feature_enabled_or_false",
             return_value=True,
         ) as flag:
             assert team_has_scheduled_recalculation_enabled(self.team.id, str(self.team.organization_id)) is True
@@ -430,7 +430,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = response
         with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 75
@@ -440,7 +440,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures=None)
         with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.ExperimentExposuresQueryRunner",
             return_value=runner,
         ):
             assert count_total_exposures(experiment) == 0
@@ -453,7 +453,7 @@ class TestScheduledRecalculationLogic(BaseTest):
         runner = MagicMock()
         runner.run.return_value = SimpleNamespace(total_exposures={"control": 10, "test": 10})
         with patch(
-            "products.experiments.backend.temporal.scheduled_recalculation_logic.ExperimentExposuresQueryRunner",
+            "products.experiments.backend.temporal.scheduled_recalculation.selection.ExperimentExposuresQueryRunner",
             return_value=runner,
         ) as runner_class:
             assert count_total_exposures(experiment) == 20

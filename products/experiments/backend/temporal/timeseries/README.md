@@ -97,7 +97,7 @@ The `ExperimentSavedMetricsWorkflow` follows the same structure but:
 
 The workflows above write timeseries points, which the recalculation reader never sees on their own.
 A separate workflow starts a real recalculation for each eligible experiment, on one hourly schedule
-(`products/experiments/backend/temporal/schedule.py`).
+(`products/experiments/backend/temporal/scheduled_recalculation/schedule.py`).
 
 That schedule fires at `:30`, after the timeseries runs earlier in the hour, and carries no input.
 Discovery reads the hour and selects the teams configured for it, so one schedule serves all 24
