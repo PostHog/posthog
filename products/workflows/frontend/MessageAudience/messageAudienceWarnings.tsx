@@ -94,30 +94,36 @@ export async function loadMessageAudienceWarnings(
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
     const suspensionRequest = withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(environmentId))
-    const workflowSuspension = !offerTestSender
+    const integrationsRequest = withinTimeout(integrationsList(environmentId, { kind: 'email' }))
+    const workflowChecks = !offerTestSender
         ? Promise.resolve(null)
-        : workflowEnvironmentId === environmentId
-          ? suspensionRequest
-          : withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(workflowEnvironmentId))
+        : Promise.all(
+              workflowEnvironmentId === environmentId
+                  ? [suspensionRequest, integrationsRequest]
+                  : [
+                        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(workflowEnvironmentId)),
+                        withinTimeout(integrationsList(workflowEnvironmentId, { kind: 'email' })),
+                    ]
+          )
     const testSender = offerTestSender
         ? withinTimeout(workflowEmailSandboxStatus(workflowEnvironmentId))
         : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
         suspensionRequest,
-        withinTimeout(integrationsList(environmentId, { kind: 'email' })),
+        integrationsRequest,
         Promise.all(
             cohortIds.map((id) =>
                 withinTimeout(cohortsRetrieve(projectId, id).then((cohort) => toAudienceCohort(id, cohort)))
             )
         ),
     ])
-    // A verified sender can sit on a later page, so only a complete list can say none is verified.
-    const senderWarning = integrations && !integrations.next ? emailSenderWarning(integrations.results) : null
+    const senderWarning = senderWarningOf(integrations)
+    const [workflowSuspension, workflowIntegrations] = (await workflowChecks) ?? [null, null]
     const offerWorkflowTest =
-        offerTestSender &&
         !!senderWarning &&
         suspension?.email_sending_suspended === false &&
-        (await workflowSuspension)?.email_sending_suspended === false
+        workflowSuspension?.email_sending_suspended === false &&
+        !!senderWarningOf(workflowIntegrations)
     return [
         suspension?.email_sending_suspended
             ? { kind: 'sending_suspended' as const, message: EMAIL_SENDING_SUSPENDED_MESSAGE }
@@ -130,6 +136,13 @@ export async function loadMessageAudienceWarnings(
             return message ? { kind: 'cohort_not_ready' as const, message } : null
         }),
     ].filter((warning): warning is MessageAudienceWarning => !!warning)
+}
+
+// A verified sender can sit on a later page, so only a complete list can say none is verified.
+function senderWarningOf(
+    integrations: Awaited<ReturnType<typeof integrationsList>> | null
+): MessageAudienceWarning | null {
+    return integrations && !integrations.next ? emailSenderWarning(integrations.results) : null
 }
 
 let opening = false

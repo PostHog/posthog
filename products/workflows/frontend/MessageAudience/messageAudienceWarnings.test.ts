@@ -297,6 +297,13 @@ describe('loadMessageAudienceWarnings', () => {
             expected: [NO_SENDER],
         },
         {
+            case: 'a broadcast offers no test sender where the selected environment has its own sender',
+            destination: 'broadcast',
+            project: { suspended: false, senders: [], sandbox: testSender },
+            selected: { suspended: false, senders: [verified], sandbox: testSender },
+            expected: [NO_SENDER],
+        },
+        {
             case: 'a broadcast offers the test sender of the selected environment',
             destination: 'broadcast',
             project: { suspended: false, senders: [], sandbox: noTestSender },
