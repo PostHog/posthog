@@ -5,7 +5,7 @@ from functools import cache
 
 from posthog.products import load_product_modules
 
-type TargetProvider = Callable[[int, set[str]], list[tuple[str, int | None]]]
+type TargetProvider = Callable[[int, set[str]], set[str]]
 
 
 @cache
@@ -19,6 +19,6 @@ def _providers() -> dict[str, TargetProvider]:
     return providers
 
 
-def eligible_action_targets(action: str, team_id: int, target_ids: set[str]) -> list[tuple[str, int | None]]:
+def eligible_action_targets(action: str, team_id: int, target_ids: set[str]) -> set[str]:
     provider = _providers().get(action)
-    return provider(team_id, target_ids) if provider is not None else []
+    return provider(team_id, target_ids) if provider is not None else set()

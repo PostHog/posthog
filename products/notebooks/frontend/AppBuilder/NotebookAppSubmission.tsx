@@ -75,6 +75,31 @@ function workflowVariablesFit(variables: Record<string, unknown>): boolean {
     return size <= 5120
 }
 
+async function submitWorkflowRows(
+    project: string,
+    workflowId: string,
+    rows: Record<string, unknown>[],
+    requestKey: string
+): Promise<Partial<SubmissionDraft>> {
+    if (!workflowVariablesFit({ rows })) {
+        return { error: workflowSizeError }
+    }
+    const workflow = await hogFlowsRetrieve(project, workflowId)
+    const defaults = Object.fromEntries(
+        (workflow.variables ?? []).map((variable) => [variable.key, variable.default ?? null])
+    )
+    if (!workflowVariablesFit({ ...defaults, rows })) {
+        return { error: workflowSizeError }
+    }
+    await hogFlowsRunCreate(
+        project,
+        workflowId,
+        { variables: { rows } },
+        { headers: { 'Idempotency-Key': requestKey } }
+    )
+    return { outcome: { title: 'View workflow runs', link: urls.workflow(workflowId, 'invocations') } }
+}
+
 function submissionError(cause: unknown): string {
     const detail = cause && typeof cause === 'object' && 'detail' in cause ? cause.detail : null
     if (String(detail ?? cause).includes('Total size of variable overrides')) {
@@ -185,27 +210,7 @@ function SubmissionForm({
                 })
                 update({ outcome: { title: 'Open cohort', link: urls.cohort(result.cohort_id) } })
             } else if (workflowId) {
-                if (!workflowVariablesFit({ rows: records })) {
-                    update({ error: workflowSizeError })
-                    return
-                }
-                const workflow = await hogFlowsRetrieve(project, workflowId)
-                const defaults = Object.fromEntries(
-                    (workflow.variables ?? []).map((variable) => [variable.key, variable.default ?? null])
-                )
-                if (!workflowVariablesFit({ ...defaults, rows: records })) {
-                    update({ error: workflowSizeError })
-                    return
-                }
-                await hogFlowsRunCreate(
-                    project,
-                    workflowId,
-                    { variables: { rows: records } },
-                    {
-                        headers: { 'Idempotency-Key': request.key },
-                    }
-                )
-                update({ outcome: { title: 'View workflow runs', link: urls.workflow(workflowId, 'invocations') } })
+                update(await submitWorkflowRows(project, workflowId, records, request.key))
             }
         } catch (cause) {
             update({ error: submissionError(cause) })

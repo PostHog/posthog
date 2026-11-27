@@ -451,10 +451,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             return
         from products.notebooks.backend.facade.app_action_targets import eligible_action_targets
 
-        access_control = self.user_access_control
         targets = eligible_action_targets("run_workflow", self.context["team_id"], workflow_ids)
-        levels = access_control.bulk_object_access_levels("hog_flow", targets) if access_control else {}
-        if any(levels.get(workflow_id) not in {"viewer", "editor", "manager"} for workflow_id in workflow_ids):
+        if targets != workflow_ids:
             raise serializers.ValidationError(
                 {"app_published": "Choose an active workflow with a manual or scheduled trigger."}
             )
