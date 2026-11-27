@@ -831,7 +831,7 @@ def _session_landings_in_batch(
               AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
         )
         GROUP BY $session_id
-        ORDER BY first_pageview_at DESC
+        ORDER BY first_pageview_at DESC, $session_id DESC
         LIMIT {limit}
         """,
         team=team,

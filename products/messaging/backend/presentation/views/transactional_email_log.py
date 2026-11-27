@@ -293,9 +293,11 @@ class TransactionalEmailImpactSessionsQuerySerializer(DateRangeQuerySerializer):
 class TransactionalEmailImpactSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(help_text="The session ID, the same one session recordings use.")
     message_id = serializers.CharField(
-        help_text="The send in the ph_workflow_run tag of the session's earliest pageview from this email."
+        help_text="The send in the ph_workflow_run tag of the session's earliest pageview from the sends read."
     )
-    first_pageview_at = serializers.DateTimeField(help_text="The session's first pageview from a link in this email.")
+    first_pageview_at = serializers.DateTimeField(
+        help_text="The session's earliest pageview from a link in the sends read."
+    )
 
 
 class TransactionalEmailImpactSessionsSerializer(serializers.Serializer):
@@ -306,8 +308,8 @@ class TransactionalEmailImpactSessionsSerializer(serializers.Serializer):
         "tagging is off, when `impact` returns no session count.",
     )
     has_more = serializers.BooleanField(
-        help_text="True when sessions were left out: there are more than 200, or the clicked sends are more than one "
-        "query reads, so only the newest ones were read."
+        help_text="True when sessions may be left out: there are more than 200, or the clicked sends are more than "
+        "one query reads, so only the newest sends were read."
     )
 
 
