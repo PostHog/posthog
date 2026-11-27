@@ -469,7 +469,13 @@ describe('measurements', () => {
     const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
 
     it.each<
-        [string, (second: number) => number | 'failed', ValveTimelineEntry[], Omit<Measurement, 'name' | 'unit'>[]]
+        [
+            string,
+            (second: number) => number | 'failed',
+            ValveTimelineEntry[],
+            Omit<Measurement, 'name' | 'unit'>[],
+            ((second: number) => boolean)?,
+        ]
     >([
         [
             'recovers at the first minute from which every later minute stays at or under twice the baseline p99',
@@ -510,16 +516,47 @@ describe('measurements', () => {
                 { key: 'recovery_seconds', value: 60 },
             ],
         ],
+        [
+            'marks a minute whose probes stop for over 10 seconds as incomplete and not recovered',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10, incomplete: true },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            (second) => !between(822, 879)(second),
+        ],
+        [
+            'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
+            (second) => (second === 650 ? 'failed' : between(700, 759)(second) ? 400 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: null, censored: true },
+                { key: 'bar', value: null, censored: true },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+        ],
         ['measures nothing for a card without a valve', () => 10, [], []],
         ['measures nothing on a baseline under 30 seconds', () => 10, [{ ...VALVE, intentAt: isoAt(10) }], []],
-    ])('write latency p99 %s', (_story, latency, timeline, measured) => {
+    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true) => {
         const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
         const recovery = measured.filter(({ key }) => key === 'recovery_seconds')
 
         expect(
             measure(
                 names.map((name) => ({ name, params: {} })),
-                evidence({ writer: latencyWriter(latency), drive: DRIVE, timeline })
+                evidence({
+                    writer: latencyWriter(latency).filter(({ at }) => probed((at - FROM) / 1000)),
+                    drive: DRIVE,
+                    timeline,
+                })
             )
         ).toEqual([
             ...measured
@@ -531,19 +568,26 @@ describe('measurements', () => {
 
     const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
 
-    const pickedEvery5s = (slow: (second: number) => boolean, until = 1500): MetricSample[] => {
+    const pickedEvery5s = (
+        slow: (second: number) => boolean,
+        { offsetS = 0, slowCount = 10, pastLargest = false } = {}
+    ): MetricSample[] => {
         let fast = 0
         let late = 0
-        return everySecondOf(0, until, 5).map((second) => {
-            if (slow(second)) {
-                late += 10
-            } else {
+        let past = 0
+        return everySecondOf(0, 1500 - offsetS, 5).map((start) => {
+            const second = start + offsetS
+            if (!slow(second)) {
                 fast += 10
+            } else if (pastLargest) {
+                past += slowCount
+            } else {
+                late += slowCount
             }
             return {
                 ...sample(second, 0, 1),
                 role: HOGFLOW,
-                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late } },
+                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late + past } },
             }
         })
     }
@@ -571,6 +615,30 @@ describe('measurements', () => {
                 { key: 'hogflow_t60', value: 5 },
                 { key: 'hogflow_t120', value: 5 },
                 { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'counts a scrape interval that straddles T0 after T0 only, so slow pickups after the fault leave the baseline alone',
+            pickedEvery5s(between(702, 702), { offsetS: 2, slowCount: 50 }),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'censors a minute whose p99 is past the largest bucket',
+            pickedEvery5s(between(705, 760), { pastLargest: true }),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5, censored: true },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: 60 },
             ],
         ],
         [

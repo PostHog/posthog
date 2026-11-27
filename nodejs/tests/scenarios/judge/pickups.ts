@@ -32,7 +32,8 @@ function add(
 export function pickupsBetween(
     samples: readonly MetricSample[],
     roles: readonly string[],
-    { from, to }: { from: number; to: number }
+    { from, to }: { from: number; to: number },
+    { straddlesEnd = true }: { straddlesEnd?: boolean } = {}
 ): { picked: Record<string, Buckets> } | { unread: string } {
     const picked: Record<string, Buckets> = {}
     const unscraped = roles.find((role) => !samples.some((sample) => sample.role === role))
@@ -50,10 +51,12 @@ export function pickupsBetween(
             return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
         }
         // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
-        // never pass into the next step's larger volume unjudged.
+        // never pass into the next step's larger volume unjudged. Without straddlesEnd each interval counts once, in
+        // the window its closing scrape falls in, so a baseline never takes pickups from after the fault.
         const last = inside.at(-1)!
         const next = sorted.find(({ at }) => at > to)
-        const covered = last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
+        const covered =
+            straddlesEnd && last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})
