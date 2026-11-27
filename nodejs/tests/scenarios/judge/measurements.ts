@@ -14,6 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween } from './pickups'
 
 export type MetricSample = {
     role: string
@@ -258,8 +259,6 @@ const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
 
-export const SCRAPE_GAP_MS = 15_000
-
 function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
     const edges = [
         phase.from,
@@ -487,6 +486,104 @@ export function baselineOf({
     }
 }
 
+// The bar the readout quotes: a series has recovered once it stays at or under this multiple of its baseline p99.
+export const RECOVERY_BAR_MULTIPLE = 2
+const SERIES_WINDOW_MS = 60_000
+
+type SeriesPoint = { offsetS: number; value: number | null; recovered: boolean; incomplete?: true }
+
+type Series = { baseline: number; bar: number; points: SeriesPoint[] }
+
+const recentBaselineOf = (baseline: Phase): Phase | undefined =>
+    seconds(baseline.to - baseline.from) < MIN_BASELINE_SECONDS
+        ? undefined
+        : { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
+
+function windowsOf(phase: Phase): Phase[] {
+    const windows: Phase[] = []
+    for (let from = phase.from; from < phase.to; from += SERIES_WINDOW_MS) {
+        windows.push({ from, to: Math.min(from + SERIES_WINDOW_MS, phase.to) })
+    }
+    return windows
+}
+
+function seriesOver(
+    { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
+    p99: (window: Phase) => { value: number | null; clean: boolean; incomplete?: true }
+): Series | undefined {
+    const { baseline, valve } = phasesOf(drive, timeline)
+    const recent = recentBaselineOf(baseline)
+    const reference = recent && p99(recent)
+    if (valve === undefined || reference?.value == null || !reference.clean) {
+        return undefined
+    }
+    const bar = RECOVERY_BAR_MULTIPLE * reference.value
+    const points = windowsOf(valve).map((window): SeriesPoint => {
+        const { value, clean, incomplete } = p99(window)
+        return {
+            offsetS: seconds(window.from - valve.from),
+            value,
+            recovered: value !== null && clean && value <= bar,
+            ...(incomplete ? { incomplete } : {}),
+        }
+    })
+    return { baseline: reference.value, bar, points }
+}
+
+const pointsOf = ({ baseline, bar, points }: Series, prefix = ''): Measured[] => [
+    { key: `${prefix}baseline`, value: baseline },
+    { key: `${prefix}bar`, value: bar },
+    ...points.map(
+        ({ offsetS, value, incomplete }): Measured => ({
+            key: `${prefix}t${offsetS}`,
+            ...(value === null ? { value, censored: true as const } : { value }),
+            ...(incomplete ? { incomplete } : {}),
+        })
+    ),
+]
+
+function recoveryOf({ points }: Series): Measured {
+    const lastUnrecovered = points.findLastIndex(({ recovered }) => !recovered)
+    return lastUnrecovered === points.length - 1
+        ? { value: null, censored: true }
+        : { value: lastUnrecovered < 0 ? 0 : points[lastUnrecovered + 1].offsetS }
+}
+
+function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Series | undefined {
+    return seriesOver({ drive, timeline }, (window) => {
+        const probed = writer.filter(({ at }) => within(window, at))
+        const committed = probed
+            .filter(({ ok }) => ok)
+            .map(({ latencyMs }) => latencyMs)
+            .sort((a, b) => a - b)
+        return {
+            value: committed.length === 0 ? null : nearestRank(committed, 0.99),
+            clean: probed.every(({ ok }) => ok),
+        }
+    })
+}
+
+function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, Series][] {
+    return Object.entries(WORKER_OF).flatMap(([queue, role]) => {
+        if (!samples.some((sample) => sample.role === role)) {
+            return []
+        }
+        const series = seriesOver({ drive, timeline }, (window) => {
+            const pickups = pickupsBetween(samples, [role], window)
+            if ('unread' in pickups) {
+                return { value: null, clean: false, incomplete: true }
+            }
+            const buckets = pickups.picked[queue] ?? {}
+            if ((buckets['+Inf'] ?? 0) === 0) {
+                return { value: null, clean: false }
+            }
+            const { value, beyond } = p99Of(buckets)
+            return { value, clean: !beyond }
+        })
+        return series ? [[queue, series] as [string, Series]] : []
+    })
+}
+
 type PhaseName = 'valve' | 'failback'
 
 const inPhase = (
@@ -559,6 +656,36 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
     inPhase('consumer_loop_errors', 'errors', 'valve', ({ samples, missed }, phase) => [
         phaseIncrease(samples, missed, ({ consumerLoopErrors }) => consumerLoopErrors, phase),
     ]),
+    {
+        name: 'write_latency_p99_ms',
+        params: z.object({}).strict(),
+        unit: 'ms',
+        measure: (evidence) => {
+            const series = writeLatencySeries(evidence)
+            return series ? pointsOf(series) : []
+        },
+    },
+    {
+        name: 'write_latency_recovery_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) => {
+            const series = writeLatencySeries(evidence)
+            return series ? [recoveryOf(series)] : []
+        },
+    },
+    {
+        name: 'pickup_p99_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) => pickupSeries(evidence).flatMap(([queue, series]) => pointsOf(series, `${queue}_`)),
+    },
+    {
+        name: 'pickup_recovery_seconds',
+        params: z.object({}).strict(),
+        unit: 's',
+        measure: (evidence) => pickupSeries(evidence).map(([key, series]) => ({ key, ...recoveryOf(series) })),
+    },
     {
         name: 'baseline_claims_per_second',
         params: z.object({}).strict(),

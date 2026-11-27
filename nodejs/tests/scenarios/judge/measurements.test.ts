@@ -457,6 +457,156 @@ describe('measurements', () => {
         )
     })
 
+    const latencyWriter = (latency: (second: number) => number | 'failed'): WriterSample[] =>
+        everySecondOf(0, 1500).map((second): WriterSample => {
+            const ms = latency(second)
+            const at = { at: atS(second), monoMs: second * 1000 }
+            return ms === 'failed'
+                ? { ...at, latencyMs: 0, ok: false, sqlstate: '57P01' }
+                : { ...at, latencyMs: ms, ok: true, inRecovery: false }
+        })
+
+    const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
+
+    it.each<
+        [string, (second: number) => number | 'failed', ValveTimelineEntry[], Omit<Measurement, 'name' | 'unit'>[]]
+    >([
+        [
+            'recovers at the first minute from which every later minute stays at or under twice the baseline p99',
+            (second) => (between(700, 759)(second) ? 400 : between(760, 819)(second) ? 30 : second >= 820 ? 15 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 30 },
+                { key: 't120', value: 15 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'censors the recovery when a probe fails in the last minute, though its commits are fast',
+            (second) => (between(840, 845)(second) ? 'failed' : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'reads a minute with no commit as not recovered',
+            (second) => (between(700, 759)(second) ? 'failed' : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: null, censored: true },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        ['measures nothing for a card without a valve', () => 10, [], []],
+        ['measures nothing on a baseline under 30 seconds', () => 10, [{ ...VALVE, intentAt: isoAt(10) }], []],
+    ])('write latency p99 %s', (_story, latency, timeline, measured) => {
+        const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
+        const recovery = measured.filter(({ key }) => key === 'recovery_seconds')
+
+        expect(
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                evidence({ writer: latencyWriter(latency), drive: DRIVE, timeline })
+            )
+        ).toEqual([
+            ...measured
+                .filter((value) => !recovery.includes(value))
+                .map((value) => ({ name: names[0], unit: 'ms', ...value })),
+            ...recovery.map(({ key: _key, ...value }) => ({ name: names[1], unit: 's', ...value })),
+        ])
+    })
+
+    const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+
+    const pickedEvery5s = (slow: (second: number) => boolean, until = 1500): MetricSample[] => {
+        let fast = 0
+        let late = 0
+        return everySecondOf(0, until, 5).map((second) => {
+            if (slow(second)) {
+                late += 10
+            } else {
+                fast += 10
+            }
+            return {
+                ...sample(second, 0, 1),
+                role: HOGFLOW,
+                lateness: { hogflow: { '0.5': fast, '5': fast + late, '+Inf': fast + late } },
+            }
+        })
+    }
+
+    it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'recovers once every later minute of a queue stays at or under twice its baseline p99',
+            pickedEvery5s(between(705, 760)),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'censors a queue still slow in the last minute',
+            pickedEvery5s((second) => second >= 705),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 5 },
+                { key: 'hogflow_t60', value: 5 },
+                { key: 'hogflow_t120', value: 5 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+            ],
+        ],
+        [
+            'marks a minute whose worker went unscraped as incomplete and not recovered',
+            pickedEvery5s(() => false).filter(({ at }) => at < atS(770) || at > atS(800)),
+            [
+                { key: 'hogflow_baseline', value: 0.5 },
+                { key: 'hogflow_bar', value: 1 },
+                { key: 'hogflow_t0', value: 0.5 },
+                { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: 120 },
+            ],
+        ],
+    ])('pickup p99 %s', (_story, samples, measured) => {
+        const names = ['pickup_p99_seconds', 'pickup_recovery_seconds']
+        const recovery = measured.filter(({ key }) => key?.endsWith('_recovery_seconds'))
+
+        expect(
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+            )
+        ).toEqual([
+            ...measured
+                .filter((value) => !recovery.includes(value))
+                .map((value) => ({ name: names[0], unit: 's', ...value })),
+            ...recovery.map(({ key, ...value }) => ({
+                name: names[1],
+                unit: 's',
+                key: key!.replace('_recovery_seconds', ''),
+                ...value,
+            })),
+        ])
+    })
+
     const SPIKE_BEFORE_THE_ENVELOPE = (second: number): typeof QUIET =>
         second === 50 ? { due: 99, oldestDueSeconds: 99 } : QUIET
 
