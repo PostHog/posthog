@@ -1,4 +1,14 @@
-import { MakeLogicType, afterMount, kea, key, path, props, reducers, type LogicWrapper } from 'kea'
+import {
+    MakeLogicType,
+    afterMount,
+    kea,
+    key,
+    path,
+    props,
+    reducers,
+    type BreakPointFunction,
+    type LogicWrapper,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { aiObservabilityOfflineExperimentsRetrieve } from '../generated/api'
@@ -51,6 +61,22 @@ export type offlineComparisonLogicType = MakeLogicType<
     offlineComparisonLogicMeta
 >
 
+const COMPARISON_BATCH_SIZE = 4
+
+async function loadComparisonRun(teamId: number, id: string, breakpoint: BreakPointFunction): Promise<ComparisonRun> {
+    const experiment = await loadOfflineRequest(
+        () => aiObservabilityOfflineExperimentsRetrieve(String(teamId), id),
+        breakpoint
+    )
+    const summaries: OfflineScorerSummaryApi[] = []
+    if (experiment.visible_scorer_version_count) {
+        await readOfflineSummaryPages(teamId, id, breakpoint, (page) => {
+            summaries.push(...page.results)
+        })
+    }
+    return { experiment, summaries }
+}
+
 export const offlineComparisonLogic: LogicWrapper<offlineComparisonLogicType> = kea<offlineComparisonLogicType>([
     path(['products', 'ai_observability', 'offlineComparisonLogic']),
     props({} as OfflineComparisonProps),
@@ -59,22 +85,18 @@ export const offlineComparisonLogic: LogicWrapper<offlineComparisonLogicType> = 
         runs: [
             null as ComparisonRun[] | null,
             {
-                loadComparison: async (_: void, breakpoint): Promise<ComparisonRun[]> =>
-                    Promise.all(
-                        props.experimentIds.map(async (id) => {
-                            const experiment = await loadOfflineRequest(
-                                () => aiObservabilityOfflineExperimentsRetrieve(String(props.teamId), id),
-                                breakpoint
-                            )
-                            const summaries: OfflineScorerSummaryApi[] = []
-                            if (experiment.visible_scorer_version_count) {
-                                await readOfflineSummaryPages(props.teamId, id, breakpoint, (page) => {
-                                    summaries.push(...page.results)
-                                })
-                            }
-                            return { experiment, summaries }
-                        })
-                    ),
+                loadComparison: async (_: void, breakpoint): Promise<ComparisonRun[]> => {
+                    const runs: ComparisonRun[] = []
+                    for (let start = 0; start < props.experimentIds.length; start += COMPARISON_BATCH_SIZE) {
+                        breakpoint()
+                        const ids = props.experimentIds.slice(start, start + COMPARISON_BATCH_SIZE)
+                        const batch = await Promise.all(
+                            ids.map((id) => loadComparisonRun(props.teamId, id, breakpoint))
+                        )
+                        runs.push(...batch)
+                    }
+                    return runs
+                },
             },
         ],
     })),

@@ -81,9 +81,9 @@ describe('offline experiment comparison', () => {
     })
 
     it('preserves the baseline order and rejects invalid or oversized shared links', () => {
-        const ids = [2, 1, 3, 4, 5].map((index) => makeOfflineHistoryPoint(index).experiment.id)
-        expect(comparisonIds([ids[0], ids[1], ids[0]].join(','))).toEqual(ids.slice(0, 2))
-        expect(comparisonIds(ids.join(','))).toEqual([])
+        const ids = Array.from({ length: 50 }, (_, index) => makeOfflineHistoryPoint(50 - index).experiment.id)
+        expect(comparisonIds([...ids, ids[0]].join(','))).toEqual(ids)
+        expect(comparisonIds([...ids, makeOfflineHistoryPoint(51).experiment.id].join(','))).toEqual([])
         expect(comparisonIds(`${ids[0]},invalid`)).toEqual([])
         expect(comparisonIds(ids[0])).toEqual([])
     })

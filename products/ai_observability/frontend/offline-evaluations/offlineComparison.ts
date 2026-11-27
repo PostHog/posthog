@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import type { ExperimentScoreApi, OfflineExperimentReadApi, OfflineScorerSummaryApi } from '../generated/api.schemas'
 import { offlineNumericPassingRule } from './offlineScoreInterpretation'
 
-export const MAX_COMPARISON_RUNS = 4
+export const MAX_COMPARISON_RUNS = 50
 
 export function comparisonIds(value: unknown): string[] {
     if (typeof value !== 'string') {

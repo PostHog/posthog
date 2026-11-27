@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
 import {
@@ -41,6 +41,7 @@ export function OfflineExperimentsOverview({
     ...props
 }: OfflineExperimentsLogicProps & { navigation?: ReactNode }): JSX.Element {
     const logic = offlineExperimentsLogic(props)
+    const [selectionBarTarget, setSelectionBarTarget] = useState<HTMLDivElement | null>(null)
     const {
         experiments,
         experimentsLoading,
@@ -347,10 +348,15 @@ export function OfflineExperimentsOverview({
                 )}
             </section>
             <section aria-label="Recent experiments" className="space-y-3">
-                <div className="flex flex-wrap justify-between items-center gap-2">
-                    <h2 className="mb-0">Recent experiments</h2>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 @min-[46rem]:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <h2 className="mb-0 @min-[32rem]:@max-[46rem]:col-span-full">Recent experiments</h2>
+                    <div
+                        ref={setSelectionBarTarget}
+                        className="flex min-h-9 items-center justify-end @max-[32rem]:order-last @max-[32rem]:col-span-full"
+                    />
                     <LemonInput
                         size="small"
+                        className="@max-[32rem]:w-40"
                         type="search"
                         prefix={<IconSearch />}
                         value={filters.search || ''}
@@ -370,6 +376,8 @@ export function OfflineExperimentsOverview({
                         rowKey="id"
                         bulkSelection={{
                             noun: ['experiment', 'experiments'],
+                            barPortalTarget: selectionBarTarget,
+                            getSelectionLabel: ({ selectedCount }) => `${selectedCount} selected`,
                             rowAriaLabel: (run) => `Select ${run.name}`,
                             renderActions: ({ selectedKeys, selectedCount }) => (
                                 <LemonButton

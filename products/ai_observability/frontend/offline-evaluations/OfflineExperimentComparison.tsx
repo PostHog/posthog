@@ -2,14 +2,22 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSearchableSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTable,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
-import { comparisonScoreRows, comparisonUrl, type ComparisonScoreRow } from './offlineComparison'
+import { comparisonScoreRows, comparisonUrl, MAX_COMPARISON_RUNS, type ComparisonScoreRow } from './offlineComparison'
 import { offlineComparisonLogic, type OfflineComparisonProps } from './offlineComparisonLogic'
 import { OfflineComparisonScoreCell } from './OfflineComparisonScoreCell'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
@@ -148,8 +156,10 @@ export function OfflineExperimentComparison({
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="mb-0">Compare experiments</h2>
                 {orderedRuns.length > 1 && (
-                    <LemonSelect
+                    <LemonSearchableSelect
                         size="small"
+                        searchPlaceholder="Search experiments"
+                        searchInputDataAttr="offline-comparison-search-baselines"
                         aria-label="Baseline experiment"
                         data-attr="offline-comparison-baseline"
                         value={baselineId}
@@ -174,7 +184,9 @@ export function OfflineExperimentComparison({
                 )}
             </div>
             {!experimentIds.length ? (
-                <LemonBanner type="warning">Select two to four experiments from the list to compare them.</LemonBanner>
+                <LemonBanner type="warning">
+                    Select between 2 and {MAX_COMPARISON_RUNS} experiments from the list to compare them.
+                </LemonBanner>
             ) : error ? (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadComparison() }}>
                     {error}

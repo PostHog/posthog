@@ -916,7 +916,8 @@ With all time, the charts share a range from the earliest loaded result across t
 The shared guide stays aligned on sparse charts, including charts with a single result.
 Short date ranges show time-of-day labels, and short period comparisons show elapsed durations instead of rounded days.
 
-Select two to four experiments in the experiments list and choose **Compare experiments** to see their scores side by side.
+Select 2 to 50 experiments in the experiments list and choose **Compare experiments** beside the search field to see their scores side by side.
+Scroll horizontally to see more runs. The measure column stays in view, and you can search the baseline picker by experiment name.
 Each row represents one pinned scorer version. **Shared scores only** shows the versions present in every selected run.
 Runs can have different item scorers and can omit the overall experiment score.
 Numeric means and boolean pass rates show the difference from the selected baseline for that version.
