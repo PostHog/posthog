@@ -15,7 +15,6 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
@@ -3140,14 +3139,16 @@ class Resolver(CloningVisitor):
                 )
 
     def _raise_on_invalid_date_literal(self, node: ast.CompareOperation) -> None:
-        """A string literal compared against a Date or DateTime column fails the whole query at
-        execution time with ClickHouse's CANNOT_PARSE_DATE or CANNOT_PARSE_DATETIME when ClickHouse
-        can't read it as a date. ClickHouse's date parser accepts loose forms such as '2026-1-5', so
-        reject only literals with no digit at all, such as '' or 'N/A', which can never parse.
+        """An empty or blank string compared against a Date or DateTime column fails the whole query
+        at execution time with ClickHouse's CANNOT_PARSE_DATE or CANNOT_PARSE_DATETIME. Other text is
+        left to ClickHouse, which parses DateTime best effort and accepts forms such as 'December'.
+
+        Only the ClickHouse dialect is checked. A direct query is resolved as HogQL and then runs on
+        its own database, such as Postgres.
 
         Only table columns are checked. A property typed as DateTime is compared as text by a later
         transform, so `properties.signed_up_at = ''` is valid and must not be rejected here."""
-        if self.dialect not in ("clickhouse", "hogql"):
+        if self.dialect != "clickhouse":
             return
         if node.op not in _DATE_GUARDED_COMPARE_OPS:
             return
@@ -3156,7 +3157,7 @@ class Resolver(CloningVisitor):
             if holds is None:
                 continue
             for constant in _string_constants(literal_side):
-                if any(char in "0123456789" for char in constant.value):
+                if constant.value.strip():
                     continue
                 field_name = _compared_field_name(date_side)
                 subject = f"'{field_name}'" if field_name else "this column"
@@ -3174,16 +3175,7 @@ class Resolver(CloningVisitor):
             return None
         try:
             database_field = field_type.resolve_database_field(self.context)
-            database_table = (
-                field_type.table_type.resolve_database_table(self.context)
-                if isinstance(field_type.table_type, ast.BaseTableType)
-                else None
-            )
         except Exception:
-            return None
-        # A direct query runs on the external database, which may accept text with no digits,
-        # such as 'infinity' in Postgres.
-        if isinstance(database_table, DirectSQLTable) and not isinstance(database_table, DirectClickHouseTable):
             return None
         if isinstance(database_field, DateTimeDatabaseField):
             return "dates and times"

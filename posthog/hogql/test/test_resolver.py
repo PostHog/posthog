@@ -19,7 +19,6 @@ from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -2472,23 +2471,18 @@ class TestResolver(BaseTest):
                 "'date', which holds dates",
             ),
             (
-                "literal_on_left_ordering",
-                "SELECT event FROM events WHERE 'N/A' < timestamp",
+                "blank_literal_on_left_ordering",
+                "SELECT event FROM events WHERE ' ' < timestamp",
                 "'timestamp', which holds dates and times",
             ),
             (
                 "in_tuple",
-                "SELECT rate FROM exchange_rate WHERE date IN ('2026-01-31', 'none')",
+                "SELECT rate FROM exchange_rate WHERE date IN ('2026-01-31', '')",
                 "'date', which holds dates",
-            ),
-            (
-                "non_ascii_digits",
-                "SELECT event FROM events WHERE timestamp != '٢٠٢٦'",
-                "'timestamp', which holds dates and times",
             ),
         ]
     )
-    def test_date_literal_without_digits_raises(self, _name, query, subject):
+    def test_blank_date_literal_raises(self, _name, query, subject):
         expr = self._select(query)
         with self.assertRaisesRegex(QueryError, f"can never match {subject}\\."):
             resolve_types(expr, self.context, dialect="clickhouse")
@@ -2496,29 +2490,20 @@ class TestResolver(BaseTest):
     @parameterized.expand(
         [
             ("loose_date_form", "SELECT rate FROM exchange_rate WHERE date = '2026-1-5'", "clickhouse"),
+            ("datetime_month_name", "SELECT event FROM events WHERE timestamp < 'December'", "clickhouse"),
             ("string_column_untouched", "SELECT event FROM events WHERE distinct_id != ''", "clickhouse"),
             ("non_clickhouse_dialect", "SELECT event FROM events WHERE timestamp != ''", "postgres"),
+            (
+                # Direct queries resolve as HogQL, then run on their own database.
+                "hogql_dialect_cte",
+                "WITH q AS (SELECT timestamp FROM events) SELECT timestamp FROM q WHERE timestamp != ''",
+                "hogql",
+            ),
         ]
     )
     def test_date_literal_comparison_allows(self, _name, query, dialect):
         expr = self._select(query)
         resolve_types(expr, self.context, dialect=dialect)
-
-    def test_date_literal_guard_skipped_for_direct_postgres_tables(self):
-        self.database.tables.add_child(
-            TableNode(
-                name="orders",
-                table=DirectPostgresTable(
-                    name="orders",
-                    fields={"created_at": DateTimeDatabaseField(name="created_at")},
-                    external_data_source_id="source-id",
-                    postgres_schema="public",
-                    postgres_table_name="orders",
-                ),
-            )
-        )
-        expr = self._select("SELECT created_at FROM orders WHERE created_at < 'infinity'")
-        resolve_types(expr, self.context, dialect="hogql")
 
     @parameterized.expand(
         [
