@@ -92,4 +92,50 @@ describe('retargetSurveyResponseWait', () => {
         const hide = result.actions.find((a) => a.type === 'function' && a.id !== 'show')!
         expect(hide.config).toMatchObject({ inputs: { survey_id: { value: 'other-survey' } } })
     })
+
+    it('keeps other wait conditions and finds a hide step further down', () => {
+        const inserted = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideInputs)!
+        const wait = getNextAction(inserted, 'show')!
+        const hide = inserted.actions.find((a) => a.type === 'function' && a.id !== 'show')!
+        const answerFilter = { key: '$survey_response', type: 'event', operator: 'exact', value: ['Yes'] }
+        const edited = {
+            actions: [
+                ...inserted.actions.map((a) =>
+                    a.id === wait.id && a.type === 'wait_until_condition'
+                        ? ({
+                              ...a,
+                              config: {
+                                  ...a.config,
+                                  events: a.config.events!.map((entry) => ({
+                                      ...entry,
+                                      filters: {
+                                          ...entry.filters,
+                                          events: entry.filters!.events!.map((e) => ({
+                                              ...e,
+                                              properties: [...(e.properties ?? []), answerFilter],
+                                          })),
+                                      },
+                                  })),
+                              },
+                          } as HogFlowAction)
+                        : a
+                ),
+                action('delay', 'delay'),
+            ],
+            edges: [
+                ...inserted.edges.map((e) => (e.from === wait.id ? { ...e, to: 'delay' } : e)),
+                { from: 'delay', to: hide.id, type: 'continue' as const },
+            ],
+        }
+        const result = retargetSurveyResponseWait(edited, 'show', 'survey-2')!
+
+        const newWait = getNextAction(result, 'show')!
+        expect(getAwaitedSurveyId(newWait)).toEqual('survey-2')
+        const props = JSON.stringify(newWait.config)
+        expect(props).toContain('$survey_response')
+        expect(props).not.toContain('survey-1')
+        expect(result.actions.find((a) => a.id === hide.id)!.config).toMatchObject({
+            inputs: { survey_id: { value: 'survey-2' } },
+        })
+    })
 })

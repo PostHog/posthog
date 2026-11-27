@@ -10,25 +10,36 @@ export const SURVEY_RESPONSE_MAX_WAIT = '3d'
 
 type WorkflowGraph = Pick<HogFlow, 'actions' | 'edges'>
 type FunctionInputs = Extract<HogFlowAction, { type: 'function' }>['config']['inputs']
+type SurveyWaitEntry = NonNullable<Extract<HogFlowAction, { type: 'wait_until_condition' }>['config']['events']>[number]
 
-function surveySentEntry(
-    surveyId: string
-): NonNullable<Extract<HogFlowAction, { type: 'wait_until_condition' }>['config']['events']>[number] {
+function surveySentEvent(surveyId: string, completed: 'true' | 'unset'): Record<string, unknown> {
+    return {
+        id: SurveyEventName.SENT,
+        name: SurveyEventName.SENT,
+        type: 'events',
+        properties: [
+            { key: SurveyEventProperties.SURVEY_ID, type: 'event', operator: 'exact', value: [surveyId] },
+            completed === 'true'
+                ? { key: SurveyEventProperties.SURVEY_COMPLETED, type: 'event', operator: 'exact', value: true }
+                : {
+                      key: SurveyEventProperties.SURVEY_COMPLETED,
+                      type: 'event',
+                      operator: 'is_not_set',
+                      value: 'is_not_set',
+                  },
+        ],
+    }
+}
+
+// With partial responses on, posthog-js sends "survey sent" after every question with
+// `$survey_completed: false`, so only a true or missing value counts as an answer.
+function surveySentEntry(surveyId: string): SurveyWaitEntry {
     return {
         name: 'Survey answered',
         filters: {
-            events: [
-                {
-                    id: SurveyEventName.SENT,
-                    name: SurveyEventName.SENT,
-                    type: 'events',
-                    properties: [
-                        { key: SurveyEventProperties.SURVEY_ID, type: 'event', operator: 'exact', value: [surveyId] },
-                    ],
-                },
-            ],
+            events: [surveySentEvent(surveyId, 'true'), surveySentEvent(surveyId, 'unset')],
         },
-    }
+    } as SurveyWaitEntry
 }
 
 function surveyIdFromFilter(properties: { key?: string; value?: unknown }[] | undefined): string | null {
@@ -60,6 +71,38 @@ export function getNextAction(workflow: WorkflowGraph, actionId: string): HogFlo
     return workflow.actions.find((action) => action.id === outgoing[0].to)
 }
 
+function actionIdsAfter(workflow: WorkflowGraph, actionId: string): Set<string> {
+    const seen = new Set<string>()
+    const queue = [actionId]
+    while (queue.length) {
+        const current = queue.shift()!
+        for (const edge of workflow.edges) {
+            if (edge.from === current && !seen.has(edge.to)) {
+                seen.add(edge.to)
+                queue.push(edge.to)
+            }
+        }
+    }
+    return seen
+}
+
+function retargetEntry(entry: SurveyWaitEntry, previousSurveyId: string, surveyId: string): SurveyWaitEntry {
+    const events = entry.filters?.events?.map(
+        (event: { id?: string; properties?: { key?: string; value?: unknown }[] }) =>
+            event.id === SurveyEventName.SENT && surveyIdFromFilter(event.properties) === previousSurveyId
+                ? {
+                      ...event,
+                      properties: event.properties?.map((property) =>
+                          property.key === SurveyEventProperties.SURVEY_ID
+                              ? { ...property, value: [surveyId] }
+                              : property
+                      ),
+                  }
+                : event
+    )
+    return events ? { ...entry, filters: { ...entry.filters, events } } : entry
+}
+
 export function retargetSurveyResponseWait(
     workflow: WorkflowGraph,
     showSurveyActionId: string,
@@ -71,19 +114,15 @@ export function retargetSurveyResponseWait(
     if (!waitAction || !previousSurveyId) {
         return null
     }
-    const hideActionIds = new Set(workflow.edges.filter((edge) => edge.from === waitAction.id).map((edge) => edge.to))
+    const downstreamIds = actionIdsAfter(workflow, waitAction.id)
 
     const actions = workflow.actions.map((action): HogFlowAction => {
         if (action.id === waitAction.id && action.type === 'wait_until_condition') {
-            const events = (action.config.events ?? []).map((entry) =>
-                entry.filters?.events?.some((event) => event.id === SurveyEventName.SENT)
-                    ? surveySentEntry(surveyId)
-                    : entry
-            )
+            const events = (action.config.events ?? []).map((entry) => retargetEntry(entry, previousSurveyId, surveyId))
             return { ...action, config: { ...action.config, events }, updated_at: now }
         }
         if (
-            hideActionIds.has(action.id) &&
+            downstreamIds.has(action.id) &&
             action.type === 'function' &&
             action.config.template_id === HIDE_SURVEY_TEMPLATE_ID &&
             action.config.inputs?.survey_id?.value === previousSurveyId
