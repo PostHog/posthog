@@ -44,7 +44,7 @@ First, {SCOUT_PROJECT_SCAN_GUIDANCE}
 
 Then ask me what sort of scout I'd like to make, and offer a few concrete suggestions tailored to what you found (for example specific funnels, error or latency spikes, churn or activation signals, or revenue metrics worth watching) – and call out gaps the current fleet doesn't already cover. Once I pick a direction, walk me through authoring the scout end to end.
 
-If no local copy of the skill is installed, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools to scan the project."""
+If no local copy of the skill is installed, fall back to the scout MCP tools directly (`scout-config-list` to see the existing fleet, `scout-project-profile-get` for the project profile) plus the read-data and insight tools to scan the project."""
 
 SCOUT_FLEET_OVERVIEW_PROMPT = f"""How is my scout fleet performing?
 
@@ -58,7 +58,7 @@ Use the exploring-scouts skill to survey the signals scout fleet on this project
 
 Lead with a short overall verdict, then per-scout notes only where something is notable.
 
-{local_skill_guidance("exploring-scouts")} If no local copy of the skill is installed, fall back to the signals-scout MCP tools directly (config list, runs list, scratchpad search)."""
+{local_skill_guidance("exploring-scouts")} If no local copy of the skill is installed, fall back to the scout MCP tools directly: `scout-config-list`, `scout-runs-list`, and `scout-scratchpad-search`."""
 
 SCOUT_RECENT_SIGNALS_PROMPT = f"""What signals have my scouts emitted recently?
 
@@ -70,7 +70,7 @@ Use the exploring-scouts skill to pull the most recent scout runs that emitted f
 
 Group by scout, newest first. Close with a short note on overall signal quality and any scouts that look noisy or suspiciously silent.
 
-{local_skill_guidance("exploring-scouts")} If no local copy of the skill is installed, fall back to the signals-scout MCP tools directly (runs list with emitted filter, run emissions)."""
+{local_skill_guidance("exploring-scouts")} If no local copy of the skill is installed, fall back to the scout MCP tools directly: `scout-runs-recent-emissions` for the findings, `scout-runs-list` for the runs, and `scout-runs-emission-reports` for the inbox report each finding produced."""
 
 SCOUT_REFINE_SUGGESTION_PROMPT = f"""I'd like to refine a scout PostHog already suggested for this project before I set it up.
 
@@ -86,7 +86,7 @@ Here is the suggestion, as it was drafted. An automated scan wrote it from this 
 
 Check it against the project before you accept it: confirm the events, insights, dashboards and thresholds it names really exist here, and say so plainly when they do not. Then ask me what I'd like to change, and walk me through authoring the final scout end to end.
 
-If no local copy of the skill is installed, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools."""
+If no local copy of the skill is installed, fall back to the scout MCP tools directly (`scout-config-list` to see the existing fleet, `scout-project-profile-get` for the project profile) plus the read-data and insight tools."""
 
 
 SCOUT_AUTHOR_USER_PROMPT_MAX_LENGTH = 2000
