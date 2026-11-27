@@ -288,67 +288,67 @@ describe('traffic', () => {
             })
         })
     })
-})
 
-describe('workflow_webhook traffic', () => {
-    let hub: Hub
-    let api: CdpApi
-    let server: Server
-    let url: string
-    let teamId: number
+    describe('workflow_webhook', () => {
+        let hub: Hub
+        let api: CdpApi
+        let server: Server
+        let url: string
+        let teamId: number
 
-    beforeEach(async () => {
-        hub = await createHub({})
-        teamId = (await createTestTeamFixture(hub.postgres)).team.id
-        await insertHogFunctionTemplate(hub.postgres, incomingWebhookTemplate)
-        api = new CdpApi(hub, createCdpConsumerDeps(hub), {
-            hogQueue: createMockJobQueue(),
-            hogflowQueue: createInMemoryJobQueue(),
+        beforeEach(async () => {
+            hub = await createHub({})
+            teamId = (await createTestTeamFixture(hub.postgres)).team.id
+            await insertHogFunctionTemplate(hub.postgres, incomingWebhookTemplate)
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createInMemoryJobQueue(),
+            })
+            await api.start()
+            const app: express.Application = setupExpressApp()
+            app.use('/', api.router())
+            await new Promise<void>((resolve) => {
+                server = app.listen(0, resolve)
+            })
+            url = `http://127.0.0.1:${(app as unknown as { port: number }).port}`
         })
-        await api.start()
-        const app: express.Application = setupExpressApp()
-        app.use('/', api.router())
-        await new Promise<void>((resolve) => {
-            server = app.listen(0, resolve)
+
+        afterEach(async () => {
+            server.close()
+            await api.stop()
+            await closeHub(hub)
         })
-        url = `http://127.0.0.1:${(app as unknown as { port: number }).port}`
-    })
 
-    afterEach(async () => {
-        server.close()
-        await api.stop()
-        await closeHub(hub)
-    })
+        const producedRuns = (): { job: { id: string; state: { state: { event: object } } } }[] =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
+                .map((message) => message.value as never)
 
-    const producedRuns = (): { job: { id: string; state: { state: { event: object } } } }[] =>
-        mockProducerObserver
-            .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
-            .map((message) => message.value as never)
+        it("retries its seeded flow's webhook under the unit's key, so both runs carry the unit and one run id", async () => {
+            const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
+            const unit = { unitId: 'run-w-1', teamId, flowId: flow.id }
+            mockProducerObserver.produceSpy.mockImplementationOnce(() =>
+                Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+            )
+            let now = 0
+            const clock: SendClock = {
+                now: () => now,
+                wait: (ms) => {
+                    now += ms
+                    return Promise.resolve()
+                },
+            }
 
-    it("retries its seeded flow's webhook under the unit's key, so both runs carry the unit and one run id", async () => {
-        const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
-        const unit = { unitId: 'run-w-1', teamId, flowId: flow.id }
-        mockProducerObserver.produceSpy.mockImplementationOnce(() =>
-            Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-        )
-        let now = 0
-        const clock: SendClock = {
-            now: () => now,
-            wait: (ms) => {
-                now += ms
-                return Promise.resolve()
-            },
-        }
+            const answer = await workflowWebhook.offer(unit, contextFor(url, undefined, clock), NEVER_ABORTED)
 
-        const answer = await workflowWebhook.offer(unit, contextFor(url, undefined, clock), NEVER_ABORTED)
-
-        const runs = producedRuns()
-        expect(answer).toEqual({ accepted: true, retries: 1 })
-        expect(runs.map(({ job }) => job.state.state.event)).toEqual([
-            expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
-            expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
-        ])
-        expect(new Set(runs.map(({ job }) => job.id)).size).toBe(1)
+            const runs = producedRuns()
+            expect(answer).toEqual({ accepted: true, retries: 1 })
+            expect(runs.map(({ job }) => job.state.state.event)).toEqual([
+                expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
+                expect.objectContaining({ distinct_id: unit.unitId, properties: { unit_id: unit.unitId } }),
+            ])
+            expect(new Set(runs.map(({ job }) => job.id)).size).toBe(1)
+        })
     })
 })
 
