@@ -259,9 +259,9 @@ function terminalCheckRow(
 
     switch (check.status) {
         case 'passed':
-            return { tag: { label: 'Still holds', type: 'success' }, detail: joinDetail([ranOn]), explanation }
+            return { tag: { label: 'Still holds', type: 'success' }, detail: ranOn ?? '', explanation }
         case 'failed':
-            return { tag: { label: 'No longer holds', type: 'danger' }, detail: joinDetail([ranOn]), explanation }
+            return { tag: { label: 'No longer holds', type: 'danger' }, detail: ranOn ?? '', explanation }
         case 'errored':
             return {
                 tag: { label: "Couldn't measure", type: 'warning' },

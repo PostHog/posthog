@@ -25,8 +25,8 @@ export function ReportCheckExplanation({ explanation }: { explanation: string })
     }, [explanation, expanded])
 
     return (
-        <div className="flex min-w-0 flex-col items-start gap-0.5">
-            <div ref={bodyRef} id={bodyId} className={cn('w-full min-w-0', !expanded && 'line-clamp-4')}>
+        <div className="flex flex-col items-start gap-0.5">
+            <div ref={bodyRef} id={bodyId} className={cn('w-full', !expanded && 'line-clamp-4')}>
                 <LemonMarkdown className="text-xs leading-snug text-secondary" disableImages>
                     {explanation}
                 </LemonMarkdown>

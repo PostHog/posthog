@@ -91,7 +91,7 @@ export function ReportCheckRow({
             )}
             {(!timeline || !chartQuery) && (
                 <div className="min-w-0 pl-[1.375rem]">
-                    <span className="min-w-0 flex-1 break-words text-xs leading-snug text-tertiary [overflow-wrap:anywhere]">
+                    <span className="min-w-0 flex-1 text-xs leading-snug text-tertiary">
                         <ReportCheckTiming check={check} reportStatus={reportStatus} detail={detail} />
                     </span>
                 </div>
