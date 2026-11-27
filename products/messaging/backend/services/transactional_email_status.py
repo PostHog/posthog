@@ -173,8 +173,13 @@ GROUP BY provider_message_id
 @events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
     """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
-    found = {match[1]: match[0] for header in headers for match in _SES_WIRE_MESSAGE_ID.finditer(header)}
-    wire_ids = dict(list(found.items())[-_MAX_WIRE_IDS:])
+    wire_ids: dict[str, str] = {}
+    for header in headers:
+        for match in _SES_WIRE_MESSAGE_ID.finditer(header):
+            wire_ids.pop(match[1], None)
+            wire_ids[match[1]] = match[0]
+            if len(wire_ids) > _MAX_WIRE_IDS:
+                del wire_ids[next(iter(wire_ids))]
     if not wire_ids:
         return ()
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
