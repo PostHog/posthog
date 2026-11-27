@@ -1433,10 +1433,13 @@ export const NotebooksAppQueriesCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+
 export const notebooksAppViewGrantsCreateBodyRevokeDefault = false
 
 export const NotebooksAppViewGrantsCreateBody = /* @__PURE__ */ zod.object({
-    email: zod.email().describe('Email address of the project member who can open the published output.'),
+    email: zod.email().optional().describe('Email address of the project member who can open the published output.'),
+    recipient_uuid: zod.uuid().optional().describe('Current recipient to revoke, even if their email changed.'),
+    revision: zod.number().min(1).optional().describe('The displayed release to share. Required when granting access.'),
     revoke: zod
         .boolean()
         .default(notebooksAppViewGrantsCreateBodyRevokeDefault)

@@ -98,7 +98,7 @@ def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> Ht
             raise Http404()
         response = TemplateResponse(
             request,
-            "notebooks/app_output.html",
+            "notebooks/app_embed_output.html",
             {
                 "title": output.title,
                 "description": output.description,

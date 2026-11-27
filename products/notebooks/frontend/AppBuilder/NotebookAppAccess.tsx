@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
@@ -10,35 +10,72 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { notebooksAppViewGrantsCreate } from '../generated/api'
-import { NotebookAppEmbed } from './NotebookAppEmbed'
+import { notebooksAppViewGrantsActiveList, notebooksAppViewGrantsCreate } from '../generated/api'
+import type { ActiveAppViewGrantApi } from '../generated/api.schemas'
 
-export function NotebookAppAccess({ project, shortId }: { project: string; shortId: string }): JSX.Element | null {
+export function NotebookAppAccess({
+    project,
+    shortId,
+    revision,
+}: {
+    project: string
+    shortId: string
+    revision: number
+}): JSX.Element | null {
     const { user } = useValues(userLogic)
     const [open, setOpen] = useState(false)
     const [email, setEmail] = useState('')
     const [busy, setBusy] = useState(false)
     const [link, setLink] = useState('')
     const [message, setMessage] = useState('')
+    const [grants, setGrants] = useState<ActiveAppViewGrantApi[]>([])
+    const [hasMore, setHasMore] = useState(false)
+    const [listError, setListError] = useState(false)
     if ((user?.organization?.membership_level ?? 0) < OrganizationMembershipLevel.Admin) {
         return null
     }
 
-    async function submit(revoke: boolean): Promise<void> {
+    async function loadGrants(offset = 0): Promise<void> {
+        setListError(false)
+        try {
+            const result = await notebooksAppViewGrantsActiveList(project, shortId, { limit: 10, offset })
+            setGrants((current) => (offset ? [...current, ...result.results] : result.results))
+            setHasMore(!!result.next)
+        } catch {
+            setListError(true)
+        }
+    }
+
+    async function showGrants(offset = 0): Promise<void> {
+        setBusy(true)
+        await loadGrants(offset)
+        setBusy(false)
+    }
+
+    async function submit(revoke: boolean, recipientUuid?: string): Promise<void> {
         setBusy(true)
         setMessage('')
         setLink('')
         try {
-            const result = await notebooksAppViewGrantsCreate(project, shortId, { email: email.trim(), revoke })
+            const result = await notebooksAppViewGrantsCreate(project, shortId, {
+                ...(recipientUuid ? { recipient_uuid: recipientUuid } : { email: email.trim() }),
+                revoke,
+                revision,
+            })
             if (result.url) {
                 setLink(urls.absolute(result.url))
             }
             setMessage(revoke ? 'App-only access removed.' : 'Send this link to the recipient.')
+            await loadGrants()
             posthog.capture(revoke ? 'notebook app access revoked' : 'notebook app access granted', {
                 short_id: shortId,
             })
         } catch {
-            setMessage('Could not update access. Check that the email belongs to a project member and try again.')
+            setMessage(
+                revoke
+                    ? 'Could not remove access. Check the active recipients and try again.'
+                    : 'Could not grant access. Check the member and the published revision, then try again.'
+            )
         } finally {
             setBusy(false)
         }
@@ -46,17 +83,27 @@ export function NotebookAppAccess({ project, shortId }: { project: string; short
 
     return (
         <>
-            <NotebookAppEmbed project={project} shortId={shortId} />
-            <LemonButton size="small" onClick={() => setOpen(true)}>
+            <LemonButton
+                size="small"
+                onClick={() => {
+                    setOpen(true)
+                    void showGrants()
+                }}
+            >
                 App-only access
             </LemonButton>
             <LemonModal
                 isOpen={open}
                 onClose={() => {
+                    if (busy) {
+                        return
+                    }
                     setOpen(false)
                     setLink('')
                     setEmail('')
                     setMessage('')
+                    setGrants([])
+                    setHasMore(false)
                 }}
                 title="App-only access"
             >
@@ -104,7 +151,39 @@ export function NotebookAppAccess({ project, shortId }: { project: string; short
                         </LemonButton>
                     </div>
                 )}
+                <h3 className="mt-4">Active recipients</h3>
+                {grants.map((grant) => (
+                    <div key={grant.recipient_uuid + ':' + grant.revision} className="flex items-center gap-2">
+                        <span className="flex-1">
+                            {grant.email} · Release {grant.revision}
+                        </span>
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            disabled={busy}
+                            onClick={() => void submit(true, grant.recipient_uuid)}
+                        >
+                            Remove access
+                        </LemonButton>
+                    </div>
+                ))}
+                {listError ? (
+                    <LemonButton disabled={busy} onClick={() => void showGrants()}>
+                        Retry loading recipients
+                    </LemonButton>
+                ) : hasMore ? (
+                    <LemonButton disabled={busy} onClick={() => void showGrants(grants.length)}>
+                        Show more
+                    </LemonButton>
+                ) : !busy && grants.length === 0 ? (
+                    <p>No active recipients.</p>
+                ) : null}
             </LemonModal>
+            <Suspense fallback={null}>
+                <NotebookAppEmbed project={project} shortId={shortId} />
+            </Suspense>
         </>
     )
 }
+
+const NotebookAppEmbed = lazy(async () => ({ default: (await import('./NotebookAppEmbed')).NotebookAppEmbed }))

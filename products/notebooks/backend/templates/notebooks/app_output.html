@@ -27,17 +27,22 @@
             <h1>{{ title }}</h1>
             {% if description %}<p>{{ description }}</p>{% endif %}
             <small>Published {{ published_at|date:"DATETIME_FORMAT" }}</small>
-            {% if embedded %}
-                {% for tab in tabs %}
-                    <details{% if forloop.first %} open{% endif %}><summary>{{ tab.title }}</summary>
-                        {% include 'notebooks/app_output_blocks.html' with blocks=tab.blocks %}
-                    </details>
-                {% endfor %}
-            {% else %}
+            {% block app_tabs %}
                 <nav aria-label="App tabs">{% for tab in tabs %}<a href="?tab={{ forloop.counter0 }}"
    {% if active == forloop.counter0 %} aria-current="page"{% endif %}>{{ tab.title }}</a>{% endfor %}</nav>
-                {% include 'notebooks/app_output_blocks.html' %}
-            {% endif %}
+                {% partialdef app_output_blocks inline %}
+                    {% for block in blocks %}
+                        <section>
+                            {% if block.title %}<h2>{{ block.title }}</h2>{% endif %}
+                            {% if block.text %}<p class="prose">{{ block.text }}</p>{% endif %}
+                            {% if block.columns %}
+                                {% if block.partial %}<p>Only part of the saved result is available.</p>{% endif %}
+                                <table><thead><tr>{% for column in block.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+                                    <tbody>{% for row in block.rows %}<tr>{% for value in row %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}</tr>{% empty %}<tr><td>No results</td></tr>{% endfor %}</tbody></table>
+                            {% endif %}
+                        </section>{% empty %}<p>This tab has no published output.</p>{% endfor %}
+                {% endpartialdef %}
+            {% endblock %}
         </main>
     </body>
 </html>

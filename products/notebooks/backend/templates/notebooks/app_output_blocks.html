@@ -1,9 +1,0 @@
-{% for block in blocks %}
-    <section>
-        {% if block.title %}<h2>{{ block.title }}</h2>{% endif %}
-        {% if block.text %}<p class="prose">{{ block.text }}</p>{% endif %}
-        {% if block.columns %}
-            <table><thead><tr>{% for column in block.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
-                <tbody>{% for row in block.rows %}<tr>{% for value in row %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}</tr>{% empty %}<tr><td>No results</td></tr>{% endfor %}</tbody></table>
-        {% endif %}
-    </section>{% empty %}<p>This tab has no published output.</p>{% endfor %}

@@ -49,6 +49,14 @@ class AppRelease:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ActiveAppViewGrant:
+    recipient_uuid: UUID
+    email: str
+    revision: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppViewGrantResult:
     url: str | None
     expires_at: datetime | None
