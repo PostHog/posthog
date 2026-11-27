@@ -11,6 +11,32 @@
     border-radius: var(--radius);
 }
 
+[theme='dark'] .AdventStage {
+    --color-bg-primary: var(--color-posthog-3000-50);
+    --color-bg-surface-primary: var(--color-white);
+    --color-bg-surface-secondary: var(--color-posthog-3000-100);
+    --color-bg-surface-popover: var(--color-white);
+    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-text-primary: var(--color-neutral-950);
+    --color-text-secondary: var(--color-neutral-750);
+    --color-text-tertiary: var(--color-neutral-600);
+    --color-border-primary: var(--color-posthog-3000-200);
+    --color-accent: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        var(--color-posthog-brand-orange-lightness)
+    );
+    --text-3000: var(--text-3000-light);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
+
+    color: var(--color-text-primary);
+    color-scheme: light;
+}
+
 .AdventStage__track {
     position: absolute;
     inset: 0;
