@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     detect,
 )
@@ -31,6 +32,7 @@ from products.warehouse_sources.sources.sftp.sftp import (
     PRIVATE_KEY_ERROR,
     SFTPAuth,
     SFTPCredentialsError,
+    approved_addresses,
     group_files_by_table,
     list_remote_files,
     parseable_files,
@@ -269,12 +271,6 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             return combine.table_name
         return None
 
-    def _ensure_host_allowed(self, config: SFTPSourceConfig, team_id: int) -> None:
-        """Re-check the host every time we're about to send the stored credential to it."""
-        is_host_valid, host_error = self.is_database_host_valid(config.host, team_id)
-        if not is_host_valid:
-            raise SFTPCredentialsError(f"{CONNECTION_FAILED_ERROR} at {config.host}: {host_error}")
-
     def validate_credentials(
         self,
         config: SFTPSourceConfig,
@@ -299,12 +295,13 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                 port=config.port,
                 user=config.user,
                 auth=auth,
+                team_id=team_id,
                 path=config.path,
                 file_pattern=config.file_pattern,
                 configured_format=config.file_format,
                 delimiter=config.csv_delimiter,
             )
-        except SFTPCredentialsError as e:
+        except (SFTPCredentialsError, TemporaryHostResolutionError) as e:
             return False, str(e)
 
         return True, None
@@ -318,13 +315,12 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        self._ensure_host_allowed(config, team_id)
-
         with sftp_connection(
             host=config.host,
             port=config.port,
             user=config.user,
             auth=self._auth(config),
+            team_id=team_id,
         ) as client:
             files = parseable_files(list_remote_files(client, config.path, config.file_pattern), config.file_format)
 
@@ -339,7 +335,8 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
         return schemas
 
     def source_for_pipeline(self, config: SFTPSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        self._ensure_host_allowed(config, inputs.team_id)
+        # A full-refresh sync deletes the table before it reads items, so refuse the host first.
+        approved_addresses(config.host, inputs.team_id)
 
         return sftp_source(
             host=config.host,
@@ -347,6 +344,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             user=config.user,
             schema_name=inputs.schema_name,
             auth=self._auth(config),
+            team_id=inputs.team_id,
             path=config.path,
             file_pattern=config.file_pattern,
             configured_format=config.file_format,

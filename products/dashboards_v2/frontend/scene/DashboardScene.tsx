@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
+import { Spinner } from '@posthog/quill'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,6 +13,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardActions } from '../dashboard/actions/DashboardActions'
+import { DashboardUnavailable } from '../dashboard/DashboardUnavailable'
 import { DashboardView } from '../dashboard/DashboardView'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
@@ -18,13 +21,16 @@ import { runSampleQuery } from '../fixtures/runSampleQuery'
 import { createChartPanel } from '../panels/chart/createChartPanel'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
-import { dashboardSceneLogic } from './dashboardSceneLogic'
+import { BoardConflictDialog } from './BoardConflictDialog'
+import { BoardSaveStatus } from './BoardSaveStatus'
+import { type DashboardSceneLogicProps, dashboardSceneLogic } from './dashboardSceneLogic'
 
 const SAMPLE_PANELS = [createChartPanel({ runQuery: runSampleQuery }), markdownPanel]
 
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardSceneLogic,
+    paramsToProps: ({ params: { uid } }): DashboardSceneLogicProps => ({ uid }),
 }
 
 export function DashboardScene(): JSX.Element {
@@ -36,7 +42,7 @@ export function DashboardScene(): JSX.Element {
 }
 
 function DashboardV2(): JSX.Element {
-    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo } = useValues(dashboardSceneLogic)
+    const { dashboard, activeTabId, disabledReasonFor, canUndo, canRedo, unavailable } = useValues(dashboardSceneLogic)
     const { applyDashboardEdit, setActiveTab, undo, redo } = useActions(dashboardSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId, timezone } = useValues(teamLogic)
@@ -44,7 +50,7 @@ function DashboardV2(): JSX.Element {
     tabRef.current = activeTabId
     // The same check as v1 insights: a project that has sent no events yet sees sample charts instead of empty ones.
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
-    // TODO(2026-11-25): Remove with the kitchen sink fixture, once the scene loads dashboards from the API.
+    // TODO(2026-11-25): Remove with the kitchen sink fixture, once the board list can open saved boards.
     // Lets the "Tile states" tab show the sample data state in a project that already has events.
     const { searchParams } = useValues(router)
     const forceSampleData = searchParams.sample_data === true || searchParams.sample_data === 'true'
@@ -75,31 +81,46 @@ function DashboardV2(): JSX.Element {
         types: runsRealQueries ? undefined : ANALYTICS_FILTER_TYPES,
         time: { timezone },
     })
+    if (!dashboard) {
+        return unavailable ? (
+            <DashboardUnavailable problem={unavailable} />
+        ) : (
+            <div className="flex justify-center p-8">
+                <Spinner />
+            </div>
+        )
+    }
     return (
-        <DashboardView
-            surface="dashboard-v2-scene"
-            sampleData={shouldShowSampleData || forceSampleData}
-            dashboard={dashboard}
-            activeTabId={activeTabId}
-            panels={panels}
-            disabledReasonFor={disabledReasonFor}
-            onEdit={applyDashboardEdit}
-            onActiveTabChange={setActiveTab}
-            history={{ canUndo, canRedo, onUndo: undo, onRedo: redo }}
-            refresh={{}}
-            filters={filters}
-            timeRange={timeRange}
-            header={
-                <header className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-col gap-1 min-w-0">
-                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
-                        {dashboard.description && (
-                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
-                        )}
-                    </div>
-                    <DashboardActions />
-                </header>
-            }
-        />
+        <>
+            <DashboardView
+                surface="dashboard-v2-scene"
+                sampleData={shouldShowSampleData || forceSampleData}
+                dashboard={dashboard}
+                activeTabId={activeTabId}
+                panels={panels}
+                disabledReasonFor={disabledReasonFor}
+                onEdit={applyDashboardEdit}
+                onActiveTabChange={setActiveTab}
+                history={{ canUndo, canRedo, onUndo: undo, onRedo: redo }}
+                refresh={{}}
+                filters={filters}
+                timeRange={timeRange}
+                header={
+                    <header className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-col gap-1 min-w-0">
+                            <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                            {dashboard.description && (
+                                <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <BoardSaveStatus />
+                            <DashboardActions />
+                        </div>
+                    </header>
+                }
+            />
+            <BoardConflictDialog />
+        </>
     )
 }

@@ -14,10 +14,6 @@ export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
         aria-busy
         data-attr="content-autopilot-prompts-overview-loading"
     >
-        <div className="flex flex-col gap-1">
-            <Skeleton className="h-5 w-56 max-w-full" />
-            <Skeleton className="h-4 w-96 max-w-full" />
-        </div>
         <ContentAutopilotStatStrip
             className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
             data-attr="content-autopilot-prompts-overview-kpis-loading"

@@ -1,6 +1,6 @@
 import type { AEOPromptSetOverviewApi } from '../generated/api.schemas'
 import { EXAMPLE_PROMPT_SET_OVERVIEW } from './contentAutopilotStoryFixtures'
-import { engineTopicGrid, promptsOverviewHasChecks, promptsOverviewKpis } from './promptsOverview'
+import { engineTopicGrid, overviewTiles, promptsOverviewHasChecks } from './promptsOverview'
 
 const overview = (
     current: Partial<AEOPromptSetOverviewApi['current']>,
@@ -12,83 +12,15 @@ const overview = (
 })
 
 describe('promptsOverview', () => {
-    it('words each KPI against the window before', () => {
-        expect(promptsOverviewKpis(EXAMPLE_PROMPT_SET_OVERVIEW)).toEqual({
-            promptsTracked: { value: '42', note: '44 ran in this date range, 31 of them cited', delta: null },
-            checks: {
-                value: '2,520',
-                note: '60 checks failed',
-                delta: { label: '+120', direction: 'up', tooltip: 'Against the 30 days before' },
-            },
-            mentionRate: {
-                value: '60%',
-                note: '1,476 of 2,460 answers',
-                delta: {
-                    label: 'No change',
-                    direction: 'flat',
-                    tooltip: 'Against the 30 days before, in percentage points',
-                },
-            },
-            citationRate: {
-                value: '40%',
-                note: '984 of 2,460 answers',
-                delta: {
-                    label: '+5 pts',
-                    direction: 'up',
-                    tooltip: 'Against the 30 days before, in percentage points',
-                },
-            },
-            position: {
-                value: '#2.3',
-                note: 'Over 984\u00a0cited answers',
-                delta: { label: '0.5 better', direction: 'up', tooltip: 'Against the 30 days before. Lower is better' },
-            },
-        })
-    })
-
     it.each([
-        ['a worse rank reads as a loss', 2.0, 1.5, { label: '0.5 worse', direction: 'down' }],
-        ['the same rank', 2.0, 2.0, { label: 'No change', direction: 'flat' }],
-        ['no rank before', 2.0, null, null],
-    ])('compares the average position when %s', (_name, now, before, expected) => {
-        const delta = promptsOverviewKpis(overview({ avg_position: now }, { avg_position: before })).position.delta
-        expect(delta && { label: delta.label, direction: delta.direction }).toEqual(expected)
-    })
-
-    it('has no position without a cited answer', () => {
-        expect(promptsOverviewKpis(overview({ cited: 0, avg_position: null })).position).toEqual({
-            value: 'Not cited',
-            note: 'No cited answers in this date range',
-            delta: null,
-        })
-    })
-
-    it.each([
+        ['shares of the answered checks', {}, { prompts: '42', visibility: '60%', cited: '40%', position: '#2.3' }],
         [
-            'no previous window',
-            overview({}, { checks: 0, failed: 0, cited: 0, mentioned: 0, citation_rate: null, mention_rate: null }),
-            { checks: null, citationRate: null },
+            'no answered checks',
+            { checks: 5, failed: 5, avg_position: null },
+            { prompts: '42', visibility: '-', cited: '-', position: 'Not cited' },
         ],
-        [
-            'only failed checks in the current window',
-            overview({ checks: 5, failed: 5, cited: 0, mentioned: 0, citation_rate: null, mention_rate: null }),
-            {
-                checks: { label: '-2395', direction: 'down', tooltip: 'Against the 30 days before' },
-                citationRate: null,
-            },
-        ],
-    ])('has no delta with %s', (_name, data, expected) => {
-        const kpis = promptsOverviewKpis(data)
-        expect(kpis.checks.delta).toEqual(expected.checks)
-        expect(kpis.citationRate.delta).toEqual(expected.citationRate)
-    })
-
-    it.each([
-        ['none of them', { prompts: 3, prompts_cited: 0 }, '3 ran in this date range, none of them cited'],
-        ['all of them', { prompts: 3, prompts_cited: 3 }, '3 ran in this date range, all of them cited'],
-        ['no run', { prompts: 0, prompts_cited: 0 }, 'None ran in this date range'],
-    ])('describes the cited prompts when %s', (_name, counts, note) => {
-        expect(promptsOverviewKpis(overview(counts)).promptsTracked.note).toBe(note)
+    ])('gives each headline tile only its value, from %s', (_name, current, tiles) => {
+        expect(overviewTiles(overview(current))).toEqual(tiles)
     })
 
     it('has checks only when a window has one', () => {

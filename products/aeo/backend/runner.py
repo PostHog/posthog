@@ -52,6 +52,7 @@ def run_citation_checks(
     *,
     engines: Optional[list[CitationEngine]] = None,
     weekly_engines: Optional[list[CitationEngine]] = None,
+    periods: Optional[dict[str, int]] = None,
     limit: Optional[int] = None,
     record: bool = True,
     stop: Optional[threading.Event] = None,
@@ -64,12 +65,13 @@ def run_citation_checks(
     money) but nothing is written — smoke-test mode. Setting `stop` ends the run
     after the prompt in hand and drops the queued ones.
 
-    `engines` check every due prompt. `weekly_engines` check the prompts whose weekly day is today (see
-    `weekly_day`), inside the same per-prompt claim. Both default to the project's engine settings.
+    `engines` check every due prompt. `weekly_engines` check the prompts whose day in their period is today (see
+    `period_day`), inside the same per-prompt claim: `periods` gives each one's days between checks, 7 when left
+    out. All default to the project's engine settings.
     """
     if engines is None and weekly_engines is None:
         schedule = engine_schedule(team.id)
-        engines, weekly_engines = list(schedule.daily), list(schedule.weekly)
+        engines, weekly_engines, periods = list(schedule.daily), list(schedule.weekly), schedule.periods
     engines = engines or []
     weekly_engines = weekly_engines or []
     if not engines and not weekly_engines:
@@ -101,7 +103,7 @@ def run_citation_checks(
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
-    weekly_due = _weekly_due(team, prompts, checked_before, weekly_engines) if weekly_engines else {}
+    weekly_due = _weekly_due(team, prompts, checked_before, weekly_engines, periods or {}) if weekly_engines else {}
     engines_per_prompt = {prompt.id: [*engines, *weekly_due.get(prompt.id, [])] for prompt in prompts}
     idle = [prompt.id for prompt in prompts if not engines_per_prompt[prompt.id]]
     if idle and record:
@@ -282,25 +284,43 @@ def _check_prompt(
     )
 
 
-def weekly_day(prompt_id: uuid.UUID) -> int:
-    """The weekday (Monday is 0) on which a prompt gets its weekly checks.
+def period_day(prompt_id: uuid.UUID, period: int) -> int:
+    """The day, out of every `period` days, on which a prompt gets its checks from an engine on that period.
 
     A hash of the id, so the day is the same on every worker and across restarts, which Python's
-    salted `hash()` is not. It spreads the set over the week, about a seventh of it per day."""
+    salted `hash()` is not. It spreads the set over the period, about a `period`th of it per day."""
     digest = hashlib.sha256(str(prompt_id).encode()).digest()
-    return int.from_bytes(digest[:8], "big") % 7
+    return int.from_bytes(digest[:8], "big") % period
+
+
+def weekly_day(prompt_id: uuid.UUID) -> int:
+    return period_day(prompt_id, 7)
+
+
+def run_period_day(run_day: dt.datetime, period: int) -> int:
+    return (run_day.astimezone(dt.UTC).date().toordinal() + 6) % period
 
 
 def _weekly_due(
-    team: Team, prompts: list[AEOPrompt], checked_before: dt.datetime, weekly_engines: list[CitationEngine]
+    team: Team,
+    prompts: list[AEOPrompt],
+    checked_before: dt.datetime,
+    weekly_engines: list[CitationEngine],
+    periods: dict[str, int],
 ) -> dict[uuid.UUID, list[CitationEngine]]:
     """Per prompt whose weekly day is this run day, the weekly engines with no answered check since the run day began.
 
     The weekday is the run day's, in UTC, so it stays the same for every dispatch of that run day.
     A dispatch that resumes a killed run skips the engines it already recorded for a prompt,
     including ones recorded while every daily engine failed and so left the prompt unclaimed."""
-    weekday = checked_before.astimezone(dt.UTC).weekday()
-    candidates = [prompt.id for prompt in prompts if weekly_day(prompt.id) == weekday]
+    due_engines: dict[uuid.UUID, list[CitationEngine]] = {}
+    for engine in weekly_engines:
+        period = periods.get(engine.name, 7)
+        today = run_period_day(checked_before, period)
+        for prompt in prompts:
+            if period_day(prompt.id, period) == today:
+                due_engines.setdefault(prompt.id, []).append(engine)
+    candidates = list(due_engines)
     if not candidates:
         return {}
     recorded = set(
@@ -314,7 +334,7 @@ def _weekly_due(
         .values_list("prompt_id", "engine")
     )
     due = {
-        prompt_id: [engine for engine in weekly_engines if (prompt_id, engine.name) not in recorded]
+        prompt_id: [engine for engine in due_engines[prompt_id] if (prompt_id, engine.name) not in recorded]
         for prompt_id in candidates
     }
     return {prompt_id: engines for prompt_id, engines in due.items() if engines}
@@ -466,7 +486,7 @@ def _stop_reason(*, stopped: bool, out_of_credits: bool) -> str | None:
     if out_of_credits:
         return "stopped: the organization is out of AI credits"
     if stopped:
-        return "stopped: the run lease was lost to a later dispatch"
+        return "stopped: the run lease was lost or a stop was requested"
     return None
 
 

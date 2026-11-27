@@ -132,7 +132,7 @@ export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolea
 
 // pinned: the AI visibility filters' URL search params, links people share depend on them
 // 'days' is the window param of links from before the date range. Listing it drops it when the filters rewrite the URL.
-export const AI_VISIBILITY_URL_PARAMS = ['date_from', 'date_to', 'days', 'engine', 'topic', 'branded'] as const
+export const AI_VISIBILITY_URL_PARAMS = ['date_from', 'date_to', 'days', 'engine', 'topic', 'branded', 'tab'] as const
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
