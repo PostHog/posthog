@@ -7,7 +7,7 @@ import type { AEOPromptMoverApi } from 'products/web_analytics/frontend/generate
 import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
-import { moverDelta } from './movers'
+import { shareDelta } from './shares'
 
 /** The prompts that moved, gains first. A prompt opens its page. */
 export const ContentAutopilotPromptMoversTable = ({
@@ -69,7 +69,15 @@ export const ContentAutopilotPromptMoversTable = ({
                 title: 'Change',
                 key: 'change',
                 align: 'right',
-                render: (_, { change }) => <ContentAutopilotKpiDelta delta={moverDelta(change, days)} />,
+                render: (_, { mention_rate, previous_mention_rate }) => (
+                    <ContentAutopilotKpiDelta
+                        delta={shareDelta(
+                            mention_rate,
+                            previous_mention_rate,
+                            `Change against the ${days} days before, in percentage points`
+                        )}
+                    />
+                ),
             },
         ]}
     />

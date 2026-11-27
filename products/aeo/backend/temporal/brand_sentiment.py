@@ -4,6 +4,8 @@ The ONNX sentiment model and its dependencies are only in the LLM analytics imag
 which the AEO Temporal queue's worker runs, so the runner cannot classify inline: it starts this
 workflow, and the activity reads the run's answers back from Postgres, scores the
 sentences that name the brand, and writes the label and score to the check rows.
+With time left, it scores the sentences that name each other catalog brand the same way,
+and writes those labels to the answer's brand rows.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -35,13 +37,17 @@ from posthog.temporal.common.utils import close_db_connections
 from products.aeo.backend.brand import brand_regex
 from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engines import own_domains_key
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.facade.contracts import BrandKind
+from products.aeo.backend.models import AEOCheckBrand, AEOCitationCheck
 from products.aeo.backend.sentiment import (
+    UNSCORABLE,
     AnswerSentiment,
     BrandSentence,
+    MentionSpan,
     SentenceSentiment,
     aggregate_sentiment,
     brand_sentences,
+    mention_sentences,
     sentence_sentiment,
 )
 from products.aeo.backend.stored_results import bump_data_version_on_commit
@@ -58,6 +64,8 @@ SCORING_BUDGET = dt.timedelta(minutes=10)
 # Each answer's score is saved as soon as it is classified, so progress shows up while a pass runs.
 ANSWERS_PER_WRITE = 1
 CLASSIFY_BATCH = 32
+# Brand rows are short, a few sentences each, so they are saved in larger groups.
+BRANDS_PER_WRITE = 20
 # Answers scored before the setting was turned on, or missed by a failed run, are picked up from
 # this far back, which matches the window the prompt report shows.
 BACKLOG_WINDOW = dt.timedelta(days=30)
@@ -74,6 +82,14 @@ class AEOBrandSentimentInputs:
 @dataclasses.dataclass(frozen=True)
 class _PendingAnswer:
     check_id: str
+    sentences: list[BrandSentence]
+
+
+@dataclasses.dataclass(frozen=True)
+class _PendingBrand:
+    """One brand row of an answer, with the sentences that name that brand."""
+
+    check_brand_id: str
     sentences: list[BrandSentence]
 
 
@@ -160,6 +176,85 @@ def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[_ScoredAn
     return len(rows)
 
 
+@dataclasses.dataclass(frozen=True)
+class _PendingBrands:
+    brands: list[_PendingBrand]
+    # Rows whose mentions no sentence of the answer holds. They are marked, so the next pass moves past them.
+    unscorable: list[str]
+
+
+def _mention_spans(answer_text: str, mentions: list[dict[str, Any]]) -> list[MentionSpan]:
+    """The mentions the row stored, as spans of the answer. A span whose text no longer reads as the stored
+    surface is left out, so a sentence is never picked for a mention it does not hold."""
+    spans: list[MentionSpan] = []
+    for mention in mentions:
+        start, surface = mention.get("start"), mention.get("surface")
+        if isinstance(start, int) and surface and answer_text[start : start + len(surface)] == surface:
+            spans.append(MentionSpan(start=start, end=start + len(surface)))
+    return spans
+
+
+def _load_pending_brands(team_id: int) -> _PendingBrands:
+    """The recent brand rows that name a brand other than the own one and have no score yet, oldest first,
+    capped like the answers. The own brand's sentiment is on the check, so its rows are skipped. The sentences
+    are the ones that hold the mentions the row stored, by their offsets, so a name with punctuation such as
+    `Dr. Martens` stays whole."""
+    rows = list(
+        AEOCheckBrand.objects.for_team(team_id)
+        .filter(created_at__gte=timezone.now() - BACKLOG_WINDOW, mentioned=True, sentiment__isnull=True)
+        .exclude(mentions=[])
+        .exclude(brand__kind=BrandKind.OWN)
+        .order_by("created_at", "id")
+        .values_list("id", "citation_check_id", "mentions")[:MAX_ROWS_PER_RUN]
+    )
+    texts = dict(
+        AEOCitationCheck.objects.for_team(team_id)
+        .filter(id__in={check_id for _, check_id, _ in rows}, check_failed=False)
+        .values_list("id", "answer_text")
+    )
+    brands: list[_PendingBrand] = []
+    unscorable: list[str] = []
+    for row_id, check_id, mentions in rows:
+        text = texts.get(check_id) or ""
+        sentences = mention_sentences(text, _mention_spans(text, mentions))
+        if sentences:
+            brands.append(_PendingBrand(check_brand_id=str(row_id), sentences=sentences))
+        else:
+            unscorable.append(str(row_id))
+    return _PendingBrands(brands=brands, unscorable=unscorable)
+
+
+def _mark_unscorable(team_id: int, row_ids: list[str]) -> int:
+    return (
+        AEOCheckBrand.objects.for_team(team_id)
+        .filter(id__in=row_ids, sentiment__isnull=True)
+        .update(sentiment=UNSCORABLE)
+    )
+
+
+def _write_brand_scores(team_id: int, scored: Mapping[str, AnswerSentiment]) -> int:
+    """Write the scores of brand rows. A row that a re-resolve replaced while the model ran is gone, so
+    its score lands nowhere and the new row waits for the next pass."""
+    rows = [
+        AEOCheckBrand(id=row_id, sentiment=sentiment.label, sentiment_score=sentiment.score)
+        for row_id, sentiment in scored.items()
+    ]
+    with transaction.atomic():
+        written = AEOCheckBrand.objects.for_team(team_id).bulk_update(rows, ["sentiment", "sentiment_score"])
+        bump_data_version_on_commit(team_id)
+    return written
+
+
+async def _classify(texts: list[str]) -> list[Mapping[str, float]]:
+    import posthog.temporal.ai_observability.sentiment.model as sentiment_model  # noqa: PLC0415 -- ONNX deps
+
+    scores: list[Mapping[str, float]] = []
+    for offset in range(0, len(texts), CLASSIFY_BATCH):
+        results = await sentiment_model.classify_in_executor(texts[offset : offset + CLASSIFY_BATCH])
+        scores.extend(result.scores for result in results)
+    return scores
+
+
 @activity.defn
 @close_db_connections
 async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[str, Any]:
@@ -171,11 +266,18 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
     rows read as "not scored yet" until the worker image carries the model."""
     batch = await database_sync_to_async(_load_pending, thread_sensitive=False)(inputs)
     pending = batch.answers
-    if not pending:
-        return {"scored": 0, "answers": 0}
+    pending_brands = await database_sync_to_async(_load_pending_brands, thread_sensitive=False)(inputs.team_id)
+    brands = pending_brands.brands
+    if pending_brands.unscorable:
+        await database_sync_to_async(_mark_unscorable, thread_sensitive=False)(
+            inputs.team_id, pending_brands.unscorable
+        )
+    if not pending and not brands:
+        return {"scored": 0, "answers": 0, "brands_scored": 0}
 
+    # Fails fast when the worker image lacks the ONNX dependencies, before any answer is classified.
     try:
-        import posthog.temporal.ai_observability.sentiment.model as sentiment_model  # noqa: PLC0415 -- ONNX deps
+        import posthog.temporal.ai_observability.sentiment.model  # noqa: F401, PLC0415 -- ONNX deps
     except (ImportError, FileNotFoundError) as error:
         return _model_unavailable(inputs, pending, error)
 
@@ -187,17 +289,14 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         if start and time.monotonic() > deadline:
             break
         group = pending[start : start + ANSWERS_PER_WRITE]
-        texts = [sentence.text for answer in group for sentence in answer.sentences]
         try:
-            results = []
-            for offset in range(0, len(texts), CLASSIFY_BATCH):
-                results.extend(await sentiment_model.classify_in_executor(texts[offset : offset + CLASSIFY_BATCH]))
+            all_scores = await _classify([sentence.text for answer in group for sentence in answer.sentences])
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
         scored: list[_ScoredAnswer] = []
         position = 0
         for answer in group:
-            sentence_scores = [result.scores for result in results[position : position + len(answer.sentences)]]
+            sentence_scores = all_scores[position : position + len(answer.sentences)]
             position += len(answer.sentences)
             sentiment = aggregate_sentiment(sentence_scores)
             if sentiment is not None:
@@ -217,6 +316,29 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         classified += len(group)
         activity.heartbeat(classified)
 
+    # Other brands go second, so the own brand's sentiment never waits behind them.
+    brands_written = brands_classified = 0
+    for start in range(0, len(brands), BRANDS_PER_WRITE):
+        if (start or classified) and time.monotonic() > deadline:
+            break
+        group_brands = brands[start : start + BRANDS_PER_WRITE]
+        try:
+            all_scores = await _classify([sentence.text for brand in group_brands for sentence in brand.sentences])
+        except (ImportError, FileNotFoundError) as error:
+            return _model_unavailable(inputs, pending, error)
+        brand_scores: dict[str, AnswerSentiment] = {}
+        position = 0
+        for brand in group_brands:
+            sentiment = aggregate_sentiment(all_scores[position : position + len(brand.sentences)])
+            position += len(brand.sentences)
+            if sentiment is not None:
+                brand_scores[brand.check_brand_id] = sentiment
+        brands_written += await database_sync_to_async(_write_brand_scores, thread_sensitive=False)(
+            inputs.team_id, brand_scores
+        )
+        brands_classified += len(group_brands)
+        activity.heartbeat(classified + brands_classified)
+
     logger.info(
         "aeo_brand_sentiment_scored",
         team_id=inputs.team_id,
@@ -224,8 +346,10 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         scored=written,
         answers=classified,
         remaining=len(pending) - classified,
+        brands_scored=brands_written,
+        brands_remaining=len(brands) - brands_classified,
     )
-    return {"scored": written, "answers": classified}
+    return {"scored": written, "answers": classified, "brands_scored": brands_written}
 
 
 def _model_unavailable(
