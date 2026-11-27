@@ -6,6 +6,7 @@ import { DateVariable, ListVariable, Variable } from '~/queries/nodes/DataVisual
 
 import { QuillDateVariableField } from './QuillDateVariableField'
 import { QuillListVariableFields } from './QuillListVariableFields'
+import { QuillNumberVariableInput } from './QuillNumberVariableInput'
 
 export interface QuillVariableSpecificFieldsProps {
     variable: Variable
@@ -42,13 +43,7 @@ export function QuillVariableSpecificFields({
                     onChange={(event) => updateVariable({ ...variable, default_value: event.target.value })}
                 />
             ) : variable.type === 'Number' ? (
-                <Input
-                    id={id}
-                    type="number"
-                    placeholder="Default value"
-                    value={variable.default_value}
-                    onChange={(event) => updateVariable({ ...variable, default_value: Number(event.target.value) })}
-                />
+                <QuillNumberVariableInput id={id} variable={variable} updateVariable={updateVariable} />
             ) : variable.type === 'Boolean' ? (
                 <ToggleGroup
                     id={id}

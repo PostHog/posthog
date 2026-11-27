@@ -65,6 +65,9 @@ export function QuillDateVariableField({ id, variable, updateVariable }: QuillDa
                     if (!mode || mode === (isRelative ? 'relative' : 'fixed')) {
                         return
                     }
+                    if (mode === 'fixed') {
+                        setIncludeTime(true)
+                    }
                     updateVariable({
                         ...variable,
                         default_value: mode === 'relative' ? '-0d' : dayjs().format(DATE_TIME_FORMAT),
