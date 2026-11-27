@@ -542,6 +542,10 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 export const cyclotronUrlOf = (spec: RoleSpec): string =>
     spec.cyclotronUrl ?? (spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl)
 
+// The roles may reach this database through poolers; a probe of its backends must not queue behind them.
+export const writerUrlOf = (env: NodeJS.ProcessEnv, settings: Record<string, string> = {}): string =>
+    settings.CYCLOTRON_NODE_DATABASE_URL || env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
+
 const settingsOf = (spec: RoleSpec): PluginsServerConfig =>
     overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env)
 

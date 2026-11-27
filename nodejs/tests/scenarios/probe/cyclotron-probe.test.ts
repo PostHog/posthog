@@ -164,28 +164,36 @@ describe('cyclotron probe', () => {
         await waitForExpect(async () => expect((await probe.counts(QUEUES)).inserted - before).toBe(3))
     })
 
-    it("counts the writer's client backends by state and by what an active one waits on", async () => {
+    it("counts the other client backends of the writer's own database by state and by what an active one waits on", async () => {
         const LOCK = 9999103
-        const [holder, waiter, idle] = [0, 1, 2].map(() => new Client({ connectionString: PROBE_URL }))
-        await Promise.all([holder, waiter, idle].map((client) => client.connect()))
+        const database = `scenario_activity_${process.pid}`
+        const adminUrl = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
+        const isolated = new URL(adminUrl)
+        isolated.pathname = `/${database}`
+        await withPostgres((client) => client.query(`CREATE DATABASE ${database}`), adminUrl)
+        const [holder, waiter, idle] = [0, 1, 2].map(() => new Client({ connectionString: isolated.toString() }))
+        const elsewhere = new Client({ connectionString: PROBE_URL })
+        const clients = [holder, waiter, idle, elsewhere]
         try {
+            await Promise.all(clients.map((client) => client.connect()))
             await holder.query('SELECT pg_advisory_lock($1)', [LOCK])
             const waited = waiter.query('SELECT pg_advisory_lock($1)', [LOCK])
-            await idle.query('BEGIN')
-            const probe = createCyclotronProbe(PROBE_URL)
+            waited.catch(() => undefined)
+            await Promise.all([idle.query('BEGIN'), elsewhere.query('BEGIN')])
+            const probe = createCyclotronProbe(PROBE_URL, undefined, isolated.toString())
 
             await waitForExpect(async () =>
-                expect(await probe.activity()).toEqual(
-                    expect.arrayContaining([
-                        { state: 'active', wait: 'lock', count: expect.any(Number) },
-                        { state: 'idle in transaction', wait: 'client', count: expect.any(Number) },
-                    ])
-                )
+                expect(await probe.activity()).toEqual([
+                    { state: 'active', wait: 'lock', count: 1 },
+                    { state: 'idle', wait: 'client', count: 1 },
+                    { state: 'idle in transaction', wait: 'client', count: 1 },
+                ])
             )
             await holder.query('SELECT pg_advisory_unlock($1)', [LOCK])
             await waited
         } finally {
-            await Promise.all([holder, waiter, idle].map((client) => client.end()))
+            await Promise.all(clients.map((client) => client.end().catch(() => undefined)))
+            await withPostgres((client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`), adminUrl)
         }
     })
 })

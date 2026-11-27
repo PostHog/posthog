@@ -17,7 +17,8 @@ export interface CyclotronProbe {
 
 export function createCyclotronProbe(
     cyclotronUrl: string,
-    unconsumedIntake: () => Promise<number> = () => Promise.resolve(0)
+    unconsumedIntake: () => Promise<number> = () => Promise.resolve(0),
+    writerUrl: string = cyclotronUrl
 ): CyclotronProbe {
     const count = ({ teams, queues }: JobQuery, statuses: string[]): Promise<number> =>
         withPostgres(async (client) => {
@@ -67,6 +68,6 @@ export function createCyclotronProbe(
                      ORDER BY 1, 2`
                 )
                 return rows
-            }, cyclotronUrl),
+            }, writerUrl),
     }
 }

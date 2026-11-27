@@ -908,6 +908,55 @@ describe('measurements', () => {
         ])
     })
 
+    it("calls a step's writer backends unmeasured when every read in it failed, gives a step whose reads found none no key, and marks a lag a serving replica missed scrapes of", () => {
+        const HOGFLOW = 'cdp-cyclotron-worker-hogflow'
+        const every5s = Array.from({ length: 24 }, (_, i) => i * 5)
+        const lagging = (replica: number, lag: number): MetricSample[] =>
+            every5s.map((second) => ({
+                ...sample(second, -60, second, 100, replica),
+                role: HOGFLOW,
+                eventLoopLagP99Seconds: lag,
+            }))
+        const recorded = evidence({
+            samples: [
+                ...lagging(0, 0.0625),
+                ...lagging(1, 0.125).filter(({ at }) => at < atS(70) || at > atS(100)),
+                ...every5s.map((second) => ({ ...sample(second, -60, second, 100), role: ROLE })),
+            ],
+            activity: every5s.map((second) =>
+                second < 60 ? { at: atS(second), backends: [] } : { at: atS(second), error: 'timeout' }
+            ),
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+        const unread = {
+            key: '10x',
+            unit: 'backends',
+            value: null,
+            censored: true,
+            unmeasured: 'every pg_stat_activity read in the step failed: timeout',
+        }
+
+        expect(
+            measure(
+                [
+                    { name: 'step_writer_backends', params: {} },
+                    { name: 'step_writer_active_waits', params: {} },
+                    { name: 'step_eventloop_lag_p99_ms', params: {} },
+                ],
+                recorded
+            )
+        ).toEqual([
+            { name: 'step_writer_backends', ...unread },
+            { name: 'step_writer_active_waits', ...unread },
+            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_1x`, unit: 'ms', value: 125 },
+            { name: 'step_eventloop_lag_p99_ms', key: `${HOGFLOW}_10x`, unit: 'ms', value: 125, incomplete: true },
+        ])
+    })
+
     it('rates the baseline from the end of the warm-up, not from the scrape before it, nor across a restart there, counting each lifetime once', () => {
         const every5s = Array.from({ length: 40 }, (_, i) => i * 5)
         const sinceWarmUp = (second: number, perSecond: number): number => Math.max(0, second - 160) * perSecond

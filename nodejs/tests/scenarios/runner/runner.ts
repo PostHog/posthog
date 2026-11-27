@@ -28,7 +28,7 @@ import {
     roleSpecs,
     secretsOf,
 } from '../environment/roles'
-import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import { cyclotronUrlOf, postgresUrlOf, writerUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
@@ -429,10 +429,14 @@ function localTarget(
             const eventsTopic = groups[0].topics[0]
             const cyclotronUrl = cyclotronUrlOf(specs[0])
             const intakeGroups = groups.filter(({ group }) => INTAKE_GROUPS.includes(group))
-            const probe = createCyclotronProbe(cyclotronUrl, async () => {
-                const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
-                return lags.reduce((total, lag) => total + lag, 0)
-            })
+            const probe = createCyclotronProbe(
+                cyclotronUrl,
+                async () => {
+                    const lags = await Promise.all(intakeGroups.map(({ group }) => environment.groupLag(group)))
+                    return lags.reduce((total, lag) => total + lag, 0)
+                },
+                writerUrlOf(env, profile.settings)
+            )
             let producer: KafkaProducerWrapper | undefined
             return {
                 truth: edgeTruth(edgeUrl),

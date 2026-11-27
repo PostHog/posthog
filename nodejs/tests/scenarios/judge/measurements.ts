@@ -427,17 +427,22 @@ export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): n
 
 type StepRates = { rates: number[]; incomplete: boolean }
 
+function gappedIn(window: readonly MetricSample[], step: Phase): boolean {
+    const edges = [step.from, ...window.map(({ at }) => at), step.to]
+    return (
+        spanOf(window) <= 0 ||
+        edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+        window.some(({ startedAt }) => startedAt * 1000 > step.from)
+    )
+}
+
 function stepRatesOf(replicas: readonly MetricSample[][], read: Counter, step: Phase): StepRates {
     const rates: number[] = []
     let incomplete = false
     for (const ofReplica of replicas) {
         const window = inside(ofReplica, step)
         const span = spanOf(window)
-        const edges = [step.from, ...window.map(({ at }) => at), step.to]
-        incomplete ||=
-            span <= 0 ||
-            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
-            window.some(({ startedAt }) => startedAt * 1000 > step.from)
+        incomplete ||= gappedIn(window, step)
         if (span > 0) {
             rates.push(increaseOf(window, read, window[0].at) / seconds(span))
         }
@@ -488,9 +493,19 @@ const meanBackendsOf = (
     activity: readonly ActivitySample[],
     step: Phase,
     keyOf: (backend: WriterBackends[number]) => string | undefined
-): (Measured & { key: string })[] => {
+): Measured[] => {
     const taken = inside(activity, step)
     const read = taken.flatMap((sample) => ('backends' in sample ? [sample.backends] : []))
+    const failed = taken.find((sample) => 'error' in sample)
+    if (read.length === 0 && failed !== undefined && 'error' in failed) {
+        return [
+            {
+                value: null,
+                censored: true,
+                unmeasured: `every pg_stat_activity read in the step failed: ${failed.error}`,
+            },
+        ]
+    }
     const totals = new Map<string, number>()
     for (const backend of read.flat()) {
         const key = keyOf(backend)
@@ -508,7 +523,7 @@ const perWriterStep =
     ({ activity = [], drive, steps }) =>
         stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
             meanBackendsOf(activity, step, keyOf).map(({ key, ...measured }) => ({
-                key: `${key}_${scale}x`,
+                key: key === undefined ? `${scale}x` : `${key}_${scale}x`,
                 ...measured,
             }))
         )
@@ -701,8 +716,20 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 'ms',
         measure: ({ samples, drive, steps }) =>
             perRoleStep(samples, drive, steps, (ofRole, step) => {
-                const lags = inside(ofRole, step).flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
-                return lags.length === 0 ? [] : [{ value: Math.max(...lags) * 1000 }]
+                const serving = replicasOf(ofRole)
+                    .filter((ofReplica) =>
+                        ofReplica.some(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds !== undefined)
+                    )
+                    .map((ofReplica) => inside(ofReplica, step))
+                const lags = serving.flat().flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
+                return lags.length === 0
+                    ? []
+                    : [
+                          measuredOf(
+                              Math.max(...lags) * 1000,
+                              serving.some((window) => gappedIn(window, step))
+                          ),
+                      ]
             }),
     },
     {

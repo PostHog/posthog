@@ -61,6 +61,7 @@ import {
     terminateRoleConnections,
     topicCreateFailures,
     withPostgres,
+    writerUrlOf,
 } from './stack'
 import { createSupervisor } from './supervisor'
 
@@ -534,14 +535,16 @@ describe('scenario environment', () => {
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
         })
 
-        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them, while the runner reads the writer itself', () => {
             const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const writer = 'postgres://posthog:posthog@localhost:5432/cyclotron_writer'
+            const pooled = { ...base, SCENARIO_POOLER_URLS: poolers.join(',') }
             const split = roleSpecs(
-                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                pooled,
                 EDGE,
                 secretsOf({}),
                 STATE_DIR,
-                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                { CYCLOTRON_NODE_DATABASE_URL: writer },
                 undefined,
                 { 'cdp-cyclotron-worker-hogflow': 2 }
             )
@@ -552,6 +555,7 @@ describe('scenario environment', () => {
                 shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
             ).toEqual([1, 1])
             expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+            expect(writerUrlOf(pooled, { CYCLOTRON_NODE_DATABASE_URL: writer })).toBe(writer)
         })
 
         const POOLERS = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
