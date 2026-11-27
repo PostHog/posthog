@@ -1121,7 +1121,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert len(self._imported_cohorts()) == 1
         preview_notes = [note["message"] for result in preview["results"] for note in result["notes"]]
         assert any("Importing for real creates the realtime cohort" in note for note in preview_notes)
-        assert not any("Create a realtime cohort with these conditions" in note for note in preview_notes)
+        assert not any("Create a real-time cohort with these conditions" in note for note in preview_notes)
 
         first = self._segment_import()
         second = self._segment_import()
@@ -1246,7 +1246,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a rule with no cohort equivalent", {"untranslatable": True}, "plan changed"),
             ("an API key without the cohort scope", {"scopes": ["hog_flow:write"]}, "cohort:write"),
             ("a user without cohort access", {"cohort_access": False}, "edit access to cohorts"),
-            ("a project without realtime cohorts", {"realtime": False}, "Realtime cohorts aren't available"),
+            ("a project without realtime cohorts", {"realtime": False}, "Real-time cohorts aren't available"),
             ("an organization without cohort triggers", {"cohort_triggers": False}, "Cohort triggers aren't available"),
         ]
     )

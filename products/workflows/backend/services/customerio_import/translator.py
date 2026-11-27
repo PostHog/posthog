@@ -248,7 +248,7 @@ class _Builder:
         what = "; ".join(described) or "a segment"
         self.note(
             NoteLevel.NEEDS_INPUT,
-            f"Customer.io starts this automation when a person matches: {what}. Create a realtime cohort with "
+            f"Customer.io starts this automation when a person matches: {what}. Create a real-time cohort with "
             "these conditions and start the workflow when a person joins it.",
         )
         return _empty_trigger()
@@ -427,7 +427,7 @@ class _Builder:
             self.note(
                 NoteLevel.NEEDS_INPUT,
                 f"Customer.io segment {self._segment_label(segment_id)} is a static list. Workflows cannot check a "
-                "static cohort, so rebuild it as person property conditions or a realtime cohort.",
+                "static cohort, so rebuild it as person property conditions or a real-time cohort.",
             )
 
     def _action(self, source: dict[str, Any]) -> dict[str, Any] | None:

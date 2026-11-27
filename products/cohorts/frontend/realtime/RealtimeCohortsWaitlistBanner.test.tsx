@@ -42,7 +42,7 @@ const mockSubmitConceptSurvey = jest.fn()
 
 const CONCEPT_FEATURE = {
     flagKey: FEATURE_FLAGS.REALTIME_COHORTS,
-    name: 'Realtime cohorts',
+    name: 'Real-time cohorts',
     enabled: false,
     stage: 'concept',
     payload: { survey_id: 'survey-1' },
@@ -122,7 +122,7 @@ describe('RealtimeCohortsWaitlistBanner', () => {
 
         // Without the load, the banner only appears for someone who visited another page that fetched features.
         expect(mockLoadEarlyAccessFeatures).toHaveBeenCalled()
-        expect(screen.getByText('Realtime cohorts are coming soon')).toBeInTheDocument()
+        expect(screen.getByText('Real-time cohorts are coming soon')).toBeInTheDocument()
         expect(screen.getByText('Beta')).toBeInTheDocument()
         expect(screen.getByText('Get notified')).toBeInTheDocument()
         expect(screen.getByLabelText('close')).toBeInTheDocument()
@@ -201,7 +201,7 @@ describe('RealtimeCohortsWaitlistBanner', () => {
 
     it.each([
         ['both banners were dismissed', [CONCEPT_FEATURE], { waitlistDismissed: true, betaDismissed: true }],
-        ['the team already sees realtime cohorts', [CONCEPT_FEATURE], { realtimeCohortsServing: true }],
+        ['the team already sees real-time cohorts', [CONCEPT_FEATURE], { realtimeCohortsServing: true }],
         ['the project has no cohorts yet', [CONCEPT_FEATURE], { setupStatus: 'needs-setup' }],
         ['cohort detection has not answered yet', [CONCEPT_FEATURE], { setupStatus: 'loading' }],
         ['this browser already joined the waitlist', [CONCEPT_FEATURE], { joinedInThisBrowser: true }],

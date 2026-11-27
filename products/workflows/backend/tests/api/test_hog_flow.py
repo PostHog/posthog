@@ -2539,8 +2539,8 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("static_cohort", "static", "is a static cohort"),
-            ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
-            ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
+            ("dynamic_behavioral_cohort", "dynamic", "isn't ready for real-time evaluation"),
+            ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for real-time evaluation"),
             ("missing_cohort", "missing", "doesn't exist in this environment"),
             ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]

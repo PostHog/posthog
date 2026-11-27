@@ -32,7 +32,7 @@ FLAG_EVALUATIONS_MODES_HELP = (
     "that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the "
     "organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a "
     "read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and "
-    "fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
+    "fails when it can't, a query that mixes flag calls with other events reads both tables, real-time cohorts refuse new flag-call criteria, and flags keep no last called time unless "
     "it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it "
     "is available on 1 and 2."
 )

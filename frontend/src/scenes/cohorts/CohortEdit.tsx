@@ -692,7 +692,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                             <LemonCheckbox
                                                                 checked={!!value}
                                                                 onChange={onChange}
-                                                                label="Turn on realtime"
+                                                                label="Turn on real-time"
                                                                 data-attr="cohort-create-realtime"
                                                             />
                                                         )}

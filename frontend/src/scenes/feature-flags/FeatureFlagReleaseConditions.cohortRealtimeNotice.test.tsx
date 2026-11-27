@@ -99,7 +99,7 @@ describe('feature flag release conditions cohort realtime notice', () => {
     ])('$editor offers to turn on realtime for a cohort a condition set targets', async ({ component }) => {
         render(<Provider>{component}</Provider>)
 
-        expect(await screen.findByText('Turn on realtime')).toBeInTheDocument()
+        expect(await screen.findByText('Turn on real-time')).toBeInTheDocument()
     })
 
     // Only this editor renders its read-only view from the same condition set markup as the editable one.

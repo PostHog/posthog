@@ -70,7 +70,8 @@ export function CohortMembershipEventPicker({
             </div>
             {notRealtime ? (
                 <span className="text-xs text-danger">
-                    This cohort isn't realtime, so it never reports people joining or leaving. Choose a realtime cohort.
+                    This cohort isn't real-time, so it never reports people joining or leaving. Choose a real-time
+                    cohort.
                 </span>
             ) : null}
         </div>

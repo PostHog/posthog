@@ -13,7 +13,7 @@ export function RealtimeCohortAudienceNotice({ blastRadius }: RealtimeCohortAudi
     if (blastRadius?.realtime_cohort || blastRadius?.realtime_cohort_with_other_conditions) {
         return (
             <LemonBanner type="info">
-                Realtime cohorts can't be combined with other conditions. To narrow this audience,{' '}
+                Real-time cohorts can't be combined with other conditions. To narrow this audience,{' '}
                 <Link
                     to={urls.cohort('new')}
                     // A new tab keeps an unsaved broadcast or workflow open.

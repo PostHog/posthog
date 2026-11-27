@@ -19,7 +19,7 @@ export function RealtimeCohortsUsage({
 
     return (
         <div className="flex items-center gap-x-2 flex-wrap text-secondary" data-attr="cohort-realtime-usage">
-            <span>{`Your plan allows realtime for ${pluralize(allowed, 'cohort')} in this project, and it is on for ${used}.`}</span>
+            <span>{`Your plan allows real-time for ${pluralize(allowed, 'cohort')} in this project, and it is on for ${used}.`}</span>
             {used >= allowed && <RealtimePlanLimitsLink limit="cohorts" location={location} />}
         </div>
     )

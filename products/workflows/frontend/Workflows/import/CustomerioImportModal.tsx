@@ -108,7 +108,7 @@ export function CustomerioImportModal(): JSX.Element {
                         Save each automation, then add the files here. If you imported opt-outs from Customer.io,
                         PostHog reads the message content with that API key. Otherwise, save the templates its messages
                         use too, with your snippets and senders. Save the segments an automation checks, and the import
-                        turns each one it can match exactly into a realtime cohort.
+                        turns each one it can match exactly into a real-time cohort.
                     </p>
                     <CodeSnippet language={Language.Bash}>{CLI_EXAMPLE}</CodeSnippet>
                     <LemonFileInput
@@ -216,8 +216,8 @@ function summarizeNotes(result: WorkflowImportResultApi): string {
 }
 
 const SEGMENT_COHORT_HEADINGS: Record<WorkflowImportSegmentCohortApi['status'], string> = {
-    would_create: 'Importing creates these realtime cohorts from Customer.io segments:',
-    created: 'Created these realtime cohorts from Customer.io segments:',
+    would_create: 'Importing creates these real-time cohorts from Customer.io segments:',
+    created: 'Created these real-time cohorts from Customer.io segments:',
     reused: 'Uses these cohorts an earlier import made:',
     not_converted: 'These segments were not turned into cohorts:',
 }

@@ -114,16 +114,16 @@ class RealtimeCohortsAccess(models.TextChoices):
 class TeamRealtimeCohortsSerializer(serializers.Serializer):
     access = serializers.ChoiceField(
         choices=RealtimeCohortsAccess.choices,
-        help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
-        "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
+        help_text="`serving` when the request's user sees real-time cohorts in this project: whether feature flags "
+        "can target each cohort, and the control to turn real-time on and off for it. `off` otherwise.",
     )
     cohorts_used = serializers.IntegerField(
         allow_null=True,
-        help_text="How many cohorts in this project have realtime on. Null when `access` is `off`.",
+        help_text="How many cohorts in this project have real-time on. Null when `access` is `off`.",
     )
     max_cohorts = serializers.IntegerField(
         allow_null=True,
-        help_text="How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, "
+        help_text="How many cohorts in this project the plan allows to have real-time on. Null when `access` is `off`, "
         "or when the plan sets no limit.",
     )
 
@@ -152,7 +152,7 @@ AVAILABLE_ERROR_TRACKING_AI_FEATURES_FIELD_SCHEMA = serializers.ListField(
 
 
 REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
-    help_text="Realtime cohorts as the request's user sees them in this project."
+    help_text="Real-time cohorts as the request's user sees them in this project."
 )
 
 

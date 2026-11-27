@@ -74,7 +74,7 @@ export function StepWaitUntilConditionConfiguration({
                         </span>
                         <span className="text-xs text-muted">
                             The workflow continues on the matched path when the person joins or leaves this cohort. Only
-                            realtime cohorts report these changes.
+                            real-time cohorts report these changes.
                         </span>
                         <CohortMembershipEventPicker
                             value={cohort}

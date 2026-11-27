@@ -52,7 +52,7 @@ export function CohortConditionLink({ property }: { property: CohortPropertyFilt
             to={urls.cohort(property.value)}
             icon={isRealtime ? <IconBolt /> : undefined}
             tooltip={
-                isRealtime ? 'Realtime cohort. Feature flags see membership changes within about a minute.' : undefined
+                isRealtime ? 'Real-time cohort. Feature flags see membership changes within about a minute.' : undefined
             }
             sideIcon={<IconOpenInNew />}
         >

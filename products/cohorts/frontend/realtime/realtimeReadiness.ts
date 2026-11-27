@@ -30,7 +30,7 @@ export function dailyReasonSentence(realtime: CohortRealtimeReadinessApi): strin
         case 'history_over_limit':
             return realtime.history_limit_days === null
                 ? null
-                : `Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
+                : `Real-time cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
         default:
             return null
     }

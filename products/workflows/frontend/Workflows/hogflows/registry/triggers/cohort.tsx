@@ -44,7 +44,7 @@ function StepTriggerConfigurationCohort({ node }: { node: any }): JSX.Element {
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">
-                This workflow runs for a person when they join or leave the selected cohort. Only realtime cohorts that
+                This workflow runs for a person when they join or leave the selected cohort. Only real-time cohorts that
                 have finished calculating can start a workflow.
             </p>
             <LemonField.Pure label="Cohort" error={validationResult?.errors?.cohort_id}>
