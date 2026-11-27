@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -20,15 +21,11 @@ import {
 
 import { enrolledPeopleAudience } from 'products/early_access_features/frontend/enrolledPeopleAudience'
 
-import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { workflowLogic } from '../Workflows/workflowLogic'
-import { TRIGGER_PREFILL_PARAM } from '../Workflows/workflowTriggerPrefill'
-import { DRAFT_SOURCE_PARAM } from './aiEmailDraft'
 import { MessageAudience, MessageAudienceDestination } from './messageAudience'
 import { MessageAudienceButton } from './MessageAudienceButton'
 import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
-import { EMAIL_PREFILL_PARAM } from './messageDrafts'
 
 const SUSPENDED = 'Email sending is suspended for this project. Workflow and broadcast emails are not being delivered.'
 const LIST_MATCHING = '"Signups" is still matching people. You can launch when it finishes.'
@@ -64,6 +61,7 @@ interface Environment {
     morePages?: boolean
     sandbox?: Answer
     cohort?: Answer
+    draftRequests?: unknown[]
 }
 
 const answer = (value: Answer): Promise<unknown> | [number, object] | object =>
@@ -110,14 +108,22 @@ function useEnvironmentMocks(environments: Record<string, Environment>): void {
                     : [404, { detail: 'Not found.' }]
             },
         },
+        post: {
+            '/api/projects/:team_id/workflow_email_drafts/': async ({ params, request }) => {
+                environment(params)?.draftRequests?.push(await request.json())
+                return [500, { detail: 'down' }]
+            },
+        },
     })
 }
 
 describe('message audience warnings', () => {
     const projectId = (): number => ApiConfig.getCurrentProjectId()
+    const draftRequests: unknown[] = []
 
     beforeEach(() => {
         initKeaTests()
+        draftRequests.length = 0
     })
 
     afterEach(() => {
@@ -314,36 +320,30 @@ describe('message audience warnings', () => {
     })
 
     const earlyAccessFeature = {
-        id: 'feature-1',
+        id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
         name: 'Dark mode',
         description: 'A darker theme',
         stage: EarlyAccessFeatureStage.Beta,
         feature_flag: { id: 1, key: 'dark-mode' },
     } as EarlyAccessFeatureType
     const earlyAccess = enrolledPeopleAudience(earlyAccessFeature, 'early_access')
-    const asParam = (value: unknown): string | undefined =>
-        value === undefined || typeof value === 'string' ? value : JSON.stringify(value)
 
     const openedEditor: Record<MessageAudienceDestination, () => Promise<unknown>> = {
         workflow: async () => {
-            const { searchParams } = router.values
-            const logic = workflowLogic({
-                id: 'new',
-                triggerPrefill: asParam(searchParams[TRIGGER_PREFILL_PARAM]),
-                emailPrefill: asParam(searchParams[EMAIL_PREFILL_PARAM]),
-                draftSource: asParam(searchParams[DRAFT_SOURCE_PARAM]),
-                entrySource: asParam(searchParams[SOURCE_PREFILL_PARAM]),
-            })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            const { actions } = logic.values.workflow
+            const { WorkflowScene } = await import('../Workflows/WorkflowScene')
+            render(<WorkflowScene id="new" tab="workflow" />)
+            await waitFor(() => expect(draftRequests).toHaveLength(1))
+            const logic = Object.values(getContext().mount.mounted).find((mounted) =>
+                mounted.pathString.startsWith('products.workflows.frontend.Workflows.workflowLogic.workflow-new-')
+            ) as ReturnType<typeof workflowLogic> | undefined
+            const { actions } = logic!.values.workflow
             const trigger = actions.find((action) => action.type === 'trigger')?.config
             const email = actions.find((action) => action.type === 'email_sandbox' || action.type === 'function_email')
             return {
                 trigger: trigger?.type,
                 step: email?.type,
                 subject: (email?.config as Record<string, any> | undefined)?.inputs?.email?.value?.subject,
-                draftSource: asParam(searchParams[DRAFT_SOURCE_PARAM]),
+                draftRequest: draftRequests[0],
             }
         },
         broadcast: async () => {
@@ -364,7 +364,7 @@ describe('message audience warnings', () => {
                 trigger: 'event',
                 step: 'email_sandbox',
                 subject: earlyAccess.workflowEmail?.subject,
-                draftSource: JSON.stringify(earlyAccess.draftSource),
+                draftRequest: earlyAccess.draftSource,
             },
         },
         {
@@ -377,7 +377,9 @@ describe('message audience warnings', () => {
     ])(
         'asks before a $destination with no sender, and Continue opens it',
         async ({ label, warning, path, destination, opens }) => {
-            useEnvironmentMocks({ [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 } } })
+            useEnvironmentMocks({
+                [projectId()]: { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests },
+            })
             window.POSTHOG_APP_CONTEXT = {
                 ...window.POSTHOG_APP_CONTEXT!,
                 resource_access_control: {
