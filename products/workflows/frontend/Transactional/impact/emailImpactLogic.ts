@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -141,7 +142,11 @@ export interface emailImpactLogicMeta {
             impactLoading: boolean,
             impactError: string | null
         ) => ImpactFunnelState
-        linkTagging: (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean) => LinkTagging
+        linkTagging: (
+            impact: TransactionalEmailImpactApi | null,
+            currentTeam: TeamPublicType | TeamType | null,
+            alwaysSensitive: boolean
+        ) => LinkTagging
         linkTrackingDisabledReason: (currentTeam: TeamPublicType | TeamType | null) => string | null
         steps: (
             impact: TransactionalEmailImpactApi | null,
@@ -178,6 +183,8 @@ function impactErrorMessage(error: { status?: number; detail?: string | null } |
 // Each query holds one of the organization's query slots until it finishes, even after the tab stops wanting
 // its answer or closes. A newer change, or a reopened tab, waits for the running query instead of running beside it.
 const runningQueries = new Map<string, Promise<unknown>>()
+
+const mountedImpactReloads = new Map<string, () => void>()
 
 // A response that never arrives would otherwise hold the tab on its loading state until a page reload.
 // After this limit the tab runs its query beside the unanswered one.
@@ -245,7 +252,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('transactional email impact link tracking turned on')
                     // Leaving the Impact tab unmounts this logic mid-save, and its success listeners with it, so
-                    // the save hands its result to the always-mounted teamLogic here.
+                    // the save hands its result to the always-mounted teamLogic and reloads the open tabs here.
                     // Only the saved field is merged, into the team as it is when the save answers, so a workflows
                     // setting that changed while the save was in flight keeps its newer value.
                     const currentTeam = teamLogic.values.currentTeam
@@ -261,6 +268,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                             { workflows_config: { email_workflow_run_link_tag_enabled: true } }
                         )
                     }
+                    mountedImpactReloads.forEach((reload) => reload())
                     return project.workflows_config
                 },
             },
@@ -313,11 +321,17 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             ): ImpactFunnelState => impactFunnelState(impact, impactLoading, impactError),
         ],
         linkTagging: [
-            (s) => [s.currentTeam, s.alwaysSensitive],
-            (currentTeam: TeamPublicType | TeamType | null, alwaysSensitive: boolean): LinkTagging =>
+            (s) => [s.impact, s.currentTeam, s.alwaysSensitive],
+            (
+                impact: TransactionalEmailImpactApi | null,
+                currentTeam: TeamPublicType | TeamType | null,
+                alwaysSensitive: boolean
+            ): LinkTagging =>
                 alwaysSensitive
                     ? 'sensitive-email'
-                    : (currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ?? true)
+                    : (impact?.link_tagging_enabled ??
+                        currentTeam?.workflows_config?.email_workflow_run_link_tag_enabled ??
+                        true)
                       ? 'on'
                       : 'off',
         ],
@@ -368,7 +382,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setEvent(event)
         },
         setDays: () => actions.loadImpact(),
-        turnOnLinkTrackingSuccess: () => actions.loadImpact(),
         loadCurrentTeamSuccess: () => {
             if (!values.impact && !values.impactLoading) {
                 actions.loadImpact()
@@ -392,5 +405,11 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             actions.setAlwaysSensitive(!!props.alwaysSensitive)
         }
     }),
-    afterMount(({ actions }) => actions.loadImpact()),
+    afterMount(({ actions, props }) => {
+        mountedImpactReloads.set(props.workflowId, actions.loadImpact)
+        actions.loadImpact()
+    }),
+    beforeUnmount(({ props }) => {
+        mountedImpactReloads.delete(props.workflowId)
+    }),
 ])

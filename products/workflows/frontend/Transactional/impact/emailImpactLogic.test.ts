@@ -271,6 +271,72 @@ describe('emailImpactLogic', () => {
         expect(logic.values.impact?.sent).toBe(4)
     })
 
+    it.each([
+        ['this tab has the project off', false],
+        ['this tab already has the project on after another browser tab turned it off', true],
+    ])("reloads another email's open tab when one email turns link tracking on, when %s", async (_, teamHasItOn) => {
+        const team: TeamType = {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
+        }
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    const patch = (await request.json()) as Partial<TeamType>
+                    return [200, { ...team, workflows_config: { ...team.workflows_config, ...patch.workflows_config } }]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, { ...WITHOUT_EVENT, link_tagging_enabled: false }]
+        const otherWorkflowId = `${workflowId}-other`
+        const otherLogic = emailImpactLogic({ workflowId: otherWorkflowId })
+        otherLogic.mount()
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(otherLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+        requestedParams = []
+        answer = [200, { ...WITHOUT_EVENT, sessions: 3 }]
+
+        logic.actions.turnOnLinkTracking()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(otherLogic).toFinishAllListeners()
+
+        expect(requestedParams.map((params) => params.get('workflow_id')).sort()).toEqual(
+            [workflowId, otherWorkflowId].sort()
+        )
+        expect(otherLogic.values.steps?.find(({ key }) => key === 'session')?.value).toBe(3)
+        otherLogic.unmount()
+    })
+
+    it.each([
+        [
+            'counts the sessions the API counted while this tab still has the project off',
+            false,
+            { ...WITHOUT_EVENT, sessions: 3 },
+            [3, false],
+        ],
+        [
+            'offers to turn it on when the API skipped the count because the project has it off',
+            true,
+            { ...WITHOUT_EVENT, link_tagging_enabled: false },
+            [null, true],
+        ],
+    ])('follows the link tracking the API counted with: %s', async (_, teamHasItOn, impact, [sessions, offered]) => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { email_workflow_run_link_tag_enabled: teamHasItOn },
+        })
+        answer = [200, impact]
+        logic = emailImpactLogic({ workflowId })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const step = logic.values.steps?.find(({ key }) => key === 'session')
+        expect([step?.value ?? null, !!step?.missingFixedByLinkTagging]).toEqual([sessions, offered])
+    })
+
     it('asks for the last 24 hours, not one calendar day, the day after the clocks change', async () => {
         // Jest gives each test file its own copy of process.env, so the time zone has to change on Node's process.
         const nodeProcess = runInThisContext('process') as NodeJS.Process
