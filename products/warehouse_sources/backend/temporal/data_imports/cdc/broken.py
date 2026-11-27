@@ -224,7 +224,11 @@ def mark_lost_slot_broken(source: ExternalDataSource, adapter: CDCSourceAdapter[
     Completed until someone noticed, so it gets the marker that offers Repair CDC.
     """
     syncing_tables = _syncing_cdc_tables(source)
-    if not syncing_tables or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC)):
+    if (
+        not syncing_tables
+        or tables_wait_for_repair(source)
+        or not _capture_is_stale(syncing_tables, dt.datetime.now(tz=dt.UTC))
+    ):
         return False
     # A repair keeps the stale run stamps and recreates the slot, so the slot is checked again under the
     # repair lock, where no repair can be running or start before the marker lands.
@@ -271,6 +275,11 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     long after the customer has recovered. Returns how many schemas were cleared.
     """
     return clear_broken_markers(source, reason=SELF_MANAGED_LAG_REASON)
+
+
+def marks_slot_loss(schema: ExternalDataSchema) -> bool:
+    """Whether this table carries a marker that a recreated slot resolves."""
+    return ((schema.sync_type_config or {}).get("cdc_broken") or {}).get("reason") in _SLOT_LOSS_REASONS
 
 
 def clear_slot_loss_markers(source: ExternalDataSource) -> int:

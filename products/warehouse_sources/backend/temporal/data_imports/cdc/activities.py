@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_slot_loss_markers,
     mark_cdc_broken,
     mark_lost_slot_broken,
+    marks_slot_loss,
     restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
@@ -573,9 +574,11 @@ class CDCExtractActivity:
             self._load_pk_columns()
             self._read_changes_loop()
             # A read that got this far proves the slot is back, so a reset held for it can finish on
-            # the next run even if recovery never runs again.
+            # the next run even if recovery never runs again, and a marker that reports the slot lost is stale.
             for schema in self.cdc_schemas:
                 self._release_reset_awaiting_slot(schema)
+            if any(marks_slot_loss(schema) for schema in self.cdc_schemas):
+                clear_slot_loss_markers(self.source)
 
             self.log.info("wal_changes_read", event_count=self.event_count, tables=list(self.all_table_names))
 

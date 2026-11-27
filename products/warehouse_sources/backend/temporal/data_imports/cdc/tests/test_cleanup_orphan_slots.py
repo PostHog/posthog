@@ -368,10 +368,10 @@ def test_sweeper_restores_a_missing_extraction_schedule(
         pytest.param(
             "posthog", [False, False], 3 * 24 * 60, None, False, "slot_missing", id="lost_slot_with_stopped_capture"
         ),
-        pytest.param("posthog", [False], 5, None, False, None, id="running_capture_recreates_the_slot_itself"),
+        pytest.param("posthog", [False, False], 5, None, False, None, id="running_capture_recreates_the_slot_itself"),
         pytest.param("posthog", [True], 3 * 24 * 60, None, False, None, id="slot_without_a_confirmed_position"),
         pytest.param("posthog", [False, True], 3 * 24 * 60, None, False, None, id="slot_recreated_before_the_mark"),
-        pytest.param("posthog", [False], 3 * 24 * 60, None, True, None, id="repair_in_progress"),
+        pytest.param("posthog", [False, False], 3 * 24 * 60, None, True, None, id="repair_in_progress"),
         pytest.param("self_managed", [False], 3 * 24 * 60, None, False, None, id="self_managed_slot"),
         pytest.param(
             "posthog",
