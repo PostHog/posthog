@@ -4,9 +4,10 @@ clock: real
 profile: synthetic
 seed: 6
 setup:
-    teams: 1
+    teams: 3
 drive:
     for: 60m
+    minOffered: 1
     traffic:
         - name: event_email
         - name: event_webhook

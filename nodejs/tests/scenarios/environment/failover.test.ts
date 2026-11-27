@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { Controller } from '../cloud/admission'
@@ -39,7 +40,7 @@ const MINUTE_MS = 60_000
 
 const flagOf = (args: string[], flag: string): string => args[args.indexOf(flag) + 1]
 
-type CapacityAnswer = { ascending: boolean; until: number; minutes: number[] }
+type CapacityAnswer = { ascending: boolean; until: number; minutes: number[]; ids: string[] }
 
 const answeringCapacity = (cloud: FakeCloud, answerOf: (asked: CapacityAnswer) => unknown): Aws => ({
     call: (args) => {
@@ -49,14 +50,15 @@ const answeringCapacity = (cloud: FakeCloud, answerOf: (asked: CapacityAnswer) =
         const until = Date.parse(flagOf(args, '--end-time'))
         const ascending = flagOf(args, '--scan-by') === 'TimestampAscending'
         const minutes = [5, 4, 3, 2, 1].map((back) => until - back * MINUTE_MS)
-        return Promise.resolve(answerOf({ ascending, until, minutes: ascending ? minutes : minutes.reverse() }))
+        const ids = (parseJSON(flagOf(args, '--metric-data-queries')) as { Id: string }[]).map(({ Id }) => Id)
+        return Promise.resolve(answerOf({ ascending, until, minutes: ascending ? minutes : minutes.reverse(), ids }))
     },
     text: (args) => cloud.text(args),
 })
 
-const idleAnswer = ({ minutes }: CapacityAnswer, fields: Record<string, unknown> = {}): unknown => ({
+const idleAnswer = ({ minutes, ids }: CapacityAnswer, fields: Record<string, unknown> = {}): unknown => ({
     Messages: [],
-    MetricDataResults: ['acu', 'peak'].map((Id) => ({
+    MetricDataResults: ids.map((Id) => ({
         Id,
         Label: 'ServerlessDatabaseCapacity',
         Timestamps: minutes.map((at) => new Date(at).toISOString().replace('.000Z', '+00:00')),
