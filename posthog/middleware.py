@@ -1692,7 +1692,7 @@ class ActivityLoggingMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-    def __call__(self, request: HttpRequest):
+    def __call__(self, request: HttpRequest) -> HttpResponse:
         # Lets bearer-auth code (which runs later, inside the view) attribute activity safely,
         # knowing the finally block below will clean up.
         activity_storage.mark_request_scoped()

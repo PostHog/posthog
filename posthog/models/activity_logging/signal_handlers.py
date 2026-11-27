@@ -156,13 +156,13 @@ def _record_current_session_credential(request: HttpRequest, *, impersonated_by_
 
 
 def log_login_activity(
-    user,
+    user: User,
     request: HttpRequest,
     *,
     login_method: str,
     reauth: bool,
     was_impersonated: bool = False,
-    log_user=None,
+    log_user: User | None = None,
     item_id: str | None = None,
 ) -> None:
     """Write the `logged_in` audit entry.
