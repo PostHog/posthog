@@ -9,12 +9,16 @@ import { cn } from 'lib/utils/css-classes'
 import { TileBadge } from '../../Workflows/hogflows/editor/tile-canvas/TileBadge'
 import { AdventDoor, adventDayColor, adventWeekday } from '../adventGraph'
 import { AdventFlowNode, AdventFlowOrientation, AdventFlowRect } from './adventFlowLayout'
+import { AdventFlowPeek } from './AdventFlowPeek'
 
 export interface AdventFlowStepProps {
     node: AdventFlowNode
     orientation: AdventFlowOrientation
     today: number
     isSelected: boolean
+    // The door opens right now. A door drawn by `renderLastDoor` calls `onOpened` once its own opening ends.
+    isOpening: boolean
+    onOpened: () => void
     onActivate: (doorId: string) => void
     onEnter: (doorId: string) => void
     onLeave: () => void
@@ -82,41 +86,54 @@ function EndTile({ node, orientation }: Pick<AdventFlowStepProps, 'node' | 'orie
 
 function doorTileClass(door: AdventDoor, today: number, isSelected: boolean): string {
     return cn(
-        'AdventFlowStep__tile absolute flex items-center justify-center rounded-xl border-2 p-0 text-2xl font-bold',
-        door.status === 'open' && 'AdventFlowStep__tile--open',
+        'AdventFlowStep__tile absolute rounded-xl p-0',
+        door.status === 'open'
+            ? 'AdventFlowStep__tile--open'
+            : 'flex items-center justify-center border-2 text-2xl font-bold',
         door.status === 'ready' && door.day === today && 'AdventFlowStep__tile--today',
         isSelected && 'outline outline-2 outline-offset-4 outline-accent'
     )
 }
 
-function doorTileStyle(node: AdventFlowNode, door: AdventDoor): CSSProperties {
-    const color = adventDayColor(door.day)
-    return { ...at(node.tile), borderColor: color, color }
-}
-
 const doorBadge = (door: AdventDoor): string => (door.question ? '2 paths' : adventWeekday(door.day).slice(0, 3))
 
-function DoorTile({ node, today, isSelected, onActivate, onEnter, onLeave }: AdventFlowStepProps): JSX.Element {
+function ClosedDoor({ door }: { door: AdventDoor }): JSX.Element {
+    return (
+        <>
+            {door.day}
+            <TileBadge placement="setting" color={adventDayColor(door.day)}>
+                {doorBadge(door)}
+            </TileBadge>
+        </>
+    )
+}
+
+// An opening door keeps its button, so a keyboard user who opened it keeps focus on it.
+function DoorTile({
+    node,
+    today,
+    isSelected,
+    isOpening,
+    onActivate,
+    onEnter,
+    onLeave,
+}: AdventFlowStepProps): JSX.Element {
     const door = node.door as AdventDoor
-    const style = doorTileStyle(node, door)
-    const hover = door.status === 'open' ? {} : { onMouseEnter: () => onEnter(door.id), onMouseLeave: onLeave }
+    const color = adventDayColor(door.day)
+    const isOpen = door.status === 'open'
+    const hover = isOpen ? {} : { onMouseEnter: () => onEnter(door.id), onMouseLeave: onLeave }
     return (
         <button
             type="button"
-            data-attr={door.status === 'open' ? `advent-hog-${door.day}` : `advent-door-${door.day}`}
+            data-attr={isOpen ? `advent-hog-${door.day}` : `advent-door-${door.day}`}
             aria-label={doorName(door)}
             aria-describedby={captionId(node)}
             className={doorTileClass(door, today, isSelected)}
-            style={style}
+            style={{ ...at(node.tile), borderColor: color, color }}
             onClick={() => onActivate(door.id)}
             {...hover}
         >
-            {door.day}
-            {door.status !== 'open' && (
-                <TileBadge placement="setting" color={style.color}>
-                    {doorBadge(door)}
-                </TileBadge>
-            )}
+            {isOpen ? <AdventFlowPeek door={door} isOpening={isOpening} /> : <ClosedDoor door={door} />}
         </button>
     )
 }

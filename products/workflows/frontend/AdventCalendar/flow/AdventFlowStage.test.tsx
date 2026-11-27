@@ -8,7 +8,9 @@ import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
+import { ADVENT_LAST_DAY, ADVENT_QUESTION_DAYS, ADVENT_QUESTIONS } from '../adventContent'
 import { AdventFlowStage, AdventFlowStageProps } from './AdventFlowStage'
+import { AdventFlowStepProps } from './AdventFlowStep'
 
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
 
@@ -64,22 +66,26 @@ describe('AdventFlowStage', () => {
     })
 
     it.each([
-        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim']],
-        [3, 'advent-door-3', 'Door 3, ready', ['Today']],
-        [4, 'advent-door-4', 'Door 4, opens December 4', []],
-        [21, 'advent-door-21', 'Door 21, opens December 21', ['Coffee or tea?']],
-    ])('shows door %s as %s named "%s" with the caption lines %j and no lock icon', (day, dataAttr, name, caption) => {
-        seed([1, 2], { 2: 'tim' })
-        renderStage({ width: 1200, height: 830 })
+        [2, 'advent-hog-2', 'Door 2, open: Tim Glaser', ['Tim Glaser', 'Tim'], '2Dec 2', 1],
+        [3, 'advent-door-3', 'Door 3, ready', ['Today'], '3Thu', 0],
+        [4, 'advent-door-4', 'Door 4, opens December 4', [], '4Fri', 0],
+        [21, 'advent-door-21', 'Door 21, opens December 21', ['Coffee or tea?'], '212 paths', 0],
+    ])(
+        'shows door %s as %s named "%s" with the caption lines %j, the text %j, %s hoggies and no lock icon',
+        (day, dataAttr, name, caption, text, hoggies) => {
+            seed([1, 2], { 2: 'tim' })
+            renderStage({ width: 1200, height: 830 })
 
-        expect([
-            door(day)?.tagName,
-            door(day)?.getAttribute('data-attr'),
-            door(day)?.getAttribute('aria-label'),
-        ]).toEqual(['BUTTON', dataAttr, name])
-        expect(captionOf(day)).toEqual(caption)
-        expect(door(day)?.querySelectorAll('svg')).toHaveLength(0)
-    })
+            expect([
+                door(day)?.tagName,
+                door(day)?.getAttribute('data-attr'),
+                door(day)?.getAttribute('aria-label'),
+            ]).toEqual(['BUTTON', dataAttr, name])
+            expect(captionOf(day)).toEqual(caption)
+            expect([door(day)?.textContent, door(day)?.querySelectorAll('img').length]).toEqual([text, hoggies])
+            expect(door(day)?.querySelectorAll('svg')).toHaveLength(0)
+        }
+    )
 
     it('slides the card out over a closed door on hover, not over an open one, and pins it on a click until Escape', () => {
         seed([1, 2], { 2: 'tim' })
@@ -99,17 +105,23 @@ describe('AdventFlowStage', () => {
         expect(card()).toBeNull()
     })
 
-    it('opens the ready door on a click and pins its card on the hoggy behind it', async () => {
+    it('opens the ready door on a click, plays its opening, then pins its card on the hoggy behind it', async () => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.click(door(3) as HTMLElement))
         await act(async () => {
-            await jest.advanceTimersByTimeAsync(500)
+            await jest.advanceTimersByTimeAsync(2300)
         })
+        const whileOpening = [door(3)?.getAttribute('data-attr'), card()]
+        for (const step of [200, 100]) {
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(step)
+            })
+        }
 
-        expect(door(3)?.getAttribute('data-attr')).toBe('advent-hog-3')
+        expect(whileOpening).toEqual(['advent-hog-3', null])
         expect(card()?.getAttribute('data-open')).toBe('true')
         act(() => fireEvent.click(card()?.querySelector('[data-attr="advent-door-card-close"]') as HTMLElement))
         waitForTheCardToClose()
@@ -164,6 +176,47 @@ describe('AdventFlowStage', () => {
         })
 
         expect(reach).toEqual(pills.map(() => true))
+    })
+
+    it('hands the opening of the last door to the caller and shows its card once the caller is done', async () => {
+        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+        jest.setSystemTime(new Date(2026, 11, 24, 9, 0))
+        const before = Array.from({ length: ADVENT_LAST_DAY - 1 }, (_, index) => index + 1)
+        seed(before, Object.fromEntries(ADVENT_QUESTION_DAYS.map((day) => [day, ADVENT_QUESTIONS[day].options[0].id])))
+        let last = null as AdventFlowStepProps | null
+        renderStage({ width: 1200, height: 830 }, { renderLastDoor: (step) => ((last = step), null) })
+
+        act(() => last?.onActivate(last.node.door?.id ?? ''))
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(5000)
+        })
+        const whileOpening = [last?.isOpening, card()]
+        act(() => last?.onOpened())
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(700)
+        })
+
+        expect([...whileOpening, last?.isOpening, card()?.getAttribute('data-open')]).toEqual([
+            true,
+            null,
+            false,
+            'true',
+        ])
+    })
+
+    it.each([
+        ['in view with its tab shown', true, false, 'true'],
+        ['out of view', false, false, 'false'],
+        ['in view in a hidden tab', true, true, 'false'],
+    ])("wakes today's glow only while the stage is %s", (_, isIntersecting, isHidden, awake) => {
+        renderStage({ width: 1200, height: 830 })
+        const observe = (IntersectionObserver as unknown as jest.Mock).mock.calls.at(-1)?.[0]
+        jest.spyOn(document, 'hidden', 'get').mockReturnValue(isHidden)
+
+        act(() => observe([{ isIntersecting }]))
+        act(() => void document.dispatchEvent(new Event('visibilitychange')))
+
+        expect(document.querySelector('[data-attr="advent-stage"]')?.getAttribute('data-awake')).toBe(awake)
     })
 
     it('lets the caller draw the last door and emphasize edges', () => {
