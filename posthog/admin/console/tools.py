@@ -1,6 +1,7 @@
 import re
+import math
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ClassVar, Protocol
 from urllib.parse import urlencode
 
@@ -11,6 +12,10 @@ from django.urls import reverse
 from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.dataclasses import frozen
+from posthog.paging import (
+    Page as FacadePage,
+    PageRequest,
+)
 
 if TYPE_CHECKING:
     from django.db.models import Model, QuerySet
@@ -196,6 +201,39 @@ def paginate[T](
         else None
     )
     return PagedRows(rows=list(page.object_list), paging=paging)
+
+
+def requested_page(request: "HttpRequest") -> int:
+    try:
+        return max(1, int(request.GET.get(PAGE_PARAM, "1")))
+    except ValueError:
+        return 1
+
+
+def paginate_facade[T](
+    request: "HttpRequest",
+    fetch: "Callable[[PageRequest], FacadePage[T]]",
+    *,
+    noun: str,
+    plural: str | None = None,
+    per_page: int = ROWS_PER_PAGE,
+) -> PagedRows[T]:
+    """The rows of the page that `?page=` asks for, from a facade that pages with `posthog.paging`.
+
+    The facade reports the total only with a page, so a page number past the end costs a second fetch of the last page.
+    """
+    number = requested_page(request)
+    page = fetch(PageRequest(limit=per_page, offset=(number - 1) * per_page))
+    num_pages = max(1, math.ceil(page.count / per_page))
+    if number > num_pages:
+        number = num_pages
+        page = fetch(PageRequest(limit=per_page, offset=(number - 1) * per_page))
+    paging = (
+        Paging.build(request, number=number, num_pages=num_pages, count=page.count, noun=noun, plural=plural)
+        if page.count
+        else None
+    )
+    return PagedRows(rows=page.results, paging=paging)
 
 
 @frozen
