@@ -13,6 +13,7 @@ import { GroupActorDisplay } from 'products/persons/frontend/components/GroupAct
 import { GroupRevenue } from '../../components/GroupRevenue/GroupRevenue'
 import type { Ticket } from '../../types'
 import { creationGroupLogic } from './creationGroupLogic'
+import { isEmailPersonMatchTrusted } from './emailPersonMatch'
 import { resolveGroupRevenue } from './groupRevenue'
 import { groupRevenueLogic } from './groupRevenueLogic'
 
@@ -33,8 +34,6 @@ interface RelatedGroupsPanelProps {
     organizationIdSource?: string | null
 }
 
-// An unverified relayed email can carry any sender address, so its email match is not trusted.
-// This mirrors _has_unverified_relayed_identity in backend/events.py.
 export function relatedGroupsPersonUuid(
     ticket: Pick<Ticket, 'person' | 'anonymous_traits' | 'identity_verified'> | null,
     loadedPersonUuid: string | undefined
@@ -42,10 +41,10 @@ export function relatedGroupsPersonUuid(
     if (loadedPersonUuid) {
         return loadedPersonUuid
     }
-    if (ticket?.anonymous_traits?.email_relayed === true && ticket.identity_verified !== true) {
+    if (!ticket || !isEmailPersonMatchTrusted(ticket)) {
         return undefined
     }
-    return ticket?.person?.id
+    return ticket.person?.id
 }
 
 // Append the creation group as its own row only when it exists but isn't already in the person's live

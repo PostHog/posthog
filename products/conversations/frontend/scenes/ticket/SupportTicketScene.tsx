@@ -48,6 +48,7 @@ import {
     priorityOptions,
     statusOptionsWithoutAll,
 } from '../../types'
+import { isEmailPersonMatchTrusted } from './emailPersonMatch'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
@@ -102,7 +103,11 @@ export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): S
 // by their email property instead, so that address need not be one of the person's distinct_ids.
 export function personDistinctIdForTicket(ticket: Ticket): string {
     const personDistinctIds = ticket.person?.distinct_ids
-    if (!personDistinctIds?.length || personDistinctIds.includes(ticket.distinct_id)) {
+    if (
+        !personDistinctIds?.length ||
+        personDistinctIds.includes(ticket.distinct_id) ||
+        !isEmailPersonMatchTrusted(ticket)
+    ) {
         return ticket.distinct_id
     }
     return pickBestPersonDistinctId(personDistinctIds) ?? ticket.distinct_id
