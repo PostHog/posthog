@@ -1,75 +1,76 @@
-import * as peekOverPng from '@posthog/brand/hoggies/png/peek-over'
+import './AdventEntryCard.scss'
+
+import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { adventPalette } from '../adventPalette'
+import { ADVENT_LAST_DAY } from '../adventContent'
 import { AdventSnow } from '../AdventSnow'
-import { AdventVillageArt } from '../AdventVillageArt'
+import { AdventEntryDoor } from './AdventEntryDoor'
+import { adventEntryDoors } from './adventEntryDoors'
 import { reportAdventEntryClicked } from './adventEntryEvents'
 import { AdventEntryPhase } from './adventEntryPhase'
+import { adventEntryProgressLogic } from './adventEntryProgressLogic'
 import { AdventTreeIcon } from './AdventTreeIcon'
 import { useAdventHoverSnow } from './useAdventHoverSnow'
 
-function phaseCopy(phase: AdventEntryPhase): { text: string; action: string } {
-    switch (phase.status) {
-        case 'soon':
-            return {
-                text: 'The first door opens on December 1. Each door holds a hedgehog and a Workflows tip.',
-                action: 'Open the calendar',
-            }
-        case 'open':
-            return {
-                text: 'A new door opens each day until December 24. Each one holds a hedgehog and a Workflows tip.',
-                action: `Open door ${phase.day}`,
-            }
-        case 'over':
-            return {
-                text: 'All 24 doors are open. Each one holds a hedgehog and a Workflows tip.',
-                action: 'Open the calendar',
-            }
-    }
+const DAYS = Array.from({ length: ADVENT_LAST_DAY }, (_, index) => index + 1)
+
+function rowFit(opened: number): 'few' | 'some' | 'many' {
+    return opened <= 4 ? 'few' : opened <= 12 ? 'some' : 'many'
+}
+
+function graphDay(phase: AdventEntryPhase): number {
+    return phase.status === 'open' ? phase.day : phase.status === 'over' ? ADVENT_LAST_DAY : 0
 }
 
 export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Element {
     const hoverSnow = useAdventHoverSnow()
-    const copy = phaseCopy(phase)
+    const { progress, rewards } = useValues(adventEntryProgressLogic)
+    const today = graphDay(phase)
+    const doors = useMemo(
+        () => (progress && rewards ? adventEntryDoors(progress, rewards, today) : null),
+        [progress, rewards, today]
+    )
+    const opened = doors?.filter((door) => door.status === 'open').length ?? 0
+    const todayOpened = doors?.some((door) => door.day === today && door.status === 'open') ?? false
     return (
-        <LemonCard
-            hoverEffect={false}
-            className="@container/advent-entry flex min-h-28 overflow-hidden p-0"
-            data-attr="advent-entry-card"
-        >
-            <div className="flex min-w-0 flex-1 flex-col items-start justify-center gap-2 px-4 py-3">
-                <h3 className="m-0 flex items-center gap-2 text-base font-semibold">
-                    <AdventTreeIcon className="size-5 shrink-0 text-success" />
-                    The Workflows advent calendar
-                </h3>
-                <p className="m-0 text-secondary">{copy.text}</p>
-                <span className="inline-flex" {...hoverSnow}>
+        <div className={cn('AdventEntryCard', `AdventEntryCard--${rowFit(opened)}`)} data-attr="advent-entry-card">
+            <AdventSnow />
+            <div className="AdventEntryCard__content">
+                <div className="AdventEntryCard__title">
+                    <h3 className="m-0 flex items-center gap-2 text-base font-semibold">
+                        <AdventTreeIcon className="size-5 shrink-0 text-success" />
+                        Workflows Advent Calendar
+                    </h3>
+                    {phase.status === 'soon' && (
+                        <p className="AdventEntryCard__subline m-0 text-[0.8125rem]">The first door opens December 1</p>
+                    )}
+                </div>
+                <div className="AdventEntryCard__doors" aria-hidden>
+                    {DAYS.map((day) => (
+                        <AdventEntryDoor
+                            key={day}
+                            day={day}
+                            door={doors?.[day - 1] ?? null}
+                            isToday={phase.status === 'open' && day === phase.day}
+                        />
+                    ))}
+                </div>
+                <span className="inline-flex shrink-0" {...hoverSnow}>
                     <LemonButton
                         type="primary"
-                        size="small"
                         to={urls.workflowsAdventCalendar()}
                         onClick={() => reportAdventEntryClicked('card')}
                         data-attr="advent-entry-card-open"
                     >
-                        {copy.action}
+                        {phase.status === 'open' && !todayOpened ? `Open door ${phase.day}` : 'Open the calendar'}
                     </LemonButton>
                 </span>
             </div>
-            <div className="relative hidden w-2/5 max-w-[32rem] shrink-0 overflow-hidden @min-[40rem]/advent-entry:block">
-                <div className="absolute inset-x-0 top-0 aspect-[16/9] -translate-y-[15%]">
-                    <AdventVillageArt palette={adventPalette()} />
-                </div>
-                <AdventSnow />
-                <img
-                    src={peekOverPng.src}
-                    alt=""
-                    className="pointer-events-none absolute -bottom-3 left-4 z-[5] w-24"
-                />
-            </div>
-        </LemonCard>
+        </div>
     )
 }
