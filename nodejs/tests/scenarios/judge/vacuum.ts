@@ -77,9 +77,6 @@ const indexesPerRow = (read: Read): number | undefined =>
 const lastOf = (reads: readonly Read[], value: (read: Read) => number | undefined): number | undefined =>
     reads.map(value).findLast((candidate) => candidate !== undefined)
 
-const firstOf = (reads: readonly Read[], value: (read: Read) => number | undefined): number | undefined =>
-    reads.map(value).find((candidate) => candidate !== undefined)
-
 function sinceAutovacuum(read: Read, { drive }: MeasureEvidence): { value: number; censored?: true } {
     return read.lastAutovacuumAt === null
         ? { value: (read.at - drive.startedAt) / 1000, censored: true }
@@ -113,7 +110,7 @@ function drivenRunsOf(evidence: MeasureEvidence): Runs | undefined {
         if (lastEnd >= startedAt && lastEnd <= endedAt) {
             const since = previous.vacuumingSince
             runs.push(
-                ended === 1 && since !== null && since <= lastEnd
+                ended === 1 && since !== null && since > (previous.lastAutovacuumAt ?? -Infinity) && since <= lastEnd
                     ? { endedAt: lastEnd, seconds: (lastEnd - since) / 1000 }
                     : { endedAt: lastEnd }
             )
@@ -200,7 +197,7 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
     }),
     soakMeasure('index_bytes_per_row', 'bytes', (evidence) =>
         atEndpoints(evidence, (reads) => {
-            const [start, end] = [firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow)]
+            const [start, end] = [indexesPerRow(reads[0]), indexesPerRow(reads.at(-1)!)]
             return start === undefined || end === undefined
                 ? []
                 : [
@@ -217,14 +214,11 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
             const keyed = (key: string, measured: Measured[]): Measured[] =>
                 measured.map((value) => ({ key, ...value }))
             return [
-                ...keyed('heap', growthOf(firstOf(reads, heapPerRow), lastOf(reads, heapPerRow))),
-                ...keyed('toast', growthOf(firstOf(reads, toastPerRow), lastOf(reads, toastPerRow))),
-                ...keyed('indexes', growthOf(firstOf(reads, indexesPerRow), lastOf(reads, indexesPerRow))),
+                ...keyed('heap', growthOf(heapPerRow(reads[0]), heapPerRow(reads.at(-1)!))),
+                ...keyed('toast', growthOf(toastPerRow(reads[0]), toastPerRow(reads.at(-1)!))),
+                ...keyed('indexes', growthOf(indexesPerRow(reads[0]), indexesPerRow(reads.at(-1)!))),
                 ...indexes.flatMap((index) =>
-                    keyed(
-                        `index_${index}`,
-                        growthOf(firstOf(reads, indexPerRow(index)), lastOf(reads, indexPerRow(index)))
-                    )
+                    keyed(`index_${index}`, growthOf(indexPerRow(index)(reads[0]), indexPerRow(index)(reads.at(-1)!)))
                 ),
             ]
         })

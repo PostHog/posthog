@@ -109,6 +109,11 @@ describe('soak measurements', () => {
             { key: 'index_cyclotron_jobs_pkey', value: 2, incomplete: true },
             { key: 'index_idx_cyclotron_jobs_dequeue', value: 2, incomplete: true },
         ])
+        expect(
+            measured('bloat_growth', {
+                vacuum: [read(10, { liveTuples: 0 }), read(900, { liveTuples: 500 }), read(1790, { liveTuples: 0 })],
+            })
+        ).toEqual([])
     })
 
     it('counts the autovacuum runs of the drive and times those a sample saw running', () => {
@@ -139,6 +144,19 @@ describe('soak measurements', () => {
             [
                 read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
                 read(500, { autovacuums: 4, lastAutovacuumAt: atS(-60), vacuumingSince: atS(470) }),
+                read(560, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
+                read(1805, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
+            ],
+            [
+                { key: 'count', value: 2 },
+                { key: 'timed', value: 0 },
+            ],
+        ],
+        [
+            'leaves untimed a run whose start a sample saw before the previous run ended',
+            [
+                read(-5, { autovacuums: 4, lastAutovacuumAt: atS(-60) }),
+                read(500, { autovacuums: 5, lastAutovacuumAt: atS(490), vacuumingSince: atS(470) }),
                 read(560, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
                 read(1805, { autovacuums: 6, lastAutovacuumAt: atS(545) }),
             ],
