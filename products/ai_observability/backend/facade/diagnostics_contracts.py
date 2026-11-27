@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import Field
 
@@ -6,6 +6,7 @@ from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 from posthog.paging import Page
 
+from ..logic.traces.lookback import LOOKBACK
 from .contracts import Contract, TraceMetricChangeTone
 
 
@@ -94,4 +95,33 @@ class ErrorGroupDetail(Contract):
         description="The occurrences in each bucket of the period of the same length before the date range, one per "
         "bucket of `bucketStarts` in the same position. When the period's bounds give it a bucket more, its last bucket "
         "is left out. Empty when the range has no previous period."
+    )
+
+
+class ErrorFirstSeen(Contract):
+    key: str = Field(description="The error's id, as requested.")
+    first_seen: datetime | None = Field(
+        description="The time of the error's earliest occurrence from the checked date to the end of the range, "
+        "whatever day it falls on. Null when it has none there."
+    )
+    is_new: bool = Field(
+        description=f"Whether the error is new to the range: it occurred in the range and not in the {LOOKBACK.days} "
+        "days before it."
+    )
+
+
+class ErrorFirstSeenList(Contract):
+    items: list[ErrorFirstSeen] = Field(
+        description="One item per requested key, once each, in the order first requested."
+    )
+    checked_from: date = Field(
+        description=f"The lookback bound: the date {LOOKBACK.days} days before the range starts. Nothing before it was "
+        "read, so an error first seen on it may have occurred earlier."
+    )
+
+
+class ErrorNewCount(Contract):
+    count: int = Field(
+        description=f"How many errors of the selection are new to the range: they occurred in the range and not in "
+        f"the {LOOKBACK.days} days before it."
     )

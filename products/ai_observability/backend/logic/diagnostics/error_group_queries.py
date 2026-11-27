@@ -24,6 +24,8 @@ from .trends import Trend
 
 ERRORS_PAGE_QUERY_NAME = "ai_diagnostics_errors_page"
 ERROR_GROUP_QUERY_NAME = "ai_diagnostics_error_group"
+ERROR_FIRST_SEEN_QUERY_NAME = "ai_diagnostics_error_first_seen"
+ERRORS_NEW_COUNT_QUERY_NAME = "ai_diagnostics_errors_new_count"
 ERRORS_CAPTURED_QUERY_NAME = "ai_diagnostics_errors_captured"
 
 # Each value is ascending in the page's sort, so a descending order negates its value.
@@ -372,6 +374,34 @@ def load_error_group(
         if previous is not None
         else (),
     )
+
+
+def count_new_errors(team: Team, user: User | None, selection: TraceSelection, *, search: str | None) -> int:
+    query = parse_select(
+        "SELECT count() FROM (SELECT DISTINCT message FROM {events} WHERE in_current) WHERE message NOT IN {seen}",
+        placeholders={
+            "events": _errored_events(team, selection, None, _searched(search)),
+            "seen": _seen_before(team, selection),
+        },
+    )
+    [[count]] = execute_selection(team, user, selection, query, ERRORS_NEW_COUNT_QUERY_NAME, list_time_limit=False)
+    return count
+
+
+def load_error_first_seen(
+    team: Team, user: User | None, selection: TraceSelection, messages: Sequence[str]
+) -> dict[str, datetime]:
+    """Each message's earliest flagged event from the lookback start to the range end, if it has one."""
+    if not messages:
+        return {}
+    query = parse_select(
+        "SELECT {message} AS message, min(timestamp) FROM events WHERE {from_lookback} GROUP BY message",
+        placeholders={"message": _message(), "from_lookback": _from_lookback(team, selection, _named(messages))},
+    )
+    results = execute_selection(
+        team, user, lookback_selection(selection), query, ERROR_FIRST_SEEN_QUERY_NAME, list_time_limit=False
+    )
+    return {message: earliest.astimezone(UTC) for message, earliest in results}
 
 
 def has_any_error(team: Team, user: User | None, selection: TraceSelection) -> bool:

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from posthog.models import Team, User
@@ -9,13 +9,21 @@ from ..logic.diagnostics.entity_keys import (
     decode_entity_key,
     encode_entity_key,
 )
-from ..logic.diagnostics.error_group_queries import ErrorPageRead, has_any_error, load_error_group, load_error_page
+from ..logic.diagnostics.error_group_queries import (
+    ErrorPageRead,
+    count_new_errors as count_new_error_rows,
+    has_any_error,
+    load_error_first_seen as load_error_first_seen_rows,
+    load_error_group,
+    load_error_page,
+)
 from ..logic.diagnostics.error_groups import (
     ErrorGroupRow,
     ErrorView as ErrorView,
+    first_seen_in_range,
 )
 from ..logic.diagnostics.trends import change_label, error_change_tone, paired_with_range
-from ..logic.traces.lookback import has_no_lookback
+from ..logic.traces.lookback import has_no_lookback, seen_before
 from ..logic.traces.trace_metrics import bucket_size_for, bucket_starts, has_too_many_buckets, zoned_selection
 from ..logic.traces.trace_selection import (
     InvalidTraceWindowError as InvalidTraceWindowError,
@@ -23,15 +31,20 @@ from ..logic.traces.trace_selection import (
 )
 from .contracts import TraceMetricChangeTone
 from .diagnostics_contracts import (
+    ErrorFirstSeen,
+    ErrorFirstSeenList,
     ErrorGroupDetail,
     ErrorListCounts,
     ErrorListItem,
+    ErrorNewCount,
     ErrorOrder as ErrorOrder,
     ErrorPage as ErrorPage,
     ErrorTrend,
 )
 
 DIAGNOSTICS_PAGE_MAX_LIMIT: Final = 100
+# The errors list asks when each error of a page was first seen, so one request takes a page of keys.
+ERROR_FIRST_SEEN_MAX_KEYS: Final = DIAGNOSTICS_PAGE_MAX_LIMIT
 
 
 class DiagnosticsRangeTooLongError(Exception):
@@ -39,6 +52,10 @@ class DiagnosticsRangeTooLongError(Exception):
 
 
 class ErrorNotFoundError(Exception):
+    pass
+
+
+class ErrorFirstSeenTooManyKeysError(ValueError):
     pass
 
 
@@ -80,6 +97,37 @@ def get_error(team: Team, user: User | None, selection: TraceSelection, key: str
         bucket_starts=starts,
         previous_series=list(paired_with_range(detail.previous_series, len(starts))),
     )
+
+
+def load_error_first_seen(
+    team: Team, user: User | None, selection: TraceSelection, keys: Sequence[str]
+) -> ErrorFirstSeenList:
+    """When each error first occurred, checked from the lookback start to the range end, one entry per distinct key in
+    request order. Raises `ErrorFirstSeenTooManyKeysError` past `ERROR_FIRST_SEEN_MAX_KEYS` keys,
+    `MalformedEntityKeyError` for a key that names no message, and the range errors of `load_error_list`."""
+    requested = list(dict.fromkeys(keys))
+    if len(requested) > ERROR_FIRST_SEEN_MAX_KEYS:
+        raise ErrorFirstSeenTooManyKeysError(f"Send at most {ERROR_FIRST_SEEN_MAX_KEYS} keys.")
+    messages = {key: decode_entity_key(key) for key in requested}
+    zoned = _readable(team, selection)
+    earliest = load_error_first_seen_rows(team, user, zoned, list(messages.values()))
+    return ErrorFirstSeenList(
+        items=[
+            ErrorFirstSeen(
+                key=key,
+                first_seen=earliest.get(message),
+                is_new=first_seen_in_range(earliest.get(message), zoned.window.start),
+            )
+            for key, message in messages.items()
+        ],
+        checked_from=seen_before(zoned.window).date(),
+    )
+
+
+def count_new_errors(team: Team, user: User | None, selection: TraceSelection, *, search: str | None) -> ErrorNewCount:
+    """How many of the selection's errors, narrowed by `search`, are new to the range. Raises as `load_error_list`."""
+    zoned = _readable(team, selection)
+    return ErrorNewCount(count=count_new_error_rows(team, user, zoned, search=search))
 
 
 def _readable(team: Team, selection: TraceSelection) -> TraceSelection:

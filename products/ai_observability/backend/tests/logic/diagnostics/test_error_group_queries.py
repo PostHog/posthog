@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -9,13 +10,16 @@ from posthog.paging import PageRequest
 from products.ai_observability.backend.facade.diagnostics_contracts import ErrorOrder
 from products.ai_observability.backend.logic.diagnostics.error_group_queries import (
     ErrorPageRead,
+    count_new_errors,
     has_any_error,
+    load_error_first_seen,
     load_error_group,
     load_error_page,
 )
 from products.ai_observability.backend.logic.diagnostics.error_groups import ErrorCountsRow, ErrorGroupRow, ErrorView
 from products.ai_observability.backend.logic.diagnostics.group_page_queries import MAX_SORTED_GROUPS
 from products.ai_observability.backend.logic.diagnostics.trends import Trend
+from products.ai_observability.backend.logic.traces.lookback import LOOKBACK
 from products.ai_observability.backend.logic.traces.trace_metrics import BucketSize, bucket_starts
 from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection
 
@@ -225,9 +229,10 @@ class TestErrorGroupQueries(ClickhouseTestMixin, BaseTest):
         expected = {only_now, straddling, *([test_account_before] if filter_test_accounts else [])}
 
         read = self._page(selection, search="TIMEOUT", view=ErrorView.NEW)
+        new_count = count_new_errors(self.team, self.user, selection, search="TIMEOUT")
 
         assert {row.message for row in read.rows} == expected
-        assert read.count == len(expected)
+        assert (read.count, new_count) == (len(expected), len(expected))
 
     @parameterized.expand(
         [
@@ -321,6 +326,33 @@ class TestErrorGroupQueries(ClickhouseTestMixin, BaseTest):
 
         assert [row.message for row in read.rows] == expected
         assert read.counts.total == len(expected)
+
+    def test_first_seen_is_the_earliest_occurrence_from_the_lookback_start(self) -> None:
+        lookback_start = -int(LOOKBACK / timedelta(minutes=1))
+        seed(
+            self.team,
+            [
+                _flagged("Stale cache entry", lookback_start - 1, "stale-unchecked"),
+                _flagged("Stale cache entry", lookback_start, "stale-before"),
+                _flagged("Stale cache entry", 5, "stale-now"),
+                _flagged("Schema mismatch", -5 * DAY, "schema-before"),
+                _flagged("Schema mismatch", 6, "schema-now"),
+                _flagged("Only in range", 7, "only-now"),
+            ],
+        )
+
+        first_seen = load_error_first_seen(
+            self.team,
+            self.user,
+            self._selection(),
+            ["Stale cache entry", "Schema mismatch", "Only in range", "Never raised"],
+        )
+
+        assert first_seen == {
+            "Stale cache entry": at(lookback_start),
+            "Schema mismatch": at(-5 * DAY),
+            "Only in range": at(7),
+        }
 
     @parameterized.expand([("inside_the_lookback", 20, True), ("past_the_lookback", 40, False)])
     def test_any_error_looks_back_from_the_range(self, _name: str, days_before: int, expected: bool) -> None:
