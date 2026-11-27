@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from products.cdp.backend.abuse import frontier, judge, rules
 from products.cdp.backend.abuse.classifier import HogFunctionContent
-from products.cdp.backend.abuse.frontier import Pending, SkipReason, StoredVerdict
+from products.cdp.backend.abuse.frontier import SkipReason, StoredVerdict
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks import abuse_classification
 from products.cdp.backend.test.abuse_support import (
@@ -31,36 +31,15 @@ SKIPPED_UNCHANGED = {"frontier_review_queued": False, "frontier_review_skipped":
 
 
 @pytest.mark.parametrize(
-    "pending, now, expected",
+    "first_saved_at, last_saved_at, expected",
     [
-        pytest.param(
-            Pending(first_saved_at=1000.0, due_at=1120.0),
-            1100.0,
-            Pending(first_saved_at=1000.0, due_at=1220.0),
-            id="a_save_in_the_countdown_pushes_it_back",
-        ),
-        pytest.param(
-            Pending(first_saved_at=1000.0, due_at=1590.0),
-            1550.0,
-            Pending(first_saved_at=1000.0, due_at=1600.0),
-            id="a_long_burst_is_still_reviewed",
-        ),
+        pytest.param(1000.0, 1000.0, 1120.0, id="one_save"),
+        pytest.param(1000.0, 1100.0, 1220.0, id="a_save_in_the_countdown_pushes_it_back"),
+        pytest.param(1000.0, 1550.0, 1600.0, id="a_long_burst_is_still_reviewed"),
     ],
 )
-def test_a_save_in_a_burst_pushes_the_review_back(pending: Pending, now: float, expected: Pending) -> None:
-    assert frontier.pushed_back(pending, now) == expected
-
-
-@pytest.mark.parametrize(
-    "pending, expected",
-    [
-        pytest.param(Pending(first_saved_at=900.0, due_at=1020.0), 20.0, id="saved_again_since"),
-        pytest.param(Pending(first_saved_at=900.0, due_at=1000.0), None, id="due"),
-        pytest.param(None, None, id="entry_lost_from_the_cache"),
-    ],
-)
-def test_the_task_waits_until_the_burst_is_over(pending: Pending | None, expected: float | None) -> None:
-    assert frontier.seconds_to_wait(pending, 1000.0) == expected
+def test_a_burst_is_reviewed_once_it_goes_quiet(first_saved_at: float, last_saved_at: float, expected: float) -> None:
+    assert frontier.due_at(first_saved_at, last_saved_at) == expected
 
 
 def _stored(verdict: str, fingerprint: str = "same") -> StoredVerdict:
@@ -70,20 +49,19 @@ def _stored(verdict: str, fingerprint: str = "same") -> StoredVerdict:
 
 
 @pytest.mark.parametrize(
-    "switched_on, stored, expected",
+    "stored, expected",
     [
-        pytest.param(False, None, SkipReason.SWITCHED_OFF, id="switched_off"),
-        pytest.param(True, None, None, id="never_reviewed"),
-        pytest.param(True, _stored("true_positive", "other"), SkipReason.PARKED_TRUE_POSITIVE, id="parked"),
-        pytest.param(True, _stored("false_positive"), SkipReason.UNCHANGED, id="false_positive_unchanged"),
-        pytest.param(True, _stored("uncertain"), SkipReason.UNCHANGED, id="uncertain_unchanged"),
-        pytest.param(True, _stored("false_positive", "other"), None, id="false_positive_changed"),
+        pytest.param(None, None, id="never_reviewed"),
+        pytest.param(_stored("true_positive", "other"), SkipReason.PARKED_TRUE_POSITIVE, id="parked"),
+        pytest.param(_stored("false_positive"), SkipReason.UNCHANGED, id="false_positive_unchanged"),
+        pytest.param(_stored("uncertain"), SkipReason.UNCHANGED, id="uncertain_unchanged"),
+        pytest.param(_stored("false_positive", "other"), None, id="false_positive_changed"),
     ],
 )
 def test_a_verdict_skips_the_review_until_it_no_longer_covers_the_function(
-    switched_on: bool, stored: StoredVerdict | None, expected: SkipReason | None
+    stored: StoredVerdict | None, expected: SkipReason | None
 ) -> None:
-    assert frontier.skip_reason(switched_on=switched_on, stored=stored, fingerprint="same") == expected
+    assert frontier.skip_reason(stored=stored, fingerprint="same") == expected
 
 
 def _content(**overrides: Any) -> HogFunctionContent:
@@ -299,18 +277,37 @@ class TestFrontierReview(AbuseClassificationTestCase):
         assert self.frontier_properties() == {"frontier_review_queued": False}
         assert self.broker.queued == []
 
-    def test_a_probe_cleaned_within_the_countdown_is_still_reviewed(self) -> None:
+    def test_a_redelivered_task_reviews_the_burst_once(self) -> None:
+        # A refused review stores no verdict, so only the claim on the pending key stops a second review.
+        self.review_reply = httpx.Response(200, json=model_message("", stop_reason="refusal"))
+        with time_machine.travel(time.time(), tick=False) as clock:
+            self.probe()
+            self.broker.queued.append(self.broker.queued[0])
+            clock.shift(frontier.DEBOUNCE_SECONDS)
+            self.broker.run_due()
+
+        assert len(self.review_requests()) == 1
+        assert len(self.events("cdp abuse review")) == 1
+
+    @parameterized.expand(
+        [
+            ("cleaned", {"hog": RULE_FREE_HOG}, RULE_FREE_HOG),
+            ("deleted", {"deleted": True}, PROBE_HOG),
+        ]
+    )
+    def test_a_probe_changed_within_the_countdown_is_still_reviewed(
+        self, _name: str, changes: dict[str, Any], reviewed_code: str
+    ) -> None:
         with time_machine.travel(time.time(), tick=False) as clock:
             probe = self.probe()
             clock.shift(30)
             self.jev_reply = httpx.Response(200, json=decision_payload(LOW_SCORES))
-            self.save(probe, hog=RULE_FREE_HOG)
-            assert self.frontier_properties() == {"frontier_review_queued": False}
+            self.save(probe, **changes)
             clock.shift(frontier.DEBOUNCE_SECONDS)
             self.broker.run_due()
 
         [request] = self.review_requests()
-        assert RULE_FREE_HOG in json.loads(request.content)["messages"][0]["content"]
+        assert reviewed_code in json.loads(request.content)["messages"][0]["content"]
         assert len(self.events("cdp abuse review")) == 1
 
     def test_a_save_jev_could_not_score_is_reviewed_on_its_rule_hit(self) -> None:

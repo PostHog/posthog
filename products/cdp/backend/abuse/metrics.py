@@ -38,6 +38,6 @@ FRONTIER_REVIEWS = Counter(
 )
 FRONTIER_REVIEW_SKIPS = Counter(
     "cdp_abuse_frontier_review_skips_total",
-    "Saves that would have alerted but were not reviewed by the frontier model",
+    "Frontier reviews skipped, at save time or when the queued review ran, by reason",
     labelnames=["reason"],
 )

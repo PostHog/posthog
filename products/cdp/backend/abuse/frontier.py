@@ -1,13 +1,14 @@
 """Which saves go to the frontier review, and when. A save that would have alerted queues one review per burst of
 saves, and the verdict is remembered per function, so a parked probe or an unchanged function is not reviewed again.
 
-The Django cache, which is Redis, holds both keys. Losing one costs one extra review, never a missed one.
+The Django cache, which is Redis, holds the keys. A lost verdict key costs one extra review. A lost pending key
+loses the review of that burst, and the next save that would alert starts a new one.
 """
 
 import json
 import time
 import hashlib
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from enum import StrEnum
 from typing import Any
 
@@ -23,9 +24,9 @@ SWITCH = "frontier_review"
 DEBOUNCE_SECONDS = 120
 # A function saved again and again is still reviewed this long after the first save of the burst.
 MAX_DELAY_SECONDS = 600
-# A pending review expires this long after it is due. Its task normally removes it first, so only a lost task, for
-# example to a worker restart, leaves it to expire, and the next save then starts a new burst.
-LOST_TASK_SECONDS = 900
+# The task claims the pending key by the time the burst is capped, so only a lost task leaves it to expire, and the
+# next save after that starts a new burst.
+_PENDING_TTL_SECONDS = MAX_DELAY_SECONDS + 900
 VERDICT_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
@@ -43,14 +44,12 @@ class StoredVerdict:
     reviewed_at: float
 
 
-@frozen
-class Pending:
-    first_saved_at: float
-    due_at: float
-
-
 def pending_key(hog_function_id: str) -> str:
     return f"cdp_abuse:frontier:pending:{hog_function_id}"
+
+
+def last_saved_key(hog_function_id: str) -> str:
+    return f"cdp_abuse:frontier:last_saved:{hog_function_id}"
 
 
 def verdict_key(hog_function_id: str) -> str:
@@ -75,9 +74,7 @@ def fingerprint(content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...], 
     return hashlib.sha256(json.dumps(facts, separators=(",", ":")).encode()).hexdigest()
 
 
-def skip_reason(*, switched_on: bool, stored: StoredVerdict | None, fingerprint: str) -> SkipReason | None:
-    if not switched_on:
-        return SkipReason.SWITCHED_OFF
+def skip_reason(*, stored: StoredVerdict | None, fingerprint: str) -> SkipReason | None:
     if stored is None:
         return None
     if stored.parked:
@@ -85,22 +82,13 @@ def skip_reason(*, switched_on: bool, stored: StoredVerdict | None, fingerprint:
     return SkipReason.UNCHANGED if stored.fingerprint == fingerprint else None
 
 
-def pushed_back(pending: Pending, now: float) -> Pending:
-    """The pending review after another save of the burst."""
-    due_at = min(now + DEBOUNCE_SECONDS, pending.first_saved_at + MAX_DELAY_SECONDS)
-    return Pending(first_saved_at=pending.first_saved_at, due_at=due_at)
-
-
-def seconds_to_wait(pending: Pending | None, now: float) -> float | None:
-    """For the queued task: wait while the function is still being saved, or review now. A pending entry the cache
-    lost reviews now too, and the stored verdict stops a second task from reviewing the same version again."""
-    if pending is not None and pending.due_at > now:
-        return pending.due_at - now
-    return None
+def due_at(first_saved_at: float, last_saved_at: float) -> float:
+    """A burst is reviewed once the function has not been saved for the debounce, and at the latest at the cap."""
+    return min(last_saved_at + DEBOUNCE_SECONDS, first_saved_at + MAX_DELAY_SECONDS)
 
 
 def stored_verdict(hog_function_id: str) -> StoredVerdict | None:
-    return _read(StoredVerdict, cache.get(verdict_key(hog_function_id)))
+    return _read(cache.get(verdict_key(hog_function_id)))
 
 
 def store_verdict(hog_function_id: str, *, verdict: str, parked: bool, fingerprint: str) -> None:
@@ -108,43 +96,44 @@ def store_verdict(hog_function_id: str, *, verdict: str, parked: bool, fingerpri
     cache.set(verdict_key(hog_function_id), _write(stored), VERDICT_TTL_SECONDS)
 
 
-def pending_review(hog_function_id: str) -> Pending | None:
-    return _read(Pending, cache.get(pending_key(hog_function_id)))
-
-
 def start_or_push_back(hog_function_id: str) -> bool:
-    """Push back the pending review of the function, or start one. True when this save started it, so it queues the
-    task: `cache.add` lets only one of two concurrent saves start the burst."""
+    """Record this save in the burst. True when it started the burst, so it queues the task. A save never rewrites the
+    pending key: `cache.add` lets only one save start a burst, and a save after the task claimed it starts a new one."""
     now = time.time()
-    pending = pending_review(hog_function_id)
-    if pending is not None:
-        _set_pending(hog_function_id, pushed_back(pending, now), now)
-        return False
-    started = Pending(first_saved_at=now, due_at=now + DEBOUNCE_SECONDS)
-    return cache.add(pending_key(hog_function_id), _write(started), _pending_ttl(started, now))
+    cache.set(last_saved_key(hog_function_id), now, _PENDING_TTL_SECONDS)
+    return cache.add(pending_key(hog_function_id), now, _PENDING_TTL_SECONDS)
 
 
-def take_due_review(hog_function_id: str) -> float | None:
-    """Seconds to wait, or None after removing the pending review, so the next save after this point starts a new
-    burst."""
-    wait = seconds_to_wait(pending_review(hog_function_id), time.time())
-    if wait is None:
-        cache.delete(pending_key(hog_function_id))
-    return wait
+def seconds_until_due(hog_function_id: str) -> float | None:
+    """How long the queued task still waits, or None when the review is due or nothing is pending."""
+    first_saved_at = _number(cache.get(pending_key(hog_function_id)))
+    if first_saved_at is None:
+        return None
+    last_saved_at = _number(cache.get(last_saved_key(hog_function_id))) or first_saved_at
+    wait = due_at(first_saved_at, last_saved_at) - time.time()
+    return wait if wait > 0 else None
 
 
-def _set_pending(hog_function_id: str, pending: Pending, now: float) -> None:
-    cache.set(pending_key(hog_function_id), _write(pending), _pending_ttl(pending, now))
+def claim_due_review(hog_function_id: str) -> bool:
+    """Remove the due pending review, so the next save starts a new burst. Only the task whose delete removed the key
+    reviews it, so two tasks of one burst never both review."""
+    return cache.delete(pending_key(hog_function_id))
 
 
-def _pending_ttl(pending: Pending, now: float) -> int:
-    return int(pending.due_at + LOST_TASK_SECONDS - now)
+def _number(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
-def _write(value: StoredVerdict | Pending) -> dict[str, Any]:
+def _write(value: StoredVerdict) -> dict[str, Any]:
     # Plain dicts, so a worker on another release reads what this one wrote without unpickling a class.
     return asdict(value)
 
 
-def _read[T: (StoredVerdict, Pending)](kind: type[T], raw: object) -> T | None:
-    return kind(**raw) if isinstance(raw, dict) else None
+def _read(raw: object) -> StoredVerdict | None:
+    # Unknown keys are dropped, so a field that a later release adds does not break this one during a deploy.
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return StoredVerdict(**{field.name: raw[field.name] for field in fields(StoredVerdict) if field.name in raw})
+    except TypeError:
+        return None

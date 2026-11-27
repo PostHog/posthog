@@ -572,13 +572,16 @@ def _frontier_review_plan(hog_function: HogFunction, scored: ScoredHogFunction) 
     A note that Jev cut long code does not count on its own, and without a Jev verdict only a rule hit counts."""
     if not scored.would_alert:
         return _FrontierReviewPlan(properties={"frontier_review_queued": False})
-    skipped = frontier.skip_reason(
-        switched_on=frontier_review_switched_on(hog_function.team),
-        stored=frontier.stored_verdict(str(hog_function.id)),
-        fingerprint=frontier.fingerprint(
-            content_of(hog_function, hog_function.template), scored.rule_hits, scored.outbound_call
-        ),
-    )
+    # Checked first, so with the review switched off a save reads no cache key and builds no fingerprint.
+    if not frontier_review_switched_on(hog_function.team):
+        skipped: frontier.SkipReason | None = frontier.SkipReason.SWITCHED_OFF
+    else:
+        skipped = frontier.skip_reason(
+            stored=frontier.stored_verdict(str(hog_function.id)),
+            fingerprint=frontier.fingerprint(
+                content_of(hog_function, hog_function.template), scored.rule_hits, scored.outbound_call
+            ),
+        )
     if skipped is None:
         return _FrontierReviewPlan(properties={"frontier_review_queued": True}, queue=True)
     return _FrontierReviewPlan(

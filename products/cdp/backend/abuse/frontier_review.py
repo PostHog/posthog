@@ -9,17 +9,16 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 EVENT = "cdp abuse review"
 
 
-def review_when_quiet(team_id: int, hog_function_id: str) -> float | None:
-    """Seconds until the task has to run again because the function was saved since, or None once it is done. The
-    latest version is reviewed even when it no longer alerts, so a probe cannot hide by saving a clean version
-    within the countdown."""
-    wait = frontier.take_due_review(hog_function_id)
-    if wait is not None:
-        return wait
-    hog_function = shadow.scorable_hog_functions(enabled_only=False).filter(team_id=team_id, id=hog_function_id).first()
+def review(team_id: int, hog_function_id: str) -> None:
+    """Review the last saved version, even when it no longer alerts, was deleted, or no longer runs custom code, so a
+    probe cannot hide by changing or deleting the function within the countdown."""
+    hog_function = (
+        HogFunction.objects.select_related("team__organization", "hog_function_template")
+        .filter(team_id=team_id, id=hog_function_id)
+        .first()
+    )
     if hog_function is not None:
         review_latest(hog_function)
-    return None
 
 
 def review_latest(hog_function: HogFunction) -> None:
@@ -32,9 +31,7 @@ def review_latest(hog_function: HogFunction) -> None:
     fingerprint = frontier.fingerprint(
         shadow.content_of(hog_function, hog_function.template), scored.rule_hits, scored.outbound_call
     )
-    skipped = frontier.skip_reason(
-        switched_on=True, stored=frontier.stored_verdict(str(hog_function.id)), fingerprint=fingerprint
-    )
+    skipped = frontier.skip_reason(stored=frontier.stored_verdict(str(hog_function.id)), fingerprint=fingerprint)
     if skipped is not None:
         metrics.FRONTIER_REVIEW_SKIPS.labels(skipped.value).inc()
         return
@@ -42,7 +39,7 @@ def review_latest(hog_function: HogFunction) -> None:
     shadow.capture(hog_function, scored, _review_properties(scored, result), event=EVENT)
     if isinstance(result, Review):
         metrics.FRONTIER_REVIEWS.labels(result.verdict.value).inc()
-        # Remembered only after the event is captured, so a lost event means a second review, never a silent save.
+        # Remembered only after the event is captured, so a failed capture retries the task and reviews again.
         frontier.store_verdict(
             str(hog_function.id),
             verdict=result.verdict.value,

@@ -3,7 +3,7 @@ from celery import shared_task
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.cdp.backend.abuse import shadow
+from products.cdp.backend.abuse import frontier, shadow
 
 # `review_case` asks at most twice, and the SDK sends each ask at most twice, each up to the judge's 300-second
 # request timeout. The margin covers the SDK's retry backoff, scoring the latest version with Jev, the case file and
@@ -34,20 +34,35 @@ def backfill_hog_function_abuse_score(team_id: int, hog_function_id: str, run_id
         shadow.classify_for_backfill(hog_function, run_id)
 
 
+# acks_late: a countdown message acked on receipt sits in one worker's memory and dies with it, and its burst is then
+# never reviewed. A redelivered message is harmless, because only one task can claim the pending review.
+@shared_task(ignore_result=True, acks_late=True, queue=CeleryQueue.LONG_RUNNING.value)
+@skip_team_scope_audit
+def review_hog_function_for_abuse(team_id: int, hog_function_id: str) -> None:
+    wait = frontier.seconds_until_due(hog_function_id)
+    if wait is not None:
+        queue_frontier_review(team_id, hog_function_id, wait)
+    elif frontier.claim_due_review(hog_function_id):
+        run_hog_function_abuse_review.delay(team_id=team_id, hog_function_id=hog_function_id)
+
+
+# The claimed review has no pending key left to fall back on, so a worker restart or a failed capture retries it.
 @shared_task(
     ignore_result=True,
+    acks_late=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=2,
     queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=REVIEW_SOFT_TIME_LIMIT_SECONDS,
     time_limit=REVIEW_SOFT_TIME_LIMIT_SECONDS + 60,
 )
 @skip_team_scope_audit
-def review_hog_function_for_abuse(team_id: int, hog_function_id: str) -> None:
+def run_hog_function_abuse_review(team_id: int, hog_function_id: str) -> None:
     # The review pulls in the Anthropic SDK, which stays out of Django startup.
     from products.cdp.backend.abuse import frontier_review  # noqa: PLC0415
 
-    wait = frontier_review.review_when_quiet(team_id, hog_function_id)
-    if wait is not None:
-        queue_frontier_review(team_id, hog_function_id, wait)
+    frontier_review.review(team_id, hog_function_id)
 
 
 def queue_frontier_review(team_id: int, hog_function_id: str, countdown: float) -> None:
