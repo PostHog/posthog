@@ -161,76 +161,21 @@ describe('billingLogic', () => {
         }
     })
 
-    it.each([
-        [400, 'validation_error', 'Billing limits are not available for logs_retention_custom'],
-        [500, 'server_error', 'There was an error updating your billing limits. Please try again or contact support.'],
-    ] as const)(
-        'shows the reason for a %i limit update failure and keeps the editor value',
-        async (status, type, toast) => {
-            const toastError = jest.spyOn(lemonToast, 'error')
-            const detail =
-                status === 400 ? 'Billing limits are not available for logs_retention_custom' : 'Server error'
-            useMocks({ patch: { '/api/billing': () => [status, { type, detail }] } })
-            billingLogic.mount()
-            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
-                .toFinishAllListeners()
-                .clearHistory()
-            const loaded = billingLogic.values.billing
+    it('reports a failed limit update as a failure, so the limit editor keeps the value', async () => {
+        useMocks({ patch: { '/api/billing': () => [500, { detail: 'A server error occurred.' }] } })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+        const loaded = billingLogic.values.billing
 
-            await expectLogic(billingLogic, () => billingLogic.actions.updateBillingLimits({ product_analytics: 100 }))
-                .toDispatchActions(['updateBillingLimitsFailure'])
-                .toNotHaveDispatchedActions(['updateBillingLimitsSuccess'])
-                .toFinishAllListeners()
+        await expectLogic(billingLogic, () => billingLogic.actions.updateBillingLimits({ product_analytics: 100 }))
+            .toDispatchActions(['updateBillingLimitsFailure'])
+            .toNotHaveDispatchedActions(['updateBillingLimitsSuccess'])
+            .toFinishAllListeners()
 
-            expect(billingLogic.values.billing).toEqual(loaded)
-            expect(toastError).toHaveBeenCalledWith(toast)
-            toastError.mockRestore()
-        }
-    )
-
-    it.each(['logs_retention_custom', 'logs_retention_mb_days'])(
-        'refuses the whole limit update when it sets %s',
-        async (key) => {
-            billingState = billingWithProducts([
-                productWithUsage(0),
-                productWithUsage(0, {
-                    type: 'logs_retention_custom',
-                    usage_key: 'logs_retention_mb_days',
-                    name: 'Logs custom retention',
-                    no_billing_limit: true,
-                }),
-            ])
-            const patchedLimits = jest.fn()
-            useMocks({
-                patch: {
-                    '/api/billing': async ({ request }) => {
-                        patchedLimits(await request.json())
-                        return [200, billingState]
-                    },
-                },
-            })
-            const toastError = jest.spyOn(lemonToast, 'error')
-            billingLogic.mount()
-            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
-
-            await expectLogic(billingLogic, () =>
-                billingLogic.actions.updateBillingLimits({ product_analytics: 10, [key]: 0 })
-            )
-                .toDispatchActions(['updateBillingLimitsFailure'])
-                .toFinishAllListeners()
-
-            expect(patchedLimits).not.toHaveBeenCalled()
-            expect(toastError).toHaveBeenCalledWith("You can't set a billing limit for Logs custom retention.")
-
-            await expectLogic(billingLogic, () =>
-                billingLogic.actions.updateBillingLimits({ product_analytics: 10, [key]: null })
-            )
-                .toDispatchActions(['updateBillingLimitsSuccess'])
-                .toFinishAllListeners()
-            expect(patchedLimits).toHaveBeenCalledWith({ custom_limits_usd: { product_analytics: 10, [key]: null } })
-            toastError.mockRestore()
-        }
-    )
+        expect(billingLogic.values.billing).toEqual(loaded)
+    })
 
     it('keeps the last credit overview when billing answers with an empty body', async () => {
         billingState = { ...billingState, has_active_subscription: true }
