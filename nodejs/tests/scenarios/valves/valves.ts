@@ -349,15 +349,6 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             await releaseBoundary()
             return
         }
-        if (
-            entry.when?.name === 'edge_accepted' &&
-            context.endsAt !== undefined &&
-            context.endsAt - Date.now() < durationMs(entry.for)
-        ) {
-            record.error = `never applied: edge_accepted on ${entry.when.params.channel} came with less than ${entry.for} left in the drive`
-            await releaseBoundary()
-            return
-        }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
         const journal = (): void => {
