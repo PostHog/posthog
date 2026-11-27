@@ -1,10 +1,12 @@
 """The daily work focus as one agent run, instead of the search, the classifiers and the channel index.
 
 The agent reads Slack through the person's own Slack MCP, so it sees what the person can see, not only the channels
-the bot is in. The run mounts that one server and nothing else, and the Slack MCP token holds read scopes only, so a
-message that tells the agent to post or to reach another tool has nothing to act through. The agent answers once,
-validated against `DailyFocusAgentOutput`, and the code below checks that answer again before it renders the same DM
-the pipeline sends.
+the bot is in. Every message it reads is untrusted input. The run mounts only that server, the Slack MCP token holds
+read scopes only, the sandbox reaches infrastructure hosts only and holds no GitHub credential. The run's PostHog
+token can still call the MCP Store proxy for the person's other connections, which the proxy does not limit to this
+run's snapshot yet, so the flag stays off for testers until it does. The agent answers once, validated against
+`DailyFocusAgentOutput`, and the code below checks that answer again before it renders the same DM the pipeline
+sends.
 """
 
 import re
