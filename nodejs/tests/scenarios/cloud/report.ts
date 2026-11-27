@@ -133,14 +133,16 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-// One entry per minute from the T0 minute to the last measured maximum, so the climb reads by position.
-const minuteMaximaFrom = (t0Minute: number, after: { at: number; max: number }[]): (number | null)[] =>
+const minuteMaximaFrom = (
+    t0Minute: number,
+    lastMinute: number,
+    after: { at: number; max: number }[]
+): (number | null)[] =>
     Array.from(
-        { length: (after.at(-1)!.at - t0Minute) / MINUTE_MS + 1 },
+        { length: (lastMinute - t0Minute) / MINUTE_MS + 1 },
         (_, i) => after.find(({ at }) => at === t0Minute + i * MINUTE_MS)?.max ?? null
     )
 
-// The controller alone writes these, from CloudWatch, so a runner scorecard that carries them never shows through.
 const CAPACITY_KEYS = [
     'acu_pre_t0_max',
     'acu_t0_minute_max',
@@ -170,6 +172,7 @@ function judgeCapacity(
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
     const after = maxima.filter(({ at }) => at >= t0Minute)
+    const measuredAfter = minutes.filter(({ at }) => at >= t0Minute)
     const peak = after.reduce<{ at: number; max: number } | undefined>(
         (top, minute) => (top && top.max >= minute.max ? top : minute),
         undefined
@@ -179,7 +182,7 @@ function judgeCapacity(
         acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
-        acu_after_t0_max: after.length === 0 ? [] : minuteMaximaFrom(t0Minute, after),
+        acu_after_t0_max: measuredAfter.length === 0 ? [] : minuteMaximaFrom(t0Minute, measuredAfter.at(-1)!.at, after),
         acu_pre_t0_above_idle: minutes
             .filter(
                 ({ at, max, avg }) =>

@@ -1455,6 +1455,7 @@ describe('cloud controller', () => {
             () => undefined,
             'passed',
             '',
+            { published: { acu_after_t0_max: [4, 8, 8, null] } },
         ],
         [
             'a complete minute before T0 above the idle limit',
@@ -1727,7 +1728,7 @@ describe('cloud controller', () => {
                 acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
-                acu_after_t0_max: [4, 8, 8],
+                acu_after_t0_max: also.published?.acu_after_t0_max ?? [4, 8, 8],
                 reader_acu_at_t0: 1.5,
                 reader_at_t0: 'cold',
             })
