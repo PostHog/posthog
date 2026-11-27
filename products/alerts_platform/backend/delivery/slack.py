@@ -5,6 +5,7 @@ stays here is the part that is about alerts: which destination a message goes to
 message becomes blocks.
 """
 
+import re
 from http.client import HTTPException
 from typing import Any, Final
 from urllib.error import HTTPError, URLError
@@ -65,6 +66,19 @@ SLACK_EDIT_TIMEOUT_SECONDS: Final = 3
 IMAGE_REFUSAL: Final = "invalid_blocks"
 
 
+# A detail that is one URL, such as a dashboard or runbook link from a rule annotation. Slack leaves
+# a URL in a verbatim section as plain text, so these get a section of their own that is not
+# verbatim. The URL is the visible text of its link, so it cannot disguise another destination, and
+# the limits keep the section under MAX_SECTION_CHARS: 8 lines of at most 40 + 300 + 10 characters.
+_LINK_VALUE: Final = re.compile(r"https?://[^\s<>|]{1,300}")
+_LINK_LABEL: Final = re.compile(r"[\w .-]{1,40}")
+MAX_LINK_LINES: Final = 8
+
+
+def _is_link(detail: MessageDetail) -> bool:
+    return bool(_LINK_VALUE.fullmatch(detail.value) and _LINK_LABEL.fullmatch(detail.label))
+
+
 def _line(detail: MessageDetail) -> str:
     # The value carries a query error, which is user-written text. Unescaped `<...>` is live in
     # mrkdwn, so `<!channel>` would broadcast and `<url|label>` would render a disguised link.
@@ -82,18 +96,25 @@ def _body(details: tuple[MessageDetail, ...]) -> str:
     return "\n".join(clip_text(line, share) for line in lines)
 
 
-def _details_block(details: tuple[MessageDetail, ...]) -> dict[str, Any]:
-    block = section_block(_body(details))
-    # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
-    # text is verbatim. A rule annotation can carry query results into this text.
-    block["text"]["verbatim"] = True
-    return block
+def _details_blocks(details: tuple[MessageDetail, ...]) -> list[dict[str, Any]]:
+    links = [detail for detail in details if _is_link(detail)][:MAX_LINK_LINES]
+    text = tuple(detail for detail in details if detail not in links)
+    blocks: list[dict[str, Any]] = []
+    if text:
+        block = section_block(_body(text))
+        # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
+        # text is verbatim. A rule annotation can carry query results into this text.
+        block["text"]["verbatim"] = True
+        blocks.append(block)
+    if links:
+        lines = (f"*{detail.label}:* <{escape_slack_mrkdwn(detail.value)}>" for detail in links)
+        blocks.append(section_block("\n".join(lines)))
+    return blocks
 
 
 def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = [header_block(message.title)]
-    if message.all_details:
-        blocks.append(_details_block(message.all_details))
+    blocks.extend(_details_blocks(message.all_details))
     elements: list[str] = []
     if message.context:
         # Context names things a user chose, such as services, so it is escaped like a detail.
@@ -150,16 +171,16 @@ def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
     return SlackMessageContent(text=escape_slack_mrkdwn(message.title), blocks=blocks_for(message))
 
 
-def _above_actions(blocks: list[dict[str, Any]], notice: dict[str, Any]) -> list[dict[str, Any]]:
-    """`notice` inserted above the action row, or appended when the blocks have none.
+def _above_actions(blocks: list[dict[str, Any]], notices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`notices` inserted above the action row, or appended when the blocks have none.
 
     By position rather than by index from the end, because `SourceSlackRenderer` promises nothing
     about the block order a source returns.
     """
     for index, block in enumerate(blocks):
         if block.get("type") == "actions":
-            return [*blocks[:index], notice, *blocks[index:]]
-    return [*blocks, notice]
+            return [*blocks[:index], *notices, *blocks[index:]]
+    return [*blocks, *notices]
 
 
 def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
@@ -169,7 +190,7 @@ def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) 
     ]
     if not notices:
         return content
-    notice = _details_block(tuple(notices))
+    notice = _details_blocks(tuple(notices))
     # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
     # alert as a complete one. It goes wherever the renderer left room, never nowhere.
     if not content.attachments:

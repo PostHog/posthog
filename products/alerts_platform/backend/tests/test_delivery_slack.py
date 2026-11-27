@@ -114,6 +114,25 @@ class TestSlackBlocks(SimpleTestCase):
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
 
+    def test_a_url_detail_is_a_link_and_other_text_stays_verbatim(self) -> None:
+        message = alert_message(
+            rule_details=(
+                MessageDetail(label="dashboard_url", value="https://grafana.example.com/d/abc?a=1&viewPanel=2"),
+                MessageDetail(label="description", value="https://x.example.com/ <!here>"),
+                MessageDetail(label="runbook_url", value="https://x.example.com/|<!channel>"),
+                MessageDetail(label="team", value="payments"),
+            ),
+        )
+
+        text, links = blocks_for(message)[1:3]
+
+        assert links["text"]["text"] == "*dashboard_url:* <https://grafana.example.com/d/abc?a=1&amp;viewPanel=2>"
+        assert "verbatim" not in links["text"]
+        assert text["text"]["verbatim"] is True
+        assert "*team:* payments" in text["text"]["text"]
+        assert "&lt;!channel&gt;" in text["text"]["text"]
+        assert "<!" not in text["text"]["text"] + links["text"]["text"]
+
     def test_escaped_context_stays_inside_what_slack_accepts(self) -> None:
         message = alert_message(context=("&" * 300,) * 3)
 
