@@ -394,6 +394,11 @@ class SelectQueryType(Type):
         self.implicit_table_aliases.add(alias)
         return alias
 
+    def lazy_join_alias_map(self) -> dict[tuple[str, ...], str]:
+        if self.lazy_join_aliases is None:
+            self.lazy_join_aliases = {}
+        return self.lazy_join_aliases
+
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_type:

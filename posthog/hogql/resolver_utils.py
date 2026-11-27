@@ -324,9 +324,7 @@ def _lazy_join_alias(select: ast.SelectQueryType, path: tuple[str, ...], name: s
     its name, because two joins can have the same name: a join below a moved alias, `d__tags_2__x`, and a join whose
     field is named `tags_2__x`. A repeated call for the same join returns the same alias.
     """
-    if select.lazy_join_aliases is None:
-        select.lazy_join_aliases = {}
-    aliases = select.lazy_join_aliases
+    aliases = select.lazy_join_alias_map()
     if path in aliases:
         return aliases[path]
     taken = set(select.tables) | set(aliases.values())
