@@ -5,9 +5,11 @@ from typing import cast
 from django import forms
 from django.contrib import messages
 from django.contrib.admin.models import CHANGE, LogEntry
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.http import HttpRequest, HttpResponse, QueryDict
+from django.urls import reverse
 from django.utils import timezone
 
 from kombu.exceptions import OperationalError
@@ -275,7 +277,8 @@ class OrganizationPersonalApiKeys:
 
 
 def organization_keys_tool_url(organization: Organization) -> str:
-    return OrganizationPersonalApiKeysTool.url_for(organization)
+    tool_url = reverse("admin_console_tool", kwargs={"tool_key": ORGANIZATION_KEYS_TOOL_KEY})
+    return f"{tool_url}?organization={organization.pk}"
 
 
 class OrganizationKeysForm(forms.Form):
@@ -467,11 +470,14 @@ class OrganizationPersonalApiKeysTool(ConsoleTool):
     owner = None
     group = "Access"
     description = "Lists the personal API keys that can reach one organization."
-    subject = "organization"
 
     def page(self, request: HttpRequest) -> Page:
-        organization = self.subject_of(request)
-        if not isinstance(organization, Organization):
+        organization_id = request.GET.get("organization", "")
+        try:
+            organization = Organization.objects.filter(pk=organization_id).first() if organization_id else None
+        except ValidationError:
+            organization = None
+        if organization is None:
             return Page(
                 blocks=(Notice(text="Open an organization's keys from the Personal API keys panel on its page."),)
             )
