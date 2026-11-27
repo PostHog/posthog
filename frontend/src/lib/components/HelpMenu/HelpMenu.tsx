@@ -99,6 +99,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                             className="flex flex-col gap-px overflow-x-hidden"
                             innerClassName="primitive-menu-content-inner p-1 "
                         >
+                            <NavSwitchMoreMenuItem />
                             <div className="flex flex-col gap-px">
                                 <Label intent="menu" className="px-2">
                                     Help
@@ -195,8 +196,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
-
-                                <NavSwitchMoreMenuItem />
 
                                 <Menu.Item
                                     render={(props) => (
