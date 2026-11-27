@@ -59,9 +59,9 @@ role "apm" {
 # Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, declared once in
 # roles/logs/metrics/metrics4.hcl, which the local logs stacks also compose.
 role "metrics" {
-  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/logs/metrics/precomputed.hcl", "roles/metrics/shared", "roles/metrics/dev"] }
-  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/logs/metrics/precomputed.hcl", "roles/metrics/shared"] }
-  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/logs/metrics/precomputed.hcl", "roles/metrics/shared"] }
+  env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared", "roles/metrics/dev"] }
+  env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
+  env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }
 }
 
 # The ingestion-metrics nodes run the metrics4 ingest chain, patched to write to the metrics
