@@ -2010,6 +2010,11 @@ export interface ScoutSuggestionItemApi {
     title: string
     /** Project-specific evidence for this suggestion, in prose. */
     why_here: string
+    /**
+     * One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.
+     * @maxLength 200
+     */
+    goal?: string
     /** Custom only: the one-line description the scout would be created with. */
     description: string
     /** Custom only: the complete skill body the scout would be created with. */
@@ -13039,13 +13044,13 @@ export interface SendScoutMessageRequestApi {
      */
     report_id?: string | null
     /**
-     * Short plain-text title. At most 150 characters.
-     * @maxLength 150
+     * Short plain-text title. At most 80 characters.
+     * @maxLength 80
      */
     title: string
     /**
-     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-     * @maxLength 3000
+     * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 500
      */
     body: string
     /**

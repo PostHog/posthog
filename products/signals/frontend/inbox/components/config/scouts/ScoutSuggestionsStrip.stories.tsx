@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
@@ -15,7 +17,7 @@ import {
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { ScoutsRoster } from './ScoutsRoster'
 
-// The "Suggested for this project" strip above the roster. Use these to check how the batch reads
+// The "Suggested scouts" strip above the roster. Use these to check how the batch reads
 // when it has aged, when it shrank to one pick, and when the last scan failed.
 
 const SUGGESTIONS_URL = '/api/projects/:id/signals/scout/suggestions/'
@@ -87,7 +89,7 @@ export const Fresh: Story = {
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }
 
-// How the strip opens on a first visit: one line naming the picks, until the chevron opens it.
+// How the strip opens on a first visit: one bar naming the picks, until Show suggestions opens it.
 export const Collapsed: Story = {
     parameters: { stripCollapsed: true },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
@@ -103,9 +105,12 @@ export const Stale: Story = {
     ],
 }
 
-// One long motivation above two short ones: the check that the motivation clamps to two lines, its
-// cited link renders as a link, and the actions stay in line on every row.
-export const UnevenMotivations: Story = {
+// A pick from a batch stored before goals existed, with its evidence open: the row falls back to the
+// first sentence of the evidence, and the full text keeps its cited link.
+export const EvidenceOpen: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click((await within(canvasElement).findAllByText('Why this?'))[0])
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -115,6 +120,7 @@ export const UnevenMotivations: Story = {
                         items: [
                             {
                                 ...mockScoutSuggestions[0],
+                                goal: '',
                                 why_here:
                                     'Checkout is the slowest page in this project on every Core Web Vital, and it has been getting slower for three weeks. Nothing in your fleet reads web vitals today, so a regression here only shows up once someone opens [web analytics](https://example.com/web) and looks.',
                             },
@@ -171,8 +177,8 @@ export const Scanning: Story = {
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }
 
-// The strip opens collapsed, so this is where most Refresh presses land: the picks stay named and
-// the scan says how long it has been going.
+// A scan still running after the strip was collapsed: the bar keeps naming the picks and the note
+// says how long the scan has been going.
 export const ScanningCollapsed: Story = {
     parameters: { stripCollapsed: true, stripRefreshing: true },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
@@ -219,6 +225,14 @@ export const EmptyFleet: Story = {
 export const Narrow: Story = {
     parameters: {
         testOptions: { viewport: { width: 520, height: 900 }, waitForLoadersToDisappear: false },
+    },
+    decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
+}
+
+// A phone: the Review button and the menu wrap under each row's text, and nothing scrolls sideways.
+export const Phone: Story = {
+    parameters: {
+        testOptions: { viewport: { width: 390, height: 900 }, waitForLoadersToDisappear: false },
     },
     decorators: [mswDecorator({ get: { [SUGGESTIONS_URL]: () => [200, mockScoutSuggestionSet()] } })],
 }

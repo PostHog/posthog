@@ -7,8 +7,10 @@ import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes
 import type {
     InboxSummaryApi,
     PaginatedSignalReportListListApiPersonalRankingStatus,
+    SourceFilterPreviewResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SourceFilterPreviewRequestError } from './components/config/SourceFilterPreviewPanel'
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
@@ -83,6 +85,7 @@ export const INBOX_EVENTS = {
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     SOURCE_FILTER_EDITOR_OPENED: 'Signal source filter editor opened',
     SOURCE_FILTER_EXPRESSION_CHANGED: 'Signal source filter expression changed',
+    SOURCE_FILTER_PREVIEW_SHOWN: 'Signal source filter preview shown',
     SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // The server captures `inbox_slack_channel_scout_created` when the create succeeds.
@@ -109,6 +112,7 @@ export const INBOX_EVENTS = {
     SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
     SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     SCOUT_SUGGESTIONS_CHAT_OPENED: 'Scout suggestions chat opened',
+    SCOUT_SUGGESTION_DISCLOSURE_OPENED: 'Scout suggestion disclosure opened',
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
@@ -1187,6 +1191,33 @@ export function captureSignalSourceFilterExpressionChanged(params: {
 }
 
 /**
+ * Once per preview result or failed request the filter editor shows, with a null result for a failed request.
+ * Property names are pinned. It sends no expression or record, because both hold the customer's own data.
+ */
+export function captureSignalSourceFilterPreviewShown(params: {
+    sourceProduct: string
+    sourceType: string
+    result: SourceFilterPreviewResponseApi | null
+    requestError: SourceFilterPreviewRequestError | null
+}): void {
+    const { result } = params
+    captureInboxEvent(INBOX_EVENTS.SOURCE_FILTER_PREVIEW_SHOWN, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        status: result?.status ?? null,
+        request_error: params.requestError,
+        ...(result?.status === 'ok'
+            ? {
+                  total_count: result.total_count,
+                  passing_count: result.passing_count,
+                  excluded_count: result.excluded_count,
+                  malformed_count: result.malformed_count,
+              }
+            : {}),
+    })
+}
+
+/**
  * The product analytics source switched between investigated alerts only and all firing alerts.
  * Fired once the request settles, so `success` separates a saved change from a rejected one.
  */
@@ -1634,6 +1665,9 @@ export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
 /** What the person did with the strip itself. Desktop sends the same values as click targets. */
 export type ScoutSuggestionsStripClickTarget = 'expand' | 'collapse' | 'close'
 
+/** Text the strip keeps folded away: the scout explainer, or one row's evidence. */
+export type ScoutSuggestionDisclosure = 'whats_a_scout' | 'why_this'
+
 /** What the person pressed to reach that target: the action row's button, or the card body. */
 export type ScoutSuggestionClickVia = 'button' | 'card'
 
@@ -1754,4 +1788,19 @@ export function captureScoutSuggestionsRefreshed(params: {
 /** "Suggest a scout" opened the chat, having no picks to reopen. Separates cold start from refresh. */
 export function captureScoutSuggestionsChatOpened(params: { batchStatus: string }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_CHAT_OPENED, { batch_status: params.batchStatus })
+}
+
+/** A folded explanation was opened. Only `why_this` names a suggestion. */
+export function captureScoutSuggestionDisclosureOpened(params: {
+    disclosure: ScoutSuggestionDisclosure
+    surface: ScoutSuggestionSurface
+    suggestion?: { id: string; kind: ScoutSuggestionKind; skillName: string }
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_DISCLOSURE_OPENED, {
+        disclosure: params.disclosure,
+        surface: params.surface,
+        suggestion_id: params.suggestion?.id,
+        suggestion_kind: params.suggestion?.kind,
+        skill_name: params.suggestion?.skillName,
+    })
 }

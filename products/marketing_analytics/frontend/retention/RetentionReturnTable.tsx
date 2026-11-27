@@ -1,16 +1,32 @@
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { displayBreakdownValue } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import { VariationCell } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { MarketingAnalyticsRetentionSummaryRow } from '~/queries/schema/schema-general'
 
+import { QuillRetentionReturnTable } from './QuillRetentionReturnTable'
 import { ReturnRow, pairWithPrevious, returnRate } from './retentionSummary'
 
 const CountCell = VariationCell({ reserveTrendSpace: false })
 const RateCell = VariationCell({ isPercentage: true })
 const DaysCell = VariationCell({ neutral: true, formatValue: (value) => value.toFixed(1) })
+
+export type ReturnRowSorter = (a: ReturnRow, b: ReturnRow) => number
+
+const returnRateSorter =
+    (days: 7 | 30): ReturnRowSorter =>
+    (a, b) =>
+        (returnRate(a, days) ?? -1) - (returnRate(b, days) ?? -1)
+
+const SORTERS = {
+    acquired: (a, b) => a.acquired - b.acquired,
+    return7: returnRateSorter(7),
+    return30: returnRateSorter(30),
+    medianReturnDays: (a, b) => (a.medianReturnDays ?? Infinity) - (b.medianReturnDays ?? Infinity),
+} satisfies Record<string, ReturnRowSorter>
 
 export function RetentionReturnTable({
     rows,
@@ -25,8 +41,25 @@ export function RetentionReturnTable({
     compare: boolean
     onlyNewUsers: boolean
 }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const data = pairWithPrevious(rows)
     const total = data.reduce((sum, row) => sum + row.acquired, 0)
+
+    if (todayRailNav) {
+        return (
+            <QuillRetentionReturnTable
+                data={data}
+                total={total}
+                dimensionLabel={dimensionLabel}
+                loading={loading}
+                compare={compare}
+                onlyNewUsers={onlyNewUsers}
+                sorters={SORTERS}
+                cells={{ Count: CountCell, Rate: RateCell, Days: DaysCell }}
+            />
+        )
+    }
+
     const columns: LemonTableColumn<ReturnRow, keyof ReturnRow | undefined>[] = [
         {
             title: dimensionLabel,
@@ -44,7 +77,7 @@ export function RetentionReturnTable({
             tooltip: onlyNewUsers
                 ? 'People whose first qualifying session was in the selected date range.'
                 : 'People with a qualifying session in the selected date range.',
-            sorter: (a, b) => a.acquired - b.acquired,
+            sorter: SORTERS.acquired,
             render: (_, row) => (
                 <div className="flex flex-col items-end tabular-nums @min-[40rem]:flex-row @min-[40rem]:justify-end @min-[40rem]:gap-3">
                     <CountCell
@@ -69,7 +102,7 @@ export function RetentionReturnTable({
                 key: `return${days}`,
                 align: 'right',
                 tooltip: `People with a new session on a later calendar day within ${days} days of acquisition, using the project's timezone. Same-day visits do not count. Only users who have had the full ${days} days are eligible.`,
-                sorter: (a, b) => (returnRate(a, days) ?? -1) - (returnRate(b, days) ?? -1),
+                sorter: SORTERS[`return${days}`],
                 render: (_, row) => {
                     const rate = returnRate(row, days)
                     const eligible = days === 7 ? row.eligible7d : row.eligible30d
@@ -98,7 +131,7 @@ export function RetentionReturnTable({
             align: 'right',
             tooltip:
                 "Estimated median calendar days from the first session to the first return on a later day, using the project's timezone. Same-day visits do not count. Includes returns within 30 days. Recent users have had less time to return.",
-            sorter: (a, b) => (a.medianReturnDays ?? Infinity) - (b.medianReturnDays ?? Infinity),
+            sorter: SORTERS.medianReturnDays,
             render: (_, row) =>
                 row.medianReturnDays === null ? (
                     <Tooltip title="No returns on a later day observed within 30 days.">

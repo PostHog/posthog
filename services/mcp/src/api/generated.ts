@@ -19912,6 +19912,8 @@ export namespace Schemas {
      * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AwsS3DestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -20126,6 +20128,8 @@ export namespace Schemas {
      * `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface AzureBlobDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Azure Blob Storage container name. */
       container_name: string;
       /** Object key prefix applied to every exported file. */
@@ -20737,6 +20741,8 @@ export namespace Schemas {
      * `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface DatabricksDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Databricks SQL warehouse HTTP path. */
       http_path: string;
       /** Unity Catalog name. */
@@ -20767,6 +20773,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface BigQueryDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** BigQuery dataset ID to write to. */
       dataset_id: string;
       /** BigQuery table ID inside the dataset. */
@@ -20790,6 +20798,8 @@ export namespace Schemas {
      * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** PostgreSQL database name to connect to. */
       database: string;
       /** PostgreSQL schema name containing the destination table. */
@@ -20817,6 +20827,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface S3CompatibleDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Name of the destination bucket. */
       bucket_name: string;
       /** Region the bucket is in (e.g. 'us-east-1'). */
@@ -20863,6 +20875,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface SnowflakeDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Snowflake database to write to. */
       database: string;
       /** Snowflake compute warehouse to use. */
@@ -20933,6 +20947,8 @@ export namespace Schemas {
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
+      /** Whether this export reads the new events table. Use it to try the new table on one export, such as a copy of a production export, before your other exports move. Setting it to false does not keep the export on the old table after all exports move. */
+      use_new_events_schema?: boolean;
       /** Redshift database name to connect to. */
       database: string;
       /** Redshift cluster or Serverless workgroup endpoint. Required when using an AWS Redshift integration; plain Redshift integrations store the host themselves. */
@@ -24483,6 +24499,50 @@ export namespace Schemas {
       /** Status of the broadcast, such as draft or active. */
       status: string;
     }
+
+    /**
+     * * `slack_message` - Slack message
+     */
+    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
+
+
+    export const BroadcastRequestDeliveryKindEnum = {
+      SlackMessage: 'slack_message',
+    } as const;
+
+    /**
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     */
+    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
+
+
+    export const BroadcastRequestSourceEnum = {
+      Github: 'github',
+      Slack: 'slack',
+      Api: 'api',
+    } as const;
+
+    /**
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed
+     */
+    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
+
+
+    export const BroadcastRequestStatusEnum = {
+      Pending: 'pending',
+      Open: 'open',
+      Approved: 'approved',
+      StamphogApproved: 'stamphog_approved',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
 
     /**
      * * `breaking_master` - Breaking Master
@@ -30201,6 +30261,57 @@ export namespace Schemas {
       readonly has_installation: boolean;
     }
 
+    export interface CodeReviewApprovalBroadcastRequestDelivery {
+      /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
+       *
+       * * `slack_message` - Slack message */
+      readonly kind: BroadcastRequestDeliveryKindEnum;
+      /**
+         * Link that opens the posted message, as Slack returned it. Null when Slack did not return one.
+         * @nullable
+         */
+      readonly url: string | null;
+    }
+
+    export interface CodeReviewApprovalBroadcastRequest {
+      /** ID of the Broadcast request. */
+      readonly id: string;
+      /** 'pending' while auto-approval reviews the head, so nothing is posted yet. 'open' when auto-approval did not approve and the request waits for a person. 'approved' when a person approved the current head; a new push sets 'open' again. 'stamphog_approved' when auto-approval approved, so no person needs to look. 'merged' or 'closed' when the pull request merged or closed. Only 'pending', 'open' and 'approved' are active, and a pull request has at most one active request.
+       *
+       * * `pending` - Waiting for Stamphog
+       * * `open` - Waiting for a person
+       * * `approved` - Approved by a person
+       * * `stamphog_approved` - Approved by Stamphog
+       * * `merged` - Merged
+       * * `closed` - Closed */
+      readonly status: BroadcastRequestStatusEnum;
+      /** The pull request head the request follows. A push moves it. */
+      readonly head_sha: string;
+      /** Where the request came from: a pull request comment ('github'), a Slack mention ('slack') or the API ('api').
+       *
+       * * `github` - Pull request comment
+       * * `slack` - Slack
+       * * `api` - API */
+      readonly requested_via: BroadcastRequestSourceEnum;
+      /** The requester's note for the people who review, shown in Slack only. Blank when there is none. */
+      readonly note: string;
+      /** Slack display names of the people who said they will look, in the order they said it. */
+      readonly looking: readonly string[];
+      /** GitHub login of the person whose approval of the current head set 'approved'. Blank otherwise. */
+      readonly approved_by_login: string;
+      /** Where the request was posted. Empty until auto-approval does not approve. */
+      readonly deliveries: readonly CodeReviewApprovalBroadcastRequestDelivery[];
+      /**
+         * How many broadcast messages the requester caused in the 7 days up to this request's message, this one included. Counted once when the message is posted. Null until then.
+         * @nullable
+         */
+      readonly requester_card_count: number | null;
+      /** When somebody asked for people to review. */
+      readonly created_at: string;
+      /** When the request last changed. */
+      readonly updated_at: string;
+    }
+
     /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
@@ -30377,6 +30488,8 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** The latest reviewer routing record of the pull request, or null when routing never wrote one: routing is off, the pull request is still a draft, or no routing event arrived yet. Use the routing runs list for the owners each run requested or cut. */
       readonly routing: CodeReviewApprovalPullRequestRouting | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -30429,8 +30542,14 @@ export namespace Schemas {
       readonly routing_fork_labels: CodeReviewApprovalRepositoryRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      readonly broadcast_enabled: boolean;
+      /** Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set. */
+      readonly broadcast_slack_channel_id: string;
+      /** Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go. */
+      readonly broadcast_slack_channel_name: string;
       /**
-         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+         * The caller's access level on the code review auto-approval resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, review_on_clean_external_review, broadcast_enabled, broadcast_slack_channel_id or broadcast_slack_channel_name.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -30481,6 +30600,18 @@ export namespace Schemas {
       routing_fork_labels?: CodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface CodeReviewApprovalRoutingFile {
@@ -67654,6 +67785,11 @@ export namespace Schemas {
       title: string;
       /** Project-specific evidence for this suggestion, in prose. */
       why_here: string;
+      /**
+         * One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.
+         * @maxLength 200
+         */
+      goal?: string;
       /** Custom only: the one-line description the scout would be created with. */
       description: string;
       /** Custom only: the complete skill body the scout would be created with. */
@@ -85454,6 +85590,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly approval_dismissed_at: string | null;
+      /** The newest request for people to review this pull request, or null when nobody asked. Set by a review request with allow_broadcast set to true, or by `@posthog stamp --allow-broadcast`. It belongs to the pull request, so every run of the pull request shows it. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
       /** When the review run was created. */
       readonly created_at: string;
       /** When the review run was last updated. */
@@ -92801,6 +92939,18 @@ export namespace Schemas {
       routing_fork_labels?: PatchedCodeReviewApprovalRepositoryWriteRoutingForkLabels;
       /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
+      /** Whether `stamp --allow-broadcast` and review requests with allow_broadcast set to true may ask people to review. When auto-approval does not approve the pull request, it posts the pull request to broadcast_slack_channel_id. Turning it on needs a channel. Defaults to false. */
+      broadcast_enabled?: boolean;
+      /**
+         * Slack channel ID, such as 'C0123456789', where auto-approval posts pull requests that need a person to review. It uses the project's Slack integration, which must be able to post in the channel. Blank when no channel is set.
+         * @maxLength 64
+         */
+      broadcast_slack_channel_id?: string;
+      /**
+         * Display name of the Slack channel in broadcast_slack_channel_id, without the '#'. Letters, digits, '-' and '_' only, up to 80 characters, like a Slack channel name. Shown in replies only, so a stale name does not change where requests go.
+         * @maxLength 255
+         */
+      broadcast_slack_channel_name?: string;
     }
 
     export interface PatchedCohort {
@@ -116854,6 +117004,13 @@ export namespace Schemas {
          * @minimum 1
          */
       pr_number: number;
+      /** Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review. */
+      allow_broadcast?: boolean;
+      /**
+         * A short note for the people who review, shown in Slack only and never on GitHub. Needs allow_broadcast set to true. A request that is already active keeps its note.
+         * @maxLength 200
+         */
+      note?: string;
     }
 
     /**
@@ -116876,6 +117033,8 @@ export namespace Schemas {
       readonly run: ReviewRun;
       /** True when this request queued a new run. False when a queued, running, or finished run already covered the current head, which is returned instead. */
       readonly created: boolean;
+      /** The request for people to review that this request made or found active. Null unless allow_broadcast was true. */
+      readonly broadcast_request: CodeReviewApprovalBroadcastRequest | null;
     }
 
     export interface ReviewResolutionConfig {
@@ -120806,13 +120965,13 @@ export namespace Schemas {
          */
       report_id?: string | null;
       /**
-         * Short plain-text title. At most 150 characters.
-         * @maxLength 150
+         * Short plain-text title. At most 80 characters.
+         * @maxLength 80
          */
       title: string;
       /**
-         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-         * @maxLength 3000
+         * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 500
          */
       body: string;
       /**
