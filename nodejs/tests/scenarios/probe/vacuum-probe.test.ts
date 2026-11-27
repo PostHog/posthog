@@ -71,9 +71,8 @@ describe('vacuum probe', () => {
         await run('ALTER INDEX cyclotron_jobs_pkey SET (fillfactor = 80)')
         const server = await withPostgres(
             async (client) =>
-                (
-                    await client.query<{ autovacuum: string }>(`SELECT current_setting('autovacuum') AS autovacuum`)
-                ).rows[0],
+                (await client.query<{ autovacuum: string }>(`SELECT current_setting('autovacuum') AS autovacuum`))
+                    .rows[0],
             PROBE_URL
         )
         const probe = createVacuumProbe(PROBE_URL)
