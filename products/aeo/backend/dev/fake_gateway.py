@@ -6,7 +6,7 @@ Claude engine) and OpenAI `/v1/responses` (the OpenAI and Perplexity engines). E
 and seeded by it, so the same request always gets the same answer while different prompts get different ones, and
 a share of the engine answers fail or leave the site uncited so every state of the page shows up.
 
-Run it with `python -m products.aeo.backend.dev.fake_gateway` (stdlib only, no Django). The README's
+Run it with `python -m products.aeo.backend.dev.fake_gateway` (no Django). The README's
 "Local development without a gateway token" section says how the stack reaches it.
 """
 
@@ -21,12 +21,13 @@ import random
 import hashlib
 import argparse
 import threading
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib import request as urllib_request
-from urllib.error import HTTPError
 from urllib.parse import urlparse
+
+import requests
 
 DEFAULT_PORT = 8080
 # Enough latency for the wizard to show its progress states and little enough for an automated check to
@@ -788,19 +789,18 @@ class Recorder:
         }
         outgoing["Authorization"] = f"Bearer {self._token}"
         outgoing["Content-Type"] = "application/json"
-        request = urllib_request.Request(
-            self.root + path, data=json.dumps(body).encode(), headers=outgoing, method="POST"
-        )
+        upstream = requests.post(self.root + path, data=json.dumps(body).encode(), headers=outgoing, timeout=420)
         try:
-            with urllib_request.urlopen(request, timeout=420) as upstream:
-                response = GatewayResponse(upstream.status, json.loads(upstream.read() or b"{}"))
-        except HTTPError as error:
-            raw = error.read()
-            try:
-                payload = json.loads(raw or b"{}")
-            except json.JSONDecodeError:
-                payload = {"error": {"message": raw.decode(errors="replace")[:500]}}
-            response = GatewayResponse(error.code, payload)
+            payload = upstream.json() if upstream.content else {}
+        except ValueError:
+            payload = {"error": {"message": upstream.text[:500]}}
+        # The runner reads the denial and retry headers to tell exhausted credits and throttling from other errors.
+        kept = {
+            key: value
+            for key, value in upstream.headers.items()
+            if key.lower() == "retry-after" or key.lower().startswith("x-posthog-")
+        }
+        response = GatewayResponse(upstream.status_code, payload, kept)
         if response.status == 200:
             (self.store / f"{request_key(path, body)}.json").write_text(
                 json.dumps({"path": path, "request": body, "response": response.body}, indent=2)
@@ -822,14 +822,25 @@ class Replayer:
 # --- Server -------------------------------------------------------------------------------------------------------
 
 
-def parse_delay(spec: str | None) -> tuple[float, float]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Delay:
+    """How long each answer waits, in seconds, drawn uniformly between the two bounds."""
+
+    low: float = 0.0
+    high: float = 0.0
+
+
+NO_DELAY = Delay()
+
+
+def parse_delay(spec: str | None) -> Delay:
     """`FAKE_GATEWAY_DELAY_MS` as a range in seconds: `800-3000`, or one number for a fixed delay."""
     if not spec:
-        return (0.0, 0.0)
+        return NO_DELAY
     low, _, high = spec.partition("-")
     low_ms = float(low or 0)
     high_ms = float(high) if high else low_ms
-    return (low_ms / 1000, max(low_ms, high_ms) / 1000)
+    return Delay(low=low_ms / 1000, high=max(low_ms, high_ms) / 1000)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -873,9 +884,9 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return
         response, mode = self.server.answer(path, body, dict(self.headers.items()))
-        low, high = self.server.delay
-        if high:
-            time.sleep(random.uniform(low, high))
+        delay = self.server.delay
+        if delay.high:
+            time.sleep(random.uniform(delay.low, delay.high))
         kind = classify(path, body)
         self.log_message("%s %s -> %s (%s)", kind, path, response.status, mode)
         self._send(response, mode)
@@ -890,7 +901,7 @@ class FakeGatewayServer(ThreadingHTTPServer):
         *,
         mode: str = "generated",
         store: Path = DEFAULT_STORE,
-        delay: tuple[float, float] = (0.0, 0.0),
+        delay: Delay = NO_DELAY,
         quiet: bool = False,
     ) -> None:
         super().__init__(address, _Handler)

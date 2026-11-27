@@ -11,6 +11,7 @@ from posthog.llm.gateway_client import AIGatewayConfig
 
 from products.aeo.backend.dev.fake_gateway import (
     OUTCOME_WEIGHTS,
+    Delay,
     FakeGateway,
     FakeGatewayServer,
     engine_outcome,
@@ -168,7 +169,12 @@ def test_the_server_answers_over_http() -> None:
 
 @pytest.mark.parametrize(
     "spec, expected",
-    [("", (0.0, 0.0)), ("500", (0.5, 0.5)), ("800-3000", (0.8, 3.0)), ("3000-800", (3.0, 3.0))],
+    [
+        ("", Delay()),
+        ("500", Delay(low=0.5, high=0.5)),
+        ("800-3000", Delay(low=0.8, high=3.0)),
+        ("3000-800", Delay(low=3.0, high=3.0)),
+    ],
 )
-def test_delay_specs(spec: str, expected: tuple[float, float]) -> None:
+def test_delay_specs(spec: str, expected: Delay) -> None:
     assert parse_delay(spec) == expected
