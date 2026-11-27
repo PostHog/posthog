@@ -184,10 +184,9 @@ def count_running_experiments_needing_flag_calls_in_events(organization_id: UUID
     PostHog Cloud. Legacy metrics do not count, because nothing computes them.
     """
     experiments = (
-        ExperimentModel.objects.filter(
-            team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
-        )
-        .exclude(deleted=True)
+        ExperimentModel.objects.in_organization(organization_id)
+        .live()
+        .filter(start_date__isnull=False, end_date__isnull=True, archived=False)
         .select_related("team")
         .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
@@ -248,7 +247,7 @@ def get_stored_primary_result(*, team_id: int, experiment_id: int, user_id: int 
     None for an experiment that reports absolute differences: the calculation key leaves out the difference type,
     so the stored interval can be in either unit. None for a warehouse-native experiment whose connection the reader
     cannot read, because the stored totals came from that connection."""
-    experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
+    experiment = ExperimentModel.objects.for_team(team_id).deleted_is_false().filter(pk=experiment_id).first()
     config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
     if experiment is None or config is None or config.settings.stats.difference_type == DifferenceType.ABSOLUTE:
         return None
@@ -283,7 +282,12 @@ def get_running_time_target(
 ) -> ExperimentRunningTimeTarget:
     """The target sample of the experiment's running time estimate, with what the experiment can detect over time.
     `mode` replaces the saved one, so that the page can show the automatic target while the user switches to it."""
-    experiment = ExperimentModel.objects.select_related("feature_flag").get(team_id=team_id, id=experiment_id)
+    experiment = (
+        ExperimentModel.objects.for_team(team_id)
+        .including_deleted()
+        .select_related("feature_flag")
+        .get(id=experiment_id)
+    )
     target = load_running_time_target(experiment, mode=mode)
     outlook = target.outlook
     return ExperimentRunningTimeTarget(
@@ -312,18 +316,13 @@ def list_ended_experiments_without_conclusion(
     *, team_id: int, user_id: int, since: datetime, limit: int
 ) -> list[EndedExperiment]:
     rows = (
-        ExperimentModel.objects.filter(
-            team_id=team_id,
-            created_by_id=user_id,
-            end_date__gte=since,
-            conclusion__isnull=True,
-            archived=False,
-        )
-        .exclude(deleted=True)
+        ExperimentModel.objects.for_team(team_id)
+        .live()
+        .filter(created_by_id=user_id, end_date__gte=since, conclusion__isnull=True, archived=False)
         .order_by("-end_date")
         .values_list("id", "name", "end_date")[:limit]
     )
-    return [EndedExperiment(id=id, name=name, ended_at=ended_at) for id, name, ended_at in rows if ended_at is not None]
+    return [EndedExperiment(id=id, name=name, ended_at=ended_at) for id, name, ended_at in rows]
 
 
 def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -> bool:
@@ -344,15 +343,18 @@ def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -
 def list_running_experiments(
     *, team_id: int, user_id: int, started_after: datetime | None, started_before: datetime, limit: int
 ) -> list[RunningExperiment]:
-    experiments = ExperimentModel.objects.filter(
-        team_id=team_id,
-        created_by_id=user_id,
-        start_date__lte=started_before,
-        end_date__isnull=True,
-        archived=False,
-        # The caller counts flag calls, and a rule-linked experiment enrolls on $experiment_exposure.
-        feature_flag_rule_id__isnull=True,
-    ).exclude(deleted=True)
+    experiments = (
+        ExperimentModel.objects.for_team(team_id)
+        .live()
+        .filter(
+            created_by_id=user_id,
+            start_date__lte=started_before,
+            end_date__isnull=True,
+            archived=False,
+            # The caller counts flag calls, and a rule-linked experiment enrolls on $experiment_exposure.
+            feature_flag_rule_id__isnull=True,
+        )
+    )
     if started_after is not None:
         experiments = experiments.filter(start_date__gt=started_after)
     rows = experiments.order_by("-start_date").values_list(
@@ -361,30 +363,29 @@ def list_running_experiments(
     return [
         RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
         for id, name, started_at, flag_key, exposure_criteria in rows
-        if started_at is not None and _exposes_on_flag_calls(id, exposure_criteria)
+        if _exposes_on_flag_calls(id, exposure_criteria)
     ]
 
 
 def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> list[RunningExperiment]:
     rows = (
-        ExperimentModel.objects.filter(
-            team_id=team_id, created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False
-        )
-        .exclude(deleted=True)
+        ExperimentModel.objects.for_team(team_id)
+        .live()
+        .filter(created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False)
         .order_by("-start_date")
         .values_list("id", "name", "start_date", "feature_flag__key")[:limit]
     )
     return [
         RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
         for id, name, started_at, flag_key in rows
-        if started_at is not None
     ]
 
 
 def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collection[int]) -> dict[int, str]:
     rows = list(
-        ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
-        .exclude(deleted=True)
+        ExperimentModel.objects.for_team(team.id)
+        .live()
+        .filter(id__in=experiment_ids)
         .values_list("id", "name", "team_id", "created_by_id")
     )
     denied = set(
@@ -435,9 +436,9 @@ async def aget_experiment_assistant_context(
     """The experiment with `experiment_id`, or else the experiment on the flag with `feature_flag_key`. None when
     neither is given, or when no experiment of the team matches. Only rows whose `deleted` is false match, so a row
     whose `deleted` is NULL does not."""
-    # `team=` matches the id exactly, so the result's `team_id` is always `team_id`, which an object access check of
-    # the caller's team requires. RootTeamQuerySet rewrites a `team_id=` filter to the project's root team.
-    experiments = ExperimentModel.objects.select_related("feature_flag").filter(team=team_id, deleted=False)
+    # The result's `team_id` must be `team_id`, because an object access check of the caller's team requires it. So
+    # this reads the exact team, and `for_team` would resolve an environment to the project's root team.
+    experiments = ExperimentModel.objects.on_exact_team(team_id).deleted_is_false().select_related("feature_flag")
     try:
         if experiment_id is not None:
             experiment = await experiments.aget(id=experiment_id)
@@ -456,13 +457,14 @@ def get_experiment_team_id(experiment_id: int) -> int | None:
     The lookup is not scoped to a team, so the caller must check that the user may see the returned team."""
     # The Vercel SSO redirect has no team yet. It checks the user's membership in the returned team.
     # nosemgrep: idor-lookup-without-team
-    return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
+    experiments = ExperimentModel.objects.including_deleted().filter(pk=experiment_id)
+    return experiments.values_list("team_id", flat=True).first()
 
 
 def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
     """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
     (or among all of them when it is None)."""
-    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    experiments = ExperimentModel.objects.for_team(team_id).including_deleted().filter(created_by_id=user_id)
     if experiment_ids is not None:
         experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
     return frozenset(str(id) for id in experiments.values_list("id", flat=True))
@@ -471,17 +473,18 @@ def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Col
 def team_has_launched_experiments(team_id: int) -> bool:
     """Whether the team has a running or stopped experiment, deleted and archived ones included. Experiments are saved
     on the project's root team, so pass that team's id."""
-    # `team=` matches the id exactly. RootTeamQuerySet rewrites a `team_id=` filter to the project's root team.
-    return ExperimentModel.objects.filter(
-        team=team_id, status__in=[ExperimentModel.Status.RUNNING, ExperimentModel.Status.STOPPED]
-    ).exists()
+    return (
+        ExperimentModel.objects.on_exact_team(team_id)
+        .including_deleted()
+        .filter(status__in=[ExperimentModel.Status.RUNNING, ExperimentModel.Status.STOPPED])
+        .exists()
+    )
 
 
 def experiment_flag_ids(team_ids: Collection[int], *, include_deleted: bool) -> set[int]:
     """Ids of the flags that the teams' experiments use, archived experiments included."""
-    experiments = ExperimentModel.objects.filter(team_id__in=team_ids)
-    if not include_deleted:
-        experiments = experiments.filter(deleted=False)
+    experiments = ExperimentModel.objects.on_exact_teams(team_ids)
+    experiments = experiments.including_deleted() if include_deleted else experiments.deleted_is_false()
     return set(experiments.values_list("feature_flag_id", flat=True))
 
 
@@ -491,7 +494,8 @@ def list_launched_experiments_for_digest(
     """Experiments of the teams in `team_ids` that started after `period_start` and by `period_end`, and did not also
     end in that period. Deleted and archived experiments are included, in no set order."""
     rows = (
-        ExperimentModel.objects.filter(
+        ExperimentModel.objects.including_deleted()
+        .filter(
             team_id__gte=team_ids.start,
             team_id__lt=team_ids.stop,
             start_date__gt=period_start,
@@ -503,7 +507,6 @@ def list_launched_experiments_for_digest(
     return [
         DigestLaunchedExperiment(team_id=team_id, id=id, name=name, start_date=start_date)
         for team_id, id, name, start_date in rows
-        if start_date is not None
     ]
 
 
@@ -512,16 +515,19 @@ def list_completed_experiments_for_digest(
 ) -> list[DigestCompletedExperiment]:
     """Experiments of the teams in `team_ids` that ended after `period_start` and by `period_end`. Deleted and
     archived experiments are included, in no set order."""
-    rows = ExperimentModel.objects.filter(
-        team_id__gte=team_ids.start,
-        team_id__lt=team_ids.stop,
-        end_date__gt=period_start,
-        end_date__lte=period_end,
-    ).values_list("team_id", "id", "name", "start_date", "end_date")
+    rows = (
+        ExperimentModel.objects.including_deleted()
+        .filter(
+            team_id__gte=team_ids.start,
+            team_id__lt=team_ids.stop,
+            end_date__gt=period_start,
+            end_date__lte=period_end,
+        )
+        .values_list("team_id", "id", "name", "start_date", "end_date")
+    )
     return [
         DigestCompletedExperiment(team_id=team_id, id=id, name=name, start_date=start_date, end_date=end_date)
         for team_id, id, name, start_date, end_date in rows
-        if end_date is not None
     ]
 
 
@@ -612,7 +618,9 @@ def start_metrics_recalculation(
         admission,
     )
 
-    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    experiment = (
+        ExperimentModel.objects.for_team(team_id).including_deleted().select_related("team").get(id=experiment_id)
+    )
     user = User.objects.get(id=user_id)
     try:
         started = admission.start_metrics_recalculation(experiment, user, trigger)
@@ -638,7 +646,9 @@ def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int |
         runs,
     )
 
-    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    experiment = (
+        ExperimentModel.objects.for_team(team_id).including_deleted().select_related("team").get(id=experiment_id)
+    )
     _check_warehouse_native_result_access(experiment, user_id)
     active = runs.get_active_recalculation(experiment)
     latest = runs.get_latest_recalculation(experiment)
@@ -673,7 +683,9 @@ def get_recalculation_run(
         runs,
     )
 
-    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    experiment = (
+        ExperimentModel.objects.for_team(team_id).including_deleted().select_related("team").get(id=experiment_id)
+    )
     _check_warehouse_native_result_access(experiment, user_id)
     recalc = runs.get_recalculation_by_id(experiment, recalculation_id)
     return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
@@ -828,8 +840,10 @@ def live_experiments_by_flag(feature_flag_ids: Collection[int]) -> dict[int, tup
     """The experiments that are not deleted on each of the flags, archived ones included, keyed by flag id, in no set
     order. A flag without one has no key. Flag ids are unique across teams, so pass ids from a team-scoped read."""
     experiments: defaultdict[int, list[LinkedExperiment]] = defaultdict(list)
-    for experiment in ExperimentModel.objects.filter(deleted=False, feature_flag_id__in=feature_flag_ids).only(
-        "id", "name", "feature_flag_id", "start_date", "end_date"
+    for experiment in (
+        ExperimentModel.objects.on_flags(feature_flag_ids)
+        .deleted_is_false()
+        .only("id", "name", "feature_flag_id", "start_date", "end_date")
     ):
         experiments[experiment.feature_flag_id].append(
             LinkedExperiment(id=experiment.id, name=experiment.name, is_running=experiment.is_running)

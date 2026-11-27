@@ -142,7 +142,9 @@ def resolve_in_session_exposure_semantics(*, team_id: int, experiment_id: int) -
     None for an unknown or deleted experiment.
     """
     experiment = (
-        Experiment.objects.filter(id=experiment_id, team_id=team_id, deleted=False)
+        Experiment.objects.for_team(team_id)
+        .deleted_is_false()
+        .filter(id=experiment_id)
         .select_related("team", "feature_flag")
         .first()
     )

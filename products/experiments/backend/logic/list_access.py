@@ -19,7 +19,7 @@ def visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
 
 def visible_experiments(team_id: int, access: ListAccess | None) -> QuerySet[Experiment]:
     """The team's experiments that `access` lets the viewer see. None means no narrowing."""
-    return visible_to(Experiment.objects.filter(team_id=team_id), access)
+    return visible_to(Experiment.objects.for_team(team_id).including_deleted(), access)
 
 
 def visible_saved_metrics(team_id: int, access: ListAccess | None) -> QuerySet[ExperimentSavedMetric]:
