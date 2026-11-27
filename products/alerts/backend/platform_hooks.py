@@ -127,14 +127,14 @@ def viewable_alert_insights(
     """The insights of `object_ids` whose alerts the reader may read through the platform API. It
     applies the insight alert API's read gates: viewer access to the insight, and a metrics scope for
     a token when the insight is a metrics one."""
-    from django.db.models import Q  # noqa: PLC0415
+    from django.db.models import Q
 
-    from posthog.schema_enums import NodeKind  # noqa: PLC0415
+    from posthog.schema_enums import NodeKind
 
-    from products.authorization.backend.facade.contracts import Resource, Subject  # noqa: PLC0415
-    from products.authorization.backend.facade.enums import ResourceType  # noqa: PLC0415
-    from products.authorization.backend.presentation.querysets import filter_queryset  # noqa: PLC0415
-    from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
+    from products.authorization.backend.facade.contracts import Resource, Subject
+    from products.authorization.backend.facade.enums import ResourceType
+    from products.authorization.backend.presentation.querysets import filter_queryset
+    from products.product_analytics.backend.facade.models import Insight
 
     insights = filter_queryset(
         Insight.objects.filter(team_id=team_id, id__in=list(object_ids)),
