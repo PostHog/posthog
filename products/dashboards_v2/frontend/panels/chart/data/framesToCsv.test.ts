@@ -42,6 +42,16 @@ describe('framesToCsv', () => {
             frames: [{ fields: [{ name: 'path', type: 'string', values: ['=1+1', '=1+1'] }] }],
             csv: ['path', `"'=1+1"`, `"'=1+1"`],
         },
+        {
+            name: 'writes a list cell as JSON, so it cannot run as a formula',
+            frames: [{ fields: [{ name: 'paths', type: 'other', values: [['=1+1'], ['=1+1']] }] }],
+            csv: ['paths', '"[""=1+1""]"', '"[""=1+1""]"'],
+        },
+        {
+            name: 'joins a date and a full timestamp for the same instant into one row',
+            frames: [series('Pageviews', ['2026-11-01'], [1]), series('Sign-ups', ['2026-11-01T00:00:00.000Z'], [5])],
+            csv: ['time,Pageviews,Sign-ups', '2026-11-01,1,5'],
+        },
     ])('$name', ({ frames, csv }) => {
         expect(framesToCsv(frames).split('\r\n')).toEqual(csv)
     })
