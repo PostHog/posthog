@@ -137,12 +137,14 @@ export async function redirectMessageToOutput<O extends string>(
     originalMessage: Message,
     stepName?: string,
     preserveKey: boolean = true,
-    awaitAck: boolean = true
+    awaitAck: boolean = true,
+    resultHeaders: Record<string, string> = {}
 ): Promise<void> {
     const step = stepName || 'unknown'
 
     try {
         const extraHeaders: Record<string, string> = {
+            ...resultHeaders,
             'redirect-step': step,
             'redirect-timestamp': new Date().toISOString(),
         }

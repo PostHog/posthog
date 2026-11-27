@@ -15,6 +15,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
@@ -5452,6 +5453,69 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
 
+    @parameterized.expand([("narrowed_to_one_team", True), ("emptied", False)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_dcr_non_rotating_refresh_reads_teams_changed_while_waiting_for_the_lock(
+        self, _name: str, keeps_a_team: bool
+    ):
+        # The request reads the refresh token in autocommit, then a resource removal narrows its
+        # teams while the request waits for the connection lock. Narrowing the row from inside the
+        # lock call stands in for that commit. The new access token must carry the narrowed teams.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        refresh_token = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        ).json()["refresh_token"]
+        OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=[self.team.id, other_team.id])
+
+        remaining_teams = [other_team.id] if keeps_a_team else []
+
+        def remove_the_team(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=remaining_teams)
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=remove_the_team):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+
+        if keeps_a_team:
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            new_access_token = OAuthAccessToken.objects.get(token=refresh_response.json()["access_token"])
+            self.assertEqual(new_access_token.scoped_teams, [other_team.id])
+        else:
+            self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(refresh_response.json()["error"], "invalid_grant")
+
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False
@@ -6184,6 +6248,124 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         )
         response = self.client.get(auth_url)
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+
+@override_settings(OAUTH_PROXY_CALLBACK_URLS=["https://proxy.example/oauth/callback/"])
+class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "own_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_a/",
+                True,
+            ),
+            ("shared_route", "https://proxy.example/oauth/callback/", "https://proxy.example/oauth/callback/", True),
+            (
+                "other_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_not_registered",
+                "https://app.example/cb",
+                "https://proxy.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_explicitly",
+                "https://proxy.example/oauth/callback/ https://proxy.example/oauth/callback/app_b/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_extra_query",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/?client=app_a",
+                False,
+            ),
+            (
+                "callback_of_unlisted_host",
+                "https://other.example/oauth/callback/",
+                "https://other.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_default_port",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_encoded_host",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_ideographic_dot",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_userinfo_and_query",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/?client=app_b",
+                False,
+            ),
+            (
+                "shared_route_with_path_param",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/;app_b",
+                False,
+            ),
+            (
+                "own_client_route_of_a_client_id_with_dot_segments",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/https://attacker.example/t/../../../../app_b/",
+                False,
+                "https://attacker.example/t/../../../../app_b",
+            ),
+        ]
+    )
+    def test_proxy_callback_is_bound_to_the_requesting_client(
+        self, _name: str, registered: str, requested: str, allowed: bool, client_id: str = "app_a"
+    ) -> None:
+        app = OAuthApplication(client_id=client_id, redirect_uris=registered)
+
+        result = OAuthValidator().validate_redirect_uri(client_id, requested, SimpleNamespace(client=app))
+
+        assert result is allowed
+
+    @parameterized.expand(
+        [
+            ("shared_route", "https://proxy.example/oauth/callback/", True),
+            ("unrelated_host", "https://app.example/oauth/callback/app_b/", True),
+            ("client_route", "https://proxy.example/oauth/callback/app_b/", False),
+            ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
+            ("client_route_with_default_port", "https://proxy.example:443/oauth/callback/app_b/", False),
+            ("client_route_with_dot_segment", "https://proxy.example/oauth/x/../callback/app_b/", False),
+            ("other_path_on_proxy_host", "https://proxy.example/somewhere/", False),
+        ]
+    )
+    def test_only_the_shared_proxy_callback_can_be_registered(self, _name: str, redirect_uri: str, valid: bool) -> None:
+        app = OAuthApplication(
+            client_id="app_a",
+            redirect_uris=redirect_uri,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+
+        try:
+            app.clean()
+            error = None
+        except ValidationError as e:
+            error = str(e)
+
+        assert error is None if valid else "reserved for the PostHog OAuth proxy" in str(error)
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):

@@ -150,7 +150,9 @@ PARQUET_COMPRESSION: ParquetCompression = "zstd"
 SOURCE_FENCE_TIMEOUT_SECONDS = 5.0
 
 
-def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool) -> bool:
+def should_coalesce_tables(
+    *, resume_manager: ResumableSourceManager[Any] | None, is_webhook: bool, is_cdc: bool = False
+) -> bool:
     """Whether the batcher may merge small Arrow tables before staging a batch.
 
     Coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables) from becoming
@@ -162,8 +164,12 @@ def should_coalesce_tables(*, resume_manager: ResumableSourceManager[Any] | None
     Pass the *resolved* manager, never the raw one. A resumable source class whose current run cannot
     resume commits no cursor, so it is free to coalesce — and reading the raw manager here would
     switch coalescing off for every run of every such class, most of which never checkpoint.
+
+    A change stream sizes its own batches by the rows the loader fills from the Delta table
+    (`CDCSourceManager.get_items`). DELETE and TOAST-omitted rows are small here, so coalescing by
+    rows and bytes would merge many such batches into one that runs the loader out of memory.
     """
-    return resume_manager is None and not is_webhook
+    return resume_manager is None and not is_webhook and not is_cdc
 
 
 class StagedSchemeWithoutResetError(Exception):
@@ -418,7 +424,9 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id,
             schema_name=self._schema.name,
             coalesce_tables=should_coalesce_tables(
-                resume_manager=self._resumable_source_manager, is_webhook=self._schema.is_webhook
+                resume_manager=self._resumable_source_manager,
+                is_webhook=self._schema.is_webhook,
+                is_cdc=sync_type == "cdc",
             ),
             primary_keys=self._resource.primary_keys,
             masked_columns=self._schema.masked_columns,

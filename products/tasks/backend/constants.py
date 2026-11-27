@@ -551,3 +551,6 @@ def filter_user_sandbox_env_vars(env_vars: dict[str, str]) -> tuple[dict[str, st
             continue
         safe[key] = value
     return safe, skipped
+
+
+TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60

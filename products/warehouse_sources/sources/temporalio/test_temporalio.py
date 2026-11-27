@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -8,15 +9,26 @@ from django.test import override_settings
 from google.protobuf.duration_pb2 import Duration
 from google.protobuf.timestamp_pb2 import Timestamp
 from temporalio.api.activity.v1 import ActivityExecutionListInfo
+from temporalio.api.batch.v1 import BatchOperationInfo
 from temporalio.api.common.v1 import ActivityType, Payload, SearchAttributes, WorkflowExecution, WorkflowType
-from temporalio.api.enums.v1 import ActivityExecutionStatus, NamespaceState
+from temporalio.api.deployment.v1 import WorkerDeploymentVersion
+from temporalio.api.enums.v1 import (
+    ActivityExecutionStatus,
+    BatchOperationState,
+    BatchOperationType,
+    NamespaceState,
+    WorkerStatus,
+)
 from temporalio.api.namespace.v1 import NamespaceConfig, NamespaceInfo
 from temporalio.api.schedule.v1 import ScheduleActionResult, ScheduleListEntry, ScheduleListInfo
+from temporalio.api.worker.v1 import WorkerHeartbeat, WorkerHostInfo, WorkerInfo, WorkerListInfo
 from temporalio.api.workflowservice.v1 import (
     DescribeNamespaceResponse,
     ListActivityExecutionsResponse,
+    ListBatchOperationsResponse,
     ListNamespacesResponse,
     ListSchedulesResponse,
+    ListWorkersResponse,
 )
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
@@ -317,6 +329,20 @@ def _activities_page(activity_ids: list[str], next_page_token: bytes = b"") -> L
     )
 
 
+def _batch_operations_page(job_ids: list[str], next_page_token: bytes = b"") -> ListBatchOperationsResponse:
+    return ListBatchOperationsResponse(
+        operation_info=[BatchOperationInfo(job_id=job_id) for job_id in job_ids],
+        next_page_token=next_page_token,
+    )
+
+
+def _workers_page(worker_keys: list[str], next_page_token: bytes = b"") -> ListWorkersResponse:
+    return ListWorkersResponse(
+        workers=[WorkerListInfo(worker_instance_key=key) for key in worker_keys],
+        next_page_token=next_page_token,
+    )
+
+
 def _namespace(name: str) -> DescribeNamespaceResponse:
     return DescribeNamespaceResponse(
         namespace_info=NamespaceInfo(name=name, id=f"{name}-id", state=NamespaceState.NAMESPACE_STATE_REGISTERED),
@@ -341,6 +367,8 @@ class TestPagedListTables:
         [
             ("schedules", "list_schedules", "id", _schedules_page),
             ("standalone_activities", "list_activity_executions", "activity_id", _activities_page),
+            ("batch_operations", "list_batch_operations", "job_id", _batch_operations_page),
+            ("workers", "list_workers", "worker_instance_key", _workers_page),
         ],
     )
     @pytest.mark.parametrize(
@@ -436,6 +464,82 @@ class TestPagedListTables:
             "ACTIVITY_EXECUTION_STATUS_COMPLETED" if closed else "ACTIVITY_EXECUTION_STATUS_RUNNING"
         )
         assert row["search_attributes"] == {"Region": ["eu"]}
+
+    @pytest.mark.parametrize(
+        "closed,expected_close_time",
+        [
+            (True, datetime.datetime(2026, 1, 2, 4, 0, tzinfo=datetime.UTC)),
+            (False, None),
+        ],
+    )
+    def test_batch_operation_rows_use_datetimes_and_enum_names(self, closed, expected_close_time):
+        started = datetime.datetime(2026, 1, 2, 3, 4, tzinfo=datetime.UTC)
+        info = BatchOperationInfo(
+            job_id="terminate-stuck-orders",
+            state=BatchOperationState.BATCH_OPERATION_STATE_RUNNING,
+            operation_type=BatchOperationType.BATCH_OPERATION_TYPE_TERMINATE,
+            start_time=_timestamp(started),
+        )
+        if closed:
+            info.close_time.CopyFrom(_timestamp(expected_close_time))
+            info.state = BatchOperationState.BATCH_OPERATION_STATE_COMPLETED
+        service = MagicMock(
+            list_batch_operations=AsyncMock(return_value=ListBatchOperationsResponse(operation_info=[info]))
+        )
+
+        [row] = _drive("batch_operations", service).rows
+
+        assert row["job_id"] == "terminate-stuck-orders"
+        assert row["start_time"] == started
+        assert row["close_time"] == expected_close_time
+        assert row["operation_type"] == "BATCH_OPERATION_TYPE_TERMINATE"
+        assert row["state"] == ("BATCH_OPERATION_STATE_COMPLETED" if closed else "BATCH_OPERATION_STATE_RUNNING")
+
+    @pytest.mark.parametrize("from_heartbeat", [False, True])
+    def test_worker_rows_have_one_shape_on_new_and_older_servers(self, from_heartbeat):
+        started = datetime.datetime(2026, 1, 2, 3, 4, tzinfo=datetime.UTC)
+        common: dict[str, Any] = {
+            "worker_instance_key": "wk-1",
+            "worker_identity": "1234@host-a",
+            "task_queue": "orders",
+            "sdk_name": "temporal-python",
+            "sdk_version": "1.0.0",
+            "status": WorkerStatus.WORKER_STATUS_RUNNING,
+            "deployment_version": WorkerDeploymentVersion(deployment_name="orders", build_id="b-7"),
+            "start_time": _timestamp(started),
+        }
+        host: dict[str, Any] = {"host_name": "host-a", "worker_grouping_key": "group-1", "process_id": "1234"}
+        if from_heartbeat:
+            response = ListWorkersResponse(
+                workers_info=[
+                    WorkerInfo(
+                        worker_heartbeat=WorkerHeartbeat(
+                            **common, host_info=WorkerHostInfo(**host, current_host_cpu_usage=0.5)
+                        )
+                    )
+                ]
+            )
+        else:
+            response = ListWorkersResponse(workers=[WorkerListInfo(**common, **host)])
+        service = MagicMock(list_workers=AsyncMock(return_value=response))
+
+        [row] = _drive("workers", service).rows
+
+        assert row == {
+            "worker_instance_key": "wk-1",
+            "worker_identity": "1234@host-a",
+            "task_queue": "orders",
+            "deployment_version": {"deployment_name": "orders", "build_id": "b-7"},
+            "sdk_name": "temporal-python",
+            "sdk_version": "1.0.0",
+            "status": "WORKER_STATUS_RUNNING",
+            "start_time": started,
+            "host_name": "host-a",
+            "worker_grouping_key": "group-1",
+            "process_id": "1234",
+            "plugins": [],
+            "drivers": [],
+        }
 
 
 class TestNamespaces:

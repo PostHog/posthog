@@ -2,6 +2,7 @@ import json
 import uuid
 import datetime as dt
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import time_machine
@@ -9,6 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -535,6 +537,23 @@ class TestAEOPromptAPI(APIBaseTest):
         assert again == first
         assert [q["sql"] for q in repeated.captured_queries if "posthog_aeo_citation_check" in q["sql"]] == []
         assert answers(after_write) == expected + 1
+
+    @parameterized.expand([("overview", "overview/"), ("rankings", "rankings/")])
+    def test_current_prompts_leaves_out_the_answers_to_archived_prompts(self, _name: str, path: str) -> None:
+        def answers(body: dict) -> int:
+            return body["current"]["checks"] if path == "overview/" else body["answers"]
+
+        create_own_brand(self.team, "example.com")
+        self.client.post(
+            f"{self.url}bulk_import/", {"prompts": [{"prompt": "archived?"}, {"prompt": "current?"}]}, format="json"
+        )
+        ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
+        for prompt_id in ids.values():
+            self._record_check(prompt_id, "exa-answer", minutes_ago=30, cited_urls=["https://rival.io/a"])
+        AEOPrompt.objects.for_team(self.team.id).filter(id=ids["archived?"]).update(archived_at=timezone.now())
+
+        assert answers(self.client.get(f"{self.url}{path}").json()) == 2
+        assert answers(self.client.get(f"{self.url}{path}?current_prompts=true").json()) == 1
 
     def test_refresh_stores_the_views_the_page_opens_on(self) -> None:
         create_own_brand(self.team, "example.com")
@@ -1089,6 +1108,21 @@ class TestAEOPromptAPI(APIBaseTest):
             ("example.com", "example", 1),
         ]
 
+        with team_scope(self.team.pk):
+            acme_id = AEOBrand.objects.get(team=self.team, domain="acme.co.uk").id
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/aeo_brands/{acme_id}/", {"status": "suggested"}, format="json"
+            )
+        assert response.status_code == 200, response.json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is False
+        assert {row["domain"]: row["name"] for row in rankings["brands"] if not row["is_target"]} == {
+            "acme.co.uk": "Acme",
+            "rival.io": "Rival",
+        }
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_fallback_skips_brands_ignored_or_labeled_otherwise(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
@@ -1188,8 +1222,8 @@ class TestAEOPromptAPI(APIBaseTest):
             for row in rankings["top_domains"]
         ] == [
             ("example.com", 2, 2, True, False),
-            ("rival.io", 2, 2, False, True),
-            ("acme.co.uk", 1, 1, False, True),
+            ("rival.io", 2, 2, False, False),
+            ("acme.co.uk", 1, 1, False, False),
             ("example.de", 1, 1, False, False),
             ("reddit.com", 1, 1, False, False),
         ]
@@ -1202,6 +1236,19 @@ class TestAEOPromptAPI(APIBaseTest):
             "https://www.example.com/pricing": True,
             "https://www.reddit.com/r/a": False,
         }
+
+        rival = AEOBrand.objects.for_team(self.team.id).get(domain="rival.io")
+        with self.captureOnCommitCallbacks(execute=True):
+            labeled = self.client.patch(
+                f"/api/projects/{self.team.id}/aeo_brands/{rival.id}/", {"kind": "competitor"}, format="json"
+            )
+        assert labeled.status_code == status.HTTP_200_OK, labeled.json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+        assert [(row["domain"], row["is_competitor"]) for row in rankings["top_domains"][:3]] == [
+            ("example.com", False),
+            ("rival.io", True),
+            ("acme.co.uk", False),
+        ]
 
     @parameterized.expand(
         [
@@ -1671,6 +1718,87 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def _active_prompts(self) -> list[str]:
+        return sorted(
+            AEOPrompt.objects.for_team(self.team.id)
+            .filter(active=True, archived_at__isnull=True)
+            .values_list("prompt", flat=True)
+        )
+
+    def _project_at_limit(self, limit: int) -> dict[str, str]:
+        ids = self._import_prompts([{"prompt": text} for text in ("on one?", "on two?", "off?", "archived?")])
+        self.client.patch(f"{self.url}{ids['off?']}/", {"active": False}, format="json")
+        self.client.delete(f"{self.url}{ids['archived?']}/")
+        call_command("set_aeo_prompt_limit", team_id=self.team.id, max_active_prompts=limit)
+        return ids
+
+    def _assert_refused_by_the_limit(self, response: Any, expected_detail: str) -> None:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "prompt_limit_reached"
+        assert response.json()["detail"] == expected_detail
+        assert self._active_prompts() == ["on one?", "on two?"]
+        assert AEOPrompt.objects.for_team(self.team.id).count() == 4
+
+    @parameterized.expand(
+        [
+            (
+                "past_the_room_left",
+                3,
+                ["new?", "newer?"],
+                "This would turn on 2 prompts, but only 1 more fit in this project's limit of 3 tracked prompts. "
+                "Turn off some prompts first.",
+            ),
+            (
+                "when_full",
+                2,
+                ["new?"],
+                "You're tracking 2 prompts, and this project can track up to 2. Turn off some prompts first.",
+            ),
+        ]
+    )
+    def test_an_import_past_the_limit_is_refused_whole(
+        self, _name: str, limit: int, texts: list[str], expected_detail: str
+    ) -> None:
+        self._project_at_limit(limit)
+
+        response = self.client.post(
+            f"{self.url}bulk_import/", {"prompts": [{"prompt": text} for text in texts]}, format="json"
+        )
+
+        self._assert_refused_by_the_limit(response, expected_detail)
+
+    @parameterized.expand(
+        [
+            ("turn_on", "off?", {"active": True}),
+            ("restore_turned_on", "archived?", {"archived": False, "active": True}),
+        ]
+    )
+    def test_turning_a_prompt_on_when_full_is_refused(self, _name: str, prompt: str, body: dict) -> None:
+        ids = self._project_at_limit(2)
+
+        response = self.client.patch(f"{self.url}{ids[prompt]}/", body, format="json")
+
+        self._assert_refused_by_the_limit(
+            response,
+            "You're tracking 2 prompts, and this project can track up to 2. Turn off some prompts first.",
+        )
+
+    def test_a_project_over_a_lowered_limit_keeps_its_prompts_and_can_only_turn_them_off(self) -> None:
+        ids = self._import_prompts([{"prompt": "first?"}, {"prompt": "second?"}, {"prompt": "third?"}])
+        call_command("set_aeo_prompt_limit", team_id=self.team.id, max_active_prompts=1)
+
+        retopic = self.client.patch(f"{self.url}{ids['first?']}/", {"topic": "Replay"}, format="json")
+        turn_off = self.client.patch(f"{self.url}{ids['second?']}/", {"active": False}, format="json")
+        turn_back_on = self.client.patch(f"{self.url}{ids['second?']}/", {"active": True}, format="json")
+
+        assert (retopic.status_code, turn_off.status_code, turn_back_on.status_code) == (
+            status.HTTP_200_OK,
+            status.HTTP_200_OK,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        assert self._active_prompts() == ["first?", "third?"]
+        assert self.client.get(f"/api/projects/{self.team.id}/aeo_setup/context/").json()["max_active_prompts"] == 1
+
     def _brand(self, team: Team, domain: str, kind: str = "unknown") -> str:
         brand = AEOBrand.objects.for_team(team.id).create(
             team=team, name=domain.split(".")[0], domain=domain, kind=kind, source="citations"
@@ -1859,10 +1987,10 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("answer", True, "completed", ["Best session replay tool?"], 1),
-            ("paused", True, "completed", ["Best session replay tool?"], 2),
-            ("cut_off", True, "completed", ["Best session replay tool?"], 1),
-            ("timeout", True, "failed", [], 1),
+            ("answer", True, "completed", ["Best session replay tool?"], 2),
+            ("paused", True, "completed", ["Best session replay tool?"], 3),
+            ("cut_off", True, "completed", ["Best session replay tool?"], 2),
+            ("timeout", True, "failed", [], 2),
             ("answer", False, None, [], 0),
         ]
     )
@@ -1895,17 +2023,20 @@ class TestAEOPromptAPI(APIBaseTest):
             "stop_reason": "max_tokens",
             "content": [{"type": "text", "text": json.dumps(items[:1])[:-1] + ', {"prompt": "Half'}],
         }
+        top_up = MagicMock(status_code=200)
+        top_up.json.return_value = {"stop_reason": "end_turn", "content": [{"type": "text", "text": "[]"}]}
         post = MagicMock(
             side_effect={
-                "answer": [answered],
-                "paused": [paused, answered],
-                "cut_off": [cut_off],
+                "answer": [answered, top_up],
+                "paused": [paused, answered, top_up],
+                "cut_off": [cut_off, top_up],
                 "timeout": requests.Timeout(),
             }[outcome]
         )
         gateway = MagicMock(url="http://gateway", api_key="test-key")
 
         with (
+            patch("products.aeo.backend.suggestions.TRANSIENT_RETRY_SECONDS", 0),
             patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
             patch("products.aeo.backend.suggestions.requests.Session.post", post),
         ):

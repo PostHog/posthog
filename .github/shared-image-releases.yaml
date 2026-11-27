@@ -1265,7 +1265,7 @@ filters:
         - products/experiments/backend/metric_resolution.py
         - products/experiments/backend/metric_utils.py
         - products/experiments/backend/metric_validation.py
-        - products/experiments/backend/recalculation.py
+        - 'products/experiments/backend/recalculation/**'
         - products/experiments/backend/result_serialization.py
         - products/experiments/backend/running_time_calculator.py
         - products/experiments/backend/running_time_target.py

@@ -6,6 +6,7 @@ from pyod.models.mad import MAD
 from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
+from posthog.tasks.alerts.detectors.normalizers import FitError
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -20,8 +21,9 @@ class MADDetector(BaseDetector):
     More robust than z-score because it uses median instead of mean,
     making it resistant to outliers skewing the baseline.
 
-    Scores are normalized to [0, 1] probabilities using pyod's
-    predict_proba (erf-based conversion).
+    The raw score is the modified z-score. The normalizer maps it to [0, 1]
+    against the scores of the training window, with min-max by default, as
+    pyod's predict_proba does with its ``linear`` method.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -55,10 +57,13 @@ class MADDetector(BaseDetector):
 
         clf = MAD()
         clf.fit(window_data.reshape(-1, 1))
+        try:
+            fitted = self._fit_normalizer(clf.decision_scores_)
+        except FitError:
+            return DetectionResult(is_anomaly=False)
 
-        # Get normalized probability score via pyod's erf-based conversion
-        test_point = np.array([[current_value]])
-        prob = float(clf.predict_proba(test_point)[0, 1])
+        raw_score = float(clf.decision_function(np.array([[current_value]]))[0])
+        prob = self._normalize(fitted, raw_score)
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -70,7 +75,8 @@ class MADDetector(BaseDetector):
                 "median": float(clf.median_),
                 "median_abs_deviation": float(clf.median_diff_),
                 "value": float(current_value),
-                "raw_score": float(clf.decision_function(test_point)[0]),
+                "raw_score": raw_score,
+                "normalizer": fitted["method"],
             },
         )
 
@@ -101,9 +107,13 @@ class MADDetector(BaseDetector):
 
             clf = MAD()
             clf.fit(window_data.reshape(-1, 1))
+            try:
+                fitted = self._fit_normalizer(clf.decision_scores_)
+            except FitError:
+                scores.append(None)
+                continue
 
-            test_point = np.array([[current_val]])
-            prob = float(clf.predict_proba(test_point)[0, 1])
+            prob = self._normalize(fitted, float(clf.decision_function(np.array([[current_val]]))[0]))
             scores.append(prob)
 
             if prob > threshold:
@@ -124,13 +134,11 @@ class MADDetector(BaseDetector):
         values = rows if rows.ndim == 1 else rows[:, 0]
         clf = MAD()
         clf.fit(values[diffs_n:][-window:].reshape(-1, 1))
-        # predict_proba scales a raw score by the range of the training scores.
         return self._artifact(
             {
                 "median": float(clf.median_),
                 "median_abs_deviation": float(clf.median_diff_),
-                "min_score": float(clf.decision_scores_.min()),
-                "max_score": float(clf.decision_scores_.max()),
+                "normalizer": self._fit_normalizer(clf.decision_scores_),
             }
         )
 
@@ -143,18 +151,18 @@ class MADDetector(BaseDetector):
         clf.median_ = params["median"]
         clf.median_diff_ = params["median_abs_deviation"]
         raw_scores = clf.decision_function(values.reshape(-1, 1))
-        # MinMaxScaler keeps a zero range as one, so the scores only shift.
-        score_range = params["max_score"] - params["min_score"] or 1.0
+        fitted = params["normalizer"]
         scores: list[float | None] = []
         metadata: list[dict[str, Any]] = []
         for value, raw_score in zip(values, raw_scores):
-            scores.append(float(np.clip((raw_score - params["min_score"]) / score_range, 0.0, 1.0)))
+            scores.append(self._normalize(fitted, float(raw_score)))
             metadata.append(
                 {
                     "median": params["median"],
                     "median_abs_deviation": params["median_abs_deviation"],
                     "value": float(value),
                     "raw_score": float(raw_score),
+                    "normalizer": fitted["method"],
                 }
             )
         return scores, metadata

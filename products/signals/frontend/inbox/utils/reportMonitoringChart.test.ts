@@ -23,7 +23,12 @@ describe('Monitoring chart context', () => {
         ['2026-08-01T12:00:00Z', '2026-07-25T12:00:00.000Z', '2026-08-29T12:00:00.000Z'],
     ])('shows surrounding activity from %s through now or the future window', (startedAt, from, to) => {
         const result = monitoringChartQuery(query, { referencePeriodMinutes: 10080, startedAt }, now)
-        expect(result.dateRange).toEqual({ date_from: from, date_to: to, explicitDate: true })
+        expect(result.dateRange).toEqual({
+            date_from: from,
+            date_to: to,
+            explicitDate: true,
+            excludeIncompletePeriods: false,
+        })
         expect(result.series).toEqual(query.series)
         expect(query.dateRange).toEqual({ date_from: '-7d' })
     })
@@ -44,15 +49,20 @@ describe('Monitoring chart context', () => {
     })
 
     it('limits the range to the observation window when the window end is known', () => {
+        const queryWithPartialPeriodsExcluded: TrendsQuery = {
+            ...query,
+            dateRange: { ...query.dateRange, excludeIncompletePeriods: true },
+        }
         const result = monitoringChartQuery(
-            query,
-            { referencePeriodMinutes: 10080, startedAt: '2026-08-27T12:00:00Z', endsAt: '2026-09-03T12:00:00Z' },
+            queryWithPartialPeriodsExcluded,
+            { referencePeriodMinutes: 10080, startedAt: '2026-08-27T12:30:00Z', endsAt: '2026-09-03T12:30:00Z' },
             now
         )
         expect(result.dateRange).toEqual({
-            date_from: '2026-08-27T12:00:00.000Z',
-            date_to: '2026-09-03T12:00:00.000Z',
+            date_from: '2026-08-27T12:30:00.000Z',
+            date_to: '2026-09-03T12:30:00.000Z',
             explicitDate: true,
+            excludeIncompletePeriods: false,
         })
     })
 
@@ -72,6 +82,7 @@ describe('Monitoring chart context', () => {
             date_to: '2026-09-05T12:00:00.000Z',
             daysOfWeek: [1, 2, 3, 4, 5],
             explicitDate: true,
+            excludeIncompletePeriods: false,
         })
         expect(filtered.dateRange?.date_from).toBe('-7d')
     })

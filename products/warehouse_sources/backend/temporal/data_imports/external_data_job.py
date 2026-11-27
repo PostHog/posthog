@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
+    get_organization_deactivated_skipped_metric,
     get_retry_budget_reduced_metric,
     get_run_deferred_metric,
     get_v3_lock_skipped_metric,
@@ -1146,12 +1147,32 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
 
-            if lock_result is not None and lock_result.deferred:
+            # Emits no command and returns where the lock-miss branch below returns, because the
+            # activity also reports acquired=False. A history that predates the field replays the same way.
+            if lock_result is not None and lock_result.organization_deactivated:
                 workflow.logger.info(
-                    "Run deferred because this sync keeps failing",
+                    "Run skipped because the organization is deactivated",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
-                get_run_deferred_metric().add(1)
+                get_organization_deactivated_skipped_metric().add(1)
+                return
+
+            if lock_result is not None and lock_result.deferred:
+                # Logs and metrics only, so the command sequence is the same for every reason.
+                if lock_result.stood_down_reason:
+                    workflow.logger.info(
+                        "Run stood down before the lock",
+                        extra={
+                            "schema_id": str(inputs.external_data_schema_id),
+                            "reason": lock_result.stood_down_reason,
+                        },
+                    )
+                else:
+                    workflow.logger.info(
+                        "Run deferred because this sync keeps failing",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+                    get_run_deferred_metric().add(1)
                 return
 
             if lock_result is None or not lock_result.acquired:

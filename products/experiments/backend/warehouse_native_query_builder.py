@@ -69,11 +69,14 @@ class WarehouseNativeQueryBuilder:
         date_to: datetime,
         multiple_variant_handling: MultipleVariantHandling,
         metric: ExperimentMeanMetric | ExperimentRatioMetric | None = None,
+        excluded_variants: tuple[str, ...] = (),
     ):
-        """Without a metric the builder can only build the exposures statement."""
+        """Without a metric the builder can only build the exposures statement. `excluded_variants` are the variants
+        of the flag that the experiment leaves out on purpose: their rows don't count, and they aren't unknown."""
         self.exposure = exposure
         self.metric = metric
         self.variants = variants
+        self.excluded_variants = excluded_variants
         self.date_from = date_from
         self.date_to = date_to
         self.multiple_variant_handling = multiple_variant_handling
@@ -141,17 +144,10 @@ class WarehouseNativeQueryBuilder:
             )
         return f"CAST({source_cte}.`{source.math_property}` AS FLOAT64)"
 
-    def _exposure_ctes(self) -> list[str]:
-        """One row per entity: its variant and the time of its first exposure in the experiment's date range."""
+    def _exposure_row_ctes(self) -> list[str]:
+        """The customer's exposure query, and its rows cast to the columns the statements read."""
         source = f"{self._prefix}exposure_source"
         rows = f"{self._prefix}exposure_rows"
-        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
-            variant = f"MIN_BY({rows}.variant, {rows}.exposure_time)"
-        else:
-            variant = (
-                f"IF(COUNT(DISTINCT {rows}.variant) > 1, {_string_literal(MULTIPLE_VARIANT_KEY)}, MIN({rows}.variant))"
-            )
-        variants = ", ".join(_string_literal(variant_key) for variant_key in self.variants)
         return [
             _source_cte(source, self.exposure.query, "exposure query"),
             f"""{rows} AS (
@@ -161,6 +157,20 @@ class WarehouseNativeQueryBuilder:
         CAST({source}.`timestamp` AS TIMESTAMP) AS exposure_time
     FROM {source}
 )""",
+        ]
+
+    def _exposure_ctes(self) -> list[str]:
+        """One row per entity: its variant and the time of its first exposure in the experiment's date range."""
+        rows = f"{self._prefix}exposure_rows"
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant = f"MIN_BY({rows}.variant, {rows}.exposure_time)"
+        else:
+            variant = (
+                f"IF(COUNT(DISTINCT {rows}.variant) > 1, {_string_literal(MULTIPLE_VARIANT_KEY)}, MIN({rows}.variant))"
+            )
+        variants = ", ".join(_string_literal(variant_key) for variant_key in self.variants)
+        return [
+            *self._exposure_row_ctes(),
             f"""{self._prefix}exposures AS (
     SELECT
         {rows}.entity_id AS entity_id,
@@ -171,6 +181,7 @@ class WarehouseNativeQueryBuilder:
         AND {rows}.exposure_time <= {_timestamp_literal(self.date_to)}
         AND {rows}.variant IN ({variants})
         AND {rows}.entity_id IS NOT NULL
+        AND TRIM({rows}.entity_id) != ''
     GROUP BY {rows}.entity_id
 )""",
         ]
@@ -212,7 +223,8 @@ class WarehouseNativeQueryBuilder:
         return f"""{self._prefix}entity_metrics AS (
     SELECT
         {exposures}.entity_id AS entity_id,
-        {exposures}.variant AS variant{sums}
+        {exposures}.variant AS variant,
+        COUNT({rows}.entity_id) > 0 AS has_rows{sums}
     FROM {exposures}
     LEFT JOIN {rows}
         ON {rows}.entity_id = {exposures}.entity_id
@@ -237,7 +249,8 @@ SELECT
     {entity_metrics}.variant AS variant,
     COUNT({entity_metrics}.entity_id) AS num_users,
     SUM({value}) AS total_sum,
-    SUM({value} * {value}) AS total_sum_of_squares
+    SUM({value} * {value}) AS total_sum_of_squares,
+    COUNTIF({entity_metrics}.has_rows) AS entities_with_rows
 FROM {entity_metrics}
 GROUP BY {entity_metrics}.variant"""
 
@@ -278,7 +291,8 @@ SELECT
     SUM({numerator} * {numerator}) AS total_sum_of_squares,
     SUM({denominator}) AS denominator_sum,
     SUM({denominator} * {denominator}) AS denominator_sum_squares,
-    SUM({numerator} * {denominator}) AS numerator_denominator_sum_product
+    SUM({numerator} * {denominator}) AS numerator_denominator_sum_product,
+    COUNTIF({entity_metrics}.has_rows) AS entities_with_rows
 FROM {entity_metrics}
 GROUP BY {entity_metrics}.variant"""
 
@@ -294,6 +308,51 @@ SELECT
 FROM {exposures}
 GROUP BY 1, 2
 ORDER BY 1, 2"""
+
+    def build_exposure_rows_left_out(self) -> str:
+        """The exposure rows in the experiment's window that it leaves out, counted by reason. A row whose variant
+        the flag does not serve is counted by the value seen, so the user can spot a misspelt variant. The window
+        bounds the scan as it does for the exposures statement, so a table with years of history is not read in
+        full. The customer's query runs once: every reason comes from one pass over its rows, and the cap on the
+        values is applied after. Each row also carries the total of its reason, so the capped values don't hide how
+        many rows the reason left out."""
+        rows = f"{self._prefix}exposure_rows"
+        left_out = f"{self._prefix}left_out"
+        counts = f"{self._prefix}left_out_counts"
+        # The cap applies to the unknown variant values only, so a flood of them cannot push out another reason.
+        max_unknown = 50
+        known = ", ".join(_string_literal(variant_key) for variant_key in (*self.variants, *self.excluded_variants))
+        unknown_variant = f"({rows}.variant IS NULL OR {rows}.variant NOT IN ({known}))"
+        return f"""WITH {",\n".join(self._exposure_row_ctes())},
+{left_out} AS (
+    SELECT
+        CASE
+            WHEN {rows}.entity_id IS NULL OR TRIM({rows}.entity_id) = '' THEN 'empty_id'
+            WHEN {unknown_variant} THEN 'unknown_variant'
+        END AS reason,
+        COALESCE({rows}.variant, '') AS variant
+    FROM {rows}
+    WHERE {rows}.exposure_time >= {_timestamp_literal(self.date_from)}
+        AND {rows}.exposure_time <= {_timestamp_literal(self.date_to)}
+),
+{counts} AS (
+    SELECT
+        {left_out}.reason AS reason,
+        IF({left_out}.reason = 'unknown_variant', {left_out}.variant, NULL) AS value,
+        COUNT(*) AS row_count
+    FROM {left_out}
+    WHERE {left_out}.reason IS NOT NULL
+    GROUP BY 1, 2
+)
+SELECT
+    {counts}.reason AS reason,
+    {counts}.value AS value,
+    {counts}.row_count AS row_count,
+    SUM({counts}.row_count) OVER (PARTITION BY {counts}.reason) AS reason_row_count
+FROM {counts}
+QUALIFY {counts}.reason != 'unknown_variant'
+    OR ROW_NUMBER() OVER (PARTITION BY {counts}.reason ORDER BY {counts}.row_count DESC) <= {max_unknown}
+ORDER BY 3 DESC"""
 
     def build(self) -> str:
         if self.metric is None:

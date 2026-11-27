@@ -46,6 +46,7 @@ const descriptions: Record<string, string> = {
         'Explore the events captured in your project and document what they mean. Help your team choose the right events for an analysis.',
     'Property definitions':
         'Explore the properties attached to your events and people. Document their meaning so everyone interprets the same data consistently.',
+    Tags: "Review and manage tags and how they're used across your project.",
     'Managed viewsets':
         'Set up collections of warehouse views built for a particular kind of analysis. Reuse prepared data models instead of starting each query from scratch.',
     Annotations:
@@ -151,6 +152,7 @@ const examples: Record<string, string> = {
     Models: 'Save a reusable query as a view for other analyses.',
     'Property definitions': 'Check the meaning and format of an event property.',
     'Property groups': 'Organize related properties so they are easier to find.',
+    Tags: 'Merge churn_risk and churn-risk into a single tag.',
     'Revenue definitions': 'Choose the events and properties that represent revenue.',
     'SQL variables': 'Reuse the same date boundary across several queries.',
     Sources: 'Connect billing or support data to your product analytics.',

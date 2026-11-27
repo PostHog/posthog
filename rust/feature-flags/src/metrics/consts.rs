@@ -370,6 +370,10 @@ pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_t
 // split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
+// Remote config access control denials for personal-key callers
+// Labels: check (flags = the project or feature flags in general, flag = the requested flag)
+pub const REMOTE_CONFIG_ACCESS_DENIED_COUNTER: &str = "flags_remote_config_access_denied_total";
+
 // Remote config ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
 // If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag
@@ -388,6 +392,11 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_missing = Redis answered and held no etag key,
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Labels: requested (v2 = a single `v` that decodes to `2`, legacy = everything else), served
+// (v2 = the v2 entry answered, legacy = the request went on to the legacy path, whatever that
+// path then answered), library (the SDK name). A stale-ETag 429 in the v2 step is not counted.
+pub const FLAG_DEFINITIONS_FEED_COUNTER: &str = "flags_flag_definitions_feed_total";
 
 // Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
 // unknown = the payload was unreadable, slow, or not served from Redis, so the poll went

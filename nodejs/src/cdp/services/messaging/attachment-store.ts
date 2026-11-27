@@ -1,6 +1,7 @@
 import {
     CopyObjectCommand,
     GetObjectCommand,
+    GetObjectCommandOutput,
     HeadObjectCommand,
     HeadObjectCommandOutput,
     NoSuchKey,
@@ -12,12 +13,13 @@ import {
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createHash } from 'node:crypto'
+import { Readable } from 'node:stream'
 import { Counter } from 'prom-client'
 
 import { CdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 
-import { holdUntilSettled, settledBeforeAbort } from './in-flight-registry'
+import { Admission, admittedFiles, holdUntilSettled, settledBeforeAbort } from './in-flight-registry'
 
 const MINUTE_MS = 60 * 1000
 export const DAY_MS = 24 * 60 * MINUTE_MS
@@ -46,7 +48,7 @@ export type UploadSlot =
 export type AttachmentRef = Omit<EmailAttachmentMetadata, 'sizeBytes'>
 export type AcceptedForSend = { files: EmailAttachmentMetadata[] }
 export type RefusedForSend = { refusal: 'attachment_not_uploaded'; sha256: Sha256Hex }
-export type LoadedAttachment = { file: EmailAttachmentMetadata; bytes: Uint8Array }
+export type LoadedAttachment = { file: Readonly<EmailAttachmentMetadata>; bytes: Uint8Array }
 
 export class AttachmentStoreUnavailableError extends Error {
     constructor(cause: unknown) {
@@ -75,12 +77,12 @@ export interface AttachmentStore {
         needsUntil: Date,
         deadline?: AbortSignal
     ): Promise<AcceptedForSend | RefusedForSend>
-    load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]>
+    load(teamId: number, admission: Admission, signal: AbortSignal): Promise<LoadedAttachment[]>
 }
 
 const attachmentStoreFiles = new Counter({
     name: 'cdp_email_attachment_store_files_total',
-    help: 'Files the email attachment store handled, by operation (prepare, accept, load) and outcome (present, upload, kept, copied, missing, loaded).',
+    help: 'Files the email attachment store handled, by operation (prepare, accept, load) and outcome (present, upload, kept, copied, missing, loaded, other_size).',
     labelNames: ['operation', 'outcome'],
 })
 
@@ -123,11 +125,11 @@ export class S3AttachmentStore implements AttachmentStore {
         return { files: present.map(({ ref, stored }) => ({ ...ref, sizeBytes: stored.sizeBytes })) }
     }
 
-    async load(teamId: number, files: EmailAttachmentMetadata[], signal: AbortSignal): Promise<LoadedAttachment[]> {
+    async load(teamId: number, admission: Admission, signal: AbortSignal): Promise<LoadedAttachment[]> {
         return await Promise.all(
-            files.map(async (file) => ({
+            admittedFiles(admission).map(async (file) => ({
                 file,
-                bytes: await this.get(this.key(teamId, file.sha256), file.sha256, signal),
+                bytes: await this.get(this.key(teamId, file.sha256), file, signal),
             }))
         )
     }
@@ -249,13 +251,17 @@ export class S3AttachmentStore implements AttachmentStore {
         }
     }
 
-    private async get(key: string, sha256: Sha256Hex, signal: AbortSignal): Promise<Uint8Array> {
+    private async get(
+        key: string,
+        { sha256, sizeBytes }: EmailAttachmentMetadata,
+        signal: AbortSignal
+    ): Promise<Uint8Array> {
         try {
             const bytes = await settleBeforeAbortEvenWhileCredentialsStall(
                 signal,
                 this.s3
                     .send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { abortSignal: signal })
-                    .then((object) => object.Body!.transformToByteArray())
+                    .then((object) => bodyOfTheDeclaredSize(object, sizeBytes))
                     .then((downloaded) => matchingItsHash(downloaded, sha256))
             )
             attachmentStoreFiles.labels({ operation: 'load', outcome: 'loaded' }).inc()
@@ -268,6 +274,35 @@ export class S3AttachmentStore implements AttachmentStore {
             throw new AttachmentStoreUnavailableError(error)
         }
     }
+}
+
+async function bodyOfTheDeclaredSize(object: GetObjectCommandOutput, sizeBytes: number): Promise<Uint8Array> {
+    const body = object.Body
+    if (!(body instanceof Readable)) {
+        throw new Error('The stored body is not a stream')
+    }
+    if (object.ContentLength !== undefined && object.ContentLength !== sizeBytes) {
+        body.destroy()
+        return refusedForItsSize(`${object.ContentLength}`, sizeBytes)
+    }
+    const chunks: Buffer[] = []
+    let read = 0
+    for await (const chunk of body) {
+        read += chunk.length
+        if (read > sizeBytes) {
+            return refusedForItsSize(`over ${sizeBytes}`, sizeBytes)
+        }
+        chunks.push(chunk)
+    }
+    if (read !== sizeBytes) {
+        return refusedForItsSize(`${read}`, sizeBytes)
+    }
+    return new Uint8Array(Buffer.concat(chunks, read))
+}
+
+function refusedForItsSize(storedBytes: string, sizeBytes: number): never {
+    attachmentStoreFiles.labels({ operation: 'load', outcome: 'other_size' }).inc()
+    throw new Error(`The stored body is ${storedBytes} bytes, not the declared ${sizeBytes}`)
 }
 
 function matchingItsHash(bytes: Uint8Array, sha256: Sha256Hex): Uint8Array {

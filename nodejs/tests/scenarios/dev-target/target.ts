@@ -179,6 +179,7 @@ export function devEnvironment(): Environment {
         roles: () => [],
         actuate: () => Promise.reject(new Error('the dev target takes no valves')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        runConfig: () => Promise.resolve({ configHash: null, services: null }),
         exits: () => [],
         groupLag: () => Promise.reject(new Error('the dev target has no consumer groups to read')),
         wiring: () => Promise.resolve(WIRING),

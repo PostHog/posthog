@@ -61,10 +61,12 @@ Right cluster is fixed and universal: **PostHog AI · Docs · Support**. Do not 
 
 ### `opensFloatingUi` prop
 
-Append `…` to the item label as a Mac-style affordance for items that open additional floating UI:
+Appends `…` to the item label for an action that needs more input before it can happen, following the icon and ellipsis rule in [`frontend/src/design.md`](../../../frontend/src/design.md) §5:
 
-- ✅ **Use** for: modal, popover, dialog, side panel openers
-- ❌ **Skip** for: same-page navigations, direct actions, destructive items (the destructive style already signals consequence), toggle items
+- ✅ **Use** for: a dialog, popover or side panel where the user fills something in before the action runs ("Rename…", "Subscribe…", "Duplicate…", "Move to…")
+- ❌ **Skip** for: same-page navigations, direct actions, UI that only shows something, destructive items (a confirmation is not more input, and the destructive style already signals consequence), toggle items, sub-menu triggers (the chevron already says more follows)
+
+Leading icons follow the same rule: a menu is a group of actions, so if one item in a group has an icon, give every item in it one. `SceneMenuBarSubMenu` adds a blank icon slot for this reason.
 
 ### `+ Create` cross-sells
 

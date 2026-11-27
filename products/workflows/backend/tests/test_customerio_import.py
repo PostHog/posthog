@@ -403,6 +403,29 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
         assert any(step == "cio_7" and "`message`" in text for _, step, text in messages)
 
+    def test_email_keeps_copies_and_names_what_it_drops(self) -> None:
+        source = _onboarding_campaign()
+        template = {
+            **source.templates["11"],
+            "cc": "team@example.com",
+            "bcc": "{{customer.manager}}",
+            "headers": [{"name": "X-Campaign", "value": "welcome"}],
+            "body_amp": "<html amp4email></html>",
+            "layout": "Newsletter layout",
+            "languages": ["es", "fr"],
+        }
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=source.actions, templates={"11": template}), _OPTIONS
+        )
+
+        steps = {action["id"]: action for action in translated.workflow["actions"]}
+        email = steps["cio_1"]["config"]["inputs"]["email"]["value"]
+        assert (email["cc"], email["bcc"]) == ("team@example.com", "{{person.properties.manager}}")
+        assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
+        notes = " ".join(note.message for note in translated.notes if note.step_id == "cio_1")
+        for expected in ("`X-Campaign`", "AMP", "layout Newsletter layout", "es, fr"):
+            assert expected in notes
+
     @parameterized.expand(
         [
             ("segments without a cohort", {}, ["false"]),
@@ -922,6 +945,22 @@ class TestCustomerioLiquid(SimpleTestCase):
     def test_rewrites_globals(self, _name: str, source: str, expected: str) -> None:
         assert liquid.rewrite(source, {}).text == expected
 
+    def test_removes_tags_that_would_stop_the_email(self) -> None:
+        rewritten = liquid.rewrite(
+            '<a href="{% view_in_browser_url %}">View</a> {{ customer.name | titlecase }} {% unsubscribe %} '
+            '<a href="{%- cio_link track:true url:https://example.com/a%20b -%}">Go</a>{% countdown "50% off" %}'
+            '{% cio_link url:"https://example.com/{{ customer.id }}" %}{% cio_link url: customer.link %}',
+            {},
+        )
+
+        assert rewritten.text == (
+            '<a href="">View</a> {{ person.properties.name | titlecase }} '
+            '<a href="{{ unsubscribe_url }}">unsubscribe</a> <a href="https://example.com/a%20b">Go</a>'
+            "https://example.com/{{ event.distinct_id }}"
+        )
+        assert rewritten.removed_tags == ("cio_link", "countdown", "view_in_browser_url")
+        assert rewritten.ignored_filters == ("titlecase",)
+
     def test_reports_globals_and_snippets_it_cannot_resolve(self) -> None:
         rewritten = liquid.rewrite('{{ journey.code }}{% snippet "legal" %}', {})
         assert rewritten.unsupported_globals == ("journey",)
@@ -1335,7 +1374,15 @@ class TestWorkflowImportAPI(APIBaseTest):
                 "body": "<p>Fetched {{customer.first_name}}</p>{{ snippets.signature }}",
                 "from_id": 4,
             },
-            {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
+            {"id": 5, "type": "email", "subject": "Consejos", "body": "<p>Consejos</p>", "language": "es"},
+            {
+                "id": 5,
+                "type": "email",
+                "subject": "Tips",
+                "body": "<p>Tips</p>",
+                "language": "",
+                "bcc": "a@example.com",
+            },
         ]
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
@@ -1376,7 +1423,10 @@ class TestWorkflowImportAPI(APIBaseTest):
         )
         assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
         assert welcome["message_category_type"] == "marketing"
-        assert flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]["subject"] == "Tips"
+        tips = flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]
+        assert (tips["subject"], tips["bcc"]) == ("Tips", "a@example.com")
+        assert any(note["step_id"] == "cio_5" and "in es." in note["message"] for note in result["notes"])
+        assert any("plain text" in note["message"] for note in result["notes"])
         # Template 13 has no App API action with its step's id, so it still asks for content.
         assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
         assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
@@ -1401,14 +1451,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
         png = io.BytesIO()
         Image.new("RGB", (3, 2)).save(png, "PNG")
         hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
         gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
-        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
+        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1(2&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
@@ -1416,7 +1466,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
         guide = "https://userimg-assets.customeriomail.com/files/client-env-1/guide.pdf"
         stalled = "https://userimg-assets.customeriomail.com/images/client-env-1/stalled.png"
-        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
+        served = {hero, hero_webp, f"{hero}?w=1(2&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served or url == stalled else 404)
@@ -1433,9 +1483,9 @@ class TestWorkflowImportAPI(APIBaseTest):
             "11": {
                 **source.templates["11"],
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-                f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
+                f'<img src="{hero_webp}"><img src="{sized}"><style>.a{{background:url({logo})}}.b{{background:url(&quot;{logo}&quot;)}}</style>'
                 f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-                f'<a href="{guide}">Guide</a><img src="{hero}?w=1&h=2"><img src="{stalled}">',
+                f'<a href="{guide}">Guide</a><img src="{hero}?w=1(2&h=2"><img src="{stalled}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
@@ -1464,14 +1514,14 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert html == (
             '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-            f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
+            f'<img src="{urls[1]}"><img src="{urls[2]}"><style>.a{{background:url({urls[3]})}}.b{{background:url(&quot;{urls[3]}&quot;)}}</style>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
             f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
         assert guide not in requested
-        assert requested.count(f"{hero}?w=1&h=2") == 1
+        assert requested.count(f"{hero}?w=1(2&h=2") == 1
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
         design = json.dumps(
             next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
@@ -1496,7 +1546,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/late.png"
@@ -1515,7 +1565,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without media access", ["*"], False),
         ]
     )
-    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    @patch("products.workflows.backend.services.remote_images.requests.get")
     def test_no_images_are_copied_without_media_access(
         self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
     ) -> None:

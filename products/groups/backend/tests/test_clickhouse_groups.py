@@ -53,6 +53,8 @@ from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition, find_property_definitions
 from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.facade.api import create_group_type_detail_dashboard
 from products.groups.backend.presentation.views import (
@@ -533,15 +535,18 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0
-        )
+        property_definitions = {
+            definition.name: definition
+            for definition in find_property_definitions(
+                team_id=self.team.id, type=PropertyDefinitionType.GROUP, group_type_index=0
+            )
+        }
         self.assertEqual(len(property_definitions), 2)
-        name_prop = property_definitions.get(name="name")
+        name_prop = property_definitions["name"]
         self.assertEqual(name_prop.property_type, "String")
         self.assertFalse(name_prop.is_numerical)
 
-        industry_prop = property_definitions.get(name="industry")
+        industry_prop = property_definitions["industry"]
         self.assertEqual(industry_prop.property_type, "String")
         self.assertFalse(industry_prop.is_numerical)
 
@@ -866,13 +871,13 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             properties={"industry": "finance"},
         )
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
-        existing = PropertyDefinition.objects.create(
-            team=sibling_team,
-            project=self.team.project,
+        existing = create_property_definition(
+            team_id=sibling_team.id,
+            project_id=self.team.project_id,
             name="industry",
-            type=PropertyDefinition.Type.GROUP,
+            type=PropertyDefinitionType.GROUP,
             group_type_index=0,
-            property_type="Numeric",
+            property_type=PropertyType.Numeric,
             is_numerical=True,
         )
 
@@ -882,12 +887,12 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        definitions = PropertyDefinition.objects.filter(
-            project=self.team.project, name="industry", type=PropertyDefinition.Type.GROUP
+        definitions = find_property_definitions(
+            project_id=self.team.project_id, name="industry", type=PropertyDefinitionType.GROUP
         )
         self.assertEqual(
-            [(d.pk, d.team_id, d.group_type_index, d.property_type, d.is_numerical) for d in definitions],
-            [(existing.pk, sibling_team.pk, 0, "String", False)],
+            [(d.id, d.team_id, d.group_type_index, d.property_type, d.is_numerical) for d in definitions],
+            [(existing.id, sibling_team.pk, 0, "String", False)],
         )
 
     @time_machine.travel("2021-05-02", tick=False)
@@ -2037,25 +2042,28 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_capture.assert_called_once()
 
-        property_definitions = PropertyDefinition.objects.filter(
-            team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=self.group_type_index
-        )
+        property_definitions = {
+            definition.name: definition
+            for definition in find_property_definitions(
+                team_id=self.team.id, type=PropertyDefinitionType.GROUP, group_type_index=self.group_type_index
+            )
+        }
 
-        self.assertEqual(property_definitions.count(), 4)
+        self.assertEqual(len(property_definitions), 4)
 
-        name_prop = property_definitions.get(name="name")
+        name_prop = property_definitions["name"]
         self.assertEqual(name_prop.property_type, "String")
         self.assertFalse(name_prop.is_numerical)
 
-        employees_prop = property_definitions.get(name="employees")
+        employees_prop = property_definitions["employees"]
         self.assertEqual(employees_prop.property_type, "Numeric")
         self.assertTrue(employees_prop.is_numerical)
 
-        is_active_prop = property_definitions.get(name="is_active")
+        is_active_prop = property_definitions["is_active"]
         self.assertEqual(is_active_prop.property_type, "Boolean")
         self.assertFalse(is_active_prop.is_numerical)
 
-        revenue_prop = property_definitions.get(name="revenue")
+        revenue_prop = property_definitions["revenue"]
         self.assertEqual(revenue_prop.property_type, "Numeric")
         self.assertTrue(revenue_prop.is_numerical)
 
@@ -2078,14 +2086,12 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_capture.assert_called_once()
 
-        prop_def = PropertyDefinition.objects.filter(
-            team=self.team,
+        [prop_def] = find_property_definitions(
+            team_id=self.team.id,
             name="new_property",
-            type=PropertyDefinition.Type.GROUP,
+            type=PropertyDefinitionType.GROUP,
             group_type_index=self.group_type_index,
-        ).first()
-
-        assert prop_def is not None
+        )
         self.assertEqual(prop_def.property_type, "String")
         self.assertFalse(prop_def.is_numerical)
 
@@ -2116,10 +2122,10 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_capture.assert_called_once()
 
-                prop_def = PropertyDefinition.objects.get(
-                    team=self.team,
+                [prop_def] = find_property_definitions(
+                    team_id=self.team.id,
                     name=prop_name,
-                    type=PropertyDefinition.Type.GROUP,
+                    type=PropertyDefinitionType.GROUP,
                     group_type_index=self.group_type_index,
                 )
 
@@ -2146,11 +2152,12 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        prop_def = PropertyDefinition.objects.filter(
-            team=self.team, name="test_prop", type=PropertyDefinition.Type.GROUP, group_type_index=self.group_type_index
-        ).first()
-
-        assert prop_def is not None
+        [prop_def] = find_property_definitions(
+            team_id=self.team.id,
+            name="test_prop",
+            type=PropertyDefinitionType.GROUP,
+            group_type_index=self.group_type_index,
+        )
         self.assertEqual(prop_def.property_type, "Numeric")
         self.assertTrue(prop_def.is_numerical)
 
@@ -2196,8 +2203,8 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_capture.assert_called_once()
-        prop_def = PropertyDefinition.objects.get(
-            team=self.team, name="test_prop", type=PropertyDefinition.Type.GROUP, group_type_index=1
+        [prop_def] = find_property_definitions(
+            team_id=self.team.id, name="test_prop", type=PropertyDefinitionType.GROUP, group_type_index=1
         )
         self.assertEqual(prop_def.group_type_index, 1)
 

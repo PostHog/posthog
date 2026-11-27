@@ -1,8 +1,8 @@
-node "events" {
+node "ingestion_events" {
   macros = {
-    hostClusterRole = "events"
+    hostClusterRole = "ingestion_events"
     hostClusterType = "online"
-    replica         = "events"
+    replica         = "ingestion_events"
     shard           = "01"
   }
 }

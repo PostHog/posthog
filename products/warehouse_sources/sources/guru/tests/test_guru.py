@@ -283,6 +283,27 @@ class TestFanoutEndpoints:
                 [{"id": "u1", "email": "jane@example.com", "announcementReadAt": None}],
                 [{"id": "u1", "email": "jane@example.com", "announcementReadAt": None, "alert_id": "a1"}],
             ),
+            (
+                "collection_group_access",
+                {"id": "col1", "name": "Engineering"},
+                "/collections/col1/groups",
+                [{"groupId": "grp1", "groupName": "Support", "role": "MEMBER"}],
+                [{"groupId": "grp1", "groupName": "Support", "role": "MEMBER", "collection_id": "col1"}],
+            ),
+            (
+                "collection_group_access",
+                {"id": "col1"},
+                "/collections/col1/groups",
+                [{"group": {"id": "grp2", "name": "Sales"}, "role": "AUTHOR"}],
+                [
+                    {
+                        "group": {"id": "grp2", "name": "Sales"},
+                        "role": "AUTHOR",
+                        "collection_id": "col1",
+                        "groupId": "grp2",
+                    }
+                ],
+            ),
         ],
     )
     def test_child_rows_carry_parent_id(
@@ -301,6 +322,13 @@ class TestFanoutEndpoints:
         assert result.response is not None
         assert result.response.primary_keys is not None
         assert all(row[key] is not None for row in result.rows for key in result.response.primary_keys)
+
+    def test_collection_access_without_group_id_fails_loud(self) -> None:
+        result = _driver().run(
+            "collection_group_access", [_page([{"id": "col1"}]), _page([{"role": "MEMBER", "groupName": "Support"}])]
+        )
+
+        assert isinstance(result.raised, KeyError)
 
 
 class TestKnowledgeAlerts:

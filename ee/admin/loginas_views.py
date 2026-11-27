@@ -62,6 +62,13 @@ def start_impersonation(request, user_id, *, read_only: bool):
             },
         )
 
+    if request.headers.get("Accept") == "application/json":
+        json_response = JsonResponse({"success": login_succeeded}, status=200 if login_succeeded else 403)
+        json_response.cookies.update(response.cookies)
+        if response.has_header("Vary"):
+            json_response["Vary"] = response["Vary"]
+        return json_response
+
     return response
 
 

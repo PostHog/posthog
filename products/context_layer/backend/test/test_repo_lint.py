@@ -11,7 +11,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.context_layer.backend.repo_lint import lint_repo, report_repo
-from products.context_layer.backend.scaffold import write_default_structure
+from products.context_layer.backend.scaffold import generate_project_indexes, write_default_structure
 
 
 def _remove_agents_md(root: Path) -> None:
@@ -84,6 +84,19 @@ def _space_page_with_mismatched_team_id(root: Path) -> None:
     (spaces / "general.md").write_text(
         f"---\nteam_id: 2\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\n---\n# general"
     )
+
+
+SLACK_CHANNEL_PAGE_HEAD = "team_id: 1\nslack_workspace_id: T0123ABCD"
+
+
+def _write_slack_channel_page(root: Path, name: str, head: str) -> None:
+    channels = root / "projects" / "1" / "slack-channels"
+    (channels / name).parent.mkdir(parents=True, exist_ok=True)
+    (channels / name).write_text(f"---\n{head}\nsummary: Replay team\nstatus: active\n---\n# {name}\n")
+
+
+def _slack_channel_page(name: str, head: str) -> Callable[[Path], None]:
+    return lambda root: _write_slack_channel_page(root, name, head)
 
 
 def _scripts_symlink(root: Path) -> None:
@@ -179,6 +192,8 @@ class TestRepoLint(SimpleTestCase):
         (spaces / "general.md").write_text(
             f"---\nteam_id: 1\nchannel_id: {uuid.uuid4()}\nsummary: General\nstatus: active\nsources: test\n---\n# general"
         )
+        _write_slack_channel_page(self.root, "C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)
+        _write_slack_channel_page(self.root, "G0789IJKL.md", "team_id: '1'\nslack_workspace_id: \"E0123ABCD\"")
         assert lint_repo(self.root) == []
 
     def test_lists_written_by_the_desktop_serializer_are_clean(self) -> None:
@@ -195,6 +210,31 @@ class TestRepoLint(SimpleTestCase):
         assert lint_repo(self.root) == [
             "projects/1/spaces/general.md: goals: line 7: text that contains a colon must be quoted"
         ]
+
+    def test_generated_indexes_link_slack_channel_pages(self) -> None:
+        overview = self.root / "projects" / "1" / "overview.md"
+        overview.parent.mkdir(parents=True)
+        overview.write_text("---\nsummary: Project\nstatus: active\n---\n# Project 1\n")
+        _write_slack_channel_page(self.root, "C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)
+
+        indexes = generate_project_indexes(self.root)
+
+        assert "[[projects/1/slack-channels/index|Slack channels]]" in indexes["projects/1/index.md"]
+        assert "[[projects/1/slack-channels/C0456EFGH]] — Replay team" in indexes["projects/1/slack-channels/index.md"]
+
+    def test_deleting_the_last_slack_channel_page_empties_its_index(self) -> None:
+        overview = self.root / "projects" / "1" / "overview.md"
+        overview.parent.mkdir(parents=True)
+        overview.write_text("---\nsummary: Project\nstatus: active\n---\n# Project 1\n")
+        _write_slack_channel_page(self.root, "C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)
+        for path, content in generate_project_indexes(self.root).items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(content)
+
+        (self.root / "projects" / "1" / "slack-channels" / "C0456EFGH.md").unlink()
+        indexes = generate_project_indexes(self.root)
+
+        assert indexes["projects/1/slack-channels/index.md"] == "# Slack channels in Project 1\n"
 
     def test_report_findings_do_not_fail_lint(self) -> None:
         _oversized_page(self.root)
@@ -227,6 +267,20 @@ class TestRepoLint(SimpleTestCase):
             ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
             ("channel_page_with_noncanonical_channel_id", _channel_page_with_noncanonical_channel_id),
             ("space_page_with_mismatched_team_id", _space_page_with_mismatched_team_id),
+            (
+                "slack_channel_page_with_mismatched_team_id",
+                _slack_channel_page("C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD.replace("team_id: 1", "team_id: 2")),
+            ),
+            ("slack_channel_page_named_by_slug", _slack_channel_page("replay-team.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_named_by_reserved_word", _slack_channel_page("AGENTS.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_named_claude", _slack_channel_page("CLAUDE.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_named_gemini", _slack_channel_page("GEMINI.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_nested", _slack_channel_page("archive/C0456EFGH.md", SLACK_CHANNEL_PAGE_HEAD)),
+            ("slack_channel_page_without_workspace_id", _slack_channel_page("C0456EFGH.md", "team_id: 1")),
+            (
+                "slack_channel_page_with_channel_id_as_workspace_id",
+                _slack_channel_page("C0456EFGH.md", "team_id: 1\nslack_workspace_id: C0456EFGH"),
+            ),
             ("stray_symlink", _stray_symlink),
             ("index_symlink", _index_symlink),
             ("scripts_symlink", _scripts_symlink),

@@ -25,9 +25,11 @@ from rest_framework import status
 from social_core.exceptions import AuthFailed
 from social_django.models import Partial
 
+from posthog.api.email_verification import EmailVerificationCodeUndeliverable
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.helpers.ai_signup_attribution import AI_SIGNUP_CLIENT_PROPERTY, AI_SIGNUP_SOURCE_PROPERTY
 from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_COOKIE,
     PendingOAuthConnection,
@@ -54,6 +56,7 @@ MOCK_GITLAB_SSO_RESPONSE = {
 }
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+AI_REFERRING_DOMAIN = "chatgpt.com"
 
 
 def _store_social_signup_partial(session: SessionBase) -> None:
@@ -175,10 +178,12 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
         self.assertEqual(event_props["$set"]["referral_source_influencer"], "The Hedgehog Dev channel")
 
+    @parameterized.expand([("code_sent", None), ("address_refused", EmailVerificationCodeUndeliverable())])
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     @patch.dict("posthog.inbox_providers._INBOX_PROVIDERS_BY_DOMAIN", {"posthog.com": InboxProvider.GMAIL})
-    def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
+    def test_api_sign_up_requires_verification(self, _name, send_error, mock_email_verifier, mock_is_email_available):
+        mock_email_verifier.side_effect = send_error
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 
@@ -1785,11 +1790,11 @@ class TestSignupAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True),
-            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True),
-            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True),
-            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False),
-            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False),
+            ("plain_signup", "plain", PendingOAuthFlow.AUTHORIZE, "connector", True, "connector"),
+            ("device_login_signup", "plain", PendingOAuthFlow.DEVICE, "device_login", True, "device_login"),
+            ("social_signup", "social", PendingOAuthFlow.AUTHORIZE, "connector", True, "connector"),
+            ("invite_signup", "invite", PendingOAuthFlow.AUTHORIZE, "connector", False, None),
+            ("delegated_invite_signup", "delegated_invite", PendingOAuthFlow.AUTHORIZE, None, False, None),
         ]
     )
     @patch("posthoganalytics.group_identify")
@@ -1801,6 +1806,7 @@ class TestSignupAPI(APIBaseTest):
         flow: PendingOAuthFlow,
         expected_skip_reason: str | None,
         expect_project_marked: bool,
+        expected_ai_signup_source: str | None,
         mock_capture,
         mock_group_identify,
     ):
@@ -1818,6 +1824,9 @@ class TestSignupAPI(APIBaseTest):
                     "email": email,
                     "password": VALID_TEST_PASSWORD,
                     "role_at_organization": "product",
+                    # The form prefills the client name, and the referrer is weaker evidence, so neither wins
+                    "referral_source": "Claude",
+                    "initial_referring_domain": AI_REFERRING_DOMAIN,
                 },
             )
         elif signup_path == "social":
@@ -1877,6 +1886,111 @@ class TestSignupAPI(APIBaseTest):
             )
         else:
             self.assertEqual(project_calls, [])
+
+        ai_organization_calls = [
+            c
+            for c in mock_group_identify.call_args_list
+            if c.args[0] == "organization" and AI_SIGNUP_SOURCE_PROPERTY in c.kwargs["properties"]
+        ]
+        if expected_ai_signup_source is not None:
+            assert user.organization is not None
+            expected_ai_properties = {
+                AI_SIGNUP_SOURCE_PROPERTY: expected_ai_signup_source,
+                AI_SIGNUP_CLIENT_PROPERTY: "Claude",
+            }
+            self.assertEqual(
+                ai_organization_calls,
+                [mock.call("organization", str(user.organization.id), properties=expected_ai_properties)],
+            )
+            self.assertLessEqual(expected_ai_properties.items(), properties.items())
+        else:
+            self.assertEqual(ai_organization_calls, [])
+            self.assertNotIn(AI_SIGNUP_SOURCE_PROPERTY, properties)
+
+    @parameterized.expand(
+        [
+            (
+                "said_ai",
+                "plain",
+                {"referral_source": "ChatGPT recommended it"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "said_ai", AI_SIGNUP_CLIENT_PROPERTY: "chatgpt"},
+            ),
+            (
+                "ai_referring_domain",
+                "plain",
+                {"initial_referring_domain": AI_REFERRING_DOMAIN, "initial_utm_source": "newsletter"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "ai_referrer", AI_SIGNUP_CLIENT_PROPERTY: AI_REFERRING_DOMAIN},
+            ),
+            (
+                "ai_utm_source_on_social_signup",
+                "social",
+                {"initial_referring_domain": "$direct", "initial_utm_source": "perplexity.ai"},
+                {AI_SIGNUP_SOURCE_PROPERTY: "ai_referrer", AI_SIGNUP_CLIENT_PROPERTY: "perplexity.ai"},
+            ),
+            (
+                "said_ai_beats_ai_referrer",
+                "plain",
+                {"referral_source": "Gemini", "initial_referring_domain": AI_REFERRING_DOMAIN},
+                {AI_SIGNUP_SOURCE_PROPERTY: "said_ai", AI_SIGNUP_CLIENT_PROPERTY: "gemini"},
+            ),
+            (
+                "non_ai_answer",
+                "plain",
+                {"referral_source": "a colleague", "initial_referring_domain": "www.google.com"},
+                None,
+            ),
+            ("no_signal", "social", {}, None),
+        ]
+    )
+    @patch("posthoganalytics.group_identify")
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_marks_organizations_ai_sent(
+        self,
+        _name: str,
+        signup_path: str,
+        signal_fields: dict[str, str],
+        expected_ai_properties: dict[str, str] | None,
+        mock_capture,
+        mock_group_identify,
+    ):
+        email = "ai-signup@example.com"
+
+        if signup_path == "plain":
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "Jane",
+                    "email": email,
+                    "password": VALID_TEST_PASSWORD,
+                    "role_at_organization": "product",
+                    **signal_fields,
+                },
+            )
+        else:
+            session = self.client.session
+            session["backend"] = "google-oauth2"
+            session["email"] = email
+            _store_social_signup_partial(session)
+            session.save()
+            response = self.client.post(
+                "/api/social_signup/", {"first_name": "Jane", "organization_name": "Jane's Org", **signal_fields}
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=email)
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        event_properties = signup_calls[0].kwargs["properties"]
+        organization_calls = [c for c in mock_group_identify.call_args_list if c.args[0] == "organization"]
+        if expected_ai_properties is None:
+            self.assertNotIn(AI_SIGNUP_SOURCE_PROPERTY, event_properties)
+            self.assertEqual(organization_calls, [])
+        else:
+            assert user.organization is not None
+            self.assertLessEqual(expected_ai_properties.items(), event_properties.items())
+            self.assertEqual(
+                organization_calls,
+                [mock.call("organization", str(user.organization.id), properties=expected_ai_properties)],
+            )
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
@@ -2011,7 +2125,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_01ABC")
     @patch("posthog.workos_radar._log_radar_event")
@@ -2043,6 +2157,32 @@ class TestSignupChallengeAPI(APIBaseTest):
         mock_put.assert_called_once()
         assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
         assert mock_put.call_args[1]["json"] == {"attempt_status": "success", "challenge_status": "success"}
+
+    @parameterized.expand(
+        [("string", "signals_abc", "signals_abc"), ("not_a_string", {"id": 1}, ""), ("null", None, "")]
+    )
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_sends_the_browser_signals_token_to_radar(self, _name, token, expected, mock_call_api):
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
+
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.ALLOW)
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "John",
+                "email": "signals@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Test Org",
+                "radar_signals_id": token,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert mock_call_api.call_args[1]["signals_id"] == expected
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar._call_radar_api")
@@ -2107,6 +2247,47 @@ class TestInviteSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["code"], "challenge_required")
         self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+
+    @parameterized.expand([("set_up", True, "client_123"), ("not_set_up", False, None)])
+    def test_signup_pages_name_the_radar_client_while_radar_is_set_up(self, _name, enabled, expected):
+        invite = OrganizationInvite.objects.create(target_email="invitee@posthog.com", organization=self.organization)
+
+        with override_settings(
+            WORKOS_RADAR_ENABLED=enabled, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123"
+        ):
+            precheck = self.client.post("/api/signup/precheck", {"email": "new@posthog.com"}).json()
+            invite_page = self.client.get(f"/api/signup/{invite.id}/").json()
+
+        assert precheck.get("radar_client_id") == expected
+        assert invite_page.get("radar_client_id") == expected
+
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123")
+    def test_the_invite_page_names_no_radar_client_to_a_signed_in_invitee(self):
+        invite = OrganizationInvite.objects.create(target_email="invitee@posthog.com", organization=self.organization)
+        self.client.force_login(User.objects.create_user("invitee@posthog.com", VALID_TEST_PASSWORD, "Invitee"))
+
+        response = self.client.get(f"/api/signup/{invite.id}/")
+
+        assert response.status_code == 200
+        assert "radar_client_id" not in response.json()
+
+    @patch("posthog.workos_radar._call_radar_api")
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_invite_signup_sends_the_browser_signals_token_to_radar(self, mock_call_api):
+        from posthog.workos_radar import RadarAttempt, RadarVerdict
+
+        mock_call_api.return_value = RadarAttempt(verdict=RadarVerdict.ALLOW)
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="invite+signals@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {"first_name": "Jane", "password": VALID_TEST_PASSWORD, "radar_signals_id": "signals_abc"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
 
 
 class TestPasskeySignupAPI(APIBaseTest):
@@ -3453,7 +3634,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
 
-    @patch("posthog.workos_radar.requests.put")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_02DEF")
     @patch("posthog.workos_radar._log_radar_event")

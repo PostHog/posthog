@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { MarketingAnalyticsSourceStatusBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
@@ -41,6 +43,7 @@ export function DetectedSources({
     const { allAvailableSourcesWithStatus, nativeSources, hasSyncedMarketingSources } =
         useValues(marketingAnalyticsLogic)
     const { setManualSourceSearch } = useActions(marketingOnboardingLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sources = visibleSuggestions.filter(
         (suggestion) =>
             suggestion.kind === 'connect_source' &&
@@ -116,13 +119,23 @@ export function DetectedSources({
                         onDismiss={dismissSource}
                         onRestore={restoreAllDismissed}
                         footer={
-                            <LemonButton
-                                type={sources.length || connections.length ? 'secondary' : 'primary'}
-                                onClick={openIntegrations}
-                                data-attr="marketing-dashboard-connect-source"
-                            >
-                                Browse integrations
-                            </LemonButton>
+                            todayRailNav ? (
+                                <Button
+                                    variant={sources.length || connections.length ? 'outline' : 'primary'}
+                                    onClick={openIntegrations}
+                                    data-attr="marketing-dashboard-connect-source"
+                                >
+                                    Browse integrations
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type={sources.length || connections.length ? 'secondary' : 'primary'}
+                                    onClick={openIntegrations}
+                                    data-attr="marketing-dashboard-connect-source"
+                                >
+                                    Browse integrations
+                                </LemonButton>
+                            )
                         }
                     />
                 )}

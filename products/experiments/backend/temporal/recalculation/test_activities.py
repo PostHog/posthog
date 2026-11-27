@@ -12,7 +12,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -28,6 +30,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
@@ -44,7 +47,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import build_job_payload, get_run_results
+from products.experiments.backend.recalculation.kill_switch import RECALCULATION_ENABLED_SETTING
+from products.experiments.backend.recalculation.payloads import build_job_payload, get_run_results
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -55,6 +59,7 @@ from products.experiments.backend.temporal.models import (
 )
 from products.experiments.backend.temporal.recalculation.activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation.logic import (
+    RECALCULATION_PAUSED_ERROR_TYPE,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _capacity_retry_delay_seconds,
@@ -370,6 +375,57 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.started_at == first_started_at
         # Both attempts return the same canonical query_to so the workflow threads the same value either way.
         assert first == second == first_query_to.isoformat()
+
+    @parameterized.expand([("pending_run_fails", False), ("started_run_continues", True)])
+    def test_mark_started_while_recalculation_is_paused(self, _name: str, started_before_pause: bool):
+        recalc = self._recalc(self._experiment(flag_key="progress-paused"))
+
+        def _start() -> str | None:
+            return _update(
+                RecalculationProgressUpdate(
+                    recalculation_id=str(recalc.id),
+                    status="in_progress",
+                    total_metrics=1,
+                    metric_uuids=["m1"],
+                    mark_started=True,
+                )
+            )
+
+        first = _start() if started_before_pause else None
+        with override_instance_config(RECALCULATION_ENABLED_SETTING, False):
+            if started_before_pause:
+                assert _start() == first
+            else:
+                with pytest.raises(ApplicationError) as exc_info:
+                    _start()
+                assert exc_info.value.type == RECALCULATION_PAUSED_ERROR_TYPE
+                assert exc_info.value.non_retryable
+
+        recalc.refresh_from_db()
+        assert recalc.status == ("in_progress" if started_before_pause else "failed")
+        assert recalc.completed_at is None
+
+    @parameterized.expand([("pending_run", "pending"), ("already_failed_run", "failed")])
+    def test_discover_while_recalculation_is_paused_stops_before_reading_the_run(self, _name: str, status: str):
+        recalc = self._recalc(self._experiment(flag_key="discover-paused"))
+        recalc.status = status
+        recalc.save(update_fields=["status"])
+
+        with (
+            override_instance_config(RECALCULATION_ENABLED_SETTING, False),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            get_instance_setting.cache_clear()  # type: ignore[attr-defined]
+            with pytest.raises(ApplicationError) as exc_info:
+                _discover(str(recalc.id))
+
+        assert exc_info.value.type == RECALCULATION_PAUSED_ERROR_TYPE
+        assert exc_info.value.non_retryable
+        other_queries = [q["sql"] for q in queries.captured_queries if "posthog_instancesetting" not in q["sql"]]
+        assert [q.split(" ")[0] for q in other_queries] == ["UPDATE"]
+        recalc.refresh_from_db()
+        assert recalc.status == "failed"
+        assert recalc.completed_at is None
 
     @parameterized.expand(
         [
@@ -792,6 +848,7 @@ class TestCalculateActivity(BaseTest):
         assert len(recalc.metric_errors) == 1
         assert recalc.metric_errors["m1"]["error_type"] == "validation_error"
         assert recalc.metric_errors["m1"]["retriable"] is False
+        assert recalc.metric_errors["m1"]["calculation_key"] is None
 
     def test_bad_metric_type_fails_at_calculation(self):
         # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
@@ -932,6 +989,7 @@ class TestCalculateActivity(BaseTest):
         assert entry["error_type"] == expected_error_type
         assert entry["message"] == expected_message
         assert "AKIAFAKESECRET" not in entry["message"]
+        assert entry["calculation_key"] == _calculation_key(exp, "m1")
         next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
         assert (next_retry_at - timezone.now()).total_seconds() == expected_delay_seconds
 
@@ -969,6 +1027,7 @@ class TestCalculateActivity(BaseTest):
         assert entry["error_type"] == expected_error_type
         assert entry["retriable"] is expected_retriable
         assert entry["exposures_path"] == "direct_scan"
+        assert entry["calculation_key"] == _calculation_key(exp, "m1")
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
@@ -1039,6 +1098,7 @@ class TestCalculateActivity(BaseTest):
             assert row.status == ExperimentMetricResult.Status.FAILED
             assert recalc.metric_errors["m1"]["error_type"] == "timeout"
             assert recalc.metric_errors["m1"]["retriable"] is True
+            assert recalc.metric_errors["m1"]["calculation_key"] == _calculation_key(exp, "m1")
             assert [c["event"] for c in captured] == ["experiment metric error"]
             assert captured[0]["properties"]["error_type"] == "timeout"
 
@@ -1356,14 +1416,16 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
         recalc.refresh_from_db()
-        assert list(recalc.metric_errors) == ([] if error is None else ["m1"])
+        assert {uuid: entry["calculation_key"] for uuid, entry in recalc.metric_errors.items()} == (
+            {} if error is None else {"m1": calculation_config.key_for_version(2)}
+        )
         results = get_run_results(recalc)
         assert [(r["status"], r["result"], r["configuration_status"]) for r in results] == [
             (ExperimentMetricResult.Status.COMPLETED, expected_result, expected_configuration)
         ]
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert row.fingerprint == keys[expected_key]
-        payload = build_job_payload(recalc, results=results)
+        payload = build_job_payload(recalc)
         assert (payload["completed_metrics"], payload["failed_metrics"]) == expected_counters
 
     def test_excluded_variants_change_recomputes(self):

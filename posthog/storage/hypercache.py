@@ -130,6 +130,11 @@ HYPERCACHE_CACHE_COUNTER = Counter(
 _HYPER_CACHE_EMPTY_VALUE = "__missing__"
 
 
+def _serialize(data: dict) -> str:
+    # Sorted keys give equal data the same bytes, and so the same ETag.
+    return json.dumps(data, sort_keys=True)
+
+
 def emit_cache_sync_metrics(
     result: str,
     namespace: str,
@@ -288,6 +293,10 @@ class HyperCache:
 
     def _compute_etag(self, json_data: str) -> str:
         return hashlib.sha256(json_data.encode("utf-8")).hexdigest()[:16]
+
+    def compute_etag(self, data: dict) -> str:
+        """The ETag this cache stores with ``data``."""
+        return self._compute_etag(_serialize(data))
 
     def get_from_cache(self, key: KeyType) -> dict | None:
         data, _ = self.get_from_cache_with_source(key)
@@ -608,7 +617,7 @@ class HyperCache:
             )
         json_data: str | None = None
         if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
-            json_data = json.dumps(data, sort_keys=True)
+            json_data = _serialize(data)
             etag = self._compute_etag(json_data)
             # Skip only when every tier is current. A failed mirror write leaves the
             # secondary on the old payload, and a primary-only ETag comparison would then
@@ -768,9 +777,8 @@ class HyperCache:
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
-            # Use sort_keys for deterministic serialization (consistent ETags)
             if json_data is None:
-                json_data = json.dumps(data, sort_keys=True)
+                json_data = _serialize(data)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
                 self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
@@ -797,8 +805,7 @@ class HyperCache:
         if data is None or isinstance(data, HyperCacheStoreMissing):
             object_storage.delete(key)
         else:
-            # Use sort_keys for deterministic serialization (consistent ETags)
-            object_storage.write(key, json.dumps(data, sort_keys=True))
+            object_storage.write(key, _serialize(data))
 
     def _remove_expiry_tracking(self, key: KeyType, if_score: float | None = None) -> None:
         """

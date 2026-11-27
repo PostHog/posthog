@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 regex.workspace = true
+regex-syntax = "0.8"
 rand.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true

@@ -1,18 +1,21 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { userEvent } from 'storybook/test'
-
 import type { ErrorTrackingIssueTagDefinitionApi } from '../../generated/api.schemas'
 import type { IssueTagState, IssueTagsFilter } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueTagSelect } from './IssueTagSelect'
 
-type TagDefinition = Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description'>
+type TagDefinition = Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description' | 'color'>
 
 const FEW_TAGS: TagDefinition[] = [
-    { key: 'frontend', label: 'Frontend', description: 'The stack trace has a frame from browser code.' },
-    { key: 'third_party', label: 'Third party', description: 'The top frame is in a vendor script.' },
-    { key: 'payments', label: 'Payments', description: '' },
+    {
+        key: 'frontend',
+        label: 'Frontend',
+        description: 'The stack trace has a frame from browser code.',
+        color: 'blue',
+    },
+    { key: 'third_party', label: 'Third party', description: 'The top frame is in a vendor script.', color: 'orange' },
+    { key: 'payments', label: 'Payments', description: '', color: null },
 ]
 
 const MANY_TAGS: TagDefinition[] = [
@@ -31,6 +34,7 @@ const MANY_TAGS: TagDefinition[] = [
         key: label.toLowerCase().replace(/ /g, '_'),
         label,
         description: `Errors raised in ${label.toLowerCase()} code.`,
+        color: null,
     })),
 ]
 
@@ -51,14 +55,16 @@ function TagSelectStory({
         setIssueTags(next.has.length || next.hasNot.length ? next : null)
     }
     return (
-        // The popover opens below the button, so the box is tall enough to hold it in the snapshot.
-        <div className="min-h-120">
+        // The popover is in a portal and adds no size to #storybook-root. This box is big enough to hold it, so the
+        // snapshot of the root shows the whole popover.
+        <div className="min-h-120 w-84">
             <IssueTagSelect
                 definitions={definitions}
                 loading={false}
                 issueTags={issueTags}
                 onTagStateChange={setTagState}
                 onClear={() => setIssueTags(null)}
+                defaultOpen
             />
         </div>
     )
@@ -70,11 +76,6 @@ const meta: Meta<typeof TagSelectStory> = {
     parameters: {
         layout: 'padded',
         testOptions: { waitForSelector: '[data-attr="error-tracking-issue-tag-filter-manage-rules"]' },
-    },
-    play: async ({ canvasElement }) => {
-        await userEvent.click(
-            canvasElement.querySelector('[data-attr="error-tracking-issue-tag-filter"]') as HTMLElement
-        )
     },
 }
 export default meta

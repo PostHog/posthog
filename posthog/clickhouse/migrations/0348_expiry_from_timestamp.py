@@ -22,8 +22,8 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # lives on the ingestion-events nodes (0305/0307) and writes through `writable_logs34`, and the
 # traces MV lives on the logs nodes (0290/0330) and writes into `trace_spans` directly.
 _is_dev = run_mode() is RunMode.CLOUD_DEV
-_logs_role = NodeRole.APM if _is_dev else NodeRole.INGESTION_EVENTS
-_traces_role = NodeRole.APM if _is_dev else NodeRole.LOGS
+_logs_role = NodeRole.INGESTION_APM if _is_dev else NodeRole.INGESTION_EVENTS
+_traces_role = NodeRole.INGESTION_APM if _is_dev else NodeRole.LOGS
 _traces_mv = KAFKA_TRACE_SPANS_AVRO_MV(to_table="writable_trace_spans") if _is_dev else KAFKA_TRACE_SPANS_AVRO_MV()
 
 operations = [

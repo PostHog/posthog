@@ -16,6 +16,7 @@ from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 from posthog.inbox_providers import InboxProvider
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 
 VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
@@ -52,6 +53,22 @@ def workflows_refuses_the_recipient() -> Iterator[None]:
 
 class TestCodeBasedVerificationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
+
+    @parameterized.expand([("complete", VERIFY_URL), ("resend", RESEND_URL)])
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_pending_code_refuses_service_account(self, _name: str, url: str) -> None:
+        with time_machine.travel("2026-11-01T12:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+            frozen.shift(61)
+
+            response = self.client.post(url, {"code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(any(name.startswith("remember-cookie_") for name in response.cookies))
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.last_login)
 
     def _trigger(self, mock_send, inbox_provider: str | None = None) -> str:
         """Log in with password to trigger the code, returning the 6-digit code that was emailed."""

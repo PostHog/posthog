@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytest
@@ -285,6 +285,8 @@ class TestGitLabSourceResponse:
             ("issue_label_events", ["issue_iid", "id"], "created_at", "desc"),
             ("merge_request_approvals", ["merge_request_iid", "user_id"], None, "desc"),
             ("jobs", ["id"], "created_at", "desc"),
+            ("events", ["id"], "created_at", None),
+            ("iterations", ["id"], "created_at", None),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
@@ -383,6 +385,54 @@ class TestGetRows:
             next_url,
         ]
         assert [row["id"] for row in _rows(result)] == [12, 11, 10]
+
+    @pytest.mark.parametrize(
+        "endpoint, last_value, expected_url",
+        [
+            pytest.param(
+                "events",
+                None,
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc",
+                id="events_full_refresh",
+            ),
+            pytest.param(
+                "events",
+                datetime(2024, 3, 5, 0, 0, tzinfo=UTC),
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-03",
+                id="events_watermark_at_midnight",
+            ),
+            pytest.param(
+                "events",
+                "2024-03-05T23:59:59.999Z",
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-03",
+                id="events_watermark_as_string",
+            ),
+            pytest.param(
+                "events",
+                datetime(2024, 3, 5, 1, 0, tzinfo=timezone(timedelta(hours=3))),
+                "https://gitlab.com/api/v4/projects/group%2Fproject/events?per_page=100&sort=asc&after=2024-03-02",
+                id="events_watermark_uses_utc_date",
+            ),
+            pytest.param(
+                "iterations",
+                datetime(2024, 3, 5, 10, 30, tzinfo=UTC),
+                "https://gitlab.com/api/v4/projects/group%2Fproject/iterations"
+                "?per_page=100&updated_after=2024-03-05T10%3A30%3A00Z",
+                id="iterations_incremental",
+            ),
+        ],
+    )
+    def test_incremental_request_shaping(self, endpoint, last_value, expected_url):
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"id": 1, "created_at": "2024-03-05T10:00:00Z"}])],
+            should_use_incremental_field=last_value is not None,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert result.urls == [expected_url]
+        assert [row["id"] for row in _rows(result)] == [1]
 
     @pytest.mark.parametrize(
         "body, expected",
@@ -511,6 +561,25 @@ class TestGetRows:
         first_url = result.urls[0]
         assert first_url.startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues")
         assert [row["id"] for row in _rows(result)] == [1]
+
+    @pytest.mark.parametrize(
+        "endpoint, status, expected_message",
+        [
+            ("iterations", 403, "Premium or Ultimate"),
+            ("iterations", 404, "Premium or Ultimate"),
+            ("issues", 403, "read_api"),
+            ("issues", 404, "Project not found"),
+        ],
+    )
+    def test_refusal_maps_to_one_endpoint_specific_message(self, endpoint, status, expected_message):
+        result = _driver().run(endpoint, [ScriptedResponse(status=status, json={"message": f"{status} Not allowed"})])
+
+        assert result.raised is not None
+        messages = [
+            message for key, message in GitLabSource().get_non_retryable_errors().items() if key in str(result.raised)
+        ]
+        assert len(messages) == 1
+        assert expected_message in (messages[0] or "")
 
     def test_does_not_follow_redirects(self):
         result = _driver().run(

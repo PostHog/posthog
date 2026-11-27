@@ -319,6 +319,53 @@ describe('inboxTaskKickoffLogic', () => {
             expect(humanTexts()).toEqual(['Explain the recommendation'])
         })
 
+        it.each(['create', 'run'] as const)('treats leaving the report mid-kickoff as a cancel (%s)', async (phase) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            capture.mockClear()
+            let requestStarted = (): void => {}
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            let releaseCreate = (): void => {}
+            const createGate = new Promise<void>((resolve) => {
+                releaseCreate = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createdTasks.push((await request.json()) as Record<string, unknown>)
+                        requestStarted()
+                        if (phase === 'create') {
+                            await createGate
+                        }
+                        return [201, { id: 'report-task' }]
+                    },
+                },
+            })
+            onRunRequest = () => logic.unmount()
+            try {
+                const kickoff = logic.asyncActions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Explain the recommendation'
+                )
+                if (phase === 'create') {
+                    await started
+                    logic.unmount()
+                    releaseCreate()
+                }
+                await kickoff
+
+                expect(toastError).not.toHaveBeenCalled()
+                const completed = capture.mock.calls.filter(([event]) => event === INBOX_EVENTS.REPORT_ACTION_COMPLETED)
+                expect(completed).toEqual([])
+            } finally {
+                toastError.mockRestore()
+                capture.mockRestore()
+            }
+        })
+
         it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
 
@@ -342,6 +389,25 @@ describe('inboxTaskKickoffLogic', () => {
                 runId: 'warm-run',
             })
             expect(cancelledRuns).toHaveLength(0)
+        })
+
+        it.each([
+            [
+                'a billing-limit 429',
+                0,
+                429,
+                { type: 'billing_limit', code: 'fake_limit_code', error: 'Limit reached.' },
+            ],
+            ['a 500', 1, 500, { detail: 'Server error.' }],
+        ])('captures a report warm that failed with %s %i times', async (_, expectedReports, status, body) => {
+            useMocks({ post: { '/api/projects/:team/tasks/warm/': () => [status, body] } })
+
+            await expectLogic(logic, () => {
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            }).toFinishAllListeners()
+
+            expect(posthog.captureException).toHaveBeenCalledTimes(expectedReports)
+            expect(logic.values.reportWarmLease).toBeNull()
         })
 
         it.each(['implementation', 'discussion'] as const)(

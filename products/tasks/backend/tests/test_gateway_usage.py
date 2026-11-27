@@ -45,7 +45,14 @@ class TestGatewayUsage(BaseTest):
         TaskRun.update_state_atomic(run.id, updates={"unprocessed_request_ids": ids})
 
     def _response(
-        self, request_id: str, cost: object, *, model: str = "model-a", provider: str = "provider-a", status: int = 200
+        self,
+        request_id: str,
+        cost: object,
+        *,
+        model: str = "model-a",
+        provider: str = "provider-a",
+        status: int = 200,
+        extra: dict[str, object] | None = None,
     ) -> MagicMock:
         response = MagicMock(
             status=status,
@@ -55,6 +62,7 @@ class TestGatewayUsage(BaseTest):
                     "cost_usd": cost,
                     "model": model,
                     "provider": provider,
+                    **(extra or {}),
                 }
             ),
         )
@@ -69,26 +77,37 @@ class TestGatewayUsage(BaseTest):
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
         run = self._run()
         observed_costs: dict[UUID, int | None] = {}
+        standard_deltas: list[int] = []
 
-        def cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+        def cost_updated(*, run_id: UUID, team_id: int, standard_cost_delta_microusd: int, **kwargs: object) -> None:
             assert team_id == self.team.id
             observed_costs[run_id] = get_task_run_token_cost_microusd(team_id=team_id, run_id=run_id)
+            standard_deltas.append(standard_cost_delta_microusd)
 
         task_run_cost_updated.connect(cost_updated, sender=TaskRun)
         self.addCleanup(task_run_cost_updated.disconnect, cost_updated, sender=TaskRun)
+        TaskRun.update_state_atomic(
+            run.id, updates={"token_cost": {"model-b": {"provider-a": {"cost_microusd": 1, "request_ids": ["legacy"]}}}}
+        )
         self._report(run, ["parent", "subagent", "other-model", "second-turn", "parent"])
         record_generation_request(team_id=self.team.id, run_id=run.id, request_id="queued")
         get.side_effect = [
             self._response("parent", "0.005"),
-            self._response("subagent", "0.010001", provider="provider-b"),
+            self._response(
+                "subagent",
+                "0.010001",
+                provider="provider-b",
+                extra={"standard_cost_usd": "0.020002", "service_tier": "flex"},
+            ),
             self._response("other-model", "0.000009", model="model-b"),
-            self._response("second-turn", "0.005"),
+            self._response("second-turn", "0.005", extra={"standard_cost_usd": None}),
             self._response("queued", "0.009"),
         ]
         with CaptureQueriesContext(connection) as queries:
             assert self._process(run).token_cost == 3
         assert sum('"posthog_task_sandbox_session"' in query["sql"] for query in queries) <= 1
-        assert observed_costs == {run.id: 29_010}
+        assert observed_costs == {run.id: 29_011}
+        assert sum(standard_deltas) == 39_011
         assert not TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
         assert get.call_count == 5
         assert get.call_args.kwargs["timeout"].total == 15
@@ -98,16 +117,45 @@ class TestGatewayUsage(BaseTest):
             "unprocessed_request_ids": [],
             "token_cost": {
                 "model-a": {
-                    "provider-a": {"cost_microusd": 19_000, "request_ids": ["parent", "second-turn", "queued"]},
-                    "provider-b": {"cost_microusd": 10_001, "request_ids": ["subagent"]},
+                    "provider-a": {
+                        "cost_microusd": 19_000,
+                        "standard_cost_adjustment_microusd": 0,
+                        "request_ids": ["parent", "second-turn", "queued"],
+                    },
+                    "provider-b": {
+                        "cost_microusd": 10_001,
+                        "standard_cost_adjustment_microusd": 10_001,
+                        "request_ids": ["subagent"],
+                    },
                 },
-                "model-b": {"provider-a": {"cost_microusd": 9, "request_ids": ["other-model"]}},
+                "model-b": {
+                    "provider-a": {
+                        "cost_microusd": 10,
+                        "standard_cost_adjustment_microusd": 0,
+                        "request_ids": ["legacy", "other-model"],
+                    }
+                },
             },
             "compute_cost": None,
         }
+        [spend] = get_task_runs_spend(team_id=self.team.id, run_ids=[run.id])
+        assert (spend.cost_microusd, spend.standard_cost_microusd) == (29_011, 39_012)
         get.reset_mock()
         assert self._process(run).token_cost == 3
         get.assert_not_called()
+        run.refresh_from_db()
+        old_worker_bucket = run.state["token_cost"]["model-a"]["provider-b"]
+        old_worker_bucket["cost_microusd"] += 50
+        old_worker_bucket["request_ids"].append("old-worker")
+        TaskRun.objects.filter(id=run.id).update(state=run.state)
+        self._report(run, ["after-old-worker"])
+        get.side_effect = [
+            self._response("after-old-worker", "0.0001", provider="provider-b", extra={"standard_cost_usd": "0.0003"})
+        ]
+        self._process(run)
+        [spend] = get_task_runs_spend(team_id=self.team.id, run_ids=[run.id])
+        assert (spend.cost_microusd, spend.standard_cost_microusd) == (29_161, 39_362)
+        assert sum(standard_deltas) == 39_362 - 1 - 50
 
     @patch("aiohttp.ClientSession._request")
     def test_overlapping_worker_pass_preserves_new_ids_and_adds_cost_once(self, get: Mock) -> None:
@@ -128,6 +176,7 @@ class TestGatewayUsage(BaseTest):
         assert run.state["unprocessed_request_ids"] == ["request-2"]
         assert run.state["token_cost"]["model-a"]["provider-a"] == {
             "cost_microusd": 15_000,
+            "standard_cost_adjustment_microusd": 0,
             "request_ids": ["request-1"],
         }
 
@@ -183,12 +232,26 @@ class TestGatewayUsage(BaseTest):
         assert run.state["unprocessed_request_ids"] == []
         assert run.state["token_cost"]["model-a"]["provider-a"]["cost_microusd"] == int(Decimal(cost) * 1_000_000)
 
-    @parameterized.expand([("negative", "-1"), ("nan", "NaN"), ("float", 0.5), ("exponent", "1e999999")])
+    @parameterized.expand(
+        [
+            ("negative", "-1", None),
+            ("nan", "NaN", None),
+            ("float", 0.5, None),
+            ("exponent", "1e999999", None),
+            ("standard_negative", "0.1", "-1"),
+            ("standard_float", "0.1", 0.2),
+            ("standard_too_precise", "0.1", "0.0000001"),
+        ]
+    )
     @patch("aiohttp.ClientSession._request")
-    def test_invalid_gateway_cost_stays_queued(self, _name: str, cost: object, get: Mock) -> None:
+    def test_invalid_gateway_cost_stays_queued(
+        self, _name: str, cost: object, standard_cost: object, get: Mock
+    ) -> None:
         run = self._run()
         self._report(run, ["request-1"])
-        get.return_value = self._response("request-1", cost)
+        get.return_value = self._response(
+            "request-1", cost, extra=None if standard_cost is None else {"standard_cost_usd": standard_cost}
+        )
         assert self._process(run).token_cost is None
         assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         run.refresh_from_db()

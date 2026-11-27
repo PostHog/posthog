@@ -5906,6 +5906,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 status.HTTP_201_CREATED,
                 None,
+                None,
             ),
             (
                 "realtime_not_backfilled_flag_on",
@@ -5913,7 +5914,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "isn't ready for feature flags yet",
+                "realtime_cohort_not_ready",
+                "isn't ready for feature flags yet. Preparing a cohort usually takes under 30 minutes.",
             ),
             (
                 "non_realtime_flag_on",
@@ -5921,7 +5923,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "isn't a realtime cohort, so feature flags can't target it. Open the cohort's page to see why it isn't realtime.",
             ),
             (
                 "realtime_backfilled_flag_off",
@@ -5929,7 +5932,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 False,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in feature flags.",
             ),
             (
                 "realtime_off",
@@ -5937,6 +5941,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "realtime_cohort_not_ready",
                 "Realtime is off for cohort",
             ),
         ]
@@ -5952,6 +5957,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         is_backfilled,
         flag_enabled,
         expected_status,
+        expected_code,
         expected_detail_fragment,
         mock_feature_enabled,
         mock_realtime_gate,
@@ -6005,6 +6011,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, expected_status)
 
         if expected_detail_fragment is not None:
+            self.assertEqual(expected_code, response.json()["code"])
             self.assertIn(expected_detail_fragment, response.json()["detail"])
 
     def test_snapshot_cohort_referencing_behavioral_cohort_is_allowed_in_flag(self):
@@ -7987,6 +7994,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         viewable_flag.refresh_from_db()
         assert viewable_flag.active is True
         assert viewable_flag.archived is False
+
+        remote_config_flag = self._create_encrypted_flag(
+            stored_payload=flag_payload_codec().encrypt(b'{"secret": "value"}').decode("utf-8")
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=remote_config_flag.id, team=self.team, access_level="none"
+        )
+        for flag_ref in (remote_config_flag.id, remote_config_flag.key):
+            remote_config_response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag_ref}/remote_config"
+            )
+            assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN, flag_ref
+
+        # A personal API key is the path that decrypts the payload.
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=user2, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+        self.client.logout()
+        remote_config_response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/{remote_config_flag.key}/remote_config",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert remote_config_response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit

@@ -6,7 +6,6 @@ export const NO_PROJECT_GATEWAY_ERROR =
 
 export interface ResolvedGatewayProxy {
   proxyUrl: string;
-  mode: "go";
 }
 
 export async function resolveGatewayProxy(input: {
@@ -26,6 +25,5 @@ export async function resolveGatewayProxy(input: {
     .catch(() => null);
   return {
     proxyUrl: await authProxy.startGatewaySession({ projectId, headers }),
-    mode: "go",
   };
 }

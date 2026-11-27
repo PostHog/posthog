@@ -65,6 +65,8 @@ def test_model_comparison_preserves_settings_and_partial_results(
             "exec",
             "--trials",
             "3",
+            "--team-setup-concurrency",
+            "2",
             "--max-sandboxes",
             "2",
             "--case-timeout",
@@ -87,6 +89,7 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert child.provider == options.provider
         assert child.skill_delivery == options.skill_delivery
         assert child.trials == options.trials
+        assert child.team_setup_concurrency == options.team_setup_concurrency == 2
         assert child.max_sandboxes == options.max_sandboxes
         assert child.per_case_timeout_seconds == options.per_case_timeout_seconds
         assert child.infrastructure_retries == options.infrastructure_retries
@@ -337,6 +340,8 @@ async def test_run_report_preserves_zero_skipped_scores_and_scorer_errors(
     reporter.write_run_report(options, suites, exit_code=1, duration_seconds=3)
     assert options.results_file is not None
     report = RunReport.model_validate_json(options.results_file.read_text())
+    assert report.team_setup_concurrency == options.team_setup_concurrency
+    assert report.max_sandboxes == options.max_sandboxes
     experiment = report.experiments["example"]
     assert experiment.cases == {"selected": 1}
     assert experiment.errors == 1

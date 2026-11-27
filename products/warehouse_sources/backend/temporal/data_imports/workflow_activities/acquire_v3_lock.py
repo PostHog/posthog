@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.organization_state import organization_deactivated
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -45,6 +46,8 @@ TAKEOVER_MAX_HOLD_SECONDS = 24 * 60 * 60
 # Must outlast the healthy startup tail (SET NX → job-row commit, minutes under
 # backlog); real no-job-row cleanups are hours old, so a generous grace delays nothing.
 NO_JOB_ROW_TAKEOVER_GRACE_SECONDS = 900
+
+CDC_NOTHING_TO_LOAD = "cdc_nothing_to_load"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -70,11 +73,15 @@ class AcquireV3LockActivityInputs:
 class AcquireV3LockActivityOutputs:
     acquired: bool
     token: str
-    # True when the run stood down because the schema's runs keep failing, rather than because
-    # another run holds the lock. The workflow skips either way, so this only separates the two in
-    # the logs and the metrics. Defaults False so a payload that predates the field reads as the
-    # lock miss its history recorded.
+    # True when the run stood down before the lock, rather than because another run holds it. The
+    # workflow skips either way, so this only separates the two in the logs and the metrics. Defaults
+    # False so a payload that predates the field reads as the lock miss its history recorded.
     deferred: bool = False
+    # Why a deferred run stood down. None means the schema's runs keep failing.
+    stood_down_reason: str | None = None
+    # True when the run stood down because the team's organization is deactivated. Same skip as a
+    # lock miss for the workflow, so old workflow code that ignores the field still records no job.
+    organization_deactivated: bool = False
 
 
 @dataclasses.dataclass
@@ -103,8 +110,19 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         return AcquireV3LockActivityOutputs(acquired=False, token="")
 
     # Before the lock, so a stood-down run never takes one and never needs to release one.
-    if _defer_failing_schema(inputs, logger):
+    if _organization_deactivated(inputs, logger):
+        return AcquireV3LockActivityOutputs(acquired=False, token=token, organization_deactivated=True)
+
+    schema = _read_schema(inputs, logger)
+    if _defer_failing_schema(schema, inputs, logger):
         return AcquireV3LockActivityOutputs(acquired=False, token=token, deferred=True)
+    if schema is not None and schema.is_cdc:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import consumer_tick_stands_down
+
+        if consumer_tick_stands_down(inputs.schema_id, inputs.team_id, logger):
+            return AcquireV3LockActivityOutputs(
+                acquired=False, token=token, deferred=True, stood_down_reason=CDC_NOTHING_TO_LOAD
+            )
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
     if not acquired:
@@ -130,7 +148,43 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
 
 
-def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+def _organization_deactivated(inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
+    """Whether this run stands down because the team's organization is deactivated.
+
+    The run stops before it creates a job, so it calls no source, writes no status, sends no
+    billing or failure alert and adds nothing to the failure streak. Nothing is paused or
+    disabled here, so the first run after reactivation syncs as before. Resets and manual syncs
+    stop too, because a deactivated organization must run nothing. CDC capture is stopped
+    separately, by the hourly CDC sweep.
+
+    False on any error, for the same reason as `_defer_failing_schema`. The next run checks again.
+    """
+    try:
+        deactivated = organization_deactivated(inputs.team_id)
+    except Exception as e:
+        logger.warning("data_import_organization_active_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return False
+
+    if not deactivated:
+        return False
+
+    logger.info("data_import_run_skipped_organization_deactivated", schema_id=str(inputs.schema_id))
+    return True
+
+
+def _read_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> ExternalDataSchema | None:
+    try:
+        return (
+            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
+            .only("sync_type", "sync_type_config")
+            .first()
+        )
+    except Exception as e:
+        logger.warning("data_import_run_defer_check_failed", schema_id=str(inputs.schema_id), error=str(e))
+        return None
+
+
+def _defer_failing_schema(schema: ExternalDataSchema | None, inputs: AcquireV3LockActivityInputs, logger: Any) -> bool:
     """Whether this run stands down because the schema's runs keep failing.
 
     The schedule keeps its cadence and its runs are spaced out instead, so a source nothing can
@@ -141,11 +195,6 @@ def _defer_failing_schema(inputs: AcquireV3LockActivityInputs, logger: Any) -> b
     what one failing run costs, so going ahead is the safe answer.
     """
     try:
-        schema = (
-            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
-            .only("sync_type_config")
-            .first()
-        )
         if schema is None or schema.reset_pipeline or schema.manual_run_requested:
             return False
 

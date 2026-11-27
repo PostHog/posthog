@@ -26,7 +26,7 @@ export function earlyBlock(): string {
     return [
         '## PostHog',
         '',
-        `${IN_PROGRESS} Run \`hog setup\` to see the current step. Don't install PostHog any other way.`,
+        `${IN_PROGRESS} Run \`hog setup\` to go on with it. Don't install PostHog any other way.`,
     ].join('\n')
 }
 
@@ -126,7 +126,7 @@ function withBlock(path: string, text: string, body: string): string {
         throw new HogError(
             'setup_block_broken',
             `${path} has only one of the two PostHog setup markers, ${START} and ${END}.`,
-            `Remove the remaining marker from ${path}, then run \`hog setup next\` again.`
+            `Remove the remaining marker from ${path}, then run \`hog setup\` again.`
         )
     }
     if (text.trim() === '') {
@@ -145,7 +145,7 @@ async function destination(runtime: Runtime, root: string, path: string): Promis
         throw new HogError(
             'setup_file_outside_folder',
             `${escapeControls(path)} links to ${where}, outside ${escapeControls(root)}. hog doesn't write through links that leave the folder.`,
-            `Replace ${basename(path)} with a regular file, or link it to a file inside ${escapeControls(root)}. Then run \`hog setup next\` again.`
+            `Replace ${basename(path)} with a regular file, or link it to a file inside ${escapeControls(root)}. Then run \`hog setup\` again.`
         )
     }
 
