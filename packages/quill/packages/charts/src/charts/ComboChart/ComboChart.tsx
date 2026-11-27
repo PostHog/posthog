@@ -50,6 +50,7 @@ import type {
     ComboChartConfig,
     CreateScalesFn,
     DrawHoverResult,
+    DateRangeZoomData,
     PointClickData,
     ResolvedSeries,
     Series,
@@ -68,6 +69,7 @@ export interface ComboChartProps<Meta = unknown> {
     theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -90,6 +92,7 @@ function ComboChartInner<Meta = unknown>({
     theme: themeProp,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -425,6 +428,7 @@ function ComboChartInner<Meta = unknown>({
             drawHover={drawHover}
             tooltip={tooltip}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}

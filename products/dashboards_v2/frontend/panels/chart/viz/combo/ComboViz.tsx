@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { TimeSeriesComboChart } from '@posthog/quill-charts'
 
 import type { DataFrame } from '../../../../query/queryTypes'
-import { useTimeSeriesChart } from '../../data/useTimeSeriesChart'
+import { useTimeSeriesChart, useZoomToTimeRange } from '../../data/useTimeSeriesChart'
 import type { NoOptions } from '../../vizTypes'
 
 export function ComboViz({ frames }: { frames: DataFrame[]; options: NoOptions }): JSX.Element {
@@ -13,5 +13,6 @@ export function ComboViz({ frames }: { frames: DataFrame[]; options: NoOptions }
         () => series.map((one, index) => ({ ...one, type: index === 0 ? 'bar' : 'line' }) as const),
         [series]
     )
-    return <TimeSeriesComboChart series={mixed} labels={labels} config={baseConfig} />
+    const onDateRangeZoom = useZoomToTimeRange(labels)
+    return <TimeSeriesComboChart series={mixed} labels={labels} config={baseConfig} onDateRangeZoom={onDateRangeZoom} />
 }

@@ -26,7 +26,7 @@ It fires on a right click with the same `PointClickData` as `onPointClick`, for 
 
 ## Drag-to-zoom: `onDateRangeZoom`
 
-On `LineChart`, `TimeSeriesLineChart`, `BarChart`, `TimeSeriesBarChart`, and the base `Chart`.
+On `LineChart`, `TimeSeriesLineChart`, `BarChart`, `TimeSeriesBarChart`, `ComboChart`, `TimeSeriesComboChart`, and the base `Chart`.
 The user drags horizontally and the callback fires once with `{ startLabel, endLabel, startIndex, endIndex }`.
 The chart does not manage zoom state; the parent decides what to do with the range, usually updating a date filter.
 

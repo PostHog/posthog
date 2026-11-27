@@ -1,5 +1,12 @@
+import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import type { BreakdownType } from '~/types'
 import { type EventPropertyFilter, type PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import {
+    BREAKDOWN_FILTER_TYPE,
+    type BreakdownFilterConfig,
+    type BreakdownFilterValue,
+} from '../breakdown/breakdownFilterSpec'
 import type { AppliedFilter } from '../filtersContext'
 import {
     PROPERTY_FILTER_TYPE,
@@ -46,4 +53,21 @@ export function analyticsPropertyFilters(filters: AppliedFilter[]): AnalyticsPro
         }
         return []
     })
+}
+
+function isBreakdownFilter(
+    filter: AppliedFilter
+): filter is AppliedFilter<BreakdownFilterConfig, BreakdownFilterValue> {
+    return filter.type === BREAKDOWN_FILTER_TYPE && typeof filter.value === 'object' && filter.value !== null
+}
+
+// The query kinds whose `breakdownFilter` a dashboard breakdown replaces, as in v1's `apply_dashboard_filters`.
+const KINDS_WITH_BREAKDOWN = new Set(['TrendsQuery', 'FunnelsQuery', 'RetentionQuery'])
+
+export function analyticsBreakdownFilter(filters: AppliedFilter[], kind: string): BreakdownFilter | undefined {
+    const breakdown = filters.find(isBreakdownFilter)
+    if (!breakdown || !KINDS_WITH_BREAKDOWN.has(kind)) {
+        return undefined
+    }
+    return { breakdown: breakdown.value.key, breakdown_type: breakdown.value.type as BreakdownType }
 }
