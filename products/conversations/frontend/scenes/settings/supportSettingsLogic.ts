@@ -1837,7 +1837,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             posthog.capture(EMAIL_DISPLAY_NAME_UPDATE_EVENT, { status: 'started' })
             try {
                 // nosemgrep: prefer-codegen-api -- Conversations email settings endpoints are absent from generated clients.
-                await api.create('api/conversations/v1/email/set-display-name', {
+                await api.create('api/conversations/v1/email/set_display_name', {
                     config_id: configId,
                     from_name: fromName,
                 })

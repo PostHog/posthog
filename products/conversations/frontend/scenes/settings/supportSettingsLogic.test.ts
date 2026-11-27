@@ -221,7 +221,7 @@ describe('supportSettingsLogic', () => {
                     '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
                 },
                 post: {
-                    '/api/conversations/v1/email/set-display-name': async ({ request }) => {
+                    '/api/conversations/v1/email/set_display_name': async ({ request }) => {
                         expect(await request.json()).toEqual({ config_id: 'email-config', from_name: 'Acme Support' })
                         return [200, { ok: true }]
                     },

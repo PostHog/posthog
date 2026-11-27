@@ -141,7 +141,7 @@ class TestEmailChannelPermissions(BaseTest):
             (
                 "set-display-name",
                 "post",
-                "/api/conversations/v1/email/set-display-name",
+                "/api/conversations/v1/email/set_display_name",
                 {"config_id": "00000000-0000-0000-0000-000000000999", "from_name": "Support"},
             ),
             (
@@ -1662,7 +1662,7 @@ class TestEmailDisplayNameSettings(BaseTest):
 
     def _set_display_name(self, config: EmailChannel, from_name: str):
         return self.client.post(
-            "/api/conversations/v1/email/set-display-name",
+            "/api/conversations/v1/email/set_display_name",
             {"config_id": str(config.id), "from_name": from_name},
             content_type="application/json",
         )
