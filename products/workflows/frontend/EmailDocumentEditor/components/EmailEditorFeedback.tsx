@@ -20,6 +20,7 @@ import {
     EMAIL_EDITOR_FEEDBACK_SURVEY_ID,
     EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID,
 } from './emailEditorFeedbackSurvey'
+import { useEscapeToClose } from './useEscapeToClose'
 
 type Rating = 'Useful' | 'Needs improvement'
 
@@ -40,6 +41,12 @@ export function EmailEditorFeedback(): JSX.Element | null {
         }
     }, [isDismissed])
 
+    const closeNote = (): void => {
+        setNoteOpen(false)
+        dismiss()
+    }
+    useEscapeToClose(noteOpen, closeNote)
+
     // A rating hides the thumbs for good once its note is sent or skipped.
     if (isDismissed && !rating) {
         return null
@@ -57,11 +64,6 @@ export function EmailEditorFeedback(): JSX.Element | null {
             answers: [{ questionIndex: 0, questionId: EMAIL_EDITOR_FEEDBACK_RATING_QUESTION_ID, value: next }],
             surface: 'email-editor',
         })
-    }
-
-    const closeNote = (): void => {
-        setNoteOpen(false)
-        dismiss()
     }
 
     return (

@@ -15,12 +15,14 @@ import {
     EMAIL_EDITOR_FEEDBACK_TEXT_QUESTION_ID,
     SWITCH_BACK_DISMISS_KEY,
 } from './emailEditorFeedbackSurvey'
+import { useEscapeToClose } from './useEscapeToClose'
 
 /** On the old editor's bar: asks once why someone left the new editor. */
 export function EmailEditorSwitchBackFeedback(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: SWITCH_BACK_DISMISS_KEY }))
     const { dismiss } = useActions(lemonBannerLogic({ dismissKey: SWITCH_BACK_DISMISS_KEY }))
     const [open, setOpen] = useState(false)
+    useEscapeToClose(open, () => setOpen(false))
     if (isDismissed) {
         return null
     }
