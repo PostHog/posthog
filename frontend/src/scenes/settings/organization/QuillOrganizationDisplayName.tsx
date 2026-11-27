@@ -15,6 +15,7 @@ export function QuillOrganizationDisplayName({
     name,
     onNameChange,
     showBillingNameNote,
+    canAccessBilling,
     logoMediaId,
     onResetLogo,
     filesToUpload,
@@ -29,6 +30,7 @@ export function QuillOrganizationDisplayName({
     name: string
     onNameChange: (name: string) => void
     showBillingNameNote: boolean
+    canAccessBilling: boolean
     logoMediaId: string | null
     onResetLogo: (event: MouseEvent) => void
     filesToUpload: File[]
@@ -93,17 +95,23 @@ export function QuillOrganizationDisplayName({
                     />
                     {showBillingNameNote && (
                         <FieldDescription>
-                            This doesn't change the company name on your invoices. To change that, update your billing
-                            details from the{' '}
-                            <Button
-                                variant="link"
-                                size="inline"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={urls.organizationBilling()} />}
-                            >
-                                billing page
-                            </Button>
-                            .
+                            This doesn't change the company name on your invoices.{' '}
+                            {canAccessBilling ? (
+                                <>
+                                    To change that, update your billing details from the{' '}
+                                    <Button
+                                        variant="link"
+                                        size="inline"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={urls.organizationBilling()} />}
+                                    >
+                                        billing page
+                                    </Button>
+                                    .
+                                </>
+                            ) : (
+                                'To change that, ask an organization owner to update the billing details.'
+                            )}
                         </FieldDescription>
                     )}
                 </Field>
