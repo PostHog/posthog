@@ -55,13 +55,14 @@ def list_widget_queryset(
 
 
 def has_accessible_experiments(team: Team, access: UserAccessControl | None) -> bool:
-    return _visible_to(access, Experiment.objects.filter(team=team, deleted=False)).exists()
+    return _visible_to(access, Experiment.objects.on_exact_team(team.id).deleted_is_false()).exists()
 
 
 def accessible_experiment(team: Team, access: UserAccessControl | None, experiment_id: int) -> Experiment | None:
     # Honor object-level experiment access controls, matching the REST endpoint. A user denied
     # access to a specific experiment must not see it (or its results) through the widget.
-    queryset = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag")
+    experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
+    queryset = experiments.filter(id=experiment_id).select_related("feature_flag")
     return _visible_to(access, queryset).first()
 
 
