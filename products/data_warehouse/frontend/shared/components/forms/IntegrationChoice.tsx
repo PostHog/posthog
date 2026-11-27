@@ -45,6 +45,16 @@ export function authorizedIntegrationId(
     return integrations?.some((integration) => integration.id === id && integration.kind === kind) ? id : null
 }
 
+// Setup-modal kinds create their connection in the picker's own modal, so they always get the picker.
+export function hasNoConnectionToPick(integrations: IntegrationType[] | null, kind: string, value: unknown): boolean {
+    return (
+        integrations !== null &&
+        !value &&
+        !getIntegrationSetup(kind) &&
+        !integrations.some((existing) => existing.kind === kind)
+    )
+}
+
 export function sourceOAuthRedirectUrl(sourceKind: string, pathname: string, search: string): string {
     const searchParams = Object.fromEntries(new URLSearchParams(search))
     const isOnboarding = pathname.includes('/onboarding')
@@ -82,18 +92,16 @@ export function SourceIntegrationChoice({
     const sourceKind = sourceConfig.name.toLowerCase()
     const kind = integration ?? sourceKind
 
-    // The shared picker's "Choose ... connection" menu reads as if a connection must already exist, and
-    // its "Manage integrations" item leads away from the wizard. With nothing to pick, offer the connect.
-    const needsFirstConnection =
-        !integrationsLoading &&
-        integrations !== null &&
-        !value &&
-        !getIntegrationSetup(kind) &&
-        !integrations.some((existing) => existing.kind === kind)
+    const noConnectionToPick = hasNoConnectionToPick(integrationsLoading ? null : integrations, kind, value)
 
     // Members can't start an OAuth connect (see IntegrationChoice). With no existing connection to
     // pick, they have no way forward.
-    const blockedFromConnecting = !!integrationManagementRestriction && needsFirstConnection
+    const blockedFromConnecting = !!integrationManagementRestriction && noConnectionToPick
+
+    // The shared picker's "Choose ... connection" menu reads as if a connection must already exist, and
+    // its "Manage integrations" item leads away from the wizard. With nothing to pick, offer the connect.
+    // GitHub keeps the picker: its approved-install banner already carries the connect button.
+    const connectsDirectly = noConnectionToPick && kind !== 'github'
 
     // A failed authorization sends the user back here, where the connect button is. The callback
     // carries the reason in the URL rather than a toast, which would be gone before they retry.
@@ -150,7 +158,7 @@ export function SourceIntegrationChoice({
                     }}
                 />
             )}
-            {needsFirstConnection ? (
+            {connectsDirectly ? (
                 <div>
                     <LemonButton
                         type="secondary"
