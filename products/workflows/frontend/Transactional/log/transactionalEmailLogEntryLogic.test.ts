@@ -144,7 +144,7 @@ describe('transactionalEmailLogEntryLogic', () => {
             distinct_id: '',
             recipient: '',
             clicked,
-            timeline: clicked ? steps('sent', 'clicked') : steps('sent'),
+            timeline: clicked ? steps('delivered', 'clicked') : steps('sent'),
         } as TransactionalEmailLogDetailApi
         activity = [200, { ...ACTIVITY, before: [], has_more_before: false, clicks: clicked ? [UNLINKED_CLICK] : [] }]
     }
@@ -152,7 +152,7 @@ describe('transactionalEmailLogEntryLogic', () => {
     it.each([
         ['an unclicked send', false, true, ['detail'], []],
         ['a clicked send without the timeline', true, false, ['detail'], null],
-        ['a clicked send with the timeline', true, true, ['detail', 'activity'], ['click']],
+        ['a clicked send with the timeline', true, true, ['detail', 'activity'], ['delivered', 'click']],
     ])(
         'loads for %s with no distinct id or recipient only what its clicks need',
         async (_name, clicked, timeline, endpoints, shownKinds) => {
@@ -173,7 +173,35 @@ describe('transactionalEmailLogEntryLogic', () => {
         timelineFlag(true)
         await expectLogic(logic).toFinishAllListeners()
         expect(served).toEqual(['detail', 'activity'])
-        expect(logic.values).toMatchObject({ outcomesShown: true, outcomeRows: [{ kind: 'click', link: null }] })
+        expect(logic.values).toMatchObject({
+            outcomesShown: true,
+            outcomeRows: [{ kind: 'delivered' }, { kind: 'click', link: null }],
+        })
+    })
+
+    it('loads the clicks of a send whose click step came in after its clicked flag was read', async () => {
+        timelineFlag(true)
+        sendWithoutPerson(true)
+        sends['msg-9'] = { ...sends['msg-9'], clicked: false }
+        await open('msg-9')
+        expect(served).toEqual(['detail', 'activity'])
+        expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(['delivered', 'click'])
+    })
+
+    it('shows the clicks once a failed load is retried', async () => {
+        sends['msg-1'] = {
+            ...SEND,
+            clicked: true,
+            timeline: steps('sent', 'clicked'),
+        } as TransactionalEmailLogDetailApi
+        failing.add('activity')
+        await open('msg-1')
+        expect(logic.values).toMatchObject({ activityFailed: true, outcomeRows: null })
+
+        failing.delete('activity')
+        logic.actions.loadActivity()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.outcomeRows?.map((row) => row.kind)).toEqual(['click'])
     })
 
     it.each([

@@ -14,6 +14,7 @@ describe('TransactionalEmailClickTimeline', () => {
 
         expect(screen.getByText(/You need access to persons and to querying events/)).toBeInTheDocument()
         expect(container.querySelector(RETRY)).toBeNull()
+        expect(screen.queryByText('Try again')).toBeNull()
     })
 
     it('retries clicks that failed to load', () => {

@@ -20,7 +20,7 @@ import type {
 import { templatePageUrl, transactionalEmailSendsUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
 import { ActivityPerson, SendActivity } from './emailActivity'
 import { fetchActivityPerson, fetchOtherEmails, fetchSendActivity } from './emailActivityQueries'
-import { EmailOutcomeRow, emailOutcomeRows, emailWentOut } from './emailClicks'
+import { EmailOutcomeRow, emailClicked, emailOutcomeRows, emailWentOut } from './emailClicks'
 
 export interface TransactionalEmailLogEntryLogicProps {
     messageId: string
@@ -314,7 +314,7 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
                 if (activity) {
                     return emailOutcomeRows(email, activity.clicks, activity.emailEvents)
                 }
-                return email.clicked ? null : emailOutcomeRows(email, [], [])
+                return emailClicked(email) ? null : emailOutcomeRows(email, [], [])
             },
         ],
         breadcrumbs: [
@@ -340,7 +340,8 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
         const loadClicksWithoutPerson = (): void => {
             const { email } = values
             if (
-                email?.clicked &&
+                email &&
+                emailClicked(email) &&
                 !email.distinct_id &&
                 values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] &&
                 !values.activity &&

@@ -38,6 +38,10 @@ export function emailWentOut(email: Pick<TransactionalEmailLogDetailApi, 'timeli
     return email.timeline.some((step) => step.kind !== 'queued' && step.kind !== 'failed')
 }
 
+export function emailClicked(email: Pick<TransactionalEmailLogDetailApi, 'clicked' | 'timeline'>): boolean {
+    return email.clicked || email.timeline.some((step) => step.kind === 'clicked')
+}
+
 function sameInstant(a: string, b: string): boolean {
     return Date.parse(a) === Date.parse(b)
 }
