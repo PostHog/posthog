@@ -6,16 +6,16 @@ import pytest
 
 import clickhouse_schema_cache
 from clickhouse_schema_cache import (
-    FORMATTED_DDL,
-    FORMATTED_DEFAULT,
     SHARED_INPUTS,
-    SNAPSHOT_QUERIES,
     SnapshotError,
     _other_databases,
     fingerprint,
     incompatibility,
     load,
+    normalize_ddl,
+    normalize_snapshot,
     operation_text,
+    strip_enclosing_parens,
 )
 from parameterized import parameterized
 
@@ -124,11 +124,30 @@ def test_load_raises_when_the_cleanup_after_a_failed_restore_fails(tmp_path, mon
         load(directory, checkout)
 
 
-def test_snapshot_compares_ddl_and_expressions_as_clickhouse_formats_them() -> None:
-    # RESTORE drops the redundant outer parentheses of `version UInt64 MATERIALIZED (a + b)` in
-    # property_definitions, so the raw text differs between a migrated and a restored schema.
-    tables = next(sql for sql in SNAPSHOT_QUERIES if "FROM system.tables" in sql)
-    columns = next(sql for sql in SNAPSHOT_QUERIES if "FROM system.columns" in sql)
-    assert FORMATTED_DDL in tables
-    assert FORMATTED_DEFAULT in columns
-    assert "create_table_query," not in tables.replace(FORMATTED_DDL, "")
+VERSION = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
+
+
+def test_restored_property_definitions_version_matches_the_migrated_one() -> None:
+    migrated = f"CREATE TABLE t (`type` UInt8 DEFAULT 1, `version` UInt64 MATERIALIZED ({VERSION})) ENGINE = Memory"
+    restored = f"CREATE TABLE t (`type` UInt8 DEFAULT 1, `version` UInt64 MATERIALIZED {VERSION}) ENGINE = Memory"
+    assert normalize_ddl(migrated) == normalize_ddl(restored) == restored
+    column = f"column\tdb\tt\t9\tversion\tUInt64\tMATERIALIZED\t({VERSION})\t\n"
+    assert normalize_snapshot(column) == column.replace(f"({VERSION})", VERSION)
+
+
+@parameterized.expand(
+    [
+        ("a real expression change", "x UInt8 DEFAULT (a + 1), y Int8", "x UInt8 DEFAULT (a + 2), y Int8"),
+        ("a different default", "x UInt8 DEFAULT 1, y Int8", "x UInt8 DEFAULT 2, y Int8"),
+        ("parentheses inside the expression", "x UInt8 DEFAULT (a) + (b), y", "x UInt8 DEFAULT a + b, y"),
+    ]
+)
+def test_normalizing_keeps_real_ddl_differences(_name: str, left: str, right: str) -> None:
+    assert normalize_ddl(left) != normalize_ddl(right)
+
+
+def test_normalizing_leaves_tuples_and_quoted_parentheses_alone() -> None:
+    assert strip_enclosing_parens("(a, b)") == "(a, b)"
+    assert strip_enclosing_parens("(a)") == "a"
+    quoted = "x String DEFAULT '(a)', y"
+    assert normalize_ddl(quoted) == quoted

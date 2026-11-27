@@ -60,24 +60,104 @@ USER_DATABASES = "database NOT IN ('system', 'information_schema', 'INFORMATION_
 # ops_query_log_archive_v3_mv copies system.query_log into these, so their row counts move with
 # every query the server runs, this snapshot's included.
 QUERY_LOG_TABLES = ("query_log_archive_v3_buffer", "sharded_query_log_archive_v3")
-# RESTORE re-parses the backed-up DDL and drops redundant parentheses, such as the outer pair of a
-# MATERIALIZED expression. Comparing the DDL as ClickHouse formats it ignores that formatting while
-# any real difference in the schema still differs. A statement that does not parse is compared raw.
-FORMATTED_DDL = "ifNull(formatQuerySingleLineOrNull(create_table_query), create_table_query)"
-FORMATTED_DEFAULT = "ifNull(formatQuerySingleLineOrNull('SELECT ' || default_expression), default_expression)"
 SNAPSHOT_QUERIES = (
     "SELECT 'database', name, engine FROM system.databases WHERE name NOT IN "
     "('system', 'information_schema', 'INFORMATION_SCHEMA') ORDER BY ALL",
     f"SELECT 'table', database, replaceRegexpAll(name, '{UUID_SQL}', '<uuid>'), engine, "
-    f"replaceRegexpAll({FORMATTED_DDL}, '{UUID_SQL}', '<uuid>'), "
+    f"replaceRegexpAll(create_table_query, '{UUID_SQL}', '<uuid>'), "
     f"if(name IN {QUERY_LOG_TABLES}, '', toString(total_rows)) "
     f"FROM system.tables WHERE {USER_DATABASES} ORDER BY ALL",
     f"SELECT 'column', database, replaceRegexpAll(table, '{UUID_SQL}', '<uuid>'), position, name, type, "
-    f"default_kind, {FORMATTED_DEFAULT}, compression_codec FROM system.columns WHERE {USER_DATABASES} ORDER BY ALL",
+    f"default_kind, default_expression, compression_codec FROM system.columns WHERE {USER_DATABASES} ORDER BY ALL",
     # Masked credentials make a broken dictionary look identical in SHOW CREATE; loading it does not.
     "SELECT 'dictionary', database, name, status FROM system.dictionaries ORDER BY ALL",
     "SELECT 'function', name, create_query FROM system.functions WHERE origin = 'SQLUserDefined' ORDER BY ALL",
 )
+
+
+# RESTORE re-parses the backed-up DDL and drops the redundant outer parentheses of a column
+# expression, such as `version UInt64 MATERIALIZED (a + b)`, while the migrated table keeps them.
+# formatQuery keeps them too, so the snapshot strips exactly one pair that wraps a whole expression.
+# Anything else in the DDL still has to match.
+EXPRESSION_KEYWORD = re.compile(r"\b(?:MATERIALIZED|DEFAULT|ALIAS|EPHEMERAL) (?=\()")
+EXPRESSION_END = (",", ")", " CODEC(", " COMMENT ", " TTL ")
+
+
+def _closing_paren(text: str, start: int) -> int:
+    """Index of the parenthesis closing text[start], or -1. Skips quoted text and tracks commas."""
+    depth, quote, index = 0, "", start
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 1
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'`\"":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _has_top_level_comma(text: str) -> bool:
+    depth, quote, index = 0, "", 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 1
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'`\"":
+            quote = char
+        elif char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return True
+        index += 1
+    return False
+
+
+def strip_enclosing_parens(expression: str) -> str:
+    """Drop one pair of parentheses that wraps the whole expression, unless it makes a tuple."""
+    if expression.startswith("(") and _closing_paren(expression, 0) == len(expression) - 1:
+        inner = expression[1:-1]
+        if not _has_top_level_comma(inner):
+            return inner
+    return expression
+
+
+def normalize_ddl(ddl: str) -> str:
+    """strip_enclosing_parens for every column expression inside a CREATE statement."""
+    result, position = [], 0
+    for match in EXPRESSION_KEYWORD.finditer(ddl):
+        start = match.end()
+        if start < position:
+            continue
+        end = _closing_paren(ddl, start)
+        if end == -1 or not ddl.startswith(EXPRESSION_END, end + 1):
+            continue
+        result.append(ddl[position:start] + strip_enclosing_parens(ddl[start : end + 1]))
+        position = end + 1
+    return "".join(result) + ddl[position:]
+
+
+def normalize_snapshot(text: str) -> str:
+    lines = []
+    for line in text.splitlines(keepends=True):
+        row = line.rstrip("\n").split("\t")
+        if row[0] == "table" and len(row) > 4:
+            row[4] = normalize_ddl(row[4])
+        elif row[0] == "column" and len(row) > 7:
+            row[7] = strip_enclosing_parens(row[7])
+        lines.append("\t".join(row) + ("\n" if line.endswith("\n") else ""))
+    return "".join(lines)
 
 
 class SnapshotError(Exception):
@@ -175,7 +255,7 @@ def snapshot() -> str:
         _query("SYSTEM RELOAD DICTIONARIES")
     except SnapshotError:
         pass  # A dictionary that fails to load shows as FAILED below.
-    return "".join(_query(f"{sql} FORMAT TSV") for sql in SNAPSHOT_QUERIES)
+    return normalize_snapshot("".join(_query(f"{sql} FORMAT TSV") for sql in SNAPSHOT_QUERIES))
 
 
 def _sql_functions() -> list[str]:
