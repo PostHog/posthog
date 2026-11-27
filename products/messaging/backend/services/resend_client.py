@@ -9,7 +9,7 @@ import re
 import time
 import queue
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
@@ -221,7 +221,7 @@ class ResendClient:
 
 def read_ahead(
     pages: Iterator[ResendPage], read: Callable[[ResendPage, threading.Event], R]
-) -> Iterator[list[tuple[ResendPage, R]]]:
+) -> Generator[list[tuple[ResendPage, R]]]:
     """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
 
     Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. An
