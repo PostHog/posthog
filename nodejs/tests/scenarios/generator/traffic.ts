@@ -48,8 +48,6 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
-export const WEBHOOK_TRIGGER_TEMPLATE = 'template-source-webhook'
-
 export const EMAIL_ACTION = 'email'
 export const WEBHOOK_ACTION = 'webhook'
 
@@ -164,8 +162,8 @@ function localOnly<T>(part: T | undefined, name: string): T {
 
 function errorOf(body: string): string | undefined {
     try {
-        const { error } = parseJSON(body) as { error?: unknown }
-        return typeof error === 'string' ? error : undefined
+        const { error, status } = parseJSON(body) as { error?: unknown; status?: unknown }
+        return typeof error === 'string' ? error : typeof status === 'string' ? status : undefined
     } catch {
         return undefined
     }
@@ -259,6 +257,10 @@ export const bounceFollowup: TrafficKind = {
 
 const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
 
+// cdp-api answers 503 only once its claim lookup and the broker's ack deadline ran out, which the 3 s default request
+// timeout would cut off, turning a refusal it retries into a transport error it does not.
+const INTAKE_ANSWER_TIMEOUT_MS = 10_000
+
 export const REAL_CLOCK: SendClock = {
     now: () => performance.now(),
     wait: async (ms, signal) => {
@@ -317,6 +319,7 @@ async function postToIntake(requestOf: () => IntakeRequest): Promise<IntakeAnswe
     try {
         const { url, headers, body } = requestOf()
         const response = await internalFetch(url, {
+            timeoutMs: INTAKE_ANSWER_TIMEOUT_MS,
             method: 'POST',
             headers: { 'content-type': 'application/json', ...headers },
             body: JSON.stringify(body),
@@ -339,7 +342,7 @@ const fromRequest = async (template: string): Promise<CyclotronInputType> => ({
 
 const webhookTrigger = async (): Promise<object> => ({
     type: 'webhook',
-    template_id: WEBHOOK_TRIGGER_TEMPLATE,
+    template_id: 'template-source-webhook',
     inputs: {
         event: await fromRequest(WEBHOOK_TRIGGER_EVENT),
         distinct_id: await fromRequest('{request.body.unit_id}'),
