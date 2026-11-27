@@ -20,6 +20,7 @@ export type MetricSample = {
     role: string
     replica: number
     at: number
+    fetchedAt?: number
     startedAt: number
     cpuSeconds: number
     rssBytes: number
@@ -952,9 +953,10 @@ export async function startSampler(
                 const text = await internalFetch(target.metricsUrl, { timeoutMs })
                     .then((response) => (response.status === 200 ? response.text() : ''))
                     .catch(() => '')
+                const fetchedAt = Date.now()
                 const sample = sampleOf(target, at, text)
                 if (sample) {
-                    samples.push(sample)
+                    samples.push({ ...sample, fetchedAt })
                 } else {
                     failed.push({ role: target.role, replica: target.replica, at })
                 }

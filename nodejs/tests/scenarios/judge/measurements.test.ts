@@ -228,10 +228,12 @@ describe('measurements', () => {
             const { samples, host } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
+            expect(samples.filter(({ at, fetchedAt }) => fetchedAt === undefined || fetchedAt < at)).toEqual([])
             expect(samples.at(-1)).toEqual({
                 role: ROLE,
                 replica: 0,
                 at: expect.any(Number),
+                fetchedAt: expect.any(Number),
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
