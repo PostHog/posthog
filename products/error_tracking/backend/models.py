@@ -106,9 +106,8 @@ class ErrorTrackingIssue(UUIDTModel):
     # What reopens the issue while it is resolved. Null while the issue is not resolved, and for issues
     # resolved before it was recorded, which reopen on the next exception.
     resolved_until = models.TextField(choices=ResolvedUntil, null=True, blank=True)
-    # The newest release, by release creation time, that an exception of this issue came from. Cymbal
-    # keeps it current. An issue resolved until a new release stays resolved for exceptions from this
-    # release or older ones.
+    # The newest release, by creation time, that an exception of this issue came from. An issue resolved until a
+    # new release stays resolved for exceptions from this release or older ones.
     latest_release_id = models.UUIDField(null=True, blank=True)
     latest_release_created_at = models.DateTimeField(null=True, blank=True)
 
@@ -197,9 +196,8 @@ class ErrorTrackingIssue(UUIDTModel):
                 target_updates["status"] = ErrorTrackingIssue.Status.ACTIVE
                 target_updates["resolved_at"] = None
                 target_updates["resolved_until"] = None
-            # Ingestion moves an issue's latest release only while the issue is active, because the release of an
-            # issue resolved until a new release is the cutoff for its reopen. A target that does not end up active
-            # keeps its own release.
+            # Like ingestion, only an active issue moves its latest release, which is the cutoff for a resolve until a
+            # new release. A target that does not end up active keeps its own.
             ends_active = reopened or target.status == ErrorTrackingIssue.Status.ACTIVE
             if latest is not None and latest is not target and ends_active:
                 target_updates["latest_release_id"] = latest.latest_release_id
