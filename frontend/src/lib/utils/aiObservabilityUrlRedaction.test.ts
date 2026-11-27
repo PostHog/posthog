@@ -13,6 +13,10 @@ describe('redactAIObservabilityUrls', () => {
         const errors = `/project/1/ai-observability/errors?error_search=${text}&error=${text}`
         const tools = `/project/1/ai-observability/tools?tool_search=${text}#tool=${text}`
         const request = `https://us.posthog.com/api/projects/1/ai_observability/errors/?search=${text}&limit=50`
+        // The server's key of the message jane@example.com: unpadded base64url.
+        const key = 'amFuZUBleGFtcGxlLmNvbQ'
+        const failure = `/api/projects/1/ai_observability/errors/${key}/?date_from=-7d`
+        const tool = `/api/projects/1/ai_observability/tools/${key}/`
         const login = `https://us.posthog.com/login?next=${encodeURIComponent(page)}`
 
         const event = redactAIObservabilityUrls({
@@ -22,6 +26,8 @@ describe('redactAIObservabilityUrls', () => {
                 $current_url: page,
                 $referrer: login,
                 $prev_pageview_pathname: reviews,
+                pathname: failure,
+                tool_pathname: tool,
                 $elements_chain: `a:attr__href="${errors}";text="View"`,
                 $elements: [{ tag_name: 'a', attr__href: tools }],
                 $snapshot_data: [
@@ -33,6 +39,8 @@ describe('redactAIObservabilityUrls', () => {
 
         const captured = JSON.stringify(event)
         expect(captured).not.toContain(text)
+        expect(captured).not.toContain(key)
+        expect(event?.properties.pathname).toBe('/api/projects/1/ai_observability/errors/redacted/?date_from=-7d')
         expect(captured).not.toContain(encodeURIComponent(text))
         expect(event?.properties.$current_url).toBe(
             'https://us.posthog.com/project/1/ai-observability/traces?date_from=-7d&error=redacted&tool=redacted&failed_tool=redacted&filters=redacted&trace_search=redacted'
