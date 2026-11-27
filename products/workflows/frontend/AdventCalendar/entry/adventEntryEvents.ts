@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
 
 import { adventHasWorkflows } from '../adventHasWorkflows'
 
