@@ -7,7 +7,8 @@ of a synced Simpro table. Columns absent here fall back to LLM enrichment.
 
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
-_DOCS = "https://developer.simprogroup.com/apidoc/?page="
+_DOCS_ROOT = "https://developer.simprogroup.com/apidoc/"
+_DOCS = f"{_DOCS_ROOT}?page="
 
 _COMMON_COLUMNS = {
     "CompanyID": "ID of the Simpro company the row was read from. Builds without multi-company setup use company 0.",
@@ -298,5 +299,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Archived": "Whether the cost centre is archived.",
             "IsMembershipCostCenter": "Whether the cost centre is used for memberships.",
         },
+    },
+    "project_status_codes": {
+        "description": "Project status codes: the workflow statuses that jobs, quotes and leads can have.",
+        "docs_url": _DOCS_ROOT,
+        "columns": {
+            "CompanyID": _COMMON_COLUMNS["CompanyID"],
+            "ID": "Unique identifier of the status code. Jobs, quotes and leads refer to it in their Status column.",
+            "Name": "Name of the status.",
+            "Color": "Color of the status, as a hex code such as #0000FF.",
+            "Priority": "Priority of the status.",
+        },
+    },
+    "payment_methods": {
+        "description": "Payment methods: the ways the business accepts payments, such as cash, card or bank transfer.",
+        "docs_url": _DOCS_ROOT,
+        "columns": {
+            "CompanyID": _COMMON_COLUMNS["CompanyID"],
+            "ID": "Unique identifier of the payment method. Customer payments refer to it in their Payment column.",
+            "Name": "Name of the payment method.",
+            "AccountNo": "Account number in the accounting system for payments made with this method.",
+            "Type": "Type of the payment method.",
+            "FinanceCharge": "Finance charge for payments made with this method.",
+        },
+    },
+    "customer_assets": {
+        "description": "Customer assets: equipment installed at customer sites that the business services and tests.",
+        "docs_url": _DOCS_ROOT,
+        "columns": _columns(
+            AssetType="Asset type of the asset.",
+            DisplayOrder="Display order of the asset at its site.",
+            CustomerContract="Customer contract that covers the asset.",
+            StartDate="Start date of the asset, as YYYY-MM-DD.",
+            LastTest="Result, date and service level of the last test of the asset.",
+            Archived="Whether the asset is archived.",
+            ParentID="ID of the parent asset.",
+            Site="Site where the asset is installed.",
+        ),
     },
 }
