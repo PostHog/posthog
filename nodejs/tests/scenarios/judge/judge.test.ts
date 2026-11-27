@@ -14,6 +14,7 @@ import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from 
 import { TRUTH_PAGE_LIMIT, Truth } from '../provider-edge/truth'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
+import { resentInvocations } from './measurements'
 import { TruthSource, edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
@@ -1179,6 +1180,36 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ passed: false, unitIds: [UNIT] })
+    })
+
+    it('leaves the resend count unmeasured when the truth of a run opened past earlier records skips a seq', async () => {
+        await deliver('run-z-1')
+        judge = judgeOf()
+        await judge.open(SEED)
+        judge.record(offered())
+        truthLoses = 3
+        await deliver(UNIT)
+        await deliver(UNIT)
+        await deliver(UNIT)
+        await judge.check([], {}, NO_RESETS)
+
+        const measured = resentInvocations.measure({
+            ...judge.evidence(),
+            samples: [],
+            missed: [],
+            host: [],
+            writer: [],
+            queue: [],
+            sampledFrom: 0,
+            drive: { startedAt: 0, endedAt: 0 },
+            steps: [],
+            timeline: [],
+            converged: true,
+        })
+
+        expect(measured).toEqual([
+            { key: 'total', value: null, censored: true, unmeasured: 'the truth skips from seq 2 to 4' },
+        ])
     })
 
     it.each<[string, number, boolean, number, object]>([
