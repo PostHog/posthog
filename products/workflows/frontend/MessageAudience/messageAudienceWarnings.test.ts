@@ -65,6 +65,12 @@ const testSender = {
 }
 const noTestSender = { ...testSender, adoption_enabled: false }
 
+interface EnvironmentFixture {
+    suspended: boolean
+    senders: object[]
+    sandbox: object
+}
+
 const verified = { kind: 'email', config: { verified: true } }
 const unverified = { kind: 'email', config: { verified: false } }
 const matchingList = { name: 'Signups', is_static: true, is_calculating: true, last_calculation: null }
@@ -219,12 +225,18 @@ describe('loadMessageAudienceWarnings', () => {
         }
     )
 
-    it('gives up on a check that never answers', async () => {
+    it.each(['suspension', 'test sender status'])('gives up on a %s check that never answers', async (hanging) => {
         jest.useFakeTimers()
         try {
-            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockReturnValue(new Promise(() => {}))
-            jest.mocked(workflowEmailSandboxStatus).mockResolvedValue(testSender as never)
-            jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [] } as never)
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockReturnValue(
+                hanging === 'suspension'
+                    ? new Promise(() => {})
+                    : (Promise.resolve({ email_sending_suspended: false }) as never)
+            )
+            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(
+                hanging === 'test sender status' ? new Promise(() => {}) : (Promise.resolve(testSender) as never)
+            )
+            jest.mocked(integrationsList).mockResolvedValue({ count: 0, results: [], next: null } as never)
 
             const warnings = loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true })
             await jest.advanceTimersByTimeAsync(5000)
@@ -256,31 +268,68 @@ describe('loadMessageAudienceWarnings', () => {
         }
     })
 
-    it.each<{ destination: MessageAudienceDestination; expected: MessageAudienceWarning[] }>([
-        { destination: 'workflow', expected: [TEST_SENDER_FOR_WORKFLOW] },
-        { destination: 'broadcast', expected: [SUSPENDED] },
-    ])('reads the checks for a $destination where it would be created', async ({ destination, expected }) => {
+    it.each<{
+        case: string
+        destination: MessageAudienceDestination
+        project: EnvironmentFixture
+        selected: EnvironmentFixture
+        expected: MessageAudienceWarning[]
+    }>([
+        {
+            case: 'a workflow reads the selected environment',
+            destination: 'workflow',
+            project: { suspended: true, senders: [verified], sandbox: noTestSender },
+            selected: { suspended: false, senders: [], sandbox: testSender },
+            expected: [TEST_SENDER_FOR_WORKFLOW],
+        },
+        {
+            case: 'a broadcast reads its project',
+            destination: 'broadcast',
+            project: { suspended: true, senders: [verified], sandbox: noTestSender },
+            selected: { suspended: false, senders: [], sandbox: testSender },
+            expected: [SUSPENDED],
+        },
+        {
+            case: 'a broadcast offers no workflow test where the selected environment is suspended',
+            destination: 'broadcast',
+            project: { suspended: false, senders: [], sandbox: testSender },
+            selected: { suspended: true, senders: [], sandbox: testSender },
+            expected: [NO_SENDER],
+        },
+        {
+            case: 'a broadcast offers the test sender of the selected environment',
+            destination: 'broadcast',
+            project: { suspended: false, senders: [], sandbox: noTestSender },
+            selected: { suspended: false, senders: [], sandbox: testSender },
+            expected: [TEST_SENDER_FOR_BROADCAST],
+        },
+    ])('reads the checks where they apply: $case', async ({ destination, project, selected, expected }) => {
+        const projectId = ApiConfig.getCurrentProjectId()
         const teamId = ApiConfig.getCurrentTeamId()
+        const environments: Record<string, EnvironmentFixture> = {
+            [String(projectId)]: project,
+            [String(projectId + 1)]: selected,
+        }
+        const environment = (id: string): EnvironmentFixture => {
+            if (!environments[id]) {
+                throw new Error(`no environment ${id}`)
+            }
+            return environments[id]
+        }
         try {
-            ApiConfig.setCurrentTeamId(teamId + 1)
+            ApiConfig.setCurrentTeamId(projectId + 1)
             jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockImplementation(
-                async (id) => ({ email_sending_suspended: id !== String(teamId + 1) }) as never
+                async (id) => ({ email_sending_suspended: environment(id).suspended }) as never
             )
-            jest.mocked(workflowEmailSandboxStatus).mockImplementation(
-                async (id) => (id === String(teamId + 1) ? testSender : noTestSender) as never
-            )
-            jest.mocked(integrationsList).mockImplementation(
-                async (id) =>
-                    (id === String(teamId + 1)
-                        ? { count: 0, results: [], next: null }
-                        : { count: 1, results: [verified], next: null }) as never
-            )
-
-            jest.mocked(cohortsRetrieve).mockResolvedValue({
-                name: 'Signups',
-                is_static: true,
-                is_calculating: false,
-            } as never)
+            jest.mocked(workflowEmailSandboxStatus).mockImplementation(async (id) => environment(id).sandbox as never)
+            jest.mocked(integrationsList).mockImplementation(async (id) => {
+                const { senders } = environment(id)
+                return { count: senders.length, results: senders, next: null } as never
+            })
+            jest.mocked(cohortsRetrieve).mockImplementation(async (id) => {
+                environment(id)
+                return { name: 'Signups', is_static: true, is_calculating: false } as never
+            })
 
             expect(await loadMessageAudienceWarnings(audience, destination, { offerTestSender: true })).toEqual(
                 expected

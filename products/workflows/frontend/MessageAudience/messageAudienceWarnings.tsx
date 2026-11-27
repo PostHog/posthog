@@ -89,14 +89,21 @@ export async function loadMessageAudienceWarnings(
     { offerTestSender = false }: { offerTestSender?: boolean } = {}
 ): Promise<MessageAudienceWarning[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
-    const environmentId = destination === 'broadcast' ? projectId : String(ApiConfig.getCurrentTeamId())
+    const workflowEnvironmentId = String(ApiConfig.getCurrentTeamId())
+    const environmentId = destination === 'broadcast' ? projectId : workflowEnvironmentId
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
+    const suspensionRequest = withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(environmentId))
+    const workflowSuspension = !offerTestSender
+        ? Promise.resolve(null)
+        : workflowEnvironmentId === environmentId
+          ? suspensionRequest
+          : withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(workflowEnvironmentId))
     const testSender = offerTestSender
-        ? withinTimeout(workflowEmailSandboxStatus(environmentId))
+        ? withinTimeout(workflowEmailSandboxStatus(workflowEnvironmentId))
         : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
-        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(environmentId)),
+        suspensionRequest,
         withinTimeout(integrationsList(environmentId, { kind: 'email' })),
         Promise.all(
             cohortIds.map((id) =>
@@ -106,12 +113,16 @@ export async function loadMessageAudienceWarnings(
     ])
     // A verified sender can sit on a later page, so only a complete list can say none is verified.
     const senderWarning = integrations && !integrations.next ? emailSenderWarning(integrations.results) : null
-    const sendingWorks = suspension?.email_sending_suspended === false
+    const offerWorkflowTest =
+        offerTestSender &&
+        !!senderWarning &&
+        suspension?.email_sending_suspended === false &&
+        (await workflowSuspension)?.email_sending_suspended === false
     return [
         suspension?.email_sending_suspended
             ? { kind: 'sending_suspended' as const, message: EMAIL_SENDING_SUSPENDED_MESSAGE }
             : null,
-        senderWarning && sendingWorks && offerTestSender
+        offerWorkflowTest
             ? withTestSender(senderWarning, canAdoptSandboxSender(await testSender), destination)
             : senderWarning,
         ...cohorts.map((cohort) => {
