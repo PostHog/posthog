@@ -21,7 +21,7 @@ export function TodayDesignChangelogCard(): JSX.Element | null {
         <Card
             size="sm"
             role="status"
-            className="fixed bottom-3 z-[var(--z-popover)] w-72 shadow-lg"
+            className="fixed bottom-3 z-[var(--z-popover)] w-72 border border-border shadow-lg"
             // Its left edge sits against the rail, so the card reads as part of the navigation it talks about.
             // eslint-disable-next-line react/forbid-dom-props
             style={{ left: TODAY_RAIL_WIDTH + 8 }}
