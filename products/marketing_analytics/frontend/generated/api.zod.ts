@@ -91,12 +91,13 @@ export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE_
                     'striking_distance',
                     'keyword_tracking',
                     'conversion_mismatch',
+                    'search_settings',
                 ])
                 .describe(
-                    '\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance\n\* `keyword_tracking` - Keyword Tracking\n\* `conversion_mismatch` - Conversion Mismatch'
+                    '\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance\n\* `keyword_tracking` - Keyword Tracking\n\* `conversion_mismatch` - Conversion Mismatch\n\* `search_settings` - Search Settings'
                 )
                 .describe(
-                    'The rule that produced the recommendation.\n\n\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance\n\* `keyword_tracking` - Keyword Tracking\n\* `conversion_mismatch` - Conversion Mismatch'
+                    'The rule that produced the recommendation.\n\n\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance\n\* `keyword_tracking` - Keyword Tracking\n\* `conversion_mismatch` - Conversion Mismatch\n\* `search_settings` - Search Settings'
                 ),
             source_type: zod
                 .enum(['google_ads'])
