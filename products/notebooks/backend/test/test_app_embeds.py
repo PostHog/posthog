@@ -9,7 +9,7 @@ from django.test import Client
 from django.utils import timezone
 
 from posthog.models import OrganizationMembership
-from posthog.token_bucket import BucketDecision, BucketUnavailable
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease, NotebookNodeRun
@@ -119,6 +119,25 @@ class TestNotebookAppEmbeds(APIBaseTest):
         for hidden in ("<td>128</td>", "<td>62</td>", "Orchard study", "workspace_id"):
             self.assertNotContains(result, hidden)
 
+    def test_unpublish_permanently_revokes_issued_embeds(self) -> None:
+        path, token = self.issue("coast")
+        url = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/"
+        unpublished = self.client.patch(
+            url, {"app_revision": self.notebook.app_revision, "app_published": None}, format="json"
+        )
+        assert unpublished.status_code == 200, unpublished.content
+        assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+        self.notebook.refresh_from_db()
+        new_layout = {
+            "tabs": [{"id": "note", "title": "Notes"}],
+            "blocks": [{"id": "text", "tab_id": "note", "kind": "text", "text": "Updated report"}],
+        }
+        published = self.client.patch(
+            url, {"app_revision": self.notebook.app_revision, "app_published": new_layout}, format="json"
+        )
+        assert published.status_code == 200, published.content
+        assert self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 404
+
     def test_reissue_expiry_revocation_and_organization_policy(self) -> None:
         path, old = self.issue("coast")
         _, current = self.issue("coast")
@@ -195,11 +214,12 @@ class TestNotebookAppEmbeds(APIBaseTest):
 
     def test_audience_budget_counts_authenticated_renders_and_issuance_requires_capacity(self) -> None:
         path, token = self.issue("coast")
-        with patch("products.notebooks.backend.app_embeds.require_capacity") as capacity:
-            self.public.get(path)
-            capacity.assert_not_called()
+        with patch("products.notebooks.backend.app_embeds.VERIFIED_VIEW_BUDGET", Budget(burst=1, per_hour=1)):
+            assert self.public.get(path).status_code == 200
+            assert self.public.get(path).status_code == 200
             assert self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 200
-            capacity.assert_called_once()
+            limited = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+            assert limited.status_code == 429 and int(limited.headers["Retry-After"]) > 0
         with patch(
             "products.notebooks.backend.app_embeds.consume", return_value=BucketUnavailable(error="unavailable")
         ):

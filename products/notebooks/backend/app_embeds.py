@@ -4,7 +4,7 @@ from datetime import timedelta
 from hashlib import sha256
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.urls import reverse
 from django.utils import timezone
 
@@ -12,7 +12,6 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 
-from posthog.models.team import Team
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.authorization.backend.facade import api as authorization
@@ -83,7 +82,8 @@ def change_signed_embed(
     if len(json.dumps(snapshot).encode()) > 1024 * 1024:
         raise ValidationError("Reduce the saved result size before creating an embed.")
     expires_at = timezone.now() + timedelta(hours=24)
-    Team.objects.select_for_update().only("pk").get(pk=team_id)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"notebooks:embed-capacity:{team_id}"])
     existing = NotebookAppEmbed.objects.for_team(team_id).filter(expires_at__gt=timezone.now())
     if existing.count() >= MAX_PROJECT_AUDIENCES and not existing.filter(release=release, **audience).exists():
         raise ValidationError(

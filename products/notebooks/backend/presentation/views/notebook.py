@@ -77,7 +77,7 @@ from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_delivery import (
     active_view_grants,
     change_app_view_grant,
-    revoke_app_view_grants,
+    revoke_published_app_access,
 )
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
@@ -642,7 +642,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 if validated_data.get("app_published") is not None:
                     record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
                 elif "app_published" in validated_data:
-                    revoke_app_view_grants(updated_notebook.team_id, updated_notebook.pk)
+                    revoke_published_app_access(updated_notebook.team_id, updated_notebook.pk)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)

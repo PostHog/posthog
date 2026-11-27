@@ -20,7 +20,7 @@ from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.app_viewer import native_app_output_ids
 from products.notebooks.backend.facade.contracts import ActiveAppViewGrant, AppOutput, AppOutputTab, AppViewGrantResult
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant
+from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease, NotebookAppViewGrant
 from products.notebooks.backend.sql_v2_state import build_dependency_edges, extract_cells
 from products.notebooks.backend.util import _parse_markdown_component_props, iter_markdown_blocks
 
@@ -47,8 +47,9 @@ def active_view_grants(
     return grants.count(), rows
 
 
-def revoke_app_view_grants(team_id: int, notebook_id: UUID) -> None:
+def revoke_published_app_access(team_id: int, notebook_id: UUID) -> None:
     NotebookAppViewGrant.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
+    NotebookAppEmbed.objects.for_team(team_id).filter(release__notebook_id=notebook_id).delete()
 
 
 @transaction.atomic
