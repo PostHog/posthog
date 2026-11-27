@@ -1,7 +1,12 @@
 from dataclasses import field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 # Back Market's list endpoints wrap rows in a `results` array alongside a `next` indicator.
 DATA_SELECTOR = "results"
@@ -15,6 +20,10 @@ class BackMarketEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Stable creation-time field to partition by. None when there's no reliable created_at.
     partition_key: Optional[str] = None
+    fanout: DependentEndpointConfig | None = None
+    default_incremental_field: str | None = None
+    # The shared builder requires this field, but Back Market takes no page-size parameter.
+    page_size: int = 0
 
 
 BACK_MARKET_ENDPOINTS: dict[str, BackMarketEndpointConfig] = {
@@ -52,6 +61,13 @@ BACK_MARKET_ENDPOINTS: dict[str, BackMarketEndpointConfig] = {
         name="backbox_competitors",
         path="/backbox/v1/competitors/{listingId}",
         primary_keys=["_listings_id", "listing_id", "market"],
+        fanout=DependentEndpointConfig(
+            parent_name="listings",
+            resolve_param="listingId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
     "care_folders": BackMarketEndpointConfig(
         name="care_folders",

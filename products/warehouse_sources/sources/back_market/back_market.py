@@ -12,15 +12,16 @@ from products.warehouse_sources.sources.sdk import (
     AuthConfigBase,
     BasePaginator,
     ClientConfig,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     format_datetime,
     frozen,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
-    rest_api_resources,
     validate_via_probe,
 )
 
@@ -193,29 +194,7 @@ def back_market_source(
         ],
     }
 
-    is_fanout = endpoint == "backbox_competitors"
-    if is_fanout:
-        rest_config["resources"] = [
-            {
-                "name": "listings",
-                "endpoint": {"path": BACK_MARKET_ENDPOINTS["listings"].path, "data_selector": DATA_SELECTOR},
-            },
-            {
-                "name": endpoint,
-                "table_name": endpoint,
-                "include_from_parent": ["id"],
-                "resume_parent_pagination": True,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"listingId": {"type": "resolve", "resource": "listings", "field": "id"}},
-                    "data_selector": "$",
-                    "paginator": "single_page",
-                    "response_actions": [{"status_code": 404, "action": "ignore"}],
-                },
-                "table_format": "delta",
-            },
-        ]
-
+    is_fanout = config.fanout is not None
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
@@ -228,16 +207,26 @@ def back_market_source(
         elif state and state.get("page"):
             resumable_source_manager.save_state(BackMarketResumeConfig(next_page=int(state["page"])))
 
-    if is_fanout:
-        resources = rest_api_resources(
-            rest_config,
-            team_id,
-            job_id,
-            None,
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_paginator_state,
+    if config.fanout is not None:
+        resource = cast(
+            Resource,
+            build_dependent_resource(
+                endpoint_configs=BACK_MARKET_ENDPOINTS,
+                child_endpoint=endpoint,
+                fanout=config.fanout,
+                client_config=rest_config["client"],
+                path_format_values={},
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                parent_endpoint_extra={"data_selector": DATA_SELECTOR},
+                child_endpoint_extra={"data_selector": "$", "paginator": "single_page"},
+                page_size_param=None,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_paginator_state,
+                resume_parent_pagination=True,
+            ),
         )
-        resource = next(resource for resource in resources if resource.name == endpoint)
     else:
         resource = rest_api_resource(
             rest_config,

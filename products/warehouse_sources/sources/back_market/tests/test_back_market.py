@@ -17,7 +17,13 @@ from products.warehouse_sources.sources.back_market.back_market import (
 )
 from products.warehouse_sources.sources.back_market.settings import BACK_MARKET_ENDPOINTS
 from products.warehouse_sources.sources.back_market.source import BackMarketSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RunStopped,
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 
 
 class TestBackMarketTokenAuth:
@@ -257,6 +263,35 @@ class TestBackMarketAddedTables:
         assert resumed.raised is None
         assert [row["listing_id"] for row in resumed.rows] == ["competitor-2"]
         assert resumed.paths == ["/ws/listings", second_path]
+
+    @parameterized.expand([(404,), (200,)])
+    def test_empty_competitors_commit_progress_before_parent_page_finishes(self, status: int) -> None:
+        listings = [{"id": f"00000000-0000-4000-8000-{index:012d}"} for index in range(1, 9)]
+        paths = [f"/ws/backbox/v1/competitors/{listing['id']}" for listing in listings]
+        first = _driver().run(
+            "backbox_competitors",
+            [
+                _page(None, listings),
+                *[ScriptedResponse(status=status, json=[]) for _ in range(3)],
+                RunStopped("worker shutdown"),
+            ],
+        )
+
+        assert isinstance(first.raised, RunStopped)
+        assert first.rows == []
+        assert first.final_state is not None
+        assert first.final_state.fanout_state["completed"] == [path.removeprefix("/ws") for path in paths[:3]]
+        assert len(first.committed_states) == 3
+
+        resumed = _driver().run(
+            "backbox_competitors",
+            [_page(None, listings), *[ScriptedResponse(status=status, json=[]) for _ in range(5)]],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == []
+        assert resumed.paths == ["/ws/listings", *paths[3:]]
 
 
 class TestValidateCredentials:
