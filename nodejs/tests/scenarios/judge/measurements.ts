@@ -185,6 +185,118 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
+type FeedbackPost = { durationMs: number; status: number; timed: boolean }
+
+function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence): [Step, FeedbackPost[]][] {
+    const units = new Set(journal.map(({ unitId }) => unitId))
+    const reached = steps.filter(
+        ({ fromMs, toMs }) => drive.startedAt + fromMs < Math.min(drive.startedAt + toMs, drive.endedAt)
+    )
+    const byStep = new Map(reached.map((step) => [step, [] as FeedbackPost[]]))
+    for (const { kind, unitId, status, detail } of truth) {
+        if (kind !== 'ses.feedback' || detail.feedback === undefined || unitId === undefined || !units.has(unitId)) {
+            continue
+        }
+        const postedAt = Date.parse(detail.feedback.postedAt)
+        const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= postedAt)
+        if (step !== undefined) {
+            byStep.get(step)!.push({
+                durationMs: detail.feedback.durationMs,
+                status,
+                timed: status !== 0 && detail.feedback.bodyUnread !== true,
+            })
+        }
+    }
+    return [...byStep]
+}
+
+const feedbackCompleteness = ({ converged, unsettled }: MeasureEvidence): { incomplete?: true } =>
+    converged === false || unsettled !== undefined ? { incomplete: true } : {}
+
+const truthUnread = (evidence: MeasureEvidence, unread: string): Measured[] => [
+    {
+        value: null,
+        censored: true,
+        unmeasured: `the truth could not be read (${unread})`,
+        ...feedbackCompleteness(evidence),
+    },
+]
+
+const unansweredOf = (posts: FeedbackPost[]): { censored?: true; unmeasured?: string } => {
+    const unanswered = posts.filter(({ timed }) => !timed).length
+    return unanswered === 0
+        ? {}
+        : {
+              censored: true,
+              unmeasured: `${unanswered} SES feedback post${unanswered === 1 ? '' : 's'} in this step got no status or no whole answer, so its latency leaves ${unanswered === 1 ? 'it' : 'them'} out`,
+          }
+}
+
+export const sesFeedbackMs: MeasurementDefinition = {
+    name: 'ses_feedback_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        evidence.unread !== undefined
+            ? truthUnread(evidence, evidence.unread)
+            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => {
+                  const answered = posts
+                      .filter(({ timed }) => timed)
+                      .map(({ durationMs }) => durationMs)
+                      .sort((a, b) => a - b)
+                  return (
+                      [
+                          ['p50', 0.5],
+                          ['p99', 0.99],
+                      ] as const
+                  ).map(([percentile, share]) => ({
+                      key: `${percentile}_${scale}x`,
+                      ...feedbackCompleteness(evidence),
+                      ...(answered.length === 0
+                          ? {
+                                value: null,
+                                censored: true as const,
+                                unmeasured: 'no SES feedback post in this step got an answer',
+                            }
+                          : { value: nearestRank(answered, share), ...unansweredOf(posts) }),
+                  }))
+              }),
+}
+
+export const sesFeedbackPosts: MeasurementDefinition = {
+    name: 'ses_feedback_posts',
+    params: z.object({}).strict(),
+    unit: 'posts',
+    measure: (evidence) => {
+        if (evidence.unread !== undefined) {
+            return truthUnread(evidence, evidence.unread)
+        }
+        const byStep = feedbackPostsByStep(evidence)
+        const nonePosted = byStep.every(([, posts]) => posts.length === 0)
+        const noneUnmeasured =
+            evidence.feedbackInFlight === undefined
+                ? 'no SES feedback post went out in this run'
+                : 'SES feedback posts were still in flight at the final read'
+        return byStep.flatMap(([{ scale }, posts]) =>
+            [
+                { key: `posted_${scale}x`, value: posts.length },
+                {
+                    key: `errors_${scale}x`,
+                    value: posts.filter(({ status }) => status === 0 || status >= 500).length,
+                },
+                {
+                    key: `rejected_${scale}x`,
+                    value: posts.filter(({ status }) => status >= 400 && status < 500).length,
+                },
+            ].map(({ key, value }) => ({
+                key,
+                ...(nonePosted ? { value: null, censored: true as const, unmeasured: noneUnmeasured } : { value }),
+                ...feedbackCompleteness(evidence),
+            }))
+        )
+    },
+}
+
 const terminationsOf = (
     timeline: readonly ValveTimelineEntry[]
 ): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
@@ -1007,6 +1119,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    sesFeedbackMs,
+    sesFeedbackPosts,
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,

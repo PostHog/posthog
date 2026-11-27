@@ -287,6 +287,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                         sesMessageId: message.messageId,
                         postedAt,
                         durationMs: performance.now() - started,
+                        ...(answer.bodyUnread ? { bodyUnread: true as const } : {}),
                         ...(bouncedRecipients ? { bouncedRecipients } : {}),
                     },
                 },

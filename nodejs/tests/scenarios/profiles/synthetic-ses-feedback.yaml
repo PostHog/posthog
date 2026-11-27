@@ -1,0 +1,14 @@
+name: synthetic-ses-feedback
+traffic:
+    event_email:
+        ratePerSecond: 2
+    transactional_email:
+        ratePerSecond: 1
+settings: {}
+feedback:
+    delivery: 0.9
+    hardBounce: 0.04
+    softBounce: 0.02
+    complaint: 0.01
+    open: 0.4
+    click: 0.1
