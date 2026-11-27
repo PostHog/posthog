@@ -35,6 +35,7 @@ import {
 } from './adventFlowLayout'
 import { AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
 import { useAdventCardFocus } from './useAdventCardFocus'
+import { useAdventFlowHover } from './useAdventFlowHover'
 
 const FACE_DOOR_SIZE = 56
 const DOT_GAP = 36
@@ -113,7 +114,8 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         clearHover()
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
-    useAdventCardFocus(ref, card.isPinned ? (cardNode?.id ?? null) : null)
+    useAdventCardFocus(ref, card.isPinned, cardNode)
+    const hover = useAdventFlowHover(card)
 
     const onTrackClick = (event: MouseEvent): void => {
         if (!(event.target as Element).closest('button')) {
@@ -126,8 +128,8 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         today,
         isSelected: node.door?.id === selectedDoorId,
         onActivate: activateDoor,
-        onEnter: card.onEnterDoor,
-        onLeave: card.onLeaveDoor,
+        onEnter: hover.onEnter,
+        onLeave: hover.onLeave,
     })
     const face = cardNode ? faceOf(cardNode, fit, track.current?.scrollTop ?? 0) : null
 

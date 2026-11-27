@@ -1,5 +1,7 @@
 import './AdventFlowStage.scss'
 
+import { memo } from 'react'
+
 import { cn } from 'lib/utils/css-classes'
 
 import { arrowHead, EDGE_LABEL_HEIGHT, roundedPath } from '../../Workflows/hogflows/editor/tile-canvas/tileCanvasLayout'
@@ -22,7 +24,10 @@ function pillWidthOf(edge: AdventFlowEdge): number | undefined {
     return 2 * (Math.abs(to.x - edge.labelAt.x) - PILL_CLEARANCE)
 }
 
-export function AdventFlowEdges({ layout, isEdgeEmphasized }: AdventFlowEdgesProps): JSX.Element {
+export const AdventFlowEdges = memo(function AdventFlowEdges({
+    layout,
+    isEdgeEmphasized,
+}: AdventFlowEdgesProps): JSX.Element {
     const lockedIds = new Set(layout.nodes.filter((node) => node.door?.lockReason === 'date').map((node) => node.id))
     const isFuture = (edge: AdventFlowEdge): boolean => !edge.walked && lockedIds.has(edge.target)
     return (
@@ -73,4 +78,4 @@ export function AdventFlowEdges({ layout, isEdgeEmphasized }: AdventFlowEdgesPro
             )}
         </>
     )
-}
+})

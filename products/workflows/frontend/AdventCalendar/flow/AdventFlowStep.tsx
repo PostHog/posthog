@@ -1,6 +1,6 @@
 import './AdventFlowStage.scss'
 
-import { CSSProperties } from 'react'
+import { CSSProperties, memo } from 'react'
 
 import { IconCalendar, IconLeave } from '@posthog/icons'
 
@@ -121,7 +121,7 @@ function DoorTile({ node, today, isSelected, onActivate, onEnter, onLeave }: Adv
     )
 }
 
-export function AdventFlowStep(props: AdventFlowStepProps): JSX.Element {
+export const AdventFlowStep = memo(function AdventFlowStep(props: AdventFlowStepProps): JSX.Element {
     const { node, orientation, today } = props
     const { title, detail } = captionOf(node, today)
     return (
@@ -140,4 +140,4 @@ export function AdventFlowStep(props: AdventFlowStepProps): JSX.Element {
             </span>
         </>
     )
-}
+})

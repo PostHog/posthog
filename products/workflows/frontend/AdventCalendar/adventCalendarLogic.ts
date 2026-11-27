@@ -43,6 +43,14 @@ const EVENTS = {
 } as const
 
 const CLOCK_REFRESH_MS = 60_000
+
+// A preview picked with ?day= sends nothing, so the usage insights count real opens only.
+function captureLive(isLive: boolean, event: string, properties: Record<string, number | string>): void {
+    if (isLive) {
+        posthog.capture(event, properties)
+    }
+}
+
 function isPollDay(day: number): day is AdventCalendarDayEnumApi {
     return (Object.values(AdventCalendarDayEnumApi) as number[]).includes(day)
 }
@@ -479,9 +487,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const vanishing = values.graph.doors.filter(
                     (candidate) => adventQuestionBefore(candidate.day) === door.day && candidate.id.endsWith(notTaken)
                 )
-                if (values.isLive) {
-                    posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
-                }
+                captureLive(values.isLive, EVENTS.answerPicked, { day: door.day, option: optionId })
                 actions.openDoor(uuid, door.day, optionId, values.isLive)
                 const answer = pollAnswerOf(door.day, optionId)
                 if (answer && values.isLive) {
@@ -495,9 +501,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 }
             },
             openDoor: ({ day }) => {
-                if (values.isLive) {
-                    posthog.capture(EVENTS.doorOpened, { day })
-                }
+                captureLive(values.isLive, EVENTS.doorOpened, { day })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
                 if (hoggy && values.isLive) {
                     void api
