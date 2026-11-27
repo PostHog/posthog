@@ -818,8 +818,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert self._clicks(message_id) == [(link, None, reason), (link, None, reason)]
 
-    def test_keeps_each_click_link_when_opens_and_clicks_pass_a_hundred(self, _flag):
-        click_seconds = range(300, 401)
+    @parameterized.expand([("under_the_cap", 101, 101), ("past_the_cap", 201, 200)])
+    def test_keeps_each_click_link_and_caps_the_clicks(self, _flag, _name, clicks, shown):
+        click_seconds = range(300, 300 + clicks)
         message_id = self._send(
             3 * 24 * 60,
             "jane@example.com",
@@ -835,7 +836,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        assert [link for link, *_ in self._clicks(message_id)] == [BILLING] * len(click_seconds)
+        assert [link for link, *_ in self._clicks(message_id)] == [BILLING] * shown
 
     def test_gives_no_session_to_a_click_whose_link_is_unknown_when_the_send_named_no_distinct_id(self, _flag):
         message_id, queued_at = self._clicked_send(distinct_id=None)
