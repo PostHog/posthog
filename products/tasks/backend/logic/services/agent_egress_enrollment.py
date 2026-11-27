@@ -14,6 +14,31 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 
 
+class AgentEgressScoutTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    team_id: int = Field(gt=0)
+    skill_name: str = Field(min_length=1)
+    repository: str = Field(min_length=1)
+
+
+class AgentEgressScoutCohort(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    scouts: list[AgentEgressScoutTarget] = Field(min_length=1)
+
+    @classmethod
+    def selects(cls, payload: object, *, team_id: int, skill_name: object, repository: str) -> bool:
+        try:
+            cohort = cls.model_validate_json(payload) if isinstance(payload, str) else cls.model_validate(payload)
+        except ValueError:
+            return False
+        return any(
+            target.team_id == team_id and target.skill_name == skill_name and target.repository == repository
+            for target in cohort.scouts
+        )
+
+
 class AgentEgressEnrollmentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
