@@ -24,10 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     parse_r2_url,
     parse_s3_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    SelfManagedCredential,
-    SelfManagedLocation,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
 )
@@ -68,15 +64,8 @@ class FakeObjectStorageConfig(Config):
 class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
     """An object storage source made only from the shared layer: the job inputs are the config."""
 
-    self_managed_service = "s3"
-
-    def __init__(
-        self,
-        build_store_config: StoreBuilder = STORE_BUILDERS["s3"],
-        connection_inputs: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, build_store_config: StoreBuilder = STORE_BUILDERS["s3"]) -> None:
         self._build_store_config = build_store_config
-        self._connection_inputs = connection_inputs or {}
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -100,11 +89,6 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
 
     def discovery_options(self, config: FakeObjectStorageConfig) -> DiscoveryOptions:
         return DiscoveryOptions()
-
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        return self._connection_inputs
 
 
 class PrefixScopedS3Client:

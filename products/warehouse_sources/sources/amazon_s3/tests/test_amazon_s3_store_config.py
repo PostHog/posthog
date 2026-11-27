@@ -3,13 +3,8 @@ from typing import Any
 import pytest
 
 from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
-from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig, UnmappableTableError
-from products.warehouse_sources.sources.sdk.testing import (
-    INVALID_CONFIG_ERROR,
-    open_store,
-    parse_self_managed_url,
-    source_base,
-)
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk.testing import INVALID_CONFIG_ERROR, open_store
 
 VALUES: dict[str, Any] = {
     "url_pattern": "https://customer-data.s3.eu-west-1.amazonaws.com/exports/",
@@ -19,16 +14,6 @@ VALUES: dict[str, Any] = {
 
 CSV_FORMATS = ["infer", "csv", "csv_no_header"]
 NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
-
-
-@pytest.fixture
-def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The location check resolves the host, and the example hosts here don't exist.
-    monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
-
-
-def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0") -> SelfManagedCredential:
-    return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
 
 
 def test_reads_from_its_own_endpoint() -> None:
@@ -91,31 +76,6 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 
     assert options.file_format == expected_format
     assert options.allow_double_quotes is expected_allow_double_quotes
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
-    location = parse_self_managed_url("https://exports.s3.eu-west-1.amazonaws.com/a.csv")
-
-    job_inputs = AmazonS3Source().job_inputs_for_self_managed(location, _credential())
-
-    assert job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
-    assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-@pytest.mark.parametrize(
-    "url, credential",
-    [
-        ("https://exports.s3.amazonaws.com/a.csv", _credential()),
-        ("https://s3.us-east-1.amazonaws.com/ab/a.csv", _credential()),
-        ("https://exports.s3.us-east-1.amazonaws.com/a.csv", _credential(access_secret=" ")),
-    ],
-    ids=["without_region", "bucket_name_too_short", "empty_secret"],
-)
-def test_a_self_managed_table_the_source_would_refuse_is_refused(url: str, credential: SelfManagedCredential) -> None:
-    with pytest.raises(UnmappableTableError):
-        AmazonS3Source().job_inputs_for_self_managed(parse_self_managed_url(url), credential)
 
 
 @pytest.mark.parametrize(

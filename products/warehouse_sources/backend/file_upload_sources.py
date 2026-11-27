@@ -146,11 +146,6 @@ def upload_job_inputs(upload: UploadedFile, schema_name: str) -> dict[str, str]:
     }
 
 
-def pending_upload_job_inputs(file_format: UploadedFileFormat, schema_name: str) -> dict[str, str]:
-    """Inputs of a source that reads no file yet. A sync of it fails until an upload replaces them."""
-    return {"upload_id": "", "filename": "", "file_format": file_format, "schema_name": schema_name}
-
-
 def _stored_column_types(read: str, read_settings: UploadReadSettings) -> tuple[CsvColumnType, ...]:
     if read == "csv":
         return csv_column_types_from_columns(read_settings.columns)

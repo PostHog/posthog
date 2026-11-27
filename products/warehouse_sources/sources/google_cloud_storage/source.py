@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import cast
 
 from products.warehouse_sources.sources.google_cloud_storage._config import GoogleCloudStorageSourceConfig
 from products.warehouse_sources.sources.sdk import (
@@ -12,8 +12,6 @@ from products.warehouse_sources.sources.sdk import (
     ObjectStoreConfig,
     ObjectStoreProvider,
     ReleaseStatus,
-    SelfManagedCredential,
-    SelfManagedLocation,
     SourceConfig,
     SourceRegistry,
     detect,
@@ -37,7 +35,6 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
     )
 
     api_docs_url = "https://cloud.google.com/storage/docs/interoperability"
-    self_managed_service = "gcs"
     access_denied_message = (
         "Google Cloud Storage denied access to this bucket. Check the HMAC access key and secret, and give "
         "the service account that owns the key the Storage Object Viewer role on the bucket."
@@ -62,15 +59,6 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
 
     def discovery_options(self, config: GoogleCloudStorageSourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
-
-    def self_managed_connection_inputs(
-        self, location: SelfManagedLocation, credential: SelfManagedCredential
-    ) -> dict[str, Any]:
-        return {
-            "url_pattern": f"https://storage.googleapis.com/{location.bucket}/",
-            "access_key_id": credential.access_key,
-            "secret_access_key": credential.access_secret,
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:

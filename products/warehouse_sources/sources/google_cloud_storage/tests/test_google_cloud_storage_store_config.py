@@ -4,12 +4,11 @@ import pytest
 from unittest.mock import MagicMock
 
 from products.warehouse_sources.sources.google_cloud_storage.source import GoogleCloudStorageSource
-from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
 from products.warehouse_sources.sources.sdk.testing import (
     ACCESS_DENIED_ERROR,
     INVALID_CONFIG_ERROR,
     open_store,
-    parse_self_managed_url,
     source_base,
 )
 
@@ -27,10 +26,6 @@ NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
 def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     # The location check resolves the host, and the example hosts here don't exist.
     monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
-
-
-def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0") -> SelfManagedCredential:
-    return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
 
 
 def test_reads_from_its_own_endpoint() -> None:
@@ -95,16 +90,6 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 
     assert options.file_format == expected_format
     assert options.allow_double_quotes is expected_allow_double_quotes
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-def test_a_self_managed_table_maps_to_its_bucket_and_credential() -> None:
-    location = parse_self_managed_url("https://storage.googleapis.com/exports/a.csv")
-
-    job_inputs = GoogleCloudStorageSource().job_inputs_for_self_managed(location, _credential())
-
-    assert job_inputs["url_pattern"] == "https://storage.googleapis.com/exports/"
-    assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")
 
 
 def test_access_denied_names_the_role_to_grant(resolvable_hosts: None, monkeypatch: pytest.MonkeyPatch) -> None:

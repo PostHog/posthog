@@ -5,9 +5,9 @@ Framework-free and source-agnostic on purpose: the upload endpoint and the table
 land in PostHog's own data warehouse bucket, namespaced by team then by a per-upload id, which is
 what keeps a table's read path scoped to its own team's files.
 
-An uploaded file becomes a self-managed ``DataWarehouseTable`` pointing straight at the stored
-object: PostHog reads it in place from its own bucket. A team with the object storage sources also
-gets a file upload source that imports the file into a managed table (see ``file_upload_sources``).
+An uploaded file becomes a ``DataWarehouseTable`` that reads the stored object in place from
+PostHog's own bucket, and a file upload source whose first sync imports it into a managed table
+(see ``file_upload_sources``).
 
 Every key is built from a team id that PostHog supplies, never from request input. The parts a
 client sends (the upload id and the filename) go through ``UploadLocation`` before they reach a key,
@@ -23,7 +23,7 @@ from posthog.dataclasses import frozen
 
 # Top-level bucket folder for user-uploaded files.
 FILE_UPLOADS_FOLDER = "file_uploads"
-# Folder the legacy `file` table action writes to, with one object per team and filename.
+# Folder the removed legacy `file` table action wrote to, with one object per team and filename.
 LEGACY_UPLOADS_FOLDER = "managed"
 
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^a-zA-Z0-9._-]")
@@ -47,11 +47,6 @@ FILE_FORMAT_TO_TABLE_FORMAT: dict[str, str] = {
     FORMAT_JSON: "JSONEachRow",
     FORMAT_PARQUET: "Parquet",
 }
-# The upload format a table of each read format was made from.
-TABLE_FORMAT_TO_FILE_FORMAT: dict[str, str] = {
-    table_format: file_format for file_format, table_format in FILE_FORMAT_TO_TABLE_FORMAT.items()
-}
-
 # Per-format guidance shown when column detection fails on create. Each hint names the exact shape
 # the matching read format above expects, since that's what silently trips uploads up: CSV needs a
 # header row, and JSON is read one object per line rather than as a single array.
@@ -61,8 +56,8 @@ FILE_FORMAT_READ_HINTS: dict[str, str] = {
     FORMAT_PARQUET: "Make sure it's a valid Parquet file.",
 }
 
-# Cap on uploads streamed through the web pod. Larger datasets belong on a self-managed S3/GCS
-# source, where PostHog reads the customer's bucket directly instead of hosting the bytes.
+# Cap on uploads streamed through the web pod. Larger datasets belong on an object storage source
+# (Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2) that reads the customer's bucket.
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
 
@@ -178,7 +173,7 @@ class UploadLocation:
 
 @frozen
 class LegacyUpload:
-    """A file the legacy `file` table action stored: `managed/team_<team_id>/<filename>`."""
+    """A file the removed legacy `file` table action stored: `managed/team_<team_id>/<filename>`."""
 
     team_id: int
     filename: str

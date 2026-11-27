@@ -3,13 +3,8 @@ from typing import Any
 import pytest
 
 from products.warehouse_sources.sources.cloudflare_r2.source import CloudflareR2Source
-from products.warehouse_sources.sources.sdk import SelfManagedCredential, SourceFieldSelectConfig
-from products.warehouse_sources.sources.sdk.testing import (
-    INVALID_CONFIG_ERROR,
-    open_store,
-    parse_self_managed_url,
-    source_base,
-)
+from products.warehouse_sources.sources.sdk import SourceFieldSelectConfig
+from products.warehouse_sources.sources.sdk.testing import INVALID_CONFIG_ERROR, open_store
 
 R2_ACCOUNT_ID = "0123456789abcdef0123456789abcdef"
 VALUES: dict[str, Any] = {
@@ -20,16 +15,6 @@ VALUES: dict[str, Any] = {
 
 CSV_FORMATS = ["infer", "csv", "csv_no_header"]
 NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
-
-
-@pytest.fixture
-def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The location check resolves the host, and the example hosts here don't exist.
-    monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
-
-
-def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0") -> SelfManagedCredential:
-    return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
 
 
 @pytest.mark.parametrize(
@@ -99,16 +84,3 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 
     assert options.file_format == expected_format
     assert options.allow_double_quotes is expected_allow_double_quotes
-
-
-@pytest.mark.usefixtures("resolvable_hosts")
-@pytest.mark.parametrize(
-    "host", [f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com", f"{R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com"]
-)
-def test_a_self_managed_table_maps_to_its_bucket_and_credential(host: str) -> None:
-    location = parse_self_managed_url(f"https://{host}/exports/a.csv")
-
-    job_inputs = CloudflareR2Source().job_inputs_for_self_managed(location, _credential())
-
-    assert job_inputs["url_pattern"] == f"https://{host}/exports/"
-    assert (job_inputs["access_key_id"], job_inputs["secret_access_key"]) == ("AKIAEXAMPLE", "c2VjcmV0")

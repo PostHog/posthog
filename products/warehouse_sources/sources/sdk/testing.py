@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStore,
     open_store,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
-    parse_self_managed_url,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     DEFAULT_RETRY_ATTEMPTS,
@@ -102,7 +99,6 @@ __all__ = [
     "mock_anti_ssrf_dns_lookup",
     "open_store",
     "parse_select",
-    "parse_self_managed_url",
     "resolver",
     "rest_client",
     "resumable",

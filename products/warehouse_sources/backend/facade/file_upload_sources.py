@@ -17,9 +17,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     UploadReadSettings,
 )
 from products.warehouse_sources.backend.file_uploads import (
-    TABLE_FORMAT_TO_FILE_FORMAT,
     InvalidUploadError,
-    LegacyUpload,
     UploadLocation,
     is_safe_upload_filename,
     parse_hosted_upload,
@@ -37,19 +35,11 @@ __all__ = [
     "discard_unused_upload",
     "has_file_upload_source",
     "hosted_upload_in_use",
-    "is_legacy_upload_url",
     "is_safe_upload_filename",
-    "object_storage_sources_enabled",
     "read_upload_in_place",
     "replace_file_upload",
     "sanitize_upload_filename",
-    "upload_format_for_table_format",
 ]
-
-
-def object_storage_sources_enabled(team_id: int) -> bool:
-    """Every team has the managed object storage sources, which replace self-managed tables."""
-    return True
 
 
 def read_upload_in_place(team_id: int, table_name: str, upload: UploadedFileRef) -> UploadReadSettings:
@@ -85,11 +75,6 @@ def can_replace_file(team_id: int, table_id: UUID) -> bool:
     return table is not None and _service.find_replaceable_upload_schema(table) is not None
 
 
-def upload_format_for_table_format(table_format: str) -> str | None:
-    """The upload format a file upload source reads a file of this table format in, or None when it can't."""
-    return TABLE_FORMAT_TO_FILE_FORMAT.get(table_format)
-
-
 def replace_file_upload(
     team_id: int,
     table_id: UUID,
@@ -115,14 +100,9 @@ def hosted_upload_in_use(team_id: int, url_pattern: str, exclude_table_id: UUID)
 
 
 def discard_unused_upload(team_id: int, upload: UploadedFileRef) -> None:
-    """Best-effort delete of an upload that no source or table reads, such as one a refused replace stored."""
+    """Best-effort delete of an upload that no source or table reads, such as one a refused save stored."""
     try:
         location = UploadLocation(team_id=team_id, upload_id=upload.upload_id, filename=upload.filename)
     except InvalidUploadError:
         return
     _delete_upload_if_unused(location)
-
-
-def is_legacy_upload_url(team_id: int, url_pattern: str) -> bool:
-    """Whether `url_pattern` names a file the legacy `file` action stored for the team."""
-    return isinstance(parse_hosted_upload(team_id, url_pattern), LegacyUpload)
