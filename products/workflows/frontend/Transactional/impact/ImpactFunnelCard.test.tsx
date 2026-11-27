@@ -311,6 +311,33 @@ describe('ImpactFunnelCard', () => {
         expect(patches).toEqual([])
     })
 
+    it('keeps the funnel above a failed refresh after the turn-on, and shows the count on Try again', async () => {
+        const team = teamWithLinkTagging(false)
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': () => [200, teamWithLinkTagging(true)],
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, IMPACT_UNTAGGED]
+        renderCard()
+
+        const turnOn = await screen.findByText('Turn on for project')
+        answer = [429, { detail: 'Request was throttled.' }]
+        fireEvent.click(turnOn)
+
+        expect(
+            await screen.findByText('Too many queries are running right now. Wait a few seconds, then try again.')
+        ).toBeInTheDocument()
+        expect(screen.getByText('Clicked')).toBeInTheDocument()
+
+        answer = [200, IMPACT]
+        fireEvent.click(screen.getAllByText('Try again')[0])
+
+        await expectSessionCount('1')
+        expect(screen.queryByText(/Too many queries/)).not.toBeInTheDocument()
+    })
+
     it('shows the count in an Impact tab reopened while link tracking is still saving', async () => {
         const team = teamWithLinkTagging(false)
         const patches: Partial<TeamType>[] = []

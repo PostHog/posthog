@@ -24,19 +24,22 @@ function FunnelBody(): JSX.Element {
         useValues(emailImpactLogic)
     const { loadImpact } = useActions(emailImpactLogic)
 
+    const errorBanner = impactError ? (
+        <LemonBanner
+            type="error"
+            action={{ children: 'Try again', onClick: () => loadImpact(), 'data-attr': 'email-impact-retry' }}
+        >
+            {impactError}
+        </LemonBanner>
+    ) : null
+
     if (funnelState === 'error') {
-        return (
-            <LemonBanner
-                type="error"
-                action={{ children: 'Try again', onClick: () => loadImpact(), 'data-attr': 'email-impact-retry' }}
-            >
-                {impactError}
-            </LemonBanner>
-        )
+        return <>{errorBanner}</>
     }
     if (funnelState === 'empty' && impact) {
         return (
             <>
+                {errorBanner}
                 <p className="text-secondary text-sm m-0">No sends of this email were recorded in this period.</p>
                 {untrackedNote && <p className="text-secondary text-sm m-0">{untrackedNote}</p>}
             </>
@@ -47,6 +50,7 @@ function FunnelBody(): JSX.Element {
     }
     return (
         <>
+            {errorBanner}
             <ImpactFunnel steps={steps} showsLinkTrackingPrompt={showsLinkTrackingPrompt} />
             {untrackedNote && <p className="text-secondary text-sm m-0">{untrackedNote}</p>}
             <ImpactLiftLine />
