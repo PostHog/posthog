@@ -15,10 +15,22 @@ describe('workflowsSceneLogic', () => {
     })
 
     it.each([
-        ['a bare workflow id opens that workflow', `/workflows/${WORKFLOW_ID}`, `/workflows/${WORKFLOW_ID}/workflow`],
-        ['a known tab stays on the list', '/workflows/templates', '/workflows/templates'],
-        ['an unknown tab stays on the list', '/workflows/not-a-tab', '/workflows/not-a-tab'],
-    ])('%s', (_, path, expectedPath) => {
+        [
+            'a bare workflow id opens that workflow',
+            '/workflows',
+            `/workflows/${WORKFLOW_ID}`,
+            `/workflows/${WORKFLOW_ID}/workflow`,
+        ],
+        ['a known tab stays on the list', '/workflows', '/workflows/templates', '/workflows/templates'],
+        ['an unknown tab stays on the list', '/workflows', '/workflows/not-a-tab', '/workflows/not-a-tab'],
+        [
+            'the advent calendar opens from another tab',
+            '/workflows/templates',
+            '/workflows/advent',
+            '/workflows/advent',
+        ],
+    ])('%s', (_, from, path, expectedPath) => {
+        router.actions.push(from)
         router.actions.push(path)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPath)

@@ -1,4 +1,7 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -8,6 +11,8 @@ from slack_sdk.errors import SlackApiError
 
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.channel_metadata import (
+    GROUP_LOOKUP_RETRY_SECONDS,
+    METADATA_REFRESH_SECONDS,
     OwnerGroup,
     parse_owner_groups,
     refresh_channel_metadata,
@@ -15,8 +20,13 @@ from products.slack_app.backend.services.channel_metadata import (
 )
 
 
-def _slack(channel: dict | None = None, error: Exception | None = None) -> MagicMock:
+def _slack(
+    channel: dict | None = None, error: Exception | None = None, missing_scopes: frozenset = frozenset()
+) -> MagicMock:
     slack = MagicMock()
+    slack.integration.integration_id = "T01"
+    slack.missing_scopes.return_value = missing_scopes
+    slack.client.usergroups_list.return_value = {"usergroups": [{"id": "S0123", "handle": "team-replay"}]}
     if error is not None:
         slack.client.conversations_info.side_effect = error
     else:
@@ -61,6 +71,75 @@ class TestRefreshChannelMetadata:
         channel = SlackChannel.objects.get(slack_workspace_id="T01", slack_channel_id="C01")
         assert (channel.topic, channel.purpose) == ("Replays and <!subteam^S0123|@team-replay>", "Session replay R&D")
         assert channel.owner_groups == [{"id": "S0123", "handle": "team-replay"}]
+
+    @pytest.mark.parametrize(
+        "missing_scopes,expected_handle",
+        [(frozenset(), "team-replay"), (frozenset({"usergroups:read"}), "")],
+    )
+    def test_names_an_unlabeled_group_only_with_the_usergroups_scope(
+        self, missing_scopes: frozenset, expected_handle: str
+    ) -> None:
+        cache.clear()
+        slack = _slack(
+            {"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}}, missing_scopes=missing_scopes
+        )
+
+        assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+
+        channel = SlackChannel.objects.get(slack_channel_id="C01")
+        assert channel.owner_groups == [{"id": "S0123", "handle": expected_handle}]
+
+    def test_a_failed_group_lookup_keeps_the_handle_stored_before(self) -> None:
+        cache.clear()
+        SlackChannel.objects.create(
+            slack_workspace_id="T01",
+            slack_channel_id="C01",
+            owner_groups=[{"id": "S0123", "handle": "team-replay"}],
+        )
+        slack = _slack({"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}})
+        slack.client.usergroups_list.side_effect = TimeoutError()
+
+        assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+
+        assert SlackChannel.objects.get(slack_channel_id="C01").owner_groups == [
+            {"id": "S0123", "handle": "team-replay"}
+        ]
+
+    @pytest.mark.parametrize(
+        "read_in_flight,expected_handle,retries_soon",
+        [(True, "", True), (False, "team-replay", False)],
+    )
+    def test_a_channel_that_loses_the_group_lookup_race_retries_soon(
+        self, read_in_flight: bool, expected_handle: str, retries_soon: bool
+    ) -> None:
+        cache.clear()
+        slack = _slack({"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}})
+        slack.integration.id = 7
+        slot = "slack_app_channel_metadata:7:C01"
+        with time_machine.travel(datetime(2026, 11, 27, 9, 0, tzinfo=UTC), tick=False) as traveller:
+            cache.set(slot, 1, timeout=METADATA_REFRESH_SECONDS)
+            if read_in_flight:
+                cache.set("slack_app_usergroup_handles:T01:read", 1, timeout=60)
+
+            assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+            traveller.shift(timedelta(seconds=GROUP_LOOKUP_RETRY_SECONDS + 60))
+
+            assert (cache.get(slot) is None) == retries_soon
+        assert SlackChannel.objects.get(slack_channel_id="C01").owner_groups == [
+            {"id": "S0123", "handle": expected_handle}
+        ]
+
+    def test_channels_of_one_workspace_share_one_group_lookup(self) -> None:
+        cache.clear()
+        slack = _slack({"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}})
+
+        for channel_id in ("C01", "C02"):
+            refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id=channel_id)
+
+        assert slack.client.usergroups_list.call_count == 1
+        assert SlackChannel.objects.get(slack_channel_id="C02").owner_groups == [
+            {"id": "S0123", "handle": "team-replay"}
+        ]
 
     @pytest.mark.parametrize(
         "channel",

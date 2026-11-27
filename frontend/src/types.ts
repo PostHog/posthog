@@ -5778,9 +5778,11 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
 // Scopes that wait on Slack app review. Only DEV and local development request them, because the
 // US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
-// Empty while no scope waits on review. Keep it for the next scope that needs review.
 /** @schemaEnum */
-export enum SlackIntegrationScopeInReview {}
+export enum SlackIntegrationScopeInReview {
+    USERGROUPS_READ = 'usergroups:read',
+    EMOJI_READ = 'emoji:read',
+}
 
 export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)
 
