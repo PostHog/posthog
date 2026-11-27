@@ -289,6 +289,23 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert "event.properties.email" in serialized
         assert "https://hooks.example.com/orders" in serialized
 
+    def test_a_secret_url_used_as_a_test_target_is_redacted_from_test_origins(self) -> None:
+        secret_label = "hooktoken0042secret"
+        destination = self.create_destination(
+            inputs_schema=[{"key": "url", "type": "string", "label": "URL", "secret": True}],
+            inputs={"url": {"value": f"https://{secret_label}.example.com/hook"}},
+            mappings=[],
+        )
+        self.log(
+            destination,
+            "tested",
+            context={"hog": "fetch(inputs.url)", "request_origins": [f"https://{secret_label}.example.com"]},
+        )
+
+        serialized = build_case_file(destination, score(destination)).to_json()
+
+        assert secret_label not in serialized
+
     def test_a_long_config_with_ordinary_history_keeps_its_hosts(self) -> None:
         padding = " ".join(f"w{index}" for index in range(12_000))
         destination = self.create_destination(hog=f"fetch('http://169.254.169.254/latest');\n// {padding}")

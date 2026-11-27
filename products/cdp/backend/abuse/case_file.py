@@ -267,6 +267,7 @@ def _history(hog_function: HogFunction) -> _History:
             ],
         ),
         *values,
+        *_url_secret_labels(values),
     ]
     code_secrets = _secret_pattern(values)
     return _History(
@@ -305,6 +306,21 @@ def _secret_values(hog_function: HogFunction) -> list[str]:
         items = schema if isinstance(schema, list) else []
         values.extend(item.get("default") for item in items if isinstance(item, dict) and item.get("secret"))
     return [text for value in values for text in _texts_in(value)]
+
+
+def _url_secret_labels(values: list[str]) -> list[str]:
+    """The labels left of the domain in each secret URL, such as a webhook token used as a subdomain. The origin
+    redactor compares a secret with the labels of an origin, and a whole URL never equals one."""
+    labels: list[str] = []
+    for value in values:
+        if "://" not in value:
+            continue
+        try:
+            host = urlsplit(value).hostname or ""
+        except ValueError:
+            continue
+        labels.extend(host.split(".")[:-2])
+    return labels
 
 
 def _texts_in(value: object) -> list[str]:
