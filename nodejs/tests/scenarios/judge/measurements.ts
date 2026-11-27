@@ -58,6 +58,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         counters?: CounterReading
         unread?: string
         horizonAt?: number
+        horizonSeq?: number
         converged?: boolean
         unsettled?: string
         feedbackInFlight?: number
@@ -286,13 +287,13 @@ const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped', 'failed'] as c
 
 const QUEUEING_AND_RECORDING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
 
-const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answeredAt: number }[] =>
+const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answeredAt: number; seq: number }[] =>
     truth
         .filter(({ kind, detail }) => kind === 'ses.feedback' && detail.feedback !== undefined)
-        .map(({ status, at }) => ({ status, answeredAt: Date.parse(at) }))
+        .map(({ status, at, seq }) => ({ status, answeredAt: Date.parse(at), seq }))
 
 const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): string | undefined => {
-    const { converged, unread, unsettled, horizonAt } = evidence
+    const { converged, unread, unsettled, horizonAt, horizonSeq } = evidence
     const answers = feedbackAnswersOf(evidence)
     return converged === false
         ? 'the run did not converge, so the consumer may still have been recording'
@@ -302,7 +303,11 @@ const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): s
             ? `the truth never settled (${unsettled}), so cdp-api may have queued notifications after the counters were read`
             : answers.some(({ status }) => status === 0)
               ? 'an SES feedback post got no status, so cdp-api may have queued it after the counters were read'
-              : horizonAt !== undefined && answers.some(({ answeredAt }) => answeredAt > horizonAt)
+              : answers.some(
+                      ({ answeredAt, seq }) =>
+                          (horizonAt !== undefined && answeredAt > horizonAt) ||
+                          (horizonSeq !== undefined && seq > horizonSeq)
+                  )
                 ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
                 : failed > 0
                   ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`

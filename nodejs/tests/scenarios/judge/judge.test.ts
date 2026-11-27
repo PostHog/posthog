@@ -1329,7 +1329,9 @@ describe('judge', () => {
             await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
 
             expect(await judge.converge(10_000, NEVER_ABORTED)).toMatchObject({ converged: true })
-            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([['ses.send', 200]])
+            const { truth, horizonSeq } = judge.evidence()
+            expect(truth.map(({ kind, status }) => [kind, status])).toEqual([['ses.send', 200]])
+            expect(horizonSeq).toBe(truth.at(-1)?.seq)
         }))
 
     it('waits out the SES feedback of a send that landed while the judge read its truth', () =>

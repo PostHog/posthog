@@ -350,6 +350,14 @@ describe('SES notifications lost', () => {
             { truth: [posted('run-1', 99_000, 2000)], horizonAt: FROM + 100_000 },
             'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read',
         ],
+        [
+            'a feedback post landed after the last convergence read but before the horizon',
+            (() => {
+                const late = posted('run-1', 30_000, 20)
+                return { truth: [late], horizonAt: FROM + 100_000, horizonSeq: late.seq - 1 }
+            })(),
+            'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read',
+        ],
     ])('leaves the loss unknown when %s', (_story, judged, unmeasured) => {
         expect(lostOf(run, judged).find(({ key }) => key === 'lost_floor')).toEqual({
             name: 'ses_notifications_lost',
@@ -363,7 +371,7 @@ describe('SES notifications lost', () => {
 
     it('keeps the loss when every feedback post was answered before the run converged', () => {
         expect(
-            lostOf(run, { truth: [posted('run-1', 30_000, 20)], horizonAt: FROM + 100_000 }).find(
+            lostOf(run, { truth: [posted('run-1', 30_000, 20)], horizonAt: FROM + 100_000, horizonSeq: seq }).find(
                 ({ key }) => key === 'lost_floor'
             )
         ).toMatchObject({ value: 3 })
