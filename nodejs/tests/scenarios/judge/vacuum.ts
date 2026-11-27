@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
-import { VACUUM_PROBE_EVERY_MS, VacuumRead, VacuumSample } from '../probe/vacuum-probe'
+import { VACUUM_PROBE_EVERY_MS } from '../probe/vacuum-cadence'
+import type { VacuumRead, VacuumSample } from '../probe/vacuum-probe'
 import { WORKER_OF, p99Of, pickupsBetween } from './bars'
 import type { MeasureEvidence, MeasurementDefinition } from './measurements'
 
