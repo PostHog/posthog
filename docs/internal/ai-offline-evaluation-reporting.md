@@ -921,8 +921,10 @@ Scroll horizontally to see more runs. The measure column stays in view, and you 
 Each row represents one pinned scorer version. **Shared scores only** shows the versions present in every selected run.
 Runs can have different item scorers and can omit the overall experiment score.
 Numeric means and boolean pass rates show the difference from the selected baseline for that version.
+Categorical item scorers show each category's share. When the version defines passing categories, the row also shows the pass rate and its change in percentage points. For a multi-select result, every selected category must belong to the passing set.
 Higher pass rates are better. For numeric means, the pinned passing rule determines whether an increase or decrease is better.
-Numeric scorers without a passing rule show a neutral difference.
+Numeric item scorers without a passing rule show a neutral difference.
+Overall experiment scores can also be compared when both runs produced a result from the same formula version with a passing rule. Numeric formulas show the signed score difference in the direction defined by the rule. Boolean and categorical formulas show whether the run now passes, now fails, or kept the same verdict.
 These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
 Experiment names, scorer names, and coverage counts open in a new tab so the comparison stays open.
 For runs linked to a hosted dataset revision, the dataset label also opens the dataset in a new tab.

@@ -2,10 +2,34 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { aggregateDifference, type ComparisonRun, type ComparisonScoreRow } from './offlineComparison'
+import {
+    aggregateDifference,
+    experimentScoreDifference,
+    type ComparisonRun,
+    type ComparisonScoreRow,
+    type ScoreDifference,
+} from './offlineComparison'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
 import { OfflineExperimentScoreValue } from './OfflineExperimentScoreValue'
 import { OfflineSummaryMetrics } from './OfflineScoreSummaryDisplay'
+import { formatOfflinePercentage } from './offlineScoreTrends'
+
+function BaselineDifference({ difference }: { difference: ScoreDifference | null }): JSX.Element | null {
+    return (
+        difference && (
+            <span
+                className={cn(
+                    'text-xs tabular-nums whitespace-nowrap',
+                    difference.outcome === 'better' && 'font-semibold text-success',
+                    difference.outcome === 'worse' && 'font-semibold text-danger',
+                    difference.outcome === 'neutral' && 'text-muted'
+                )}
+            >
+                {difference.label}
+            </span>
+        )
+    )
+}
 
 export function OfflineComparisonScoreCell({
     row,
@@ -23,7 +47,12 @@ export function OfflineComparisonScoreCell({
     if (row.kind === 'experiment') {
         const score = row.scores.get(experiment.id)
         return score ? (
-            <OfflineExperimentScoreValue score={score} />
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <OfflineExperimentScoreValue score={score} />
+                {experiment.id !== baselineId && (
+                    <BaselineDifference difference={experimentScoreDifference(score, row.scores.get(baselineId))} />
+                )}
+            </div>
         ) : (
             <span className="text-xs text-muted">No score with this formula</span>
         )
@@ -34,26 +63,28 @@ export function OfflineComparisonScoreCell({
     }
     const counts = summary.status_counts
     const difference = experiment.id === baselineId ? null : aggregateDifference(summary, row.scores.get(baselineId))
+    const categoryPassRate = summary.scorer.kind === 'categorical' ? summary.pass_rate : null
+    const metrics = (
+        <div className="text-sm">
+            <OfflineSummaryMetrics summary={summary} showMetricLabel={false} />
+        </div>
+    )
     return (
         <div className="flex flex-col items-start gap-0.5">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <div className="text-sm">
-                    <OfflineSummaryMetrics summary={summary} showMetricLabel={false} />
-                </div>
-                {difference && (
-                    <span
-                        className={cn(
-                            'text-xs tabular-nums whitespace-nowrap',
-                            difference.outcome === 'better' && 'font-semibold text-success',
-                            difference.outcome === 'worse' && 'font-semibold text-danger',
-                            difference.outcome === 'neutral' && 'text-muted'
-                        )}
-                    >
-                        {difference.label}
-                        {difference.outcome !== 'neutral' && ` ${difference.outcome}`}
+                {categoryPassRate !== null ? (
+                    <span className="text-sm">
+                        <strong className="font-semibold tabular-nums">
+                            {formatOfflinePercentage(categoryPassRate)}
+                        </strong>{' '}
+                        <span className="text-xs text-muted">Pass rate</span>
                     </span>
+                ) : (
+                    metrics
                 )}
+                <BaselineDifference difference={difference} />
             </div>
+            {categoryPassRate !== null && metrics}
             <Tooltip
                 title={[
                     `${counts.ok} successful`,

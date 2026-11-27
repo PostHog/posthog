@@ -72,10 +72,37 @@ export function comparisonScoreRows(runs: ComparisonRun[]): ComparisonScoreRow[]
     )
 }
 
+export interface ScoreDifference {
+    label: string
+    outcome: 'better' | 'worse' | 'neutral'
+}
+
+function numericDifference(
+    current: number | null,
+    baseline: number | null,
+    operator: 'gte' | 'lte' | undefined,
+    percentagePoints = false
+): ScoreDifference | null {
+    if (current === null || baseline === null) {
+        return null
+    }
+    const delta = (current - baseline) * (percentagePoints ? 100 : 1)
+    if (delta === 0) {
+        return { label: 'Unchanged', outcome: 'neutral' }
+    }
+    const magnitude = Math.abs(delta).toLocaleString(undefined, { maximumSignificantDigits: 3 })
+    const label = `${delta > 0 ? '+' : '−'}${magnitude}${percentagePoints ? ' pp' : ''}`
+    if (!operator) {
+        return { label, outcome: 'neutral' }
+    }
+    const outcome = (operator === 'gte' ? delta > 0 : delta < 0) ? 'better' : 'worse'
+    return { label: `${label} ${outcome}`, outcome }
+}
+
 export function aggregateDifference(
     current: OfflineScorerSummaryApi,
     baseline?: OfflineScorerSummaryApi
-): { label: string; outcome: 'better' | 'worse' | 'neutral' } | null {
+): ScoreDifference | null {
     if (
         !baseline ||
         current.scorer.id !== baseline.scorer.id ||
@@ -84,21 +111,36 @@ export function aggregateDifference(
     ) {
         return null
     }
-    const rate = current.scorer.kind === 'boolean'
-    const left = rate ? current.pass_rate : current.mean
-    const right = rate ? baseline.pass_rate : baseline.mean
-    if (left === null || right === null) {
+    return current.scorer.kind === 'numeric'
+        ? numericDifference(current.mean, baseline.mean, offlineNumericPassingRule(current.scorer)?.operator)
+        : numericDifference(current.pass_rate, baseline.pass_rate, 'gte', true)
+}
+
+export function experimentScoreDifference(
+    current: ExperimentScoreApi,
+    baseline?: ExperimentScoreApi
+): ScoreDifference | null {
+    if (
+        !baseline ||
+        current.scorer_version_id !== baseline.scorer_version_id ||
+        current.status !== 'ok' ||
+        baseline.status !== 'ok' ||
+        current.value === null ||
+        baseline.value === null
+    ) {
         return null
     }
-    const delta = (left - right) * (rate ? 100 : 1)
-    if (delta === 0) {
-        return { label: 'Unchanged', outcome: 'neutral' }
+    if (current.kind === 'numeric') {
+        const rule = offlineNumericPassingRule(current)
+        return rule && typeof current.value === 'number' && typeof baseline.value === 'number'
+            ? numericDifference(current.value, baseline.value, rule.operator)
+            : null
     }
-    const magnitude = Math.abs(delta).toLocaleString(undefined, { maximumSignificantDigits: 3 })
-    const label = `${delta > 0 ? '+' : '−'}${magnitude}${rate ? ' pp' : ''}`
-    const operator = rate ? 'gte' : offlineNumericPassingRule(current.scorer)?.operator
-    if (!operator) {
-        return { label, outcome: 'neutral' }
+    if (current.passed === null || baseline.passed === null) {
+        return null
     }
-    return { label, outcome: (operator === 'gte' ? delta > 0 : delta < 0) ? 'better' : 'worse' }
+    if (current.passed === baseline.passed) {
+        return { label: current.passed ? 'Still passes' : 'Still fails', outcome: 'neutral' }
+    }
+    return current.passed ? { label: 'Now passes', outcome: 'better' } : { label: 'Now fails', outcome: 'worse' }
 }
