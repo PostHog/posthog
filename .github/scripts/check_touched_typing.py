@@ -51,12 +51,12 @@ GENERATED_HEADER = re.compile(r"do not edit|auto-?generated|automatically genera
 ANY_TOKEN = re.compile(r"\bAny\b(?!\s+[a-z])")
 IGNORE_COMMENT = re.compile(r"#\s*(type|ty|pyright)\s*:\s*ignore")
 # ruff honors these exemptions, so the check does too: a file-wide noqa, or a noqa on the flagged line.
-FILE_NOQA = re.compile(r"^#\s*(?:ruff|flake8)\s*:\s*noqa(?:\s*$|:[^\n]*\bANN)", re.M | re.I)
+# Without codes they exempt every rule. With codes they exempt only the rules they list.
+FILE_NOQA = re.compile(r"^#\s*(?:ruff|flake8)\s*:\s*noqa(?::\s*(?P<codes>[A-Z0-9, ]+))?", re.M | re.I)
 LINE_NOQA = re.compile(r"#\s*noqa(?::\s*(?P<codes>[A-Z0-9, ]+))?", re.I)
-PARAMETER_RULES = frozenset({"ANN001"})
-RETURN_RULES = frozenset({"ANN201", "ANN202", "ANN204"})
+ALL_RULES = frozenset({"ANN001", "ANN201", "ANN202", "ANN204"})
 REMOVED_DEF = re.compile(r"^\s*(?:async\s+)?def\s+(\w+)")
-HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 MAX_LISTED = 10
 MAX_SECTION_ROWS = 50
 # The same characters markdownCell in frontend/bin/ci-report/format.mjs strips.
@@ -67,8 +67,11 @@ MARKDOWN_CELL_UNSAFE = re.compile(r"[`|\x00-\x1f\x7f]")
 class FileChange:
     path: str
     is_new: bool = False
+    is_deleted: bool = False
     added: dict[int, str] = field(default_factory=dict)
     removed: list[str] = field(default_factory=list)
+    # For each hunk that only deletes lines: the new-side line the deleted lines followed.
+    deleted_after: list[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,7 @@ class Report:
     findings: list[Finding]
     any_delta: int
     ignore_delta: int
+    unparsed: list[str] = field(default_factory=list)
 
     @property
     def new_file_findings(self) -> list[Finding]:
@@ -178,6 +182,7 @@ def parse_diff(diff: str) -> tuple[list[FileChange], list[str]]:
     all_removed: list[str] = []
     current: FileChange | None = None
     is_new = False
+    old_path = ""
     # Header lines come before a file's first hunk. After it, "--- x" is a removed line that starts with "-- ".
     in_header = False
     line_no = 0
@@ -191,12 +196,20 @@ def parse_diff(diff: str) -> tuple[list[FileChange], list[str]]:
         if hunk:
             in_header = False
             line_no = int(hunk.group(1))
+            if current and hunk.group(2) == "0":
+                current.deleted_after.append(line_no)
             continue
         if in_header:
             if raw.startswith("new file mode"):
                 is_new = True
-            elif raw.startswith("+++ ") and raw[4:] != "/dev/null":
-                current = FileChange(path=raw[4:].removeprefix("b/"), is_new=is_new)
+            elif raw.startswith("--- "):
+                old_path = raw[4:].removeprefix("a/")
+            elif raw.startswith("+++ "):
+                # A deleted file is kept so its removed lines still count in the Any and ignore deltas.
+                if raw[4:] == "/dev/null":
+                    current = FileChange(path=old_path, is_deleted=True)
+                else:
+                    current = FileChange(path=raw[4:].removeprefix("b/"), is_new=is_new)
                 files.append(current)
             continue
         if raw.startswith("-"):
@@ -221,32 +234,17 @@ def decorator_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     return names
 
 
-def is_exempt(line: str, rules: frozenset[str]) -> bool:
-    match = LINE_NOQA.search(line)
+def noqa_rules(match: re.Match[str] | None) -> frozenset[str]:
     if not match:
-        return False
+        return frozenset()
     codes = match.group("codes")
-    return codes is None or bool(rules.intersection(code.strip().upper() for code in codes.split(",")))
+    if codes is None:
+        return ALL_RULES
+    return frozenset(code.strip().upper() for code in codes.split(","))
 
 
-def missing_annotations(node: ast.FunctionDef | ast.AsyncFunctionDef, is_method: bool, lines: list[str]) -> list[str]:
-    decorators = decorator_names(node)
-    positional = [*node.args.posonlyargs, *node.args.args]
-    if is_method and "staticmethod" not in decorators and positional:
-        positional = positional[1:]
-    missing = [
-        f"parameter `{arg.arg}`"
-        for arg in [*positional, *node.args.kwonlyargs]
-        if arg.annotation is None and not is_exempt(lines[arg.lineno - 1], PARAMETER_RULES)
-    ]
-    # ruff checks static and class method returns under ANN205 and ANN206, which the products config leaves off.
-    if (
-        node.returns is None
-        and not decorators.intersection({"staticmethod", "classmethod"})
-        and not is_exempt(lines[node.lineno - 1], RETURN_RULES)
-    ):
-        missing.append("return type")
-    return missing
+def file_exempt_rules(source: str) -> frozenset[str]:
+    return frozenset().union(*(noqa_rules(match) for match in FILE_NOQA.finditer(source)))
 
 
 @dataclass(frozen=True)
@@ -255,6 +253,38 @@ class FunctionSpan:
     start: int
     end: int
     is_method: bool
+    is_nested: bool
+
+    @property
+    def return_rule(self) -> str:
+        """The ruff rule that covers this function's return annotation."""
+        name = self.node.name
+        if name.startswith("__") and name.endswith("__"):
+            return "ANN204"
+        if name.startswith("_") or self.is_nested:
+            return "ANN202"
+        return "ANN201"
+
+
+def missing_annotations(span: FunctionSpan, lines: list[str], file_exempt: frozenset[str]) -> list[str]:
+    node = span.node
+    decorators = decorator_names(node)
+    positional = [*node.args.posonlyargs, *node.args.args]
+    if span.is_method and "staticmethod" not in decorators and positional:
+        positional = positional[1:]
+    missing = [
+        f"parameter `{arg.arg}`"
+        for arg in [*positional, *node.args.kwonlyargs]
+        if arg.annotation is None and "ANN001" not in file_exempt | noqa_rules(LINE_NOQA.search(lines[arg.lineno - 1]))
+    ]
+    # ruff checks static and class method returns under ANN205 and ANN206, which the products config leaves off.
+    if (
+        node.returns is None
+        and not decorators.intersection({"staticmethod", "classmethod"})
+        and span.return_rule not in file_exempt | noqa_rules(LINE_NOQA.search(lines[node.lineno - 1]))
+    ):
+        missing.append("return type")
+    return missing
 
 
 class FunctionCollector(ast.NodeVisitor):
@@ -263,10 +293,11 @@ class FunctionCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.spans: list[FunctionSpan] = []
         self._in_class: list[bool] = [False]
+        self._in_function: list[bool] = [False]
         self._overloaded: list[set[str]] = [set()]
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self._enter_scope(node, in_class=True)
+        self._enter_scope(node, in_class=True, in_function=self._in_function[-1])
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         overloaded = self._overloaded[-1]
@@ -274,52 +305,64 @@ class FunctionCollector(ast.NodeVisitor):
             overloaded.add(node.name)
         elif node.name not in overloaded:
             start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-            self.spans.append(FunctionSpan(node, start, node.end_lineno or node.lineno, self._in_class[-1]))
-        self._enter_scope(node, in_class=False)
+            end = node.end_lineno or node.lineno
+            self.spans.append(FunctionSpan(node, start, end, self._in_class[-1], self._in_function[-1]))
+        self._enter_scope(node, in_class=False, in_function=True)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def _enter_scope(self, node: ast.AST, in_class: bool) -> None:
+    def _enter_scope(self, node: ast.AST, in_class: bool, in_function: bool) -> None:
         self._in_class.append(in_class)
+        self._in_function.append(in_function)
         self._overloaded.append(set())
         self.generic_visit(node)
         self._in_class.pop()
+        self._in_function.pop()
         self._overloaded.pop()
 
 
-def innermost(spans: list[FunctionSpan], line: int) -> FunctionSpan | None:
-    containing = [s for s in spans if s.start <= line <= s.end]
+def innermost(spans: list[FunctionSpan], first: int, last: int) -> FunctionSpan | None:
+    containing = [s for s in spans if s.start <= first and last <= s.end]
     return min(containing, key=lambda s: s.end - s.start, default=None)
 
 
-def check_file(change: FileChange, source: str, moved_lines: set[str]) -> list[Finding]:
+def check_file(change: FileChange, source: str, moved_lines: set[str]) -> list[Finding] | None:
+    """Return the findings for one changed file, or None when the file does not parse."""
     lines = source.splitlines()
     header_comments = "\n".join(line for line in lines[:15] if line.lstrip().startswith("#"))
-    if GENERATED_HEADER.search(header_comments) or FILE_NOQA.search(source):
+    if GENERATED_HEADER.search(header_comments):
+        return []
+    file_exempt = file_exempt_rules(source)
+    if file_exempt >= ALL_RULES:
         return []
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return []
+        return None
     collector = FunctionCollector()
     collector.visit(tree)
 
     touched: dict[int, list[str]] = {}
     for line, text in change.added.items():
-        span = innermost(collector.spans, line)
+        span = innermost(collector.spans, line, line)
         if span and text.strip():
             touched.setdefault(span.node.lineno, []).append(text.strip())
+    # A deletion between two lines of a function edits it, even when the hunk adds nothing.
+    for line in change.deleted_after:
+        span = innermost(collector.spans, line, line + 1)
+        if span:
+            touched.setdefault(span.node.lineno, [])
 
     removed_defs = {match.group(1) for line in change.removed if (match := REMOVED_DEF.match(line))}
     findings = []
     for span in collector.spans:
         added = touched.get(span.node.lineno)
-        if not added:
+        if added is None:
             continue
-        missing = missing_annotations(span.node, span.is_method, lines)
+        missing = missing_annotations(span, lines, file_exempt)
         if not missing:
             continue
-        # A whole signature that also appears among the removed lines belongs to an old function that moved.
+        # A whole signature that also appears among the removed lines may belong to an old function that moved.
         signature_end = max(span.node.lineno, span.node.body[0].lineno - 1)
         signature = [line.strip() for line in lines[span.node.lineno - 1 : signature_end]]
         signature_moved = all(line in moved_lines for line in signature if line)
@@ -328,7 +371,11 @@ def check_file(change: FileChange, source: str, moved_lines: set[str]) -> list[F
         # a line removed elsewhere still counts.
         if def_added and signature_moved and all(text in moved_lines for text in added):
             continue
-        if not def_added or signature_moved or span.node.name in removed_defs:
+        # A shared signature such as `def __init__(self):` proves nothing alone, so a move also needs body lines.
+        body = [text for text in added if text not in signature]
+        moved_body = sum(text in moved_lines for text in body)
+        moved_with_edits = signature_moved and moved_body > 0 and moved_body * 2 >= len(body)
+        if not def_added or moved_with_edits or span.node.name in removed_defs:
             kind = "edited"
         elif change.is_new:
             kind = "new file"
@@ -354,10 +401,16 @@ def build_report(diff: str, read_source: Callable[[str], str | None]) -> Report:
     checked = [f for f in files if is_checked_path(f.path)]
 
     findings: list[Finding] = []
+    unparsed: list[str] = []
     for change in checked:
-        source = read_source(change.path)
-        if source is not None:
-            findings.extend(check_file(change, source, moved_lines))
+        source = None if change.is_deleted else read_source(change.path)
+        if source is None:
+            continue
+        file_findings = check_file(change, source, moved_lines)
+        if file_findings is None:
+            unparsed.append(change.path)
+        else:
+            findings.extend(file_findings)
 
     # Moved lines appear on both sides of the diff, so they drop out of the Any and ignore counts.
     all_added = {text.strip() for f in files for text in f.added.values()}
@@ -365,7 +418,7 @@ def build_report(diff: str, read_source: Callable[[str], str | None]) -> Report:
     removed_text = [text for f in checked for text in f.removed if text.strip() not in all_added]
     any_delta = count_matches(ANY_TOKEN, added_text) - count_matches(ANY_TOKEN, removed_text)
     ignore_delta = count_matches(IGNORE_COMMENT, added_text) - count_matches(IGNORE_COMMENT, removed_text)
-    return Report(findings, any_delta, ignore_delta)
+    return Report(findings, any_delta, ignore_delta, unparsed)
 
 
 def source_reader(revision: str) -> Callable[[str], str | None]:
@@ -387,9 +440,16 @@ def describe(finding: Finding) -> str:
 
 
 def print_commit_warning(report: Report) -> None:
+    out = sys.stderr
+    if report.unparsed:
+        emit(
+            f"\nThe typing check skipped {len(report.unparsed)} file(s) that Python "
+            f"{sys.version_info.major}.{sys.version_info.minor} cannot parse. Run the hook with the project venv "
+            "to check them.",
+            out,
+        )
     if not report.findings and report.any_delta <= 0 and report.ignore_delta <= 0:
         return
-    out = sys.stderr
     if report.findings:
         count = len(report.findings)
         emit(

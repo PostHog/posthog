@@ -322,6 +322,10 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04-4)
+        # The CI report sections this job posts (complexity, touched typing) write a PR comment.
+        permissions:
+            contents: read
+            pull-requests: write
         # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
         # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
         # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s

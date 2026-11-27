@@ -33,6 +33,8 @@ OLD_MODULE = textwrap.dedent(
     """
 ).lstrip()
 
+LEGACY_FUNCTION = "def legacy(a):\n    first = a\n    second = first + 1\n    third = second + 1\n    return third\n"
+
 
 def file_diff(path: str, before: str | None, after: str | None) -> str:
     header = [f"diff --git a/{path} b/{path}"]
@@ -85,11 +87,19 @@ def summary(report: Report) -> list[tuple[str, str, str]]:
         ),
         pytest.param(
             {
-                "posthog/old_home.py": (OLD_MODULE, None),
-                "posthog/new_home.py": (None, OLD_MODULE.replace("value = a", "value = a * 2")),
+                "posthog/old_home.py": (LEGACY_FUNCTION, None),
+                "posthog/new_home.py": (None, LEGACY_FUNCTION.replace("first + 1", "first + 2")),
             },
-            [("posthog/new_home.py", "edited", "edited")],
+            [("posthog/new_home.py", "legacy", "edited")],
             id="a-moved-function-edited-in-a-new-file-is-not-new",
+        ),
+        pytest.param(
+            {
+                "posthog/old_home.py": ("class Old:\n    def __init__(self):\n        self.x = 1\n", None),
+                "posthog/new_home.py": (None, "class New:\n    def __init__(self):\n        self.y = 2\n"),
+            },
+            [("posthog/new_home.py", "__init__", "new file")],
+            id="a-shared-signature-alone-is-not-a-move",
         ),
         pytest.param(
             {
@@ -101,6 +111,16 @@ def summary(report: Report) -> list[tuple[str, str, str]]:
             },
             [("posthog/thing.py", "edited", "edited")],
             id="a-body-edit-that-repeats-a-line-removed-elsewhere-still-counts",
+        ),
+        pytest.param(
+            {
+                "posthog/thing.py": (
+                    OLD_MODULE.replace("    value = a\n", "    value = a\n    print(value)\n"),
+                    OLD_MODULE,
+                )
+            },
+            [("posthog/thing.py", "edited", "edited")],
+            id="a-deletion-only-edit-counts",
         ),
         pytest.param(
             {"posthog/fresh.py": (None, "def one_liner(a): return a\n")},
@@ -165,6 +185,14 @@ def test_touched_functions(files: dict[str, tuple[str | None, str | None]], expe
         pytest.param("def f(a):  # noqa: ANN001, ANN201\n    pass\n", [], id="noqa-on-def-line"),
         pytest.param("def f(a):  # noqa: ANN001\n    pass\n", ["return type"], id="noqa-exempts-only-its-rule"),
         pytest.param(
+            "# ruff: noqa: ANN401\ndef f(a):\n    pass\n",
+            ["parameter `a`", "return type"],
+            id="file-noqa-for-other-rules",
+        ),
+        pytest.param(
+            "# ruff: noqa: ANN201\ndef f(a):\n    pass\n", ["parameter `a`"], id="file-noqa-exempts-only-its-rule"
+        ),
+        pytest.param(
             "from typing import overload\n@overload\ndef f(a: int) -> int: ...\ndef f(a):\n    return a\n",
             [],
             id="overload-implementation-skipped",
@@ -187,6 +215,8 @@ def test_any_and_ignore_deltas_skip_tests_prose_and_moves() -> None:
             "posthog/test/test_thing.py": (None, "z: Any = 3\n"),
             "posthog/old_home.py": ("MOVED: Any = 4\n", None),
             "posthog/new_home.py": (None, "MOVED: Any = 4\n"),
+            "posthog/gone.py": ("GONE: Any = 5\n", None),
+            "posthog/added.py": (None, "ADDED: Any = 6\n"),
         }
     )
     assert (report.any_delta, report.ignore_delta) == (1, -1)
