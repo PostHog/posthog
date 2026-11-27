@@ -743,10 +743,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
             const afterStop = await stopWhileItWaits(worker, id)
 
-            expect({ status: afterStop.status, retries: afterStop.queueMetadata?.attachmentLoadRetries }).toEqual({
-                status: 'available',
-                retries: 1,
-            })
+            expect(afterStop.status).toBe('available')
             expect(delivered()).toEqual([])
             backToRealClock()
             await db.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [id])

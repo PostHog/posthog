@@ -2783,6 +2783,43 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('charges it and the workflow limit once, and sends once, after more worker stops cut off its send before it reached SES than a load may retry', async () => {
+                    send([])
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    const sendCutOffByAStop = async (
+                        cutOff: CyclotronJobInvocationHogFunction
+                    ): Promise<Awaited<ReturnType<EmailService['executeSendEmail']>>> => {
+                        const stopping = sender({ teamDailyCap: 2 })
+                        let callStarted!: () => void
+                        const reachedTheSesCall = new Promise<void>((resolve) => (callStarted = resolve))
+                        stopping.sesTransport = sesTransportFor(ses, {
+                            credentials: () => {
+                                callStarted()
+                                return new Promise(() => undefined)
+                            },
+                        })
+                        const sending = stopping.executeSendEmail(cutOff)
+                        await Promise.race([reachedTheSesCall, sending])
+                        stopping.stopSending()
+                        return await sending
+                    }
+
+                    const cutOff: boolean[] = []
+                    let next = invocation
+                    for (let stop = 0; stop < 11; stop++) {
+                        const result = await sendCutOffByAStop(next)
+                        cutOff.push(!result.finished && deliveredTo(ses, recipient).length === 0)
+                        next = result.invocation
+                    }
+                    const sendingService = sender({ teamDailyCap: 2 })
+                    const sent = await sendingService.executeSendEmail(next)
+
+                    expect(cutOff).toEqual(Array(11).fill(true))
+                    expect({ finished: sent.finished, error: sent.error }).toEqual({ finished: true, error: undefined })
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(sendingService)).toBe(1)
+                })
+
                 it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
                     const emailService = sender()
                     let jobLost = false
