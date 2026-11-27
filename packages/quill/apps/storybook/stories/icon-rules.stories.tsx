@@ -43,6 +43,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 interface Step {
+    label?: string
     question: string
     outcome: string
     example: React.ReactElement
@@ -80,9 +81,18 @@ const STEPS: Step[] = [
         ),
     },
     {
+        label: 'Then, on its own',
         question: 'Does it need more input before it can happen?',
-        outcome: 'Ellipsis',
-        example: <Button variant="outline">Rename…</Button>,
+        outcome: 'Add an ellipsis, with or without a leading icon',
+        example: (
+            <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline">Rename…</Button>
+                <Button variant="outline">
+                    <PencilIcon />
+                    Rename…
+                </Button>
+            </div>
+        ),
     },
 ]
 
@@ -94,7 +104,7 @@ export const DecisionOrder: Story = {
                     <CardContent className="flex flex-wrap items-center gap-4">
                         <div className="flex min-w-0 flex-1 flex-col gap-1">
                             <Text size="xs" variant="muted">
-                                Question {index + 1}
+                                {step.label ?? `Question ${index + 1}`}
                             </Text>
                             <Text size="sm">{step.question}</Text>
                         </div>
@@ -111,7 +121,7 @@ export const DecisionOrder: Story = {
                 <CardContent className="flex flex-wrap items-center gap-4">
                     <div className="flex min-w-0 flex-1 flex-col gap-1">
                         <Text size="xs" variant="muted">
-                            No to every question
+                            No icon and no ellipsis
                         </Text>
                         <Text size="sm">The label alone</Text>
                     </div>

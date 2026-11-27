@@ -306,12 +306,13 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 - Text: use `Heading` (semantic level via `render={<h2 />}`, decoupled from size) and `Text`; never hand-roll `<p className="text-xs text-muted-foreground">`
 - Icons: use `IconPlus` for add and new actions, never `IconPlusSmall`. The small glyph looks undersized next to the other icons in a row of icon buttons
-- Icon or ellipsis on a labelled button or menu item: ask these in order and stop at the first yes. See the quill storybook story `Examples/Icon rules`
+- Icon or ellipsis on a labelled button or menu item: ask the icon questions in order and stop at the first yes, then ask the ellipsis question on its own. See the quill storybook story `Examples/Icon rules`
   1. Does it reveal options or navigate somewhere? → trailing icon, the last child: `IconChevronDown` for a menu ("Export"), an arrow for a link out. A submenu trigger draws its own chevron
   2. Is it an established, familiar symbol? → leading icon, the first child: `IconPlus` for "Create", `IconTrash` for "Delete"
   3. Is it in a group of actions? → leading icon on every action in the group ("Duplicate", "Rename", "Share"), so the labels line up and scan as a set
-  4. Does it need more input before it can happen? → no icon, end the label with an ellipsis (`…`, one character, not three dots): "Rename…" opens a field, "Subscribe…" opens a form
-  5. Otherwise → the label alone ("Publish")
+  4. No to all three → no icon
+  - Then, separately: does it need more input before it can happen? → end the label with an ellipsis (`…`, one character, not three dots). It combines with a leading icon: "Rename…" in a group of actions keeps its icon and its ellipsis. Alone, "Rename…" is a button with no icon
+  - No icon and no ellipsis → the label alone ("Publish")
   - A trailing icon and an ellipsis never go together: the chevron already says something follows. A destructive action that only asks to confirm gets no ellipsis, because a confirmation is not more input
   - Icon-only buttons are separate: see §3 Buttons
 - Body text uses the `text-xs` size: `<Text size="xs">`. `Text` defaults to `base`, so always pass `size="xs"` for body copy
