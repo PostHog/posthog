@@ -432,13 +432,44 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
 
         assert self.review() == ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
 
-    def test_a_refusal_keeps_its_category(self) -> None:
+    def reply_in_turn(self, *replies: httpx.Response) -> None:
+        queue = list(replies)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            self.gateway.requests.append(request)
+            return queue.pop(0)
+
+        patcher = patch.object(self.gateway, "handle", new=handle)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def asked_models(self) -> list[str]:
+        return [json.loads(request.content)["model"] for request in self.gateway.requests]
+
+    def test_a_refusal_is_retried_on_the_next_model(self) -> None:
+        refusal = model_message("", stop_reason="refusal", stop_details={"type": "refusal", "category": "cyber"})
+        answer = {**model_message(json.dumps(PROBE_VERDICT)), "model": "claude-opus-4-8"}
+        self.reply_in_turn(httpx.Response(200, json=refusal), httpx.Response(200, json=answer))
+
+        result = self.review()
+
+        assert isinstance(result, Review)
+        assert (result.verdict, result.model, result.refused_by, result.refusal_category) == (
+            Verdict.TRUE_POSITIVE,
+            "claude-opus-4-8",
+            "claude-opus-5-5",
+            "cyber",
+        )
+        assert self.asked_models() == ["claude-opus-5-5", "claude-opus-4-8"]
+
+    def test_a_refusal_from_every_model_keeps_its_category(self) -> None:
         self.gateway.response = httpx.Response(
             200,
             json=model_message("", stop_reason="refusal", stop_details={"type": "refusal", "category": "cyber"}),
         )
 
         assert self.review() == ReviewFailure(reason=ReviewFailureReason.REFUSED, refusal_category="cyber")
+        assert self.asked_models() == ["claude-opus-5-5", "claude-opus-4-8"]
 
     def test_a_gateway_error_is_a_typed_failure(self) -> None:
         self.gateway.response = httpx.Response(400, json={"type": "error", "error": {"type": "invalid_request_error"}})

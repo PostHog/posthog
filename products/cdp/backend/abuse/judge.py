@@ -2,6 +2,7 @@
 with a verdict and a suggested action. It only suggests: nothing here acts on the answer."""
 
 import time
+from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated
 
@@ -14,7 +15,9 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError, build_anthropi
 
 from products.cdp.backend.abuse.case_file import CaseFile
 
-REVIEW_MODEL = "claude-opus-5-5"
+# Tried in order. Opus 5.5's cyber safeguards refuse case files that hold working attack code, which are the cases
+# this review exists for, and the gateway's server-side fallback does not rescue them. Opus 4.8 answers those.
+REVIEW_MODELS = ("claude-opus-5-5", "claude-opus-4-8")
 AI_PRODUCT = "cdp_abuse_review"
 MAX_FINDINGS = 5
 MAX_FINDING_CHARS = 500
@@ -158,6 +161,8 @@ class Review:
     latency_ms: float
     input_tokens: int
     output_tokens: int
+    refused_by: str | None = None
+    refusal_category: str | None = None
 
 
 class ReviewFailureReason(StrEnum):
@@ -183,17 +188,31 @@ def review_case(case_file: CaseFile, *, team_id: int) -> Review | ReviewFailure:
     except GatewayNotConfiguredError:
         return ReviewFailure(reason=ReviewFailureReason.NOT_CONFIGURED)
     started = time.monotonic()
+    first_refusal: tuple[str, ReviewFailure] | None = None
+    with client:
+        for model in REVIEW_MODELS:
+            result = _ask(client, model, case_file, started)
+            if not (isinstance(result, ReviewFailure) and result.reason is ReviewFailureReason.REFUSED):
+                break
+            first_refusal = first_refusal or (model, result)
+    if isinstance(result, Review) and first_refusal is not None:
+        refused_by, refusal = first_refusal
+        return replace(result, refused_by=refused_by, refusal_category=refusal.refusal_category)
+    return result
+
+
+def _ask(client: anthropic.Anthropic, model: str, case_file: CaseFile, started: float) -> Review | ReviewFailure:
     try:
-        with client:
-            response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.create(
-                model=REVIEW_MODEL,
-                max_tokens=MAX_OUTPUT_TOKENS,
-                system=SYSTEM_PROMPT,
-                messages=[_case_message(case_file)],
-                output_config=_OUTPUT_CONFIG,
-                # A trust and safety review is the platform's cost, never the customer's AI credits.
-                extra_headers={"X-PostHog-Billable": "false"},
-            )
+        response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.create(
+            model=model,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[_case_message(case_file)],
+            thinking={"type": "adaptive"},
+            output_config=_OUTPUT_CONFIG,
+            # A trust and safety review is the platform's cost, never the customer's AI credits.
+            extra_headers={"X-PostHog-Billable": "false"},
+        )
     except anthropic.APIConnectionError:
         return ReviewFailure(reason=ReviewFailureReason.GATEWAY_UNREACHABLE)
     except anthropic.APIStatusError:
@@ -201,9 +220,8 @@ def review_case(case_file: CaseFile, *, team_id: int) -> Review | ReviewFailure:
     except (anthropic.APIError, ValueError):
         # A success status whose body is not a message. The error can quote the body, so it is not kept.
         return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
-    latency_ms = (time.monotonic() - started) * 1000
     try:
-        return _review_from(response, latency_ms)
+        return _review_from(response, (time.monotonic() - started) * 1000)
     except (AttributeError, TypeError):
         # The SDK builds the message without validating it, so a body of the wrong shape fails only on read.
         return ReviewFailure(reason=ReviewFailureReason.INVALID_ANSWER)
