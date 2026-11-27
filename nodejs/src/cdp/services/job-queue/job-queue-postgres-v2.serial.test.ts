@@ -5,7 +5,7 @@ import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
 import { defaultConfig } from '~/common/config/config'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import * as posthogUtils from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -64,6 +64,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
+    let valkeys: RedisV2[]
 
     const dbUrl = (host: string, port: number): string => {
         const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
@@ -93,6 +94,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         queues = []
         locks = []
         proxies = []
+        valkeys = []
     })
 
     afterEach(async () => {
@@ -106,6 +108,9 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         for (const queue of queues) {
             await queue.stopConsumer()
             await queue.stopProducer()
+        }
+        for (const valkey of valkeys) {
+            await valkey.useClient({ name: 'close-test-valkey' }, (client) => Promise.resolve(client.disconnect()))
         }
         await db.end()
         await admin.query(`DROP SCHEMA ${schema} CASCADE`)
@@ -143,8 +148,9 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         const valkey = createRedisV2PoolFromConfig({
             connection: { url: defaultConfig.REDIS_URL },
             poolMinSize: 1,
-            poolMaxSize: 2,
+            poolMaxSize: 1,
         })
+        valkeys.push(valkey)
         const queue = new CyclotronJobQueueRateLimitedPostgresV2(
             10,
             queueConfig(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port), 1000),
