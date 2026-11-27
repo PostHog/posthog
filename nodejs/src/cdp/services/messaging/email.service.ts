@@ -13,6 +13,7 @@ import {
     IntegrationType,
     MessageAssetRow,
     MinimalAppMetric,
+    isEmailQueue,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -797,7 +798,7 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
-        const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
+        const queueWait = isEmailQueue(invocation.queue) && !isTest ? emailQueueWait(invocation) : undefined
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
