@@ -2973,9 +2973,9 @@ class ExperimentService:
                     )
                     # A concurrent reset may have already returned the experiment to draft —
                     # only attach the pointer while it is still ended.
-                    Experiment.objects.filter(id=experiment_id, team_id=team.id, end_date__isnull=False).update(
-                        flag_cleanup_task_id=created.task_id
-                    )
+                    Experiment.objects.for_team(team.id).including_deleted().filter(
+                        id=experiment_id, end_date__isnull=False
+                    ).update(flag_cleanup_task_id=created.task_id)
                     # on_commit runs before the view serializes the response — reflect the id on the
                     # in-memory instance so the end/ship response already carries it.
                     experiment.flag_cleanup_task_id = created.task_id
@@ -4806,18 +4806,24 @@ class ExperimentService:
             if tags:
                 # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
                 # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
-                experiments_with_tags = Experiment.objects.filter(
-                    team__project_id=self.team.project_id, tagged_items__tag__name__in=tags
-                ).values("pk")
+                experiments_with_tags = (
+                    Experiment.objects.in_project(self.team.project_id)
+                    .including_deleted()
+                    .filter(tagged_items__tag__name__in=tags)
+                    .values("pk")
+                )
                 queryset = queryset.filter(pk__in=experiments_with_tags)
 
             excluded_tags = parse_tag_names(query_params.get("excluded_tags"))
             if excluded_tags:
                 # Exclude by ID subquery so an experiment carrying both an excluded and a
                 # non-excluded tag is still reliably filtered out.
-                experiments_with_excluded_tags = Experiment.objects.filter(
-                    team__project_id=self.team.project_id, tagged_items__tag__name__in=excluded_tags
-                ).values("pk")
+                experiments_with_excluded_tags = (
+                    Experiment.objects.in_project(self.team.project_id)
+                    .including_deleted()
+                    .filter(tagged_items__tag__name__in=excluded_tags)
+                    .values("pk")
+                )
                 queryset = queryset.exclude(pk__in=experiments_with_excluded_tags)
 
         search = query_params.get("search")
@@ -5014,7 +5020,9 @@ class ExperimentService:
 
         with transaction.atomic():
             # Serialize supersession with each backfill's status check and result write.
-            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            Experiment.objects.on_exact_team(self.team.id).including_deleted().select_for_update(no_key=True).filter(
+                id=experiment.id
+            ).exists()
             # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
             # a retry must not run beside it or recompute the days again.
             ExperimentTimeseriesRecalculation.objects.filter(
