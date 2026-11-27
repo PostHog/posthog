@@ -79,11 +79,18 @@ function fullRunState(pullRequest, queueEntry) {
             .filter((check) => check?.conclusion === 'SUCCESS' && check.externalId === FULL_RUN_EXTERNAL_ID)
             .map((check) => check.completedAt)
     )
-    const queueFailedAt = FAILED_QUEUE_STATE.test(queueEntry?.state ?? '')
-        ? newest([queueEntry.stateChangedAt ?? ''])
-        : null
-    const rearmedByQueueKick = queueFailedAt !== null && (lastFullPassAt === null || queueFailedAt > lastFullPassAt)
-    return { passed: lastFullPassAt !== null && !rearmedByQueueKick, rearmedByQueueKick }
+    if (!FAILED_QUEUE_STATE.test(queueEntry?.state ?? '')) {
+        return { passed: lastFullPassAt !== null, rearmedByQueueKick: false }
+    }
+    if (lastFullPassAt === null) {
+        return { passed: false, rearmedByQueueKick: true }
+    }
+    const queueFailedAt = newest([queueEntry.stateChangedAt ?? ''])
+    if (queueFailedAt === null) {
+        throw new Error(`Unreadable merge queue failure time: ${JSON.stringify(queueEntry.stateChangedAt)}`)
+    }
+    const rearmedByQueueKick = queueFailedAt > lastFullPassAt
+    return { passed: !rearmedByQueueKick, rearmedByQueueKick }
 }
 
 module.exports = { fullRunState, FULL_RUN_EXTERNAL_ID, GATE_APP_ID, GATE_CHECK_NAME }
@@ -155,7 +162,14 @@ async function main() {
             `${heads.flatMap(gateChecksOf).length} gate checks, ` +
             `queue state ${queueEntry ? `${queueEntry.state} since ${queueEntry.stateChangedAt}` : 'none'}`
     )
-    const { passed, rearmedByQueueKick } = fullRunState(pullRequest, queueEntry)
+    let state
+    try {
+        state = fullRunState(pullRequest, queueEntry)
+    } catch (error) {
+        console.error(`Could not decide whether a full run passed on PR ${number}: ${error.message}`)
+        process.exit(1)
+    }
+    const { passed, rearmedByQueueKick } = state
     console.error(
         `Full backend run already passed: ${passed}${rearmedByQueueKick ? ' (re-armed by a failed merge queue attempt)' : ''}`
     )

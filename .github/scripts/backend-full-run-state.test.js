@@ -69,6 +69,7 @@ test('a full run counts as passed only when its gate check succeeded and no queu
             true,
         ],
         ['a failed queue attempt with no pass', { queue: queueEntry('FAILED', '2026-11-10T11:00:00Z') }, false, true],
+        ['a failed queue attempt with no pass and no failure time', { queue: queueEntry('FAILED', null) }, false, true],
         [
             'a failed queue attempt before a later pass',
             {
@@ -97,5 +98,12 @@ test('a full run counts as passed only when its gate check succeeded and no queu
             { passed: passedExpected, rearmedByQueueKick: rearmedExpected },
             label
         )
+    }
+})
+
+test('a failed queue attempt after a pass with an unreadable failure time fails the lookup', () => {
+    const passedPullRequest = pullRequest({ commits: [commitWith(gateCheck('SUCCESS', '2026-11-10T10:00:00Z'))] })
+    for (const stateChangedAt of [null, '', 'not a time']) {
+        assert.throws(() => fullRunState(passedPullRequest, queueEntry('FAILED', stateChangedAt)), /Unreadable/)
     }
 })
