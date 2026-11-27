@@ -4794,7 +4794,7 @@ Note: The public spec has 447 paths, but a large share is GenAI, monitoring metr
 
 ## DingConnect — gaps
 
-Today (11): `Balance`, `Countries`, `Currencies`, `ErrorCodeDescriptions`, `ProductDescriptions`, `Products`, `Promotions`, `Providers`, `ProviderStatus`, `Regions`, `TransferRecords`
+Today (12): `Balance`, `Countries`, `Currencies`, `ErrorCodeDescriptions`, `ProductDescriptions`, `Products`, `PromotionDescriptions`, `Promotions`, `Providers`, `ProviderStatus`, `Regions`, `TransferRecords`
 
 Diffed against: <http://web.archive.org/web/20250213144221/https://www.dingconnect.com/Api/Description>
 
@@ -4802,7 +4802,7 @@ Diffed against: <http://web.archive.org/web/20250213144221/https://www.dingconne
 - [x] `api/V1/GetErrorCodeDescriptions` — lookup decoding the ErrorCode/Context values returned on transfer records, so failed top-ups can be categorized (medium) — added as `ErrorCodeDescriptions` (the endpoint returns a Code/Message pair; Context codes are documented prose, not API data)
 - [x] `api/V1/GetProviderStatus` — per-provider availability, the dimension that explains transfer failure spikes (medium) — added as `ProviderStatus` (a current-state snapshot per sync, not a history)
 - [x] `api/V1/GetProductDescriptions` — localized long-form product text keyed by LocalizationKey — resolves the descriptions deliberately split out of GetProducts (medium) — added as `ProductDescriptions`
-- [ ] `api/V1/GetPromotionDescriptions` — localized promotion terms keyed by LocalizationKey, the companion to the synced promotions table (low)
+- [x] `api/V1/GetPromotionDescriptions` — localized promotion terms keyed by LocalizationKey, the companion to the synced promotions table (low) — added as `PromotionDescriptions`
 
 Note: The live docs page returns Cloudflare 403 to non-browser clients and the swagger definition (/swagger/docs/v1) is auth-gated, so this was diffed against a Wayback capture of the official API description. The full readable method set is GetBalance, GetCountries, GetCurrencies, GetProducts, GetProductDescriptions, GetPromotions, GetPromotionDescriptions, GetProviders, GetProviderStatus, GetRegions, GetErrorCodeDescriptions, ListTransferRecords; GetAccountLookup and EstimatePrices are per-request lookups rather than tables, and SendTransfer/CancelTransfers are mutations.
 
