@@ -172,13 +172,15 @@ type FeedbackPost = { durationMs: number; status: number }
 
 function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence): [Step, FeedbackPost[]][] {
     const units = new Set(journal.map(({ unitId }) => unitId))
-    const reached = steps.filter(({ fromMs }) => drive.startedAt + fromMs < drive.endedAt)
+    const reached = steps.filter(
+        ({ fromMs, toMs }) => drive.startedAt + fromMs < Math.min(drive.startedAt + toMs, drive.endedAt)
+    )
     const byStep = new Map(reached.map((step) => [step, [] as FeedbackPost[]]))
-    for (const { kind, unitId, at, status, detail } of truth) {
+    for (const { kind, unitId, status, detail } of truth) {
         if (kind !== 'ses.feedback' || detail.feedback === undefined || unitId === undefined || !units.has(unitId)) {
             continue
         }
-        const postedAt = Date.parse(at) - detail.feedback.durationMs
+        const postedAt = Date.parse(detail.feedback.postedAt)
         const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= postedAt)
         if (step !== undefined) {
             byStep.get(step)!.push({ durationMs: detail.feedback.durationMs, status })
@@ -186,6 +188,9 @@ function feedbackPostsByStep({ journal, truth, drive, steps }: MeasureEvidence):
     }
     return [...byStep]
 }
+
+const feedbackCompleteness = ({ converged, unsettled }: MeasureEvidence): { incomplete?: true } =>
+    converged === false || unsettled !== undefined ? { incomplete: true } : {}
 
 const truthUnread = (unread: string): Measured[] => [
     { value: null, censored: true, unmeasured: `the truth could not be read (${unread})` },
@@ -210,11 +215,12 @@ export const sesFeedbackMs: MeasurementDefinition = {
                       ] as const
                   ).map(([percentile, share]) => ({
                       key: `${percentile}_${scale}x`,
+                      ...feedbackCompleteness(evidence),
                       ...(answered.length === 0
                           ? {
                                 value: null,
                                 censored: true as const,
-                                unmeasured: 'the edge posted no SES feedback in this step',
+                                unmeasured: 'no SES feedback post in this step got an answer',
                             }
                           : { value: nearestRank(answered, share) }),
                   }))
@@ -228,17 +234,19 @@ export const sesFeedbackPosts: MeasurementDefinition = {
     measure: (evidence) =>
         evidence.unread !== undefined
             ? truthUnread(evidence.unread)
-            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) => [
-                  { key: `posted_${scale}x`, value: posts.length },
-                  {
-                      key: `errors_${scale}x`,
-                      value: posts.filter(({ status }) => status === 0 || status >= 500).length,
-                  },
-                  {
-                      key: `rejected_${scale}x`,
-                      value: posts.filter(({ status }) => status >= 400 && status < 500).length,
-                  },
-              ]),
+            : feedbackPostsByStep(evidence).flatMap(([{ scale }, posts]) =>
+                  [
+                      { key: `posted_${scale}x`, value: posts.length },
+                      {
+                          key: `errors_${scale}x`,
+                          value: posts.filter(({ status }) => status === 0 || status >= 500).length,
+                      },
+                      {
+                          key: `rejected_${scale}x`,
+                          value: posts.filter(({ status }) => status >= 400 && status < 500).length,
+                      },
+                  ].map((row) => ({ ...row, ...feedbackCompleteness(evidence) }))
+              ),
 }
 
 export type Phase = { from: number; to: number }

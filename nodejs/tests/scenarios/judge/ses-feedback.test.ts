@@ -17,13 +17,21 @@ const offered = (unitId: string): JournalEntry => ({
 
 let seq = 0
 
-const posted = (unitId: string, answeredAtMs: number, durationMs: number, status = 200): TruthRecord => ({
+const posted = (unitId: string, postedAtMs: number, durationMs: number, status = 200): TruthRecord => ({
     seq: ++seq,
-    at: new Date(FROM + answeredAtMs).toISOString(),
+    at: new Date(FROM + postedAtMs + durationMs).toISOString(),
     kind: 'ses.feedback',
     unitId,
     status,
-    detail: { feedback: { eventType: 'Delivery', snsMessageId: 'sns', sesMessageId: 'ses', durationMs } },
+    detail: {
+        feedback: {
+            eventType: 'Delivery',
+            snsMessageId: 'sns',
+            sesMessageId: 'ses',
+            postedAt: new Date(FROM + postedAtMs).toISOString(),
+            durationMs,
+        },
+    },
 })
 
 const ramp: Step[] = [
@@ -48,30 +56,28 @@ const evidence = (truth: TruthRecord[], judged: Partial<MeasureEvidence> = {}): 
     ...judged,
 })
 
+const BOTH = [
+    { name: 'ses_feedback_ms', params: {} },
+    { name: 'ses_feedback_posts', params: {} },
+]
+
 const rowsOf = (truth: TruthRecord[], judged?: Partial<MeasureEvidence>): Record<string, unknown> =>
-    Object.fromEntries(
-        measure(
-            [
-                { name: 'ses_feedback_ms', params: {} },
-                { name: 'ses_feedback_posts', params: {} },
-            ],
-            evidence(truth, judged)
-        ).map(({ name, key, value }) => [`${name}.${key}`, value])
-    )
+    Object.fromEntries(measure(BOTH, evidence(truth, judged)).map(({ name, key, value }) => [`${name}.${key}`, value]))
 
 describe('SES feedback per ramp step', () => {
     const truth = [
-        posted('run-1', 1000, 10),
-        posted('run-1', 2000, 20),
-        posted('run-2', 3000, 30),
-        posted('run-2', 4000, 40),
-        posted('run-3', 5000, 50, 503),
-        posted('run-3', 6000, 60, 400),
+        posted('run-1', 990, 10),
+        posted('run-1', 1980, 20),
+        posted('run-2', 2970, 30),
+        posted('run-2', 3960, 40),
+        posted('run-3', 4950, 50, 503),
+        posted('run-3', 5940, 60, 400),
         posted('run-3', 7000, 0, 0),
-        posted('run-1', MINUTE + 5, 10),
-        posted('run-2', MINUTE + 1000, 5),
-        posted('run-3', MINUTE + 2000, 5),
-        posted('run-1', 2 * MINUTE + 5000, 7),
+        posted('run-1', MINUTE - 5, 10),
+        posted('run-2', MINUTE, 0.4),
+        posted('run-2', MINUTE + 995, 5),
+        posted('run-3', MINUTE + 1995, 5),
+        posted('run-1', 2 * MINUTE + 4993, 7),
         posted('other-1', 1000, 900),
         { ...posted('run-1', 1000, 0, 0), detail: { error: 'The send names no configuration set' } },
     ]
@@ -85,16 +91,38 @@ describe('SES feedback per ramp step', () => {
             'ses_feedback_posts.posted_1x': 8,
             'ses_feedback_posts.errors_1x': 2,
             'ses_feedback_posts.rejected_1x': 1,
-            'ses_feedback_posts.posted_2x': 3,
+            'ses_feedback_posts.posted_2x': 4,
             'ses_feedback_posts.errors_2x': 0,
             'ses_feedback_posts.rejected_2x': 0,
         })
     })
 
-    it('names the latency unmeasured for a step that posted nothing', () => {
+    it('takes p99 by nearest rank rather than the slowest post', () => {
+        const hundred = Array.from({ length: 100 }, (_, index) => posted('run-1', 1000 + index, index + 1))
+
+        expect(rowsOf(hundred)).toMatchObject({ 'ses_feedback_ms.p50_1x': 50, 'ses_feedback_ms.p99_1x': 99 })
+    })
+
+    it('gives no rows to a step with no window', () => {
+        const steps: Step[] = [ramp[0], { scale: 3, fromMs: MINUTE, toMs: MINUTE }, ramp[1]]
+
+        expect(Object.keys(rowsOf(truth, { steps })).filter((key) => key.endsWith('_3x'))).toEqual([])
+    })
+
+    it.each<[string, Partial<MeasureEvidence>]>([
+        ['the run did not converge', { converged: false }],
+        ['the truth never settled', { unsettled: 'the edge kept accepting sends' }],
+    ])('marks every row incomplete when %s, since posts may be missing', (_story, judged) => {
+        const measured = measure(BOTH, evidence(truth, judged))
+
+        expect(measured.length).toBeGreaterThan(0)
+        expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
+    })
+
+    it('names the latency unmeasured for a step where no post got an answer', () => {
         const measured = measure(
             [{ name: 'ses_feedback_ms', params: {} }],
-            evidence([posted('run-1', MINUTE + 1000, 5)])
+            evidence([posted('run-1', 1000, 5000, 0), posted('run-1', MINUTE + 1000, 5)])
         )
 
         expect(measured.filter(({ key }) => key?.endsWith('_1x'))).toEqual(
@@ -104,7 +132,7 @@ describe('SES feedback per ramp step', () => {
                 key,
                 value: null,
                 censored: true,
-                unmeasured: 'the edge posted no SES feedback in this step',
+                unmeasured: 'no SES feedback post in this step got an answer',
             }))
         )
     })
