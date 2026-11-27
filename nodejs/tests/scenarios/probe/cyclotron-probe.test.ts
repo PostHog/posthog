@@ -192,15 +192,23 @@ describe('cyclotron probe', () => {
             } = await waiter.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')
             await holder.query('SELECT pg_advisory_lock($1)', [LOCK])
             const waited = waiter.query('SELECT pg_advisory_lock($1)', [LOCK])
-            let refused: unknown
-            waited.catch((error: unknown) => {
-                refused = error
-            })
+            let settled: unknown
+            waited.then(
+                () => {
+                    settled = new Error('The waiter took the lock without waiting for it')
+                },
+                (error: unknown) => {
+                    settled = error
+                }
+            )
             await Promise.all([idle.query('BEGIN'), elsewhere.query('BEGIN')])
             let blocked = false
-            while (!blocked) {
-                if (refused !== undefined) {
-                    throw refused
+            for (const deadline = Date.now() + 10_000; !blocked; ) {
+                if (settled !== undefined) {
+                    throw settled
+                }
+                if (Date.now() > deadline) {
+                    throw new Error('Postgres never reported the waiter blocked')
                 }
                 const { rows } = await holder.query<{ blocked: boolean }>(
                     'SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked',

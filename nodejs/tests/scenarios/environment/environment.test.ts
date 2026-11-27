@@ -560,6 +560,15 @@ describe('scenario environment', () => {
         it.each([
             ['the host names', { SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' }, {}],
             [
+                "a cloud run's host names",
+                {
+                    SCENARIO_RUN_MANIFEST: '/opt/scenario/input/manifest.json',
+                    SCENARIO_WRITER_URL: 'postgres://a@writer.example.com:5432/cyclotron_node',
+                    CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@127.0.0.1:5432/cyclotron_node',
+                },
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@profile.example.com:5432/cyclotron_node' },
+            ],
+            [
                 'the profile sets',
                 {},
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://a@writer.example.com:5432/cyclotron_node' },
