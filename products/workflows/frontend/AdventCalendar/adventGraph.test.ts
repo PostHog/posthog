@@ -16,9 +16,9 @@ describe('buildAdventGraph', () => {
             'door-3-upper',
             'door-3-lower',
         ])
-        expect(graph.links.filter((link) => link.to.startsWith('door-4')).map((link) => link.id)).toEqual([
-            'door-3-upper>door-4-upper',
-            'door-3-lower>door-4-lower',
+        expect(graph.links.filter((link) => link.to.startsWith('door-4')).map((link) => [link.from, link.to])).toEqual([
+            ['door-3-upper', 'door-4-upper'],
+            ['door-3-lower', 'door-4-lower'],
         ])
     })
 
@@ -75,6 +75,7 @@ describe('adventToday', () => {
         ['a staff user picks a day past the end', '30', true, 24],
         ['a staff user picks nonsense', 'soon', true, 5],
         ['a staff user leaves the day blank', '', true, 5],
+        ['a staff user leaves only a space as the day', ' ', true, 5],
         ['someone else picks a day', '7', false, 5],
     ])('when %s on 5 December', (_, requestedDay, canPickDay, expected) => {
         expect(adventToday(new Date(2026, 11, 5, 9, 0), { requestedDay, canPickDay })).toBe(expected)
