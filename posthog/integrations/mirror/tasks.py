@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import InterfaceError, OperationalError
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from celery.utils.time import get_exponential_backoff_interval
 
 from posthog.celery_queues import CeleryQueue
@@ -96,7 +96,7 @@ def _observe_lag(committed_at: str | None) -> None:
 @shared_task(bind=True, ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value, max_retries=MAX_RETRIES)
 @skip_team_scope_audit
 def mirror_integration_row(
-    self,
+    self: Task,
     team_id: int,
     kind: str,
     legacy_id: int,
