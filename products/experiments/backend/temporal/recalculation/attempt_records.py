@@ -91,7 +91,7 @@ _RETRY_SAFE_MESSAGES: dict[str, str] = {
 
 def _safe_retry_message(error: Exception, error_type: str) -> str:
     """Raw exception text can embed the executed query, including substituted warehouse credentials
-    (this path runs the runner with user_facing=False, which keeps exceptions raw), and metric_retries
+    (``calculation`` runs the runner with user_facing=False, which keeps exceptions raw), and metric_retries
     is visible to anyone with experiment read access. Persist only type-derived copy; the raw error
     stays in logs and error tracking."""
     return get_user_friendly_message(error) or _RETRY_SAFE_MESSAGES.get(
