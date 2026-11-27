@@ -10,7 +10,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { LoadedCard, stepsOf } from '../cards'
 import { pause } from '../duration'
 import type { FollowUpAnswer, Judge } from '../judge/judge'
-import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
+import { Burst, OfferAnswer, OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
 export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
@@ -114,22 +114,44 @@ export async function seed(
     return { teamIds, flowIds }
 }
 
-type Slot = { kind: TrafficKind; atMs: number }
+type Slot = { kind: TrafficKind; atMs: number; atLimit?: true }
+
+const evenly = (kind: TrafficKind, rate: number, fromMs: number, toMs: number, offsetMs = 0): Slot[] =>
+    Array.from({ length: Math.round((rate * Math.max(0, toMs - fromMs)) / 1000) }, (_, i) => ({
+        kind,
+        atMs: offsetMs + (i * 1000) / rate,
+    }))
+
+function burstSlots(kind: TrafficKind, burst: Burst, rate: number, fromMs: number, toMs: number): Slot[] {
+    const startMs = Math.max(fromMs, burst.fromMs)
+    const endMs = Math.min(toMs, burst.fromMs + burst.forMs)
+    return evenly(kind, rate * (burst.scale - 1), startMs, endMs, startMs - fromMs).map((slot) => ({
+        ...slot,
+        atLimit: true,
+    }))
+}
 
 function stepScheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>): Slot[][] {
-    const kinds = card.drive.traffic.map(({ name }) => {
+    const kinds = card.drive.traffic.map(({ name, params }) => {
         const kind = trafficKind(name)
-        return { kind, ratePerSecond: kind.profile.parse(profile.traffic[name]).ratePerSecond }
+        const { ratePerSecond } = kind.profile.parse(profile.traffic[name])
+        return { kind, ratePerSecond, burst: kind.burstOf?.(params) }
     })
     return stepsOf(card.drive).map(({ scale, fromMs, toMs }) =>
         kinds
-            .flatMap(({ kind, ratePerSecond }) => {
-                const rate = ratePerSecond * scale
-                const units = Math.round((rate * (toMs - fromMs)) / 1000)
-                return Array.from({ length: units }, (_, i) => ({ kind, atMs: (i * 1000) / rate }))
-            })
+            .flatMap(({ kind, ratePerSecond, burst }) => [
+                ...evenly(kind, ratePerSecond * scale, fromMs, toMs),
+                ...(burst ? burstSlots(kind, burst, ratePerSecond * scale, fromMs, toMs) : []),
+            ])
             .sort((a, b) => a.atMs - b.atMs)
     )
+}
+
+function journaled({ attachments, ...answer }: OfferAnswer): {
+    answer: OfferAnswer
+    attachments?: readonly string[]
+} {
+    return { answer, attachments }
 }
 
 export async function drive(
@@ -158,8 +180,9 @@ export async function drive(
     const stop = AbortSignal.any([signal, failed.signal])
     const halted = context.halt ? AbortSignal.any([stop, context.halt]) : stop
 
-    const offerUnit = (kind: TrafficKind, step: DrivenStep): void => {
+    const offerUnit = (kind: TrafficKind, step: DrivenStep, atLimit: boolean): void => {
         const teamId = chance.pickone(seeded.teamIds)
+        const files = kind.filesOf?.(chance, profile.traffic[kind.name], atLimit)
         const flowIdOf = (key: string): string => {
             const flowId = seeded.flowIds[key]?.[teamId]
             if (flowId === undefined) {
@@ -175,7 +198,8 @@ export async function drive(
         if (kind.intake !== 'event') {
             answeredAts.get(step)?.push(-Infinity)
         }
-        const offer = kind.offer({ unitId, teamId, flowId }, context, stop).then(async (answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId, files }, context, stop).then(async (offered) => {
+            const { answer, attachments } = journaled(offered)
             const answeredAt = kind.intake === 'event' ? Date.now() : -Infinity
             const counts = kind.intake !== 'event' || answer.accepted
             if (stop.aborted) {
@@ -200,7 +224,7 @@ export async function drive(
                 offeredAt,
                 step: step.index,
                 answer,
-                expect: { deliveries: kind.deliveries },
+                expect: { deliveries: kind.deliveries, ...(attachments && { attachments }) },
                 ...(followUp && { followUp }),
             })
             sendRetries += retriesOf(answer) + retriesOf(followUp)
@@ -224,7 +248,7 @@ export async function drive(
         late: (now: number) => boolean,
         sentAt: number[]
     ): Promise<void> => {
-        for (const { kind, atMs } of slots) {
+        for (const { kind, atMs, atLimit } of slots) {
             const waitMs = fromAt + atMs - Date.now()
             if (waitMs > 0) {
                 await untilAborted(elapse(waitMs), until)
@@ -232,7 +256,7 @@ export async function drive(
             if (until.aborted || late(Date.now())) {
                 return
             }
-            offerUnit(kind, step)
+            offerUnit(kind, step, atLimit === true)
             sentAt.push(fromAt + atMs)
         }
     }

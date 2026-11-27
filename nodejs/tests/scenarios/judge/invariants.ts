@@ -170,6 +170,40 @@ export const duplicateSends: InvariantDefinition = {
     },
 }
 
+const shortShas = (shas: readonly string[]): string => shas.map((sha) => sha.slice(0, 8)).join(', ')
+
+const sameFiles = (sent: readonly string[], expected: readonly string[]): boolean =>
+    isDeepStrictEqual([...sent].sort(), [...expected].sort())
+
+export const attachmentsIntact: InvariantDefinition = {
+    name: 'attachments_intact',
+    params: z.object({}).strict(),
+    check: ({ journal, truth }) => {
+        const byDelivery = recordsByDelivery(truth)
+        const altered = journal.flatMap(({ unitId, answer, expect }) =>
+            answer.accepted && expect.attachments
+                ? expect.deliveries.flatMap((actionId) =>
+                      (byDelivery.get(deliveryKey(unitId, actionId)) ?? [])
+                          .filter(({ status }) => isAccepted(status))
+                          .map((record) => record.detail.message?.attachments.map(({ sha256 }) => sha256) ?? [])
+                          .filter((sent) => !sameFiles(sent, expect.attachments!))
+                          .map((sent) => ({ unitId, sent, expected: expect.attachments! }))
+                  )
+                : []
+        )
+        const [first] = altered
+        return {
+            passed: altered.length === 0,
+            observed: altered.length,
+            violation:
+                first &&
+                `${first.unitId}: SES accepted the files [${shortShas(first.sent)}] where the unit uploaded [${shortShas(first.expected)}]`,
+            unitIds: firstUnitIds(altered.map(({ unitId }) => unitId)),
+            ...crossing(crossedByOf(journal, altered, 0)),
+        }
+    },
+}
+
 type Refusal = JournalEntry & { answer: Extract<IntakeAnswer, { accepted: false }> }
 
 export const refusalsOf = (journal: readonly JournalEntry[]): Refusal[] =>
@@ -510,6 +544,7 @@ export const noLoss: InvariantDefinition = {
 export const INVARIANTS: InvariantDefinition[] = [
     atLeastOnce,
     duplicateSends,
+    attachmentsIntact,
     refusedAtIntake,
     bouncedSuppressed,
     residentBacklogIntact,

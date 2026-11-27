@@ -25,7 +25,7 @@ export type JournalEntry = {
     offeredAt: number
     step?: number
     answer: IntakeAnswer
-    expect: { deliveries: string[]; dueAt?: number }
+    expect: { deliveries: string[]; dueAt?: number; attachments?: readonly string[] }
     followUp?: FollowUpAnswer
 }
 
