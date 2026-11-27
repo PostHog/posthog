@@ -113,6 +113,14 @@ class SiteSnapshot:
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
 
 
+# Some saved surveys hold "contains", which means icontains.
+LEGACY_URL_MATCH_TYPES = {"contains": SurveyMatchType.ICONTAINS}
+
+
+def parse_url_match_type(value: str | None) -> SurveyMatchType:
+    return LEGACY_URL_MATCH_TYPES.get(value or "") or SurveyMatchType(value or SurveyMatchType.ICONTAINS)
+
+
 @frozen
 class UrlTarget:
     """The pages a survey shows on. An empty url means every page."""
@@ -125,7 +133,7 @@ class UrlTarget:
         conditions = survey.conditions or {}
         return cls(
             url=conditions.get("url") or "",
-            match_type=SurveyMatchType(conditions.get("urlMatchType") or SurveyMatchType.ICONTAINS),
+            match_type=parse_url_match_type(conditions.get("urlMatchType")),
         )
 
 
