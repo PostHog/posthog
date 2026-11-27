@@ -35,6 +35,7 @@ export function ExperimentHealthTab(): JSX.Element {
                     exposures={isExperimentDraft ? null : (exposures ?? null)}
                     isDraft={isExperimentDraft}
                     exposureChecks={healthExposureChecks}
+                    staleBefore={experimentHealth?.stale_before ?? null}
                 />
             </LemonCard>
         </div>

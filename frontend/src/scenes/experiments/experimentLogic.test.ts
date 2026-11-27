@@ -2827,7 +2827,23 @@ describe('experimentLogic', () => {
                     flag_state_browser: 'running_but_flag_disabled',
                     flag_state_server: null,
                     no_metric_server: null,
+                    oldest_check_data_age_hours: null,
                 },
+            },
+            {
+                desc: 'checks that read data of different ages, which report the oldest',
+                overrides: { ...running, feature_flag: flag(true, multivariantFilters) },
+                health: {
+                    findings: [],
+                    checks: [
+                        { ...healthCheck('no_metric', 'passed', null), as_of: dayjs().toISOString() },
+                        {
+                            ...healthCheck('metric_calculation_failed', 'passed', null),
+                            as_of: dayjs().subtract(20, 'hour').toISOString(),
+                        },
+                    ],
+                },
+                expected: { oldest_check_data_age_hours: 20 },
             },
         ])(
             'compares the local rules with the server checks when the health loads: $desc',
@@ -2886,6 +2902,7 @@ describe('experimentLogic', () => {
             expect(recheckedEvents).toHaveLength(1)
             expect(recheckedEvents[0][1]).toMatchObject({
                 request_failed: false,
+                trigger: 'experiment_update',
                 changed_inputs: ['feature_flag'],
                 health_findings: ['forced_variant_release_condition:some_conditions_pinned:warning:'],
                 resolved_findings: ['no_metric:'],

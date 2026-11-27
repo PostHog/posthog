@@ -7,6 +7,7 @@ import {
     exposureChecksState,
     healthChipState,
     healthPanelChecks,
+    isHealthCheckOutOfDate,
 } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
 
@@ -140,5 +141,22 @@ describe('healthPanelChecks', () => {
         { name: 'no chip for notes alone', findings: [finding('info')], expected: { kind: 'hidden' } },
     ])('$name', ({ findings, expected }) => {
         expect(healthChipState(findings)).toEqual(expected)
+    })
+
+    test.each<{ name: string; asOf: string; staleBefore: string; expected: boolean }>([
+        {
+            name: 'data that ends before the cutoff is out of date',
+            asOf: '2026-11-02T16:00:00Z',
+            staleBefore: '2026-11-03T00:00:00Z',
+            expected: true,
+        },
+        {
+            name: 'data that ends at the cutoff is not',
+            asOf: '2026-11-03T00:00:00Z',
+            staleBefore: '2026-11-03T00:00:00Z',
+            expected: false,
+        },
+    ])('$name', ({ asOf, staleBefore, expected }) => {
+        expect(isHealthCheckOutOfDate({ ...check('srm', 'passed'), as_of: asOf }, staleBefore)).toBe(expected)
     })
 })

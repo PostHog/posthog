@@ -28,6 +28,12 @@ const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
         'Counts the users exposed to more than one variant, which the results leave out. A high share usually means that one person has several IDs, and the variants can then lose different users, which biases the results.',
 }
 
+// The checks on settings read them at the request. The checks on exposures and stored results read the latest run,
+// which ended 20 hours before the mocked now, so they are past the 12-hour cutoff.
+const CHECKED_AT = '2026-11-03T12:00:00Z'
+const RUN_END = '2026-11-02T16:00:00Z'
+const STALE_BEFORE = '2026-11-03T00:00:00Z'
+
 const description = (key: HealthPanelCheck['key']): string =>
     DESCRIPTIONS[key] ?? 'Looks for a problem in the setup of the experiment that can make its results wrong.'
 
@@ -40,7 +46,7 @@ const passed = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChe
     values: {},
     rule: null,
     rows: [],
-    as_of: '2026-11-03T10:00:00Z',
+    as_of: CHECKED_AT,
 })
 
 const skipped = (
@@ -57,7 +63,7 @@ const skipped = (
     values: {},
     rule: null,
     rows: [],
-    as_of: '2026-11-03T10:00:00Z',
+    as_of: CHECKED_AT,
 })
 
 const FLAG_SETUP_CHECKS = [
@@ -124,7 +130,13 @@ const meta: Meta<typeof HealthChecksPanel> = {
         mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP, checksLoading: false },
+    args: {
+        onFindingActedOn: () => {},
+        exposures: null,
+        setup: SETUP,
+        checksLoading: false,
+        staleBefore: STALE_BEFORE,
+    },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">
@@ -163,6 +175,7 @@ export const Draft: Story = {
         ],
         isDraft: true,
         exposureChecks: 'not_launched',
+        staleBefore: null,
     },
 }
 
@@ -175,7 +188,7 @@ const found = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChec
     values: {},
     rule: null,
     rows: [],
-    as_of: '2026-11-03T10:00:00Z',
+    as_of: CHECKED_AT,
 })
 
 export const ChecksThatCouldNotRun: Story = {
@@ -226,7 +239,6 @@ const UNEVEN_SPLIT_EXPOSURES: ExperimentExposureQueryResponse = {
         { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
         { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
     ],
-    last_refresh: '2026-11-03T10:00:00Z',
 } as ExperimentExposureQueryResponse
 
 const MULTIPLE_VALUES = {
@@ -244,6 +256,7 @@ const READ_CHECKS: HealthPanelCheck[] = [
     passed('flag_variants_mismatch', 'Flag variants not set up'),
     {
         ...passed('metric_calculation_failed', 'Failed metric calculations'),
+        as_of: RUN_END,
         values: {
             metric_count: 3,
             completed_metric_count: 3,
@@ -253,6 +266,7 @@ const READ_CHECKS: HealthPanelCheck[] = [
     },
     {
         ...passed('zero_exposures', 'Exposures not received since launch'),
+        as_of: RUN_END,
         values: { exposed_count: 10005, since_launch_hours: 348 },
         rule: {
             value: 'exposed_count',
@@ -264,11 +278,13 @@ const READ_CHECKS: HealthPanelCheck[] = [
     },
     {
         ...passed('srm', 'Split of users across variants'),
+        as_of: RUN_END,
         values: { p_value: 0.71, compared_count: 9602, multiple_variant_count: 403 },
         rule: SRM_RULE,
     },
     {
         ...passed('multiple_variants_share', 'Users exposed to multiple variants'),
+        as_of: RUN_END,
         values: MULTIPLE_VALUES,
         rule: MULTIPLE_VARIANTS_RULE,
     },
@@ -301,6 +317,7 @@ export const RunningWithAnIssue: Story = {
             ...READ_CHECKS,
             {
                 ...found('bias_risk_multiple_excluded', 'Bias from an uneven split'),
+                as_of: RUN_END,
                 values: MULTIPLE_VALUES,
                 rule: BIAS_RULE,
             },
@@ -356,6 +373,7 @@ const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
     ...READ_CHECKS,
     {
         ...passed('early_significance', 'Significance on a small sample'),
+        as_of: RUN_END,
         values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
         rows: [
             { variant: 'test', difference_percentage: 14.2, detectable_difference_percentage: 9.8, significant: true },

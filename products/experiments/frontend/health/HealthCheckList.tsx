@@ -3,7 +3,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { HealthCheckPlainRow } from './HealthCheckPlainRow'
 import { HealthCheckRow } from './HealthCheckRow'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
-import type { ExposureChecksState, ListedHealthCheck } from './healthPanelChecks'
+import { type ExposureChecksState, type ListedHealthCheck, isHealthCheckOutOfDate } from './healthPanelChecks'
 
 type ListedStatus = ListedHealthCheck['status']
 
@@ -31,11 +31,13 @@ export function HealthCheckList({
     checksLoading,
     exposureChecks,
     selectedKey,
+    staleBefore,
     onSelect,
 }: {
     checks: ListedHealthCheck[]
     checksLoading: boolean
     exposureChecks: ExposureChecksState
+    staleBefore: string | null
     selectedKey: ListedHealthCheck['key'] | null
     onSelect: (check: ListedHealthCheck) => void
 }): JSX.Element | null {
@@ -81,6 +83,7 @@ export function HealthCheckList({
                                 check={check}
                                 icon={HEALTH_CHECK_STATUS_DISPLAY[group.status].icon}
                                 isSelected={check.key === selectedKey}
+                                isOutOfDate={isHealthCheckOutOfDate(check, staleBefore)}
                                 onSelect={() => onSelect(check)}
                             />
                         ))}

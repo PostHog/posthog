@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
@@ -59,6 +61,10 @@ export function exposureChecksState(
     }
     // A failed load, or an answer cached before the server reported the checks.
     return exposuresLoading ? 'pending' : 'missing'
+}
+
+export function isHealthCheckOutOfDate(check: HealthPanelCheck, staleBefore: string | null): boolean {
+    return !!check.as_of && staleBefore !== null && dayjs(check.as_of).isBefore(staleBefore)
 }
 
 export function listedHealthChecks(checks: HealthPanelCheck[]): ListedHealthCheck[] {

@@ -1,6 +1,10 @@
 import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
-import type { ExperimentWarning, ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
+import type {
+    ExperimentHealthLoadTrigger,
+    ExperimentWarning,
+    ExperimentWarningKey,
+} from 'scenes/experiments/experimentLogic'
 import { isLegacyExperiment } from 'scenes/experiments/utils'
 
 import type {
@@ -315,6 +319,7 @@ export function captureExperimentHealthChecked(
         health_findings: findings?.map(trackedHealthFinding) ?? null,
         health_finding_count: findings?.length ?? null,
         health_checks: trackedHealthChecks(health?.checks),
+        oldest_check_data_age_hours: oldestCheckDataAgeHours(health?.checks),
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.
         flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
@@ -323,12 +328,22 @@ export function captureExperimentHealthChecked(
     })
 }
 
+/** How many hours before now the oldest data that a check read ends. Null without checks. */
+function oldestCheckDataAgeHours(checks: ExperimentHealthCheckResultApi[] | undefined): number | null {
+    if (!checks?.length) {
+        return null
+    }
+    const oldest = Math.min(...checks.map(({ as_of }) => dayjs(as_of).valueOf()))
+    return Math.round(dayjs().diff(oldest, 'hour', true))
+}
+
 export function captureExperimentHealthRechecked(
     experiment: Experiment,
     before: ExperimentHealthApi | null,
     after: ExperimentHealthApi | null,
     healthUi: ExperimentHealthUi,
-    changedInputs: string[] | null
+    changedInputs: string[] | null,
+    trigger: ExperimentHealthLoadTrigger
 ): void {
     const keysBefore = before ? healthFindingKeys(before) : null
     const keysAfter = after ? healthFindingKeys(after) : null
@@ -338,6 +353,7 @@ export function captureExperimentHealthRechecked(
         experiment_status: getExperimentStatus(experiment),
         health_ui: healthUi,
         request_failed: after === null,
+        trigger,
         changed_inputs: changedInputs,
         health_findings: after?.findings.map(trackedHealthFinding) ?? null,
         resolved_findings: keysBefore && keysAfter ? keysBefore.filter((key) => !keysAfter.includes(key)) : null,

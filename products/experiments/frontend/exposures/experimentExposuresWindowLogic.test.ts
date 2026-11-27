@@ -77,12 +77,31 @@ describe('experimentExposuresWindowLogic', () => {
             metricsLogic.actions.setCurrentRecalculation(recalculation)
         })
         if (reloads) {
-            await assertion.toDispatchActions(['loadExposures']).toFinishAllListeners()
+            await assertion
+                .toDispatchActions([
+                    ({ type, payload }) =>
+                        type === mainLogic.actionTypes.loadExperimentHealth && (payload as unknown) === 'results_run',
+                    'loadExposures',
+                ])
+                .toFinishAllListeners()
             expect(mainLogic.values.exposuresAsOf).toEqual(NEXT_WINDOW)
         } else {
-            await assertion.toNotHaveDispatchedActions(['loadExposures'])
+            await assertion.toNotHaveDispatchedActions(['loadExposures', 'loadExperimentHealth'])
             expect(mainLogic.values.exposuresAsOf).toEqual(FIRST_WINDOW)
         }
+    })
+
+    it("doesn't reload the health for the page's first read of the latest run", async () => {
+        logic.unmount()
+        metricsLogic.unmount()
+
+        await expectLogic(mainLogic, () => {
+            logic.mount()
+        })
+            .toDispatchActions([experimentMetricsLogic({ experiment: EXPERIMENT }).actionTypes.setCurrentRecalculation])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['loadExperimentHealth'])
+        metricsLogic.mount()
     })
 
     it.each([
