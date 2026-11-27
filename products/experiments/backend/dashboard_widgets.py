@@ -45,7 +45,9 @@ def list_widget_queryset(
     if created_by_id is not None:
         query_params["created_by_id"] = created_by_id
 
-    base_queryset = Experiment.objects.filter(team=team).select_related("created_by", "feature_flag")
+    base_queryset = (
+        Experiment.objects.on_exact_team(team.id).including_deleted().select_related("created_by", "feature_flag")
+    )
     service = ExperimentService(team=team, user=access.user if access is not None else None)
     queryset = service.filter_experiments_queryset(base_queryset, action="list", query_params=query_params)
     # Honor object-level experiment access controls, matching the REST list endpoint.
