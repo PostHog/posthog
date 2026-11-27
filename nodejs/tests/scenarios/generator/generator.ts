@@ -28,13 +28,7 @@ export type DrivenStep = {
     runnerCpuMs?: number
 }
 
-export type DriveSummary = {
-    targetUnits: number
-    offeredUnits: number
-    answeredLateUnits: number
-    sendRetries: number
-    steps: DrivenStep[]
-}
+export type DriveSummary = { targetUnits: number; offeredUnits: number; sendRetries: number; steps: DrivenStep[] }
 
 export type StepWindow = Omit<DrivenStep, 'offeredUnits' | 'waitedFor'>
 
@@ -328,18 +322,15 @@ export async function drive(
         throw failed.signal.reason
     }
     let offeredUnits = 0
-    let answeredLateUnits = 0
     for (const { step, answeredAt } of counted) {
         if (answeredAt <= (fixedSteps ? step.endedAt : end)) {
             step.offeredUnits += 1
             offeredUnits += 1
-        } else {
-            answeredLateUnits += 1
         }
     }
     const targetUnits =
         stoppedEarly || fixedSteps ? steps.reduce((sum, { dueUnits }) => sum + dueUnits, 0) : schedules.flat().length
-    return { targetUnits, offeredUnits, answeredLateUnits, sendRetries, steps }
+    return { targetUnits, offeredUnits, sendRetries, steps }
 }
 
 const retriesOf = (answer: FollowUpAnswer | undefined): number =>

@@ -750,11 +750,7 @@ export function createRunner(
                     }),
                 }
                 driven = driveWindow
-                offered = {
-                    targetUnits: units.targetUnits,
-                    offeredUnits: units.offeredUnits,
-                    answeredLateUnits: units.answeredLateUnits,
-                }
+                offered = { targetUnits: units.targetUnits, offeredUnits: units.offeredUnits }
                 await valves.releaseAll()
                 enter('converge')
                 const converged = await judge.converge(durationMs(card.convergeWithin), signal)

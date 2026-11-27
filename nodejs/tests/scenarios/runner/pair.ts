@@ -10,7 +10,7 @@ export type PairRole = 'control' | 'faulted'
 
 export type Attribution = 'fault' | 'open' | 'unjudged' | 'none'
 
-export type Offered = Pick<DriveSummary, 'targetUnits' | 'offeredUnits' | 'answeredLateUnits'>
+export type Offered = Pick<DriveSummary, 'targetUnits' | 'offeredUnits'>
 
 export type JudgedRun = {
     verdict: RunVerdict
@@ -152,9 +152,9 @@ function uncarriedLoadOf(control: JudgedRun, faulted: JudgedRun): string | undef
     if (control.units === undefined || faulted.units === undefined) {
         return 'the offered load of a run was not recorded'
     }
-    const { offeredUnits, answeredLateUnits, targetUnits } = control.units
-    return offeredUnits + answeredLateUnits < targetUnits
-        ? `the control offered ${offeredUnits} of its ${targetUnits} units, and ${answeredLateUnits} more answered after its cutoff, so it may not have carried the faulted run's load`
+    const { offeredUnits, targetUnits } = control.units
+    return offeredUnits < targetUnits
+        ? `the control offered ${offeredUnits} of its ${targetUnits} units, so it may not have carried the faulted run's load`
         : undefined
 }
 

@@ -63,7 +63,7 @@ const run = (runId: string, verdict: Partial<RunVerdict> = {}): JudgedRun => ({
     },
     queue: [],
     drive: DRIVE,
-    units: { targetUnits: 100, offeredUnits: 100, answeredLateUnits: 0 },
+    units: { targetUnits: 100, offeredUnits: 100 },
 })
 
 const CLEAN = run('control')
@@ -158,31 +158,24 @@ describe('pairOf', () => {
         ],
         [
             'a control that offered fewer units than the faulted run',
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92, answeredLateUnits: 0 } },
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
             BREACHED,
             'unjudged',
-            /^the control offered 92 of its 100 units, and 0 more answered after its cutoff, so it may not have carried the faulted run's load$/,
+            /^the control offered 92 of its 100 units, so it may not have carried the faulted run's load$/,
+        ],
+        [
+            "a control short by its card's minOffered share",
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 90 } },
+            BREACHED,
+            'unjudged',
+            /^the control offered 90 of its 100 units, so it may not have carried the faulted run's load$/,
         ],
         [
             'a control that offered as many units as the faulted run, but not all it targeted',
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92, answeredLateUnits: 0 } },
-            { ...BREACHED, units: { targetUnits: 100, offeredUnits: 92, answeredLateUnits: 0 } },
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
+            { ...BREACHED, units: { targetUnits: 100, offeredUnits: 92 } },
             'unjudged',
-            /^the control offered 92 of its 100 units, and 0 more answered after its cutoff, so it may not have carried the faulted run's load$/,
-        ],
-        [
-            "a control short by its card's minOffered share, of units it never sent",
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 90, answeredLateUnits: 0 } },
-            BREACHED,
-            'unjudged',
-            /^the control offered 90 of its 100 units, and 0 more answered after its cutoff, so it may not have carried the faulted run's load$/,
-        ],
-        [
-            'a control short only by units answered after its cutoff',
-            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 98, answeredLateUnits: 2 } },
-            BREACHED,
-            'fault',
-            /^the control held no_loss at the same seed and offered load/,
+            /^the control offered 92 of its 100 units, so it may not have carried the faulted run's load$/,
         ],
         [
             'a faulted run that held no_loss',
@@ -224,7 +217,7 @@ describe('pairOf', () => {
                     status: 'passed',
                     statusReason: 'every invariant held',
                     admissions,
-                    offered: { targetUnits: 100, offeredUnits: 100, answeredLateUnits: 0 },
+                    offered: { targetUnits: 100, offeredUnits: 100 },
                     queue: null,
                     drainSeconds: 4.5,
                     faultDose: [],
@@ -236,7 +229,7 @@ describe('pairOf', () => {
                     status: 'failed',
                     statusReason: BREACHED.verdict.statusReason,
                     admissions: [],
-                    offered: { targetUnits: 100, offeredUnits: 100, answeredLateUnits: 0 },
+                    offered: { targetUnits: 100, offeredUnits: 100 },
                     queue: { dueAtStart: 3, peakDue: 41, growth: 38, peakOldestDueSeconds: 12 },
                     drainSeconds: 4.5,
                     faultDose: CARD.card.valves.map(({ valve, target, dose }, i) => ({

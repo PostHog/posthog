@@ -121,29 +121,14 @@ describe('drive', () => {
             'every produce acknowledged',
             100,
             (kafka) => kafka.acknowledge(),
-            {
-                targetUnits: 5,
-                offeredUnits: 5,
-                answeredLateUnits: 0,
-                steps: [expect.objectContaining({ offeredUnits: 5 })],
-            },
+            { targetUnits: 5, offeredUnits: 5, steps: [expect.objectContaining({ offeredUnits: 5 })] },
         ],
-        [
-            'every produce rejected',
-            100,
-            (kafka) => kafka.reject(),
-            { targetUnits: 5, offeredUnits: 0, answeredLateUnits: 0 },
-        ],
+        ['every produce rejected', 100, (kafka) => kafka.reject(), { targetUnits: 5, offeredUnits: 0 }],
         [
             'every produce acknowledged after the window',
             101,
             (kafka) => kafka.acknowledge(),
-            {
-                targetUnits: 5,
-                offeredUnits: 0,
-                answeredLateUnits: 5,
-                steps: [expect.objectContaining({ offeredUnits: 0 })],
-            },
+            { targetUnits: 5, offeredUnits: 0, steps: [expect.objectContaining({ offeredUnits: 0 })] },
         ],
     ])(
         'counts a unit as offered once Kafka acknowledged it inside the window: %s',

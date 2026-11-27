@@ -39,7 +39,7 @@ const RESULT: RunResult = {
     profileHash: SMOKE.profileHash,
     origin: 'local-agent',
     target: 'local',
-    units: { targetUnits: 60, offeredUnits: 58, answeredLateUnits: 0, sendRetries: 3, steps: [] },
+    units: { targetUnits: 60, offeredUnits: 58, sendRetries: 3, steps: [] },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
     janitorResets: 2,
     invariants: [
@@ -649,7 +649,6 @@ describe('scorecard', () => {
         const units = {
             targetUnits: 60,
             offeredUnits: 58,
-            answeredLateUnits: 0,
             sendRetries: 0,
             steps: [
                 { index: 0, scale: 5, startedAt: at, endedAt: at + 60_000, dueUnits: 30, offeredUnits: 29 },
