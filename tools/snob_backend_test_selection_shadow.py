@@ -220,6 +220,7 @@ SIGNAL_CONNECT_NAMES = {
     "request_finished",
     "got_request_exception",
 }
+SIGNAL_RECEIVER_DECORATORS = frozenset({"receiver", "mutable_receiver"})
 
 MAX_CHANGED_FILES = 50
 
@@ -375,7 +376,10 @@ def _is_signal_handler_file(path: str) -> bool:
             receiver = _name_from_node(node.value)
             if any(sig in receiver for sig in SIGNAL_CONNECT_NAMES):
                 return True
-        if isinstance(node, ast.Name) and node.id == "receiver":
+        elif isinstance(node, ast.ImportFrom) and node.module == "django.dispatch":
+            if any(alias.name == "receiver" for alias in node.names):
+                return True
+        elif isinstance(node, ast.Call) and _name_from_node(node.func).split(".")[-1] in SIGNAL_RECEIVER_DECORATORS:
             return True
     name = PurePosixPath(path).name
     return "signal" in name
