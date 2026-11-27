@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
@@ -7,8 +8,9 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import caches
+from django.db import connections, transaction
 from django.db.models.signals import pre_delete
-from django.test import override_settings
+from django.test import TransactionTestCase, override_settings
 
 from django_redis.cache import RedisCache
 from parameterized import parameterized
@@ -152,10 +154,11 @@ class TestAdventCalendarAPI(APIBaseTest):
             ("offset_west_of_utc_minus_12", {"day": 1, "hoggy": "hoggy-santa", "utc_offset_minutes": -721}),
             ("offset_east_of_utc_plus_14", {"day": 1, "hoggy": "hoggy-santa", "utc_offset_minutes": 841}),
             ("missing_offset", {"day": 1, "hoggy": "hoggy-santa"}),
+            ("hoggy_sent_as_a_number", {"day": 1, "hoggy": 123, "utc_offset_minutes": 0}),
         ]
     )
     def test_open_rejects_a_door_hoggy_or_offset_out_of_range(self, _name: str, body: dict[str, Any]) -> None:
-        response = self.client.post(self._url(self.team, "open"), body)
+        response = self.client.post(self._url(self.team, "open"), body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not AdventCalendarDoorOpen.objects.exists()
@@ -201,7 +204,8 @@ class TestAdventCalendarAPI(APIBaseTest):
             try:
                 is_rate_limit_enabled.cache_clear()
                 self._answer_as(self.user, self.team, 2, "tim")
-                for _ in range(29):
+                self._open_door_as(self.user, 2, "hoggy-santa", 0)
+                for _ in range(28):
                     self._results()
                 over_budget = self.client.get(self._url(self.team, "results"))
                 teammate_answer = self._answer_as(teammate, self.team, 2, "james")
@@ -227,4 +231,31 @@ class TestAdventCalendarAnswers(BaseTest):
 
     def test_a_door_opened_by_an_account_deleted_meanwhile_stores_nothing(self) -> None:
         assert open_advent_calendar_door(self.user.id + 1000, 7, "hoggy-santa", 0) is None
+        assert not AdventCalendarDoorOpen.objects.exists()
+
+
+class TestAdventCalendarDoorOpenRace(TransactionTestCase):
+    def test_a_door_opened_while_its_account_is_being_deleted_is_not_left_behind(self) -> None:
+        racer = User.objects.create_user(email="racer@example.com", password=None, first_name="Racer")
+        racer_id = racer.id
+        opened = threading.Event()
+        results: list[Any] = []
+
+        def open_door() -> None:
+            try:
+                results.append(
+                    open_advent_calendar_door(user_id=racer_id, day=5, hoggy="hoggy-santa", utc_offset_minutes=0)
+                )
+            finally:
+                opened.set()
+                connections.close_all()
+
+        with transaction.atomic():
+            racer.delete()
+            opener = threading.Thread(target=open_door)
+            opener.start()
+            assert not opened.wait(timeout=1)
+        opener.join()
+
+        assert results == [None]
         assert not AdventCalendarDoorOpen.objects.exists()

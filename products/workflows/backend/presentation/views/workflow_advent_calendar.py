@@ -69,9 +69,16 @@ class AdventCalendarResultsSerializer(serializers.Serializer):
     )
 
 
+class StringRegexField(serializers.RegexField):
+    def to_internal_value(self, data: Any) -> str:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
 class AdventCalendarDoorOpenRequestSerializer(serializers.Serializer):
     day = serializers.IntegerField(min_value=1, max_value=24, help_text="The calendar day of the door, 1 to 24.")
-    hoggy = serializers.RegexField(
+    hoggy = StringRegexField(
         regex=r"^[a-z0-9-]+$",
         max_length=64,
         help_text="The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 "
@@ -140,10 +147,10 @@ class WorkflowAdventCalendarViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def open(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         door_open = open_advent_calendar_door(
-            cast(User, request.user).id,
-            request.validated_data["day"],
-            request.validated_data["hoggy"],
-            request.validated_data["utc_offset_minutes"],
+            user_id=cast(User, request.user).id,
+            day=request.validated_data["day"],
+            hoggy=request.validated_data["hoggy"],
+            utc_offset_minutes=request.validated_data["utc_offset_minutes"],
         )
         if door_open is None:
             raise NotFound("This account no longer exists.")
