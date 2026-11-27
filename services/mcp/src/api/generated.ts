@@ -141577,8 +141577,9 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * How many tools to skip before the page starts. Defaults to 0.
+     * How many tools to skip before the page starts, from 0 to 16777115. Defaults to 0.
      * @minimum 0
+     * @maximum 16777115
      */
     offset?: number;
     /**
