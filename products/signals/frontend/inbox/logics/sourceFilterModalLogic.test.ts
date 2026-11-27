@@ -7,6 +7,7 @@ import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated
 
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
 import { sourceFilterModalLogic } from './sourceFilterModalLogic'
+import { sourceFilterPreviewLogic } from './sourceFilterPreviewLogic'
 
 const catalog: SourceFilterCatalogApi = {
     source_product: 'linear',
@@ -59,6 +60,14 @@ describe('sourceFilterModalLogic', () => {
                     200,
                     { results: [], count: 0, next: null, previous: null },
                 ],
+            },
+            post: {
+                // The editor previews as it mounts, so these answer instead of the network.
+                '/api/projects/:team_id/signals/source_configs/filter_validate/': () => [
+                    200,
+                    { valid: true, catalog_version: 2, error: null },
+                ],
+                '/api/projects/:team_id/signals/source_configs/filter_preview/': () => [500, {}],
             },
             patch: {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
@@ -134,6 +143,47 @@ describe('sourceFilterModalLogic', () => {
 
         logic.actions.setSourceFilterValue('expression', "project_name = 'Core'")
         expect(logic.values.sourceFilterAllErrors).toEqual({})
+    })
+
+    it('feeds the preview the unsaved expression and teams', () => {
+        mountWith({ hogql_filter: { expression: 'assignee_id IS NULL', catalog_version: 2 } })
+        const preview = sourceFilterPreviewLogic({ sourceConfig: logic.props.sourceConfig, catalog })
+        expect(preview.values.previewInput).toEqual({ expression: 'assignee_id IS NULL', scopeIds: ['team-a'] })
+
+        logic.actions.setSourceFilterValue('expression', 'priority = 1')
+        expect(preview.values.previewInput).toEqual({ expression: 'priority = 1', scopeIds: ['team-a'] })
+
+        logic.actions.setSourceFilterValue('teamScope', 'all')
+        expect(preview.values.previewInput).toEqual({ expression: 'priority = 1', scopeIds: [] })
+
+        logic.actions.setSourceFilterValues({ teamScope: 'selected', teamIds: ['team-b'] })
+        expect(preview.values.previewInput).toEqual({ expression: 'priority = 1', scopeIds: ['team-b'] })
+    })
+
+    it('waits for an edit before previewing a filter saved on an older catalog', () => {
+        mountWith({ hogql_filter: { expression: "project_name = 'Mobile'", catalog_version: 1 } })
+        const preview = sourceFilterPreviewLogic({ sourceConfig: logic.props.sourceConfig, catalog })
+        expect(logic.values.previewWaitsForEdit).toBe(true)
+
+        logic.actions.setSourceFilterValue('teamScope', 'all')
+        expect(preview.values.previewInput).toBeNull()
+
+        logic.actions.setSourceFilterValue('expression', "project_name = 'Web'")
+        expect(logic.values.previewWaitsForEdit).toBe(false)
+        expect(preview.values.previewInput).toEqual({ expression: "project_name = 'Web'", scopeIds: [] })
+    })
+
+    it('sends nothing to the preview for a source it cannot preview', () => {
+        logic = sourceFilterModalLogic({
+            sourceConfig: linearConfig({}),
+            catalog: { ...catalog, preview_supported: false },
+            onClose,
+        })
+        logic.mount()
+        const preview = sourceFilterPreviewLogic({ sourceConfig: logic.props.sourceConfig, catalog })
+
+        logic.actions.setSourceFilterValue('expression', 'priority = 1')
+        expect(preview.values.previewInput).toBeNull()
     })
 
     it('reports a failed Linear connection load and recovers on retry', async () => {

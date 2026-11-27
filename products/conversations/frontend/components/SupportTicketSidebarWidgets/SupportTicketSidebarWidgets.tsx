@@ -26,12 +26,14 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
     const isWidgetTicket = ticket?.channel_source === 'widget'
 
+    const personUuid = person?.uuid ?? ticket?.person?.id
+
     const slots: TicketSidebarWidgetSlots = {
         related_groups: {
             content:
-                person?.uuid || ticket?.organization_id ? (
+                personUuid || ticket?.organization_id ? (
                     <RelatedGroupsPanel
-                        personUuid={person?.uuid}
+                        personUuid={personUuid}
                         organizationId={ticket?.organization_id}
                         organizationIdSource={ticket?.organization_id_source}
                     />

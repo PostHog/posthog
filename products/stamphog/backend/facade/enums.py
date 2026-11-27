@@ -135,6 +135,15 @@ class RoutingRunOrdering(LabeledStrEnum):
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
 
+# The pull_request actions that can change what a broadcast request's card shows, apart from the head:
+# the final state, or who GitHub asks to review. A head change or a base retarget is refreshed by the
+# review task once it decided whether stamphog reviews the head, because the card reads a missing
+# run as no review coming.
+BROADCAST_REQUEST_PR_ACTIONS = frozenset({"closed", "review_requested", "review_request_removed"})
+# The pull_request_review actions that can add or withdraw a person's approval. A submitted review
+# that only comments leaves an approval standing, so the consumer drops it.
+BROADCAST_REQUEST_REVIEW_ACTIONS = frozenset({"submitted", "dismissed"})
+
 
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"
@@ -181,6 +190,41 @@ class ReviewRequestRefusal(StrEnum):
     NOT_FOUND = "not_found"
     NOT_REVIEWABLE = "not_reviewable"
     GITHUB_UNAVAILABLE = "github_unavailable"
+    BROADCAST_OFF = "broadcast_off"
+
+
+class BroadcastRequestStatus(LabeledStrEnum):
+    """Where a request for a person to review one pull request stands."""
+
+    PENDING = "pending", "Waiting for Stamphog"
+    OPEN = "open", "Waiting for a person"
+    # A person approved the current head. A push that makes the approval stale sets OPEN again.
+    APPROVED = "approved", "Approved by a person"
+    STAMPHOG_APPROVED = "stamphog_approved", "Approved by Stamphog"
+    MERGED = "merged", "Merged"
+    CLOSED = "closed", "Closed"
+
+
+# A pull request has at most one request in these states. The other states are final.
+ACTIVE_BROADCAST_REQUEST_STATUSES = frozenset(
+    {BroadcastRequestStatus.PENDING, BroadcastRequestStatus.OPEN, BroadcastRequestStatus.APPROVED}
+)
+
+
+class BroadcastRequestSource(LabeledStrEnum):
+    """Where somebody asked for a person to review a pull request."""
+
+    GITHUB = "github", "Pull request comment"
+    SLACK = "slack", "Slack"
+    API = "api", "API"
+    # A person posted the pull request link in the repository's Broadcast channel. Stamphog reviews nothing for it.
+    SLACK_LINK = "slack_link", "Slack link"
+
+
+class BroadcastRequestDeliveryKind(LabeledStrEnum):
+    """Where a request for a person was posted."""
+
+    SLACK_MESSAGE = "slack_message", "Slack message"
 
 
 class ReviewVerdict(StrEnum):

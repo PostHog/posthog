@@ -5,9 +5,9 @@ import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-a
 
 import { RecommendationsConnectGoogleAdsButton } from './RecommendationsConnectGoogleAdsButton'
 
-type IdleState = Exclude<RecommendationsShownState, 'recommendations'>
+export type RecommendationsIdleState = Exclude<RecommendationsShownState, 'recommendations'>
 
-const IDLE_MESSAGES: Record<IdleState, string | null> = {
+const IDLE_MESSAGES: Record<RecommendationsIdleState, string | null> = {
     no_connected_source: 'Connect Google Ads to get recommendations on budgets, search terms and wasted spend.',
     no_selected_source:
         'Select a Google Ads or Google Search Console source with synced tables to see recommendations.',
@@ -18,8 +18,19 @@ const IDLE_MESSAGES: Record<IdleState, string | null> = {
 const EMPTY_REASON =
     'Campaign rules compare active campaigns in the same ad account, so an account with one campaign gets few. Search term rules need synced search term tables, and Google Search Console for the organic ones.'
 
-export function RecommendationsIdle({ state }: { state: IdleState }): JSX.Element {
+export function recommendationsIdleCopy(state: RecommendationsIdleState): {
+    message: string | null
+    disabledReason: string
+} {
     const message = IDLE_MESSAGES[state]
+    return {
+        message,
+        disabledReason: state === 'empty' ? EMPTY_REASON : (message ?? 'Recommendations could not load.'),
+    }
+}
+
+export function RecommendationsIdle({ state }: { state: RecommendationsIdleState }): JSX.Element {
+    const { message, disabledReason } = recommendationsIdleCopy(state)
 
     return (
         <>
@@ -28,7 +39,7 @@ export function RecommendationsIdle({ state }: { state: IdleState }): JSX.Elemen
                 size="small"
                 icon={<IconLightBulb />}
                 sideIcon={null}
-                disabledReason={state === 'empty' ? EMPTY_REASON : (message ?? 'Recommendations could not load.')}
+                disabledReason={disabledReason}
             >
                 Recommendations
             </LemonButton>

@@ -92,6 +92,10 @@ def process_run_diffs(self, team_id: int, run_id: str) -> None:
     from ..logic.github_api import GITHUB_READ_REFUSED
 
     run_uuid = UUID(run_id)
+    if not runs.may_classify(run_uuid):
+        logger.info("visual_review.diff_processing_skipped", run_id=run_id, team_id=team_id)
+        runs.republish_verdict(run_uuid)
+        return
     outcome = "completed"
     diffed_count = 0
     retrying = False

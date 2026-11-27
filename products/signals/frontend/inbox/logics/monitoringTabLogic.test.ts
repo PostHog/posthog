@@ -1,7 +1,14 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper. */
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import { monitoringTabLogic } from './monitoringTabLogic'
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
+const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
 
 const page = (ids: string[], next: string | null = null): Record<string, unknown> => ({
     count: ids.length,
@@ -99,5 +107,64 @@ describe('monitoringTabLogic', () => {
 
         expect(logic.values.page?.results.map((r) => r.id)).toEqual(['a', 'b', 'c'])
         expect(logic.values.page?.hasMore).toBe(false)
+    })
+
+    it('loads parent project reports from a selected child environment', async () => {
+        const requestedPaths: string[] = []
+        useMocks({
+            get: {
+                [REPORTS_URL]: ({ request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return [200, page([])]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: 4242, project_id: 99 })
+        projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, id: 99 })
+
+        logic = monitoringTabLogic()
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(requestedPaths).toEqual(['/api/projects/99/signals/reports/'])
+    })
+
+    it('does not refresh unused metric snapshots when monitoring rows load', async () => {
+        let refreshRequests = 0
+        useMocks({
+            get: {
+                [REPORTS_URL]: [
+                    200,
+                    {
+                        ...page(['monitoring']),
+                        results: [
+                            {
+                                id: 'monitoring',
+                                metrics: [{ value: null, value_at: null }],
+                                monitoring_summary: null,
+                                monitoring_outcome: null,
+                            },
+                        ],
+                    },
+                ],
+            },
+            post: {
+                [REFRESH_METRICS_URL]: () => {
+                    refreshRequests += 1
+                    return [200, { reports: [] }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+        })
+        logic = monitoringTabLogic()
+
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+
+        expect(refreshRequests).toBe(0)
     })
 })
