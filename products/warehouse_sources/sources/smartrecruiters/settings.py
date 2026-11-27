@@ -46,6 +46,12 @@ class SmartRecruitersEndpointConfig:
     cursor_param: str = "pageId"
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
+    # The query param that takes the incremental watermark.
+    incremental_param: str = "updatedAfter"
+    # Sent in place of the watermark when there is none, for endpoints with a narrow default range.
+    initial_start: Optional[str] = None
+    # Read once for each job application, which the candidate listing gives as (candidate, job) pairs.
+    per_application: bool = False
 
 
 def _job_fanout() -> DependentEndpointConfig:
@@ -152,9 +158,73 @@ SMARTRECRUITERS_ENDPOINTS: dict[str, SmartRecruitersEndpointConfig] = {
         page_size_param=None,
         fanout=_job_fanout(),
     ),
+    # The Audit API returns only the last 7 days when no start is set, and it keeps events for at
+    # least 26 months. The start is earlier than any audit event, so a full read gets all of them.
+    "audit_events": SmartRecruitersEndpointConfig(
+        name="audit_events",
+        path="/audit-api/v201910/audit-events",
+        pagination="cursor",
+        partition_key="eventDate",
+        incremental_fields=[
+            {
+                "label": "eventDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "eventDate",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="eventDate",
+        cursor_param="nextPageId",
+        incremental_param="eventDateAfter",
+        initial_start="2010-01-01T00:00:00.000Z",
+    ),
+    # Status history rows have no id. A status change happens once per application at a given time.
+    "candidate_status_history": SmartRecruitersEndpointConfig(
+        name="candidate_status_history",
+        path="/candidates/{candidate_id}/jobs/{job_id}/status/history",
+        pagination="single",
+        primary_keys=["candidate_id", "job_id", "changedOn", "status"],
+        partition_key="changedOn",
+        page_size_param=None,
+        per_application=True,
+    ),
+    "reviews": SmartRecruitersEndpointConfig(
+        name="reviews",
+        path="/reviews-api/v201910/reviews",
+        pagination="single",
+        partition_key="createdOn",
+        page_size_param=None,
+        per_application=True,
+    ),
+    "interviews": SmartRecruitersEndpointConfig(
+        name="interviews",
+        path="/interviews-api/v201904/interviews",
+        pagination="single",
+        partition_key="createdOn",
+        page_size_param=None,
+        per_application=True,
+    ),
 }
 
 ENDPOINTS = tuple(SMARTRECRUITERS_ENDPOINTS)
+
+# The per-application tables read every application on each sync (interviews take two requests
+# for each), and the audit log needs an administrator key, so these start off.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: False for name, config in SMARTRECRUITERS_ENDPOINTS.items() if config.per_application
+} | {"audit_events": False}
+
+PER_APPLICATION_DESCRIPTION = (
+    "Reads each job application of every candidate on every sync, so it takes a long time on large accounts."
+)
+SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    "audit_events": "Needs an API key of a user with the Administrator role.",
+    **{
+        name: PER_APPLICATION_DESCRIPTION
+        for name, config in SMARTRECRUITERS_ENDPOINTS.items()
+        if config.per_application
+    },
+}
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in SMARTRECRUITERS_ENDPOINTS.items() if config.incremental_fields

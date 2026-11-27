@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -49,6 +49,10 @@ def cursor(stored: ScarfExportCursor | None = None) -> SourceCursorManager[Scarf
 
 def rows_of(result: Any) -> list[dict[str, Any]]:
     return [row for table in result.items for row in table.to_pylist()]
+
+
+def rows_of_any(result: Any) -> list[dict[str, Any]]:
+    return [row for item in result.items for row in (item.to_pylist() if hasattr(item, "to_pylist") else item)]
 
 
 def _driver(config: ScarfSourceConfig = CONFIG) -> SourceDriver:
@@ -238,3 +242,118 @@ def test_bad_settings_are_refused_without_a_request(owner: str, backfill_days: i
         assert ScarfSource().validate_credentials(config, team_id=1) == (False, expected)
 
     assert network.requests_log == []
+
+
+def rollup_csv(header: str, *rows: str) -> ScriptedResponse:
+    return ScriptedResponse(body="\n".join([header, *rows]).encode(), headers={"Content-Type": "text/csv"})
+
+
+@pytest.mark.parametrize(
+    ("schema", "response", "path", "end_date", "fixed_params", "expected_row"),
+    [
+        (
+            "company_package_rollup",
+            rollup_csv(
+                "date,package,package_name,company,company_domain,total,total_unique",
+                "2026-10-14,p1,cli,Acme,acme.example.com,7,3",
+            ),
+            "/v2/companies/my-org/package-rollup",
+            "2026-10-15",
+            {"rollup": "daily"},
+            {
+                "date": date(2026, 10, 14),
+                "package": "p1",
+                "package_name": "cli",
+                "company": "Acme",
+                "company_domain": "acme.example.com",
+                "total": 7,
+                "total_unique": 3,
+            },
+        ),
+        (
+            "company_pixel_rollup",
+            rollup_csv(
+                "date,pixel,pixel_name,company,company_domain,total,total_unique",
+                "2026-10-14T00:00:00Z,px1,docs,Acme,acme.example.com,12,",
+            ),
+            "/v2/companies/my-org/pixel-rollup",
+            "2026-10-15",
+            {"rollup": "daily"},
+            {
+                "date": date(2026, 10, 14),
+                "pixel": "px1",
+                "pixel_name": "docs",
+                "company": "Acme",
+                "company_domain": "acme.example.com",
+                "total": 12,
+                "total_unique": None,
+            },
+        ),
+        (
+            "daily_aggregates",
+            ScriptedResponse(
+                json={"data": [{"date": "2026-10-14", "artifact": "p1", "artifact_type": "package", "total": 40}]}
+            ),
+            "/v3/insights/my-org/aggregations/export",
+            # The v3 export reads end_date as exclusive, so tomorrow is sent to include today.
+            "2026-10-16",
+            {"rollup": "daily", "breakdown": "by-total", "format": "json"},
+            {"date": date(2026, 10, 14), "artifact": "p1", "artifact_type": "package", "total": 40},
+        ),
+    ],
+)
+def test_rollup_exports_read_from_the_watermark_day_and_type_the_date(
+    schema: str,
+    response: ScriptedResponse,
+    path: str,
+    end_date: str,
+    fixed_params: dict[str, str],
+    expected_row: dict[str, Any],
+) -> None:
+    result = _driver().run(
+        schema,
+        [response],
+        incremental_field="date",
+        db_incremental_field_last_value=date(2026, 10, 14),
+    )
+
+    assert result.raised is None
+    assert result.paths == [path]
+    assert result.params("start_date") == ["2026-10-14"]
+    assert result.params("end_date") == [end_date]
+    for name, value in fixed_params.items():
+        assert result.params(name) == [value]
+    assert rows_of_any(result) == [expected_row]
+    assert result.response is not None and result.response.sort_mode is None
+
+
+def test_a_long_rollup_backfill_is_split_into_windows_the_export_accepts() -> None:
+    config = ScarfSourceConfig(api_token="scarf-token", owner="my-org", backfill_days=800)
+    header = "date,package,package_name,company,company_domain,total,total_unique"
+
+    result = _driver(config).run(
+        "company_package_rollup",
+        [
+            rollup_csv(header, "2024-08-07,p1,cli,Acme,acme.example.com,1,1"),
+            rollup_csv(header),
+            rollup_csv(header, "2026-10-15,p1,cli,Acme,acme.example.com,2,1"),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.params("start_date") == ["2024-08-06", "2025-08-07", "2026-08-08"]
+    assert result.params("end_date") == ["2025-08-06", "2026-08-07", "2026-10-15"]
+    assert [row["total"] for row in rows_of_any(result)] == [1, 2]
+    assert result.committed_states[0] == ScarfResumeConfig(day="2025-08-07")
+
+
+def test_a_resumed_rollup_export_starts_at_the_saved_window() -> None:
+    result = _driver().run(
+        "daily_aggregates",
+        [ScriptedResponse(json={"data": []})],
+        resume_state=ScarfResumeConfig(day="2026-10-15"),
+    )
+
+    assert result.raised is None
+    assert result.params("start_date") == ["2026-10-15"]
+    assert result.items == []

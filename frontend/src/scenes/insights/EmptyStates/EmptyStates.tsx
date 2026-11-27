@@ -647,6 +647,7 @@ export function InsightValidationError({
     query,
     onRetry,
     cta,
+    fixWithAIComponent,
     excludeActions = false,
     placement,
 }: {
@@ -655,6 +656,7 @@ export function InsightValidationError({
     query?: Record<string, any> | null
     onRetry?: () => void
     cta?: JSX.Element
+    fixWithAIComponent?: JSX.Element
     excludeActions?: boolean
     placement?: DashboardPlacement | 'SavedInsightGrid'
 }): JSX.Element {
@@ -733,7 +735,10 @@ export function InsightValidationError({
                         {defaultCta}
                     </>
                 ) : (
-                    defaultCta
+                    <>
+                        {defaultCta}
+                        {fixWithAIComponent}
+                    </>
                 ))
             }
             footer={

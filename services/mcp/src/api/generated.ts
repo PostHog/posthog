@@ -9713,7 +9713,7 @@ export namespace Schemas {
     export type ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows = {[key: string]: number} | null;
 
     /**
-     * Exposure rows whose variant is not one the flag serves, counted by the value seen.
+     * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
      */
     export type ExperimentWarehouseNativeRowsLeftOutUnknownVariants = {[key: string]: number} | null;
 
@@ -9722,7 +9722,9 @@ export namespace Schemas {
       empty_id?: number | null;
       /** Exposed entities with no row of the metric query that counted, by variant. */
       exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutExposedWithoutRows;
-      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+      /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+      unknown_variant_rows?: number | null;
+      /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
       unknown_variants?: ExperimentWarehouseNativeRowsLeftOutUnknownVariants;
     }
 
@@ -17562,6 +17564,30 @@ export namespace Schemas {
       alert_state?: string | null;
       metric_name?: string | null;
     }
+
+    /**
+     * * `one_hit_wonder` - The One-Hit Wonder
+     * * `swiss_army_knife` - The Swiss Army Knife
+     * * `night_owl` - The Night Owl
+     * * `weekend_warrior` - The Weekend Warrior
+     * * `speed_demon` - The Speed Demon
+     * * `rocket` - The Rocket
+     * * `superhero` - The Superhero
+     * * `all_rounder` - The All-Rounder
+     */
+    export type ArchetypeEnum = typeof ArchetypeEnum[keyof typeof ArchetypeEnum];
+
+
+    export const ArchetypeEnum = {
+      OneHitWonder: 'one_hit_wonder',
+      SwissArmyKnife: 'swiss_army_knife',
+      NightOwl: 'night_owl',
+      WeekendWarrior: 'weekend_warrior',
+      SpeedDemon: 'speed_demon',
+      Rocket: 'rocket',
+      Superhero: 'superhero',
+      AllRounder: 'all_rounder',
+    } as const;
 
     export interface ArchiveExperiment {
       /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
@@ -42986,10 +43012,10 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[] | null;
       /**
-         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report.
-         * @maxItems 3
+         * The full set of follow-up prompts (questions or next-step actions) the report should offer above its `Ask AI` box. Replaces the report's prompts rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them pointing at the old report. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out. When every prompt you send is left out, the stored prompts stay as they were.
+         * @maxItems 10
          * @nullable
-         * @items.maxLength 200
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[] | null;
       /**
@@ -43069,6 +43095,7 @@ export namespace Schemas {
     /**
      * * `title` - title
      * * `summary` - summary
+     * * `suggested_prompts` - suggested_prompts
      */
     export type ReportQualityHintFieldEnum = typeof ReportQualityHintFieldEnum[keyof typeof ReportQualityHintFieldEnum];
 
@@ -43076,6 +43103,7 @@ export namespace Schemas {
     export const ReportQualityHintFieldEnum = {
       Title: 'title',
       Summary: 'summary',
+      SuggestedPrompts: 'suggested_prompts',
     } as const;
 
     export interface ReportQualityHint {
@@ -43089,7 +43117,8 @@ export namespace Schemas {
       /** The field the check matched.
        *
        * * `title` - title
-       * * `summary` - summary */
+       * * `summary` - summary
+       * * `suggested_prompts` - suggested_prompts */
       field: ReportQualityHintFieldEnum;
       /** What the check found and what to do next time. */
       message: string;
@@ -43149,7 +43178,7 @@ export namespace Schemas {
       decision_fields_set: string[];
       /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
       warnings: EditReportWarning[];
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
@@ -44185,9 +44214,9 @@ export namespace Schemas {
          */
       metrics?: ReportMetricWrite[];
       /**
-         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-         * @maxItems 3
-         * @items.maxLength 200
+         * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.
+         * @maxItems 10
+         * @items.maxLength 2000
          */
       suggested_prompts?: string[];
       /**
@@ -44243,7 +44272,7 @@ export namespace Schemas {
       remediation: string | null;
       /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
       idempotent_replay: boolean;
-      /** Quality checks the title or summary matched. A `repair` hint means the stored text differs from what you sent: escape the JSON one time only next time. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
+      /** Quality checks the title, summary, or suggested prompts matched. A `repair` hint means what was stored differs from what you sent: escape the JSON one time only next time, and keep suggested prompts within their bounds. A `hint` means the text was stored as sent: correct it with edit_report if the hint applies. Empty when no check matched. */
       quality_hints: ReportQualityHint[];
     }
 
@@ -50959,6 +50988,7 @@ export namespace Schemas {
      * * `result_ready` - Result Ready
      * * `flag_shared` - Flag Shared
      * * `stale_experiment` - Stale Experiment
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -50995,6 +51025,7 @@ export namespace Schemas {
       ResultReady: 'result_ready',
       FlagShared: 'flag_shared',
       StaleExperiment: 'stale_experiment',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -51071,6 +51102,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `events_billing_limit` - Events Billing Limit
      * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+     * * `exposure_rows_left_out` - Exposure Rows Left Out
      */
     export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
 
@@ -51105,6 +51137,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     /**
@@ -51145,7 +51178,8 @@ export namespace Schemas {
        * * `metrics_not_matured` - Metrics Not Matured
        * * `result_ready` - Result Ready
        * * `flag_shared` - Flag Shared
-       * * `stale_experiment` - Stale Experiment */
+       * * `stale_experiment` - Stale Experiment
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -51206,7 +51240,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       check: ExperimentHealthCheckKeyEnum;
     }
 
@@ -51297,6 +51332,9 @@ export namespace Schemas {
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
      * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
      * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+     * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+     * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+     * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty
      */
     export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
@@ -51372,6 +51410,9 @@ export namespace Schemas {
       AssignedOutsideCount: 'assigned_outside_count',
       OtherDraftExperimentCount: 'other_draft_experiment_count',
       FiltersTestAccounts: 'filters_test_accounts',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     /**
@@ -51468,7 +51509,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The value that the key must reach. Below it, the check reports no finding. */
       threshold: number;
@@ -51546,7 +51590,10 @@ export namespace Schemas {
        * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
        * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
        * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
-       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
+       * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
+       * * `left_out_row_count` - Rows of the warehouse-native exposure query that the exposures leave out, for any reason
+       * * `unknown_variant_row_count` - Rows of the warehouse-native exposure query whose variant is none of the experiment's variants
+       * * `empty_id_row_count` - Rows of the warehouse-native exposure query whose entity_id is empty */
       value: ExperimentHealthValueKeyEnum;
       /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
@@ -51605,7 +51652,8 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share
        * * `events_billing_limit` - Events Billing Limit
-       * * `feature_flags_billing_limit` - Feature Flags Billing Limit */
+       * * `feature_flags_billing_limit` - Feature Flags Billing Limit
+       * * `exposure_rows_left_out` - Exposure Rows Left Out */
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
@@ -52051,6 +52099,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
@@ -52068,6 +52117,9 @@ export namespace Schemas {
       KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
       UnservedExposedCount: 'unserved_exposed_count',
       UnservedExposedPercentage: 'unserved_exposed_percentage',
+      LeftOutRowCount: 'left_out_row_count',
+      UnknownVariantRowCount: 'unknown_variant_row_count',
+      EmptyIdRowCount: 'empty_id_row_count',
     } as const;
 
     export interface ExperimentExposureHealthRuleMinimum {
@@ -52153,6 +52205,7 @@ export namespace Schemas {
       UnservedVariantExposures: 'unserved_variant_exposures',
       EventsBillingLimit: 'events_billing_limit',
       FeatureFlagsBillingLimit: 'feature_flags_billing_limit',
+      ExposureRowsLeftOut: 'exposure_rows_left_out',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -74974,6 +75027,163 @@ export namespace Schemas {
       error_type?: MCPToolResponseErrorType;
       /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
       error_code?: string | null;
+    }
+
+    export interface MCPWrappedIntroCard {
+      /** First month with 100+ tool calls, as YYYY-MM. MCP analytics started tracking then. */
+      readonly tracked_since: string;
+      /** MCP servers that each sent at least 1% of the project's tool calls. */
+      readonly server_count: number;
+    }
+
+    export interface MCPWrappedMonth {
+      /** Month as YYYY-MM. */
+      readonly month: string;
+      /** Tool calls in the month. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedToolCallsCard {
+      /** Tool calls in the period. */
+      readonly total_calls: number;
+      /** Calls per month from the tracked-since month on, oldest first. */
+      readonly months: readonly MCPWrappedMonth[];
+      /**
+         * The last month's calls over the first full month's, set only when it is 1.5 or more.
+         * @nullable
+         */
+      readonly growth_multiple: number | null;
+    }
+
+    export interface MCPWrappedToolCount {
+      /** Tool name. */
+      readonly tool: string;
+      /** Tool calls in the period. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedTopToolsCard {
+      /** Up to five tools, busiest first. */
+      readonly tools: readonly MCPWrappedToolCount[];
+    }
+
+    export interface MCPWrappedShare {
+      /** Name of the app, AI lab or model family, or "Other". */
+      readonly name: string;
+      /** Share of the calls the bar covers, from 0 to 1. */
+      readonly share: number;
+    }
+
+    export interface MCPWrappedSharesCard {
+      /** Largest first, with the remainder as a final Other entry. */
+      readonly shares: readonly MCPWrappedShare[];
+    }
+
+    export interface MCPWrappedRushHourCard {
+      /** Busiest ISO weekday, 1 is Monday. */
+      readonly weekday: number;
+      /** Busiest hour, 0 to 23, in timezone. */
+      readonly hour: number;
+      /** The project's timezone, which weekday and hour use. */
+      readonly timezone: string;
+      /** Intensity from 0 to 100 for each of the 168 weekday-hour slots, index (weekday - 1) * 24 + hour. */
+      readonly heat: readonly number[];
+      /** Under 15% of calls fell on weekends. */
+      readonly quiet_weekends: boolean;
+      /** Over half of the calls fell between 10 pm and 6 am. */
+      readonly night_shift: boolean;
+    }
+
+    export interface MCPWrappedToolErrorRate {
+      /** Tool name. */
+      readonly tool: string;
+      /** Share of the tool's calls that errored, 0 to 1. */
+      readonly error_rate: number;
+      /** The tool's calls this year. */
+      readonly calls: number;
+    }
+
+    export interface MCPWrappedReliabilityCard {
+      /** Share of calls without an error, 0 to 1. */
+      readonly success_rate: number;
+      /** The tool with the lowest error rate among tools with 100+ calls, more calls winning a tie, when 3 or more qualify. */
+      readonly most_reliable_tool: MCPWrappedToolErrorRate | null;
+      /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify and its rate is above the most reliable tool's. */
+      readonly struggling_tool: MCPWrappedToolErrorRate | null;
+    }
+
+    export interface MCPWrappedToolLatency {
+      /** Tool name. */
+      readonly tool: string;
+      /** 95th percentile response time in ms. */
+      readonly p95_duration_ms: number;
+    }
+
+    export interface MCPWrappedSpeedCard {
+      /** 95th percentile response time across all calls, in ms. */
+      readonly p95_duration_ms: number;
+      /** The quickest of the five busiest tools. */
+      readonly quickest_busy_tool: MCPWrappedToolLatency | null;
+      /** The slowest tool with 100+ calls. */
+      readonly slowest_tool: MCPWrappedToolLatency | null;
+    }
+
+    export interface MCPWrappedArchetypeCard {
+      /** The server's personality, from the first rule it meets.
+       *
+       * * `one_hit_wonder` - The One-Hit Wonder
+       * * `swiss_army_knife` - The Swiss Army Knife
+       * * `night_owl` - The Night Owl
+       * * `weekend_warrior` - The Weekend Warrior
+       * * `speed_demon` - The Speed Demon
+       * * `rocket` - The Rocket
+       * * `superhero` - The Superhero
+       * * `all_rounder` - The All-Rounder */
+      readonly archetype: ArchetypeEnum;
+      /**
+         * The number that earned the archetype: a share, a tool count, a p95 in ms or a growth multiple.
+         * @nullable
+         */
+      readonly evidence: number | null;
+    }
+
+    export interface MCPWrappedCards {
+      /** Opening card. */
+      readonly intro: MCPWrappedIntroCard;
+      /** Total and monthly tool calls. */
+      readonly tool_calls: MCPWrappedToolCallsCard;
+      /** The busiest tools. */
+      readonly top_tools: MCPWrappedTopToolsCard;
+      /** Share of calls by app. Null when too many calls have no client. */
+      readonly apps: MCPWrappedSharesCard | null;
+      /** Share of calls by AI lab, as agents report it. Null when too few calls carry a model. */
+      readonly labs: MCPWrappedSharesCard | null;
+      /** Share of calls by model family, as agents report it. Null when too few calls carry a model. */
+      readonly models: MCPWrappedSharesCard | null;
+      /** Busiest weekday and hour. Null under 1,000 calls. */
+      readonly rush_hour: MCPWrappedRushHourCard | null;
+      /** Calls without an error. */
+      readonly reliability: MCPWrappedReliabilityCard;
+      /** Response times. Null when most calls have no duration. */
+      readonly speed: MCPWrappedSpeedCard | null;
+      /** The server's personality. */
+      readonly archetype: MCPWrappedArchetypeCard;
+    }
+
+    export interface MCPWrapped {
+      /** Year the wrap covers, Jan 1 to Dec 1. */
+      readonly year: number;
+      /** When the wrap was computed. */
+      readonly generated_at: string;
+      /** When the wrap stops showing, 14 days after it was computed. */
+      readonly expires_at: string;
+      /** Values for each story card. */
+      readonly cards: MCPWrappedCards;
+    }
+
+    export interface MCPWrappedResponse {
+      /** The project's wrap, or null when none is ready and fresh. */
+      readonly wrapped: MCPWrapped | null;
     }
 
     export interface MakeTransactional {
@@ -103585,12 +103795,8 @@ export namespace Schemas {
          * @nullable
          */
       billing_period_end: string | null;
-      /** Rows synced in the billing period, billed and not yet billed. */
+      /** Billable rows this project synced in the billing period. Other projects in the organization are not counted. */
       total_rows: number;
-      /** Rows billing has already counted. */
-      tracked_billing_rows: number;
-      /** Rows synced since billing last counted. */
-      pending_billing_rows: number;
       /** Rows written by materialized view runs in the billing period. */
       materialized_rows_in_billing_period: number;
       /** Rows synced in the billing period, keyed by source id. */
