@@ -28,8 +28,7 @@ const RDS_CLUSTER_TAG = 'aws:rds:primaryDBClusterArn'
 const STACK = 'AWS::CloudFormation::Stack'
 const EC2_SNAPSHOT = 'AWS::EC2::Snapshot'
 const UNKNOWN = 'unknown'
-// AWS reserves the `aws:` prefix, so neither a person nor a run role can set these keys.
-const MAKERS: [string, string][] = [
+const AWS_RESERVED_MAKER_PREFIXES: [string, string][] = [
     ['aws:backup:', 'AWS Backup'],
     ['aws:dlm:', 'Data Lifecycle Manager'],
 ]
@@ -56,7 +55,7 @@ function resourceOfArn(arn: string): Resource {
 }
 
 function makerOf(tags: { Key: string }[]): string | undefined {
-    return MAKERS.find(([prefix]) => tags.some(({ Key }) => Key.startsWith(prefix)))?.[1]
+    return AWS_RESERVED_MAKER_PREFIXES.find(([prefix]) => tags.some(({ Key }) => Key.startsWith(prefix)))?.[1]
 }
 
 function resourceOfTagMapping({ ResourceARN, Tags = [] }: { ResourceARN: string; Tags?: { Key: string }[] }): Resource {
@@ -293,8 +292,7 @@ async function deleteStack(controller: Controller, profile: CloudProfile, manife
     }
 }
 
-// The controller role cannot describe EC2 snapshots, so the tag listing is all teardown reads of them.
-const JUDGED_BY_TAG = new Set([UNKNOWN, EC2_SNAPSHOT])
+const TAG_ONLY_TYPES = new Set([UNKNOWN, EC2_SNAPSHOT])
 
 function tagStateOf(resource: Resource, tagged: Set<string>): string {
     if (!tagged.has(keyOfResource(resource))) {
@@ -320,7 +318,7 @@ async function receiptOf(
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
         const resources: Receipt['resources'] = []
         for (const resource of inventory.values()) {
-            const state = JUDGED_BY_TAG.has(resource.type)
+            const state = TAG_ONLY_TYPES.has(resource.type)
                 ? tagStateOf(resource, tagged)
                 : await stateOf(controller, resource).catch((error: Error) => `unreadable (${error.message})`)
             resources.push({ ...resource, state })
