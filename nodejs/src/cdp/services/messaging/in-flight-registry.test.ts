@@ -55,10 +55,11 @@ describe('InFlightRegistry', () => {
         })
 
         const scrape = await registry!.metrics()
-        expect(
-            scrape.split('\n').filter((line) => line.startsWith('cdp_email_attachments_deferral_tokens_total{'))
-        ).toEqual(
-            ['over_budget', 'over_heap', 'at_cap', 'refused'].map(
+        const samples = scrape
+            .split('\n')
+            .filter((line) => line.startsWith('cdp_email_attachments_deferral_tokens_total{'))
+        expect(samples.sort()).toEqual(
+            ['at_cap', 'over_budget', 'over_heap', 'refused'].map(
                 (reason) => `cdp_email_attachments_deferral_tokens_total{reason="${reason}"} 0`
             )
         )
