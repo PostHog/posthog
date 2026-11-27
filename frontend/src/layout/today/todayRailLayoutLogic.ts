@@ -140,18 +140,32 @@ export const todayRailLayoutLogic = kea<todayRailLayoutLogicType>([
         footPaneShown: [(s) => [s.railPanes], (railPanes: TodayRailPane[]) => railPanes.includes(TODAY_RAIL_FOOT_PANE)],
         layoutCustomized: [(s) => [s.railLayout], (railLayout: TodayRailLayout | null) => railLayout !== null],
     }),
-    listeners(({ actions, values }) => ({
-        moveRailPane: ({ pane, toIndex }) => {
-            actions.setRailOrder(movePane(values.arrangedPanes, pane, toIndex))
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
-            posthog.capture('today rail customized', { pane, moved_to: toIndex })
-        },
-        // Runs after the reducer, so `railHidden` already holds the new state.
-        toggleRailPane: ({ pane }) => {
-            posthog.capture('today rail customized', { pane, shown: !values.railHidden.includes(pane) })
-        },
-        resetRailLayout: () => {
-            posthog.capture('today rail customized', { reset: true })
-        },
-    })),
+    listeners(({ actions, values }) => {
+        // pinned: analytics event name and properties. Renaming them breaks dashboards.
+        const captureCustomized = (properties: Record<string, unknown>): void => {
+            posthog.capture('today rail customized', {
+                ...properties,
+                rail_order: values.arrangedPanes,
+                rail_hidden: values.railHidden,
+                $set: {
+                    today_rail_customized: values.layoutCustomized,
+                    today_rail_order: values.arrangedPanes,
+                    today_rail_hidden: values.railHidden,
+                },
+            })
+        }
+        return {
+            moveRailPane: ({ pane, toIndex }) => {
+                actions.setRailOrder(movePane(values.arrangedPanes, pane, toIndex))
+                captureCustomized({ action: 'move', pane, moved_to: toIndex })
+            },
+            // Runs after the reducer, so `railHidden` already holds the new state.
+            toggleRailPane: ({ pane }) => {
+                captureCustomized({ action: 'toggle', pane, shown: !values.railHidden.includes(pane) })
+            },
+            resetRailLayout: () => {
+                captureCustomized({ action: 'reset', reset: true })
+            },
+        }
+    }),
 ])
