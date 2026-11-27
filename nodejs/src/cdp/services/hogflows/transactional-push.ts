@@ -6,6 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
+import { CLOCK_TOLERANCE_SECONDS } from '../../utils/scoped-service-jwt'
 import { requestFingerprint } from './idempotency-keys'
 
 export const TRANSACTIONAL_PUSH_EVENT = '$transactional_push'
@@ -20,8 +21,10 @@ const TOKEN_USE_TTL_SECONDS = 10 * 60
 const TOKEN_USE_DEADLINE_MS = 2000
 
 // The record of a token's use lasts TOKEN_USE_TTL_SECONDS, so a token that lives longer could be used again after it.
+// The verifier accepts a token for CLOCK_TOLERANCE_SECONDS past its expiry, so that counts toward its life too.
 export const expiresBeforeItsUseRecord = (claims: Record<string, unknown>, nowMs = Date.now()): boolean =>
-    typeof claims.exp === 'number' && claims.exp * 1000 <= nowMs + TOKEN_USE_TTL_SECONDS * 1000
+    typeof claims.exp === 'number' &&
+    (claims.exp + CLOCK_TOLERANCE_SECONDS) * 1000 <= nowMs + TOKEN_USE_TTL_SECONDS * 1000
 
 export const isTokenForPerson = (claims: Record<string, unknown>, distinctId: string): boolean =>
     claims.distinct_id_sha256 === createHash('sha256').update(distinctId).digest('hex')
@@ -83,7 +86,11 @@ export const sendsOnlyPush = (hogFlow: HogFlow): boolean => {
     return steps.length > 0 && steps.every((action) => action.type === 'function_push')
 }
 
-const REQUEST_PERSON = new Set(['{{ event.distinct_id }}', '{{event.distinct_id}}', '{event.distinct_id}'])
+// Each templating mode reads the person's distinct id with its own syntax. In the other mode the same text is a literal.
+const REQUEST_PERSON: Record<string, string[]> = {
+    liquid: ['{{ event.distinct_id }}', '{{event.distinct_id}}'],
+    hog: ['{event.distinct_id}'],
+}
 
 // The token is for one person, so a transactional push runs only a workflow whose one push step sends to the person
 // the request names.
@@ -92,6 +99,7 @@ export const sendsOnePushToRequestPerson = (hogFlow: HogFlow): boolean => {
     if (steps.length !== 1 || steps[0].type !== 'function_push') {
         return false
     }
-    const recipient = steps[0].config.inputs?.distinctId?.value
-    return typeof recipient === 'string' && REQUEST_PERSON.has(recipient.trim())
+    const recipient = steps[0].config.inputs?.distinctId
+    const templating = recipient?.templating ?? 'hog'
+    return typeof recipient?.value === 'string' && (REQUEST_PERSON[templating] ?? []).includes(recipient.value.trim())
 }
