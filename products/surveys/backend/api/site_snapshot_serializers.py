@@ -1,7 +1,21 @@
 from rest_framework import serializers
 
 from products.surveys.backend.models import SurveyMatchType
-from products.surveys.backend.site_snapshot import DEVICE_VIEWPORTS, SnapshotDevice, SnapshotStatus, UrlTarget
+from products.surveys.backend.site_snapshot import (
+    DEVICE_VIEWPORTS,
+    SnapshotDevice,
+    SnapshotStatus,
+    UrlTarget,
+    parse_url_match_type,
+)
+
+# The editor sends its survey's saved match type, and older surveys hold "contains" for icontains.
+LEGACY_URL_MATCH_TYPES = {"contains": SurveyMatchType.ICONTAINS}
+
+
+class UrlMatchTypeField(serializers.ChoiceField):
+    def to_internal_value(self, data):
+        return super().to_internal_value(LEGACY_URL_MATCH_TYPES.get(data, data))
 
 
 class SiteSnapshotQuerySerializer(serializers.Serializer):
@@ -21,7 +35,7 @@ class SiteSnapshotQuerySerializer(serializers.Serializer):
             "Empty means every page. Leave out to use the saved targeting."
         ),
     )
-    url_match_type = serializers.ChoiceField(
+    url_match_type = UrlMatchTypeField(
         choices=SurveyMatchType.choices,
         required=False,
         help_text="How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.",
@@ -76,5 +90,5 @@ def url_target_of_query(query: dict) -> UrlTarget | None:
         return None
     return UrlTarget(
         url=query["url"],
-        match_type=SurveyMatchType(query.get("url_match_type") or SurveyMatchType.ICONTAINS),
+        match_type=parse_url_match_type(query.get("url_match_type")),
     )

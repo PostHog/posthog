@@ -5573,6 +5573,16 @@ class TestPrinter(BaseTest):
                 "SELECT distinct_id FROM posthog.flag_evaluations WHERE distinct_id NOT IN (SELECT distinct_id FROM posthog.flag_evaluations WHERE flag_key = 'beta')",
                 "globalNotIn(",
             ),
+            (
+                "in_document_embeddings_subquery",
+                "SELECT document_id FROM document_embeddings WHERE model_name = 'text-embedding-3-small-1536' AND document_id IN (SELECT document_id FROM document_embeddings WHERE model_name = 'text-embedding-3-small-1536' AND product = 'signals')",
+                "globalIn(",
+            ),
+            (
+                "in_model_specific_embeddings_subquery",
+                "SELECT document_id FROM document_embeddings_text_embedding_3_small_1536 WHERE document_id IN (SELECT document_id FROM document_embeddings_text_embedding_3_small_1536 WHERE product = 'signals')",
+                "globalIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):

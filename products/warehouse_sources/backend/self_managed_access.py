@@ -17,7 +17,7 @@ source, and add a default rule on the source when one is needed. When no such ru
 move. Tables of one bucket share a source only when they need the same rules (see `SourceAccessPlan.signature`).
 
 The prediction mirrors `UserAccessControl` (`_object_access_level_from_rows` and
-`_most_specific_object_access_from_rows`). The tests check it against that code.
+`_object_access_from_rows`). The tests check it against that code.
 """
 
 import json
@@ -187,7 +187,7 @@ def _most_specific_level(
     resource_rows: Sequence[_Row],
     parent_resource_rows: Sequence[_Row],
 ) -> str:
-    """`UserAccessControl._most_specific_object_access_from_rows`, for a member who is no admin and not the creator."""
+    """`UserAccessControl._object_access_from_rows`, for a member who is no admin and not the creator."""
 
     def resource_level() -> str:
         if resource_rows:
