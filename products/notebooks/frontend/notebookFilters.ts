@@ -128,6 +128,19 @@ export interface NotebookPlaylistCollection {
     savedFilters: LegacyRecordingFilters | RecordingUniversalFilters
 }
 
+function getCollectionPreviewFilters(
+    authored: RecordingUniversalFilters,
+    { ids = [], savedFilters }: NotebookPlaylistCollection
+): Pick<RecordingUniversalFilters, 'session_ids' | 'date_from' | 'date_to' | 'duration'> {
+    return {
+        session_ids: authored.session_ids?.filter((id) => ids.includes(id)) ?? ids,
+        // An absent date_from would restore the API's three-day default for the events lookup.
+        date_from: savedFilters.date_from ?? '',
+        date_to: savedFilters.date_to ?? null,
+        duration: 'duration' in savedFilters || savedFilters.session_recording_duration ? authored.duration : [],
+    }
+}
+
 export function getFilteredNotebookPlaylist(
     authored: RecordingUniversalFilters,
     filters: NotebookFilters,
@@ -141,19 +154,9 @@ export function getFilteredNotebookPlaylist(
     ) {
         return null
     }
-    const collectionIds = collection?.ids ?? []
     return {
         ...authored,
-        ...(collection && {
-            session_ids: authored.session_ids?.filter((id) => collectionIds.includes(id)) ?? collectionIds,
-            // An absent date_from would restore the API's three-day default for the events lookup.
-            date_from: collection.savedFilters.date_from ?? '',
-            date_to: collection.savedFilters.date_to ?? null,
-            duration:
-                'duration' in collection.savedFilters || collection.savedFilters.session_recording_duration
-                    ? authored.duration
-                    : [],
-        }),
+        ...(collection && getCollectionPreviewFilters(authored, collection)),
         ...filters.dateRange,
         ...(filters.properties.length > 0 && {
             filter_group: {
