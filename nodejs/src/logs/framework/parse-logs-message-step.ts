@@ -15,6 +15,13 @@ import {
     parseMinTimestampHeader,
     parseSizeHeader,
 } from '../logs-ingestion-consumer'
+import {
+    AUTH_TYPE_SECRET_KEY,
+    isSecretKeyDigest,
+    isUnhashedSecretKey,
+    isUnknownToken,
+    loggableToken,
+} from '../secret-key-teams'
 import type { LogsIngestionMessage } from '../types'
 import { LogsPipelineContext, quarantineLogMessage, retryOnDependencyUnavailable } from './logs-pipeline-context'
 
@@ -41,6 +48,8 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 countDropped('missing_token')
                 return drop('missing_token')
             }
+            const sentSecretKey = isSecretKeyDigest(token)
+            const sentUnhashedKey = isUnhashedSecretKey(token)
 
             let team: Team | null
             try {
@@ -49,7 +58,11 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 team = await retryOnDependencyUnavailable(context, () =>
                     isDevEnv() && token === 'phc_local'
                         ? deps.teamManager.getTeam(1)
-                        : deps.teamManager.getTeamByToken(token)
+                        : sentSecretKey
+                          ? (deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                          : sentUnhashedKey
+                            ? Promise.resolve(null)
+                            : deps.teamManager.getTeamByToken(token)
                 )
             } catch (e) {
                 logger.error('team_lookup_error', { error: e })
@@ -59,11 +72,14 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
 
             if (!team) {
                 // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
-                logger.warn('team_not_found', { token_with_no_team: token })
-                context.unknownTokens?.record(token)
+                logger.warn('team_not_found', { token_with_no_team: loggableToken(token) })
+                if (await isUnknownToken(token, deps.secretKeyTeams)) {
+                    context.unknownTokens?.record(token)
+                }
                 countDropped('team_not_found')
                 return drop('team_not_found')
             }
+            const publicToken = sentSecretKey ? team.api_token : token
 
             const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
             const bytesUncompressedRecords = parseSizeHeader(headers.bytes_uncompressed_records)
@@ -82,7 +98,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                     offset: message.offset,
                 })
                 await quarantineLogMessage(context, message, new Error('invalid_size_headers'), {
-                    token,
+                    token: publicToken,
                     teamId: team.id,
                 })
                 return drop('invalid_size_headers')
@@ -94,7 +110,8 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             }
 
             return ok({
-                token,
+                token: publicToken,
+                authType: sentSecretKey ? AUTH_TYPE_SECRET_KEY : undefined,
                 message,
                 teamId: team.id,
                 bytesUncompressed,

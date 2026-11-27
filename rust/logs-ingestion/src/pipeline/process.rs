@@ -11,6 +11,7 @@ use crate::metric_rules::{
 use crate::normalize::{sniff_json_log_attributes, LogsSettings};
 use crate::record::LogRecord;
 use crate::retention::RETENTION_EXPIRED_STAGE_NAME;
+use crate::secret_key::AUTH_TYPE_HEADER;
 
 use super::buffer::{BufferValue, RecordsVisitor};
 use super::context::{
@@ -283,11 +284,18 @@ async fn process_log_message(
     let output = || {
         let mut headers = parse_kafka_headers_except(
             &message.message,
-            &[INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER],
-            10,
+            &[
+                INTERNAL_LOGS_HEADER,
+                INTERNAL_SOURCE_HEADER,
+                AUTH_TYPE_HEADER,
+            ],
+            11,
         );
         if let Some(internal) = &message.internal_logs {
             headers.set(INTERNAL_SOURCE_HEADER, internal.source.clone());
+        }
+        if let Some(auth_type) = message.auth_type {
+            headers.set(AUTH_TYPE_HEADER, auth_type);
         }
         headers.set("token", message.token.clone());
         headers.set("team_id", team_id.to_string());

@@ -4,6 +4,7 @@ import type { InternalLogs } from './internal-logs'
 
 export type LogsIngestionMessage = {
     token: string
+    authType?: string
     teamId: number
     message: Message
     bytesUncompressed: number
