@@ -1446,9 +1446,7 @@ class PreviousExperiment:
     rollout_percentage: float | None = described(
         "Rollout percentage of the flag's first release condition, read from the flag as it stands now."
     )
-    multiple_variant_handling: str = described(
-        "How users seen in several variants are analyzed, with the default resolved."
-    )
+    multiple_variant_handling: str
     multiple_variant_handling_set: bool = described(
         "Whether the experiment sets multiple_variant_handling itself instead of using the default."
     )

@@ -3028,7 +3028,8 @@ class ExperimentSetupOutcomeSerializer(ContractResponseSerializer):
 
 class ExperimentSetupPreviousExperimentSerializer(ContractResponseSerializer):
     multiple_variant_handling = serializers.ChoiceField(
-        choices=[handling.value for handling in MultipleVariantHandling]
+        choices=[handling.value for handling in MultipleVariantHandling],
+        help_text="How users seen in several variants are analyzed, with the default resolved.",
     )
     exposure_property_filters = ExperimentSetupStoredPropertyFiltersField()
 
