@@ -277,5 +277,6 @@ describe('handleClientManifest', () => {
 
         expect(response.status).toBe(301)
         expect(response.headers.get('location')).toBe('https://posthog.com/auth.md')
+        expect(response.headers.get('access-control-allow-origin')).toBe('*')
     })
 })

@@ -115,5 +115,13 @@ export async function handleScopes(request: Request): Promise<Response> {
  * agents that look for it at this service root get a redirect rather than a rewritten copy.
  */
 export function handleClientManifest(): Response {
-    return Response.redirect(AGENT_MANIFEST_URL, 301)
+    // A browser reads a cross-origin redirect only when the redirect itself allows the origin.
+    return new Response(null, {
+        status: 301,
+        headers: {
+            Location: AGENT_MANIFEST_URL,
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*',
+        },
+    })
 }
