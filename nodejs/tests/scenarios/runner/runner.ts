@@ -32,7 +32,7 @@ import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
 import { DriveSummary, DrivenStep, SeedState, StepWindow, drive, seed } from '../generator/generator'
-import { watchSesFeedback } from '../generator/ses-feedback'
+import { planFeedback, watchSesFeedback } from '../generator/ses-feedback'
 import { OfferContext, kafkaEmit } from '../generator/traffic'
 import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
 import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
@@ -439,6 +439,7 @@ function localTarget(
                         throw new Error('the load producer is not connected')
                     }
                     const cdpApi = { nextUrl: roundRobin(cdpApiUrlsOf(environment)), jwt }
+                    await planFeedback(edgeUrl, profile.feedback)
                     const sesFeedback = await watchSesFeedback({
                         edgeUrl,
                         lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),

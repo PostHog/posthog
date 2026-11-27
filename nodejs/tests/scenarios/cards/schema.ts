@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
+import { FeedbackShares } from '../provider-edge/feedback'
 
 const MAX_TIMER_MS = 2 ** 31 - 1
 const MAX_SEED = 2 ** 32 - 1
@@ -228,6 +229,7 @@ export const Profile = z
         load: Load.optional(),
         host: Host.optional(),
         alerts: AlertsProfile.optional(),
+        feedback: FeedbackShares.optional(),
     })
     .strict()
     .refine(({ synthetic, backlog }) => !synthetic?.includes('backlog_padding') || backlog !== undefined, {

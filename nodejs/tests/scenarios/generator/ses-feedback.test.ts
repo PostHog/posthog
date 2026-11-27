@@ -70,6 +70,12 @@ describe('watchSesFeedback', () => {
             'the edge recorded no SES feedback within 1s',
         ],
         [
+            'gives up when the unit got only the feedback every accepted send gets',
+            [{ unitId: UNIT, status: 200, fault: undefined, detail: {} }],
+            [0],
+            'the edge recorded no SES feedback within 1s',
+        ],
+        [
             'gives up when the edge recorded only the send',
             [{ kind: 'ses.send', unitId: UNIT, status: 200, detail: {} }],
             [0],

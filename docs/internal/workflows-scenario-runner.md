@@ -731,7 +731,7 @@ export function startProviderEdge(options: {
   trackingKeys?: string // ENCRYPTION_SALT_KEYS, to read the action id from the tracking code
   caDir?: string // creates the CA and leaf certificates; without it the edge serves plain HTTP only
   region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
-  feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault posts its feedback
+  feedbackUrl?: string // cdp-api's SES webhook, where a bounce fault and the feedback shares post their notifications
 }): Promise<ProviderEdge>
 ```
 
@@ -761,6 +761,8 @@ export type FaultHold = {
 POST   /_faults      { name, params, match?: { host? | recipient? }, dose?: { count } | { share }, for? }  -> 201 { id }, or 400 { problems }
 DELETE /_faults/:id
 DELETE /_faults      clears every fault
+PUT    /_feedback    { delivery?, hardBounce?, softBounce?, complaint?, open?, click? }  -> 204, or 400 { problems }
+DELETE /_feedback    stops the feedback for sends the edge accepts
 GET    /_truth?after=<seq>&limit=<n>   -> { records: TruthRecord[], next: number }, at most 1000 records a page
 GET    /_truth/head  -> { head }, the last record's seq, 0 when empty
 GET    /_health
@@ -788,6 +790,7 @@ export type TruthRecord = {
 - **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
   - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
   - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
+  - **Feedback shares.** `PUT /_feedback` sets the share of accepted sends that get each SES event, as SES posts them for every email it accepts. The runner sends the profile's `feedback` before each run's offers, or clears it when the profile names none. Each share is of the sends the edge accepts: `delivery`, `hardBounce` and `softBounce` are each send's one outcome and add up to at most 1, `complaint` and `open` are at most `delivery`, and `click` is at most `open`. The edge spreads the outcomes evenly over the sends, so each count stays within one of its share. It posts a signed notification for each event, one send's events in turn, and skips sends that name no configuration set and sends a bounce fault answered. Each post is an `ses.feedback` record with no fault, and `detail.feedback` names its `eventType` and the `durationMs` cdp-api took to answer it.
 - **Holds without HTTP.** `EdgeProcess.hold(rule)` adds a fault over IPC, for the Environment's `edge.fault` action, and returns `observed`, `accepted` and `release`. `ProviderEdge.hold(rule)` does the same in process, for Jest.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
@@ -942,7 +945,7 @@ export type JournalEntry = {
     - After `check` reads the truth, the runner reads `app_metrics2` in ClickHouse for the run's teams, from the hour the run started, `app_source = 'hog_flow'`. It reads `email_sent`, `email_delivered` and `email_failed`.
     - The sink's count for each counter comes from the truth of this run's units:
       - `email_sent`: 2xx `ses.send` records.
-      - `email_delivered`: 0, because the edge publishes no delivery notifications.
+      - `email_delivered`: `ses.feedback` records of `eventType` `Delivery` that cdp-api answered 2xx, which the profile's feedback shares post.
       - `email_failed`: not counted for now, see below.
     - Metrics arrive late: the worker flushes them after each batch, and ClickHouse consumes them from Kafka. So the runner reads again every second. It stops when no counter changed for 15 seconds, even when the counts already match the sink, so a late duplicate still shows. After a failed read, the 15 seconds start again at the next read that succeeds. After 60 seconds it keeps the last read and marks it incomplete. The reading is saved as `counters.json`.
     - Keys: `owed`, the email messages the journal owes by the recovery horizon, counted as `no_loss` counts them. For each counter, `<counter>` is the signed difference, counted minus sink, and `<counter>_counted` and `<counter>_sink` are the two sides. A metrics flush that fails, which the monitoring service logs and swallows, shows as negative drift.

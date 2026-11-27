@@ -51,6 +51,7 @@ import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { _fetch, fetch, internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -66,7 +67,7 @@ import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/
 import { JournalEntry } from '../judge/judge'
 import { DriveWindow } from '../judge/measurements'
 import { main } from '../main'
-import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
+import { FeedbackShares, ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
@@ -1102,6 +1103,8 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let feedbackReceiver: http.Server
+    let feedbackPosts: string[]
     let throughTheEdge: ProxyAgent
     let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
@@ -1216,7 +1219,9 @@ describe('runner through seed, drive and judge', () => {
             warmUp,
             convergeWithin,
             settings = {},
+            feedback,
         }: {
+            feedback?: Profile['feedback']
             replicas?: Profile['replicas']
             parks?: number
             invariants?: Named[]
@@ -1262,6 +1267,7 @@ describe('runner through seed, drive and judge', () => {
                 replicas,
                 ...(loadTargets ? { load: loadTargets } : {}),
                 ...(backlog ? { backlog } : {}),
+                ...(feedback ? { feedback } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -1311,10 +1317,23 @@ describe('runner through seed, drive and judge', () => {
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
             ...api.credentials,
         }
+        feedbackPosts = []
+        feedbackReceiver = http.createServer((request, response) => {
+            let body = ''
+            request.on('data', (chunk) => (body += chunk))
+            request.on('end', () => {
+                feedbackPosts.push(
+                    (parseJSON((parseJSON(body) as { Message: string }).Message) as { eventType: string }).eventType
+                )
+                response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+            })
+        })
+        await new Promise<void>((resolve) => feedbackReceiver.listen(0, '127.0.0.1', resolve))
         edge = await startProviderEdge({
             port: 0,
             trackingKeys: secretsOf(env).encryptionSaltKeys,
             caDir: path.join(cacheHome, 'edge-ca'),
+            feedbackUrl: `http://127.0.0.1:${(feedbackReceiver.address() as AddressInfo).port}/public/m/ses_webhook`,
         })
         throughTheEdge = new ProxyAgent({
             uri: edge.url,
@@ -1344,6 +1363,8 @@ describe('runner through seed, drive and judge', () => {
     const cleanUp = async (): Promise<void> => {
         await throughTheEdge.close()
         await edge.close()
+        feedbackReceiver.closeAllConnections()
+        await new Promise((resolve) => feedbackReceiver.close(resolve))
         const teams = [
             ...new Set(
                 results.flatMap((result) =>
@@ -1632,6 +1653,13 @@ describe('runner through seed, drive and judge', () => {
             ),
             dependencies: expect.objectContaining({ name: 'postgres', kind: 'gone', reason: refused.reason }),
         })
+    }, 30_000)
+
+    it('posts the feedback shares the profile names for each email the edge accepts', async () => {
+        await run('all', [], 'event_email', { feedback: FeedbackShares.parse({ delivery: 1 }) })
+
+        expect(edge.sent.length).toBeGreaterThan(0)
+        await waitForExpect(() => expect(feedbackPosts).toEqual(edge.sent.map(() => 'Delivery')), 5000, 10)
     }, 30_000)
 
     it('spreads the intake offers over every cdp-api replica the profile starts', async () => {

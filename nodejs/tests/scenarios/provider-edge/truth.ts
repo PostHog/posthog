@@ -23,7 +23,13 @@ export type TruthRecord = {
         error?: string
         errorType?: string
         request?: { method: string; host: string; path: string }
-        feedback?: { snsMessageId: string; sesMessageId: string; bouncedRecipients: string[] }
+        feedback?: {
+            eventType: string
+            snsMessageId: string
+            sesMessageId: string
+            durationMs: number
+            bouncedRecipients?: string[]
+        }
     }
 }
 

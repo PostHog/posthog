@@ -8,7 +8,15 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesAnswer, SesStatusAnswer, hitOf, ruleOf } from './faults'
-import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
+import {
+    FeedbackEvent,
+    FeedbackPlan,
+    FeedbackShares,
+    SIGNING_CERT_PATH,
+    SnsSigner,
+    notificationOf,
+    postFeedback,
+} from './feedback'
 import { PgProxy, startPgProxy } from './postgres'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
@@ -24,6 +32,7 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
+export { FeedbackShares } from './feedback'
 export { AmbiguousParams, SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
@@ -203,7 +212,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             detail: { message: truthMessageOf(accepted) },
         })
         if (fault?.answer.kind === 'bounce' && feedback) {
-            setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
+            setImmediate(() => void sendFeedback(feedback, accepted, ['hardBounce'], correlation.unitId, fault.name))
+        } else if (plan && feedback && accepted.configurationSet !== undefined) {
+            const events = plan.eventsOfNextSend()
+            setImmediate(() => void sendFeedback(feedback, accepted, events, correlation.unitId))
         }
         const reply = { status: 200, body: { MessageId: messageId } }
         if (fault?.answer.kind === 'hold-answer') {
@@ -215,8 +227,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const sendFeedback = async (
         { signer, url }: Feedback,
         message: SesMessage,
-        fault: string,
-        unitId: string | undefined
+        events: FeedbackEvent[],
+        unitId: string | undefined,
+        fault?: string
     ): Promise<void> => {
         if (message.configurationSet === undefined) {
             truth.append({
@@ -228,18 +241,44 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             })
             return
         }
-        const { envelope, bouncedRecipients } = hardBounceOf(message, signer)
-        const answer = await postFeedback(url, envelope)
-        truth.append({
-            kind: 'ses.feedback',
-            status: answer.status,
-            fault,
-            unitId,
-            detail: {
-                error: answer.error,
-                feedback: { snsMessageId: envelope.MessageId, sesMessageId: message.messageId, bouncedRecipients },
-            },
-        })
+        for (const event of events) {
+            const { envelope, eventType, bouncedRecipients } = notificationOf(message, event, signer)
+            const postedAt = performance.now()
+            const answer = await postFeedback(url, envelope)
+            truth.append({
+                kind: 'ses.feedback',
+                status: answer.status,
+                fault,
+                unitId,
+                detail: {
+                    error: answer.error,
+                    feedback: {
+                        eventType,
+                        snsMessageId: envelope.MessageId,
+                        sesMessageId: message.messageId,
+                        durationMs: performance.now() - postedAt,
+                        ...(bouncedRecipients ? { bouncedRecipients } : {}),
+                    },
+                },
+            })
+        }
+    }
+
+    let plan: FeedbackPlan | undefined
+
+    const missingForFeedback = (): string =>
+        signer ? 'no feedback URL' : 'no certificate directory to sign feedback with'
+
+    const planFeedback = (body: unknown): Reply => {
+        const parsed = FeedbackShares.safeParse(body)
+        if (!parsed.success) {
+            return { status: 400, body: { problems: problemsOf(parsed.error, 'feedback') } }
+        }
+        if (!feedback) {
+            return { status: 400, body: { problems: [`feedback: the edge has ${missingForFeedback()}`] } }
+        }
+        plan = new FeedbackPlan(parsed.data)
+        return { status: 204 }
     }
 
     const addCardFault = (body: unknown): Reply => {
@@ -296,6 +335,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                 }
             case 'POST /_faults':
                 return addCardFault(body)
+            case 'PUT /_feedback':
+                return planFeedback(body)
+            case 'DELETE /_feedback':
+                plan = undefined
+                return { status: 204 }
             case 'DELETE /_faults':
                 clearFaults()
                 return { status: 204 }

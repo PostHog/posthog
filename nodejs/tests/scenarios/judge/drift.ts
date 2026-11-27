@@ -26,9 +26,12 @@ const ofThisRun = ({ journal, truth }: Evidence): TruthRecord[] => {
 type SinkCounts = Pick<Counted, 'email_sent' | 'email_delivered'>
 
 function sinkCountsOf(evidence: Evidence): SinkCounts {
+    const accepted = ofThisRun(evidence).filter(({ status }) => isAccepted(status))
     return {
-        email_sent: ofThisRun(evidence).filter(({ kind, status }) => kind === 'ses.send' && isAccepted(status)).length,
-        email_delivered: 0,
+        email_sent: accepted.filter(({ kind }) => kind === 'ses.send').length,
+        email_delivered: accepted.filter(
+            ({ kind, detail }) => kind === 'ses.feedback' && detail.feedback?.eventType === 'Delivery'
+        ).length,
     }
 }
 

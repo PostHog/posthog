@@ -23,7 +23,8 @@ const answered = (
     status = 200,
     kind: TruthRecord['kind'] = 'ses.send',
     actionId = 'email',
-    flowId?: string
+    flowId?: string,
+    eventType = 'Bounce'
 ): TruthRecord => ({
     seq,
     at: new Date(FROM).toISOString(),
@@ -34,7 +35,7 @@ const answered = (
     status,
     detail:
         kind === 'ses.feedback'
-            ? { feedback: { snsMessageId: 'sns', sesMessageId: 'ses', bouncedRecipients: ['bounced@example.com'] } }
+            ? { feedback: { eventType, snsMessageId: 'sns', sesMessageId: 'ses', durationMs: 1 } }
             : status === 429
               ? { errorType: 'TooManyRequestsException' }
               : {},
@@ -96,24 +97,27 @@ describe('counter drift', () => {
         answered(9, 'run-6', 400, 'ses.send', 'email', 'follow-up-flow'),
         answered(10, 'run-7', 429),
         answered(11, 'run-8', 429),
+        answered(12, 'run-1', 200, 'ses.feedback', 'email', undefined, 'Delivery'),
+        answered(13, 'run-3', 503, 'ses.feedback', 'email', undefined, 'Delivery'),
+        answered(14, 'other-1', 200, 'ses.feedback', 'email', undefined, 'Delivery'),
     ]
-    const sink = { owed: 7, email_sent_sink: 3, email_failed_sink: null }
+    const sink = { owed: 7, email_sent_sink: 3, email_delivered_sink: 1, email_failed_sink: null }
 
     it.each<[string, Counted, Record<string, number | null>]>([
         [
             'records zero drift when every counter saw what the sink saw',
-            counted({ email_sent: 3, email_failed: 2 }),
+            counted({ email_sent: 3, email_delivered: 1, email_failed: 2 }),
             { email_sent: 0, email_delivered: 0, email_failed: null, email_failed_counted: 2, email_bounced: null },
         ],
         [
             'records the sends a lost metrics flush never counted as negative drift',
-            counted({ email_failed: 2 }),
+            counted({ email_delivered: 1, email_failed: 2 }),
             { email_sent: -3, email_sent_counted: 0 },
         ],
         [
             'records counts past the sink as positive drift',
             counted({ email_sent: 3, email_delivered: 3, email_failed: 2 }),
-            { email_delivered: 3, email_delivered_sink: 0 },
+            { email_delivered: 2, email_delivered_sink: 1 },
         ],
     ])('%s', (_name, read, expected) => {
         expect(driftOf(journal, truth, { counters: { counted: read, consumers: 1 } })).toMatchObject({
