@@ -115,7 +115,7 @@ class TestServiceAccountAPI(APIBaseTest):
         for method, url in [("post", self.url), ("patch", f"{self.url}{self.account.uuid}/")]:
             response = getattr(self.client, method)(url, payload)
             assert response.status_code == 400
-            assert response.json()["detail"] == "Only the name can be set."
+            assert response.json()["detail"] == "This field cannot be set."
         assert User.objects.count() == user_count
         self.account.refresh_from_db()
         assert self.account.first_name == "Deploy"
