@@ -180,9 +180,15 @@ class Operation:
     # Opened from a support ticket link (`?ticket=<url>`), the reason starts as "For ticket <url>". Staff still read
     # and submit it, so only an operation whose reason names the ticket anyway opts in.
     reason_from_ticket: bool = False
+    # The most used action on a record. The shell shows it once, as a button in the record header, not in its panel.
+    header: bool = False
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.header and self.gate is not None:
+            raise ValueError(
+                f"Operation {self.key!r} sits in the header, which cannot show who may run it. Drop the gate"
+            )
         if self.preview is not None and self.form_class is None:
             raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
         if self.reason_from_ticket and (self.form_class is None or "reason" not in self.form_class.base_fields):

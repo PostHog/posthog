@@ -29,6 +29,18 @@ urlpatterns = [
         for record_type in RECORD_TYPES.values()
         for route in (
             path(
+                f"admin/console/{record_type.plural}/",
+                admin.site.admin_view(views.record_list),
+                {"record": record_type.key},
+                name=f"{record_type.url_name}_list",
+            ),
+            path(
+                f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/<slug:section>/",
+                admin.site.admin_view(views.record_section),
+                {"record": record_type.key},
+                name=f"{record_type.url_name}_section",
+            ),
+            path(
                 f"admin/console/{record_type.plural}/<{record_type.pk_converter}:pk>/",
                 admin.site.admin_view(views.record_detail),
                 {"record": record_type.key},
@@ -71,6 +83,7 @@ urlpatterns = [
         admin.site.admin_view(views.run_tool_operation),
         name="admin_console_tool_operation",
     ),
+    path("admin/console/results/", admin.site.admin_view(views.results_index), name="admin_console_results"),
     path(
         "admin/console/results/<slug:result_id>/",
         admin.site.admin_view(views.operation_result),

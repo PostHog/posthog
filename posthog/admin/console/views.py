@@ -23,7 +23,7 @@ import structlog
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
-from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
+from posthog.admin.console.records import RECORD_TYPES, RELATED_SEGMENT, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.related import RelatedRecords
 from posthog.admin.console.results import OperationResult, OperationResults, ResultState
@@ -326,35 +326,34 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
     RecentRecords.remember(request, record_type, obj)
-    panels = [
-        RenderedPanel(
-            panel=panel,
-            facts=panel.facts(obj),
-            operations=[
-                _rendered_operation(
-                    request,
-                    operation,
-                    panel.owner,
-                    _with_kept_query(
-                        reverse(
-                            record_type.operation_url_name,
-                            kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
-                        ),
-                        request,
-                        (SUPPORT_TICKET_PARAM,),
-                    ),
-                )
-                for operation in _offered_operations(panel, obj)
-            ],
-        )
-        for panel in console.panels_for(record_type.key)
-    ]
+    panels: list[RenderedPanel] = []
+    header_links: list[RecordLink] = []
+    for panel in console.panels_for(record_type.key):
+        facts = panel.facts(obj)
+        operations = []
+        in_header = False
+        for operation in _offered_operations(panel, obj):
+            url = _with_kept_query(
+                reverse(
+                    record_type.operation_url_name,
+                    kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                ),
+                request,
+                (SUPPORT_TICKET_PARAM,),
+            )
+            if operation.header:
+                header_links.append(RecordLink(label=operation.label, href=url))
+                in_header = True
+            else:
+                operations.append(_rendered_operation(request, operation, panel.owner, url))
+        if facts or operations or not in_header:
+            panels.append(RenderedPanel(panel=panel, facts=facts, operations=operations))
     return render(
         request,
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": [_with_kept_ticket(link, request) for link in record_type.links(obj)],
+            "record_links": [*header_links, *(_with_kept_ticket(link, request) for link in record_type.links(obj))],
             "related": RelatedRecords(record_type, obj).previews(),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
@@ -366,6 +365,33 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
         },
     )
+
+
+@require_safe
+def record_list(request: HttpRequest, record: str) -> HttpResponse:
+    """A record type's plural URL opens the tool that lists its records, or the lookup."""
+    record_type = _record_type(record)
+    if record_type.list_tool is None:
+        return redirect(_with_query(reverse("admin_console_home"), request))
+    return redirect(_with_query(reverse("admin_console_tool", kwargs={"tool_key": record_type.list_tool}), request))
+
+
+@require_safe
+def record_section(request: HttpRequest, record: str, pk: object, section: str) -> HttpResponse:
+    """A record URL cut after its related lists or a panel leads back to the record, at that panel."""
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    if section == RELATED_SEGMENT:
+        return redirect(record_type.url(obj))
+    if console.get_panel(record_type.key, section) is None:
+        raise Http404("Unknown console panel")
+    return redirect(f"{record_type.url(obj)}#panel-{section}")
+
+
+@require_safe
+def results_index(request: HttpRequest) -> HttpResponse:
+    """Each result shows once at its own URL, so the bare results URL leads to the lookup."""
+    return redirect("admin_console_home")
 
 
 @require_safe
