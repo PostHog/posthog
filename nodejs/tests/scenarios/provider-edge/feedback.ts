@@ -61,7 +61,7 @@ export class FeedbackPlan {
         this.weights = { delivery, hardBounce, softBounce, none: Math.max(0, 1 - delivery - hardBounce - softBounce) }
     }
 
-    eventsOfNextSend(): FeedbackEvent[] {
+    eventsOfNextSend(tracksEngagement: boolean): FeedbackEvent[] {
         const outcome = this.nextOutcome()
         if (outcome !== 'delivery') {
             return outcome === 'none' ? [] : [outcome]
@@ -69,7 +69,7 @@ export class FeedbackPlan {
         const { delivery, open, click, complaint } = this.shares
         const events: FeedbackEvent[] = ['delivery']
         this.delivered += 1
-        if (crossed(this.delivered, shareOf(open, delivery))) {
+        if (tracksEngagement && crossed(this.delivered, shareOf(open, delivery))) {
             this.opened += 1
             events.push('open')
             if (crossed(this.opened, shareOf(click, open))) {

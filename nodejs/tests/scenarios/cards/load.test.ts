@@ -711,6 +711,12 @@ describe('load', () => {
         ],
         ['a host block', devCard, { ...devProfile, host: { cpuCeiling: 0.5 } }, 'profile: dev does not run host'],
         [
+            'feedback shares, which only the local edge posts',
+            devCard,
+            { ...devProfile, feedback: { delivery: 1, hardBounce: 0, softBounce: 0, complaint: 0, open: 0, click: 0 } },
+            'profile: dev does not run feedback',
+        ],
+        [
             'parked flows, which the workflow on dev does not have',
             devCard,
             { ...devProfile, traffic: { capture_webhook: { ratePerSecond: 1, parks: 2 } } },

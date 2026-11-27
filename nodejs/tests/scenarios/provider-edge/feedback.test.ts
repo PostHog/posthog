@@ -424,6 +424,7 @@ describe('provider edge SES feedback', () => {
                         eventType: 'Delivery',
                         snsMessageId: expect.any(String),
                         sesMessageId: expect.any(String),
+                        postedAt: expect.any(String),
                         durationMs: expect.any(Number),
                     },
                 ]),
@@ -432,33 +433,29 @@ describe('provider edge SES feedback', () => {
         )
     })
 
-    it.each<[string, () => Promise<unknown>, { configurationSet?: null }, string[]]>([
+    it.each<[string, () => Promise<unknown>, { configurationSet?: string | null }, string[]]>([
+        ['a tracked send', () => Promise.resolve(), {}, ['Delivery', 'Open', 'Click']],
         ['a bounced send', bounceEverySend, {}, ['Bounce:Permanent']],
         ['a send after the shares are cleared', () => control('DELETE', '/_feedback'), {}, []],
         ['a send that names no configuration set', () => Promise.resolve(), { configurationSet: null }, []],
-    ])('posts only what SES would publish for %s', async (_story, setUp, send, expected) => {
-        const marker = 'run-1-9@www.example.com'
-        await control('PUT', '/_feedback', { delivery: 1, open: 1 })
-        await setUp()
+        [
+            'a send on the configuration set without open and click tracking',
+            () => Promise.resolve(),
+            { configurationSet: 'scenario-untracked' },
+            ['Delivery'],
+        ],
+    ])(
+        'posts only what SES would publish for %s, before it answers the truth head',
+        async (_story, setUp, send, expected) => {
+            await control('PUT', '/_feedback', { delivery: 1, open: 1, click: 1 })
+            await setUp()
 
-        await sendTracked(send)
-        await control('DELETE', '/_faults')
-        await control('PUT', '/_feedback', { delivery: 1 })
-        await sendTracked({ destination: { ToAddresses: [marker] } })
+            await sendTracked(send)
+            await control('GET', '/_truth/head')
 
-        const sentTo = (post: Received): string =>
-            (parseJSON((parseJSON(post.body) as { Message: string }).Message) as { mail: { destination: string[] } })
-                .mail.destination[0]
-        await waitForExpect(
-            () =>
-                expect({
-                    first: received.filter((post) => sentTo(post) !== marker).map(eventTypeOf),
-                    marker: received.filter((post) => sentTo(post) === marker).map(eventTypeOf),
-                }).toEqual({ first: expected, marker: ['Delivery'] }),
-            5000,
-            10
-        )
-    })
+            expect(received.map(eventTypeOf)).toEqual(expected)
+        }
+    )
 
     it.each<[string, object, string]>([
         [

@@ -26,6 +26,7 @@ import {
     RoleId,
     RoleSpec,
     configHashOf,
+    configurationSetsOf,
     consumerGroupsOf,
     intakeTopicsOf,
     portOf,
@@ -472,6 +473,7 @@ export function createEnvironment({
             trackingKeys: secrets.encryptionSaltKeys,
             caDir: path.join(stateDir, 'edge-ca'),
             feedbackUrl: `http://127.0.0.1:${portOf({ role: 'cdp-api', replica: 0 })}/public/m/ses_webhook`,
+            configurationSets: configurationSetsOf(env),
         })
         const specs = roleSpecs(env, edge, secrets, stateDir, {}, sesRateLimiterValkey)
         running = specs
