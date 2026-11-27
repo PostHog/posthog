@@ -1,7 +1,7 @@
 import './ContentTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactNode, useMemo, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -51,7 +51,16 @@ function cardLook(
     }
 }
 
-export function DescriptionInfo({ description }: { description: string }): JSX.Element {
+/** Opens the description on hover or click. Its trigger is the info icon, or `children` when a caller shows cut-off text instead. */
+export function DescriptionInfo({
+    description,
+    className,
+    children,
+}: {
+    description: string
+    className?: string
+    children?: ReactNode
+}): JSX.Element {
     const [open, setOpen] = useState(false)
     return (
         <Tooltip open={open} onOpenChange={setOpen}>
@@ -61,13 +70,15 @@ export function DescriptionInfo({ description }: { description: string }): JSX.E
                 render={
                     <button
                         type="button"
-                        className={clsx(DESCRIPTION_ICON_CLASS, 'inline-flex shrink-0 text-muted-foreground')}
+                        className={
+                            className ?? clsx(DESCRIPTION_ICON_CLASS, 'inline-flex shrink-0 text-muted-foreground')
+                        }
                         aria-label={description}
                         onClick={() => setOpen(true)}
                     />
                 }
             >
-                <IconInfo />
+                {children ?? <IconInfo />}
             </TooltipTrigger>
             <TooltipContent className="max-w-80">
                 <span className="line-clamp-6">{description}</span>
