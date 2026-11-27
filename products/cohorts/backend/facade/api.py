@@ -357,8 +357,9 @@ def create_cohort_from_filters(
     cohort.enqueue_calculation(initiating_user=user)
     if cohort.cohort_type == CohortType.REALTIME:
         # Only the new cohort may be turned on, so a cohort its filters include stays as its owner left it.
+        # It records no one, because an import turns on one cohort per segment and each would notify.
         try:
-            turn_realtime_on(team_id, cohort.id, can_edit=lambda each: each.id == cohort.id)
+            turn_realtime_on(team_id, cohort.id, can_edit=lambda each: each.id == cohort.id, enabled_by_id=None)
         except RealtimeLimitReached as error:
             report_user_action(
                 user,

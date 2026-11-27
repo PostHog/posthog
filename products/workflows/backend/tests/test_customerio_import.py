@@ -1128,6 +1128,7 @@ class TestWorkflowImportAPI(APIBaseTest):
 
         cohort = Cohort.objects.get(team=self.team, description__startswith="Imported from Customer.io segment 16.")
         assert (cohort.name, cohort.cohort_type, cohort.is_static) == ("Active trials", CohortType.REALTIME, False)
+        assert (cohort.realtime_enabled, cohort.realtime_enabled_by_id) == (True, None)
         assert [(item["status"], item["cohort_id"]) for item in first["segment_cohorts"]] == [("created", cohort.id)]
         assert [(item["status"], item["cohort_id"]) for item in second["segment_cohorts"]] == [("reused", cohort.id)]
         assert len(self._imported_cohorts()) == 2

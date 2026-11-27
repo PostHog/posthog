@@ -159,6 +159,7 @@ COHORT_RECALCULATION_FIELDS = frozenset(
 # shape hash. A save of a whole row read before one of those writes would put the old value back.
 COHORT_REALTIME_SWITCH_FIELDS = (
     "realtime_enabled_at",
+    "realtime_enabled_by_id",
     "last_backfill_events_at",
     "last_backfill_person_properties_at",
     "last_realtime_cohort_calculation_at",
@@ -286,6 +287,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # Null while realtime is off. The choice survives a save that makes the cohort ineligible, so the
     # pipeline loads a cohort only when it is both `realtime` and on.
     realtime_enabled_at = models.DateTimeField(blank=True, null=True)
+    # Who to notify when this turn-on first becomes ready. The finalizer clears it once it has tried to notify.
+    realtime_enabled_by_id = models.BigIntegerField(blank=True, null=True)
 
     last_import_total_count = models.IntegerField(
         blank=True,
