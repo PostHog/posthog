@@ -50,8 +50,8 @@ def date_moved_by_whole_days(
     operands = _sum_or_difference(node)
     if operands is None:
         return None
-    date, interval, subtract = operands
-    if not subtract and _is_whole_day_interval(date):
+    date, interval = operands.left, operands.right
+    if not operands.subtract and _is_whole_day_interval(date):
         date, interval = interval, date
     date_type = resolve_type(date)
     if not isinstance(date_type, ast.DateType) or not _is_whole_day_interval(interval):
@@ -62,14 +62,21 @@ def date_moved_by_whole_days(
     )
 
 
-def _sum_or_difference(node: ast.Expr) -> tuple[ast.Expr, ast.Expr, bool] | None:
+@frozen
+class _SumOrDifference:
+    left: ast.Expr
+    right: ast.Expr
+    subtract: bool
+
+
+def _sum_or_difference(node: ast.Expr) -> _SumOrDifference | None:
     if isinstance(node, ast.ArithmeticOperation) and node.op in (
         ast.ArithmeticOperationOp.Add,
         ast.ArithmeticOperationOp.Sub,
     ):
-        return node.left, node.right, node.op == ast.ArithmeticOperationOp.Sub
+        return _SumOrDifference(left=node.left, right=node.right, subtract=node.op == ast.ArithmeticOperationOp.Sub)
     if isinstance(node, ast.Call) and node.name.lower() in {"plus", "minus"} and len(node.args) == 2:
-        return node.args[0], node.args[1], node.name.lower() == "minus"
+        return _SumOrDifference(left=node.args[0], right=node.args[1], subtract=node.name.lower() == "minus")
     return None
 
 
