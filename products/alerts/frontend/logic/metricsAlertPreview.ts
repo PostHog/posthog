@@ -37,3 +37,24 @@ export function deriveMetricsAlertPreviewSeries(
         labels: longest?.points.map((point) => point.time) ?? [],
     }
 }
+
+/** The P95 of every point across every series, rounded up to 3 significant figures; null when no point is finite. */
+export function metricsPreviewP95(preview: MetricsAlertPreviewSeries | null | undefined): number | null {
+    const values = (preview?.rows ?? [])
+        .flatMap((row) => row.data)
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b)
+    if (!values.length) {
+        return null
+    }
+    const position = (values.length - 1) * 0.95
+    const lower = Math.floor(position)
+    const upper = Math.ceil(position)
+    const p95 = values[lower] + (values[upper] - values[lower]) * (position - lower)
+    if (p95 === 0) {
+        return 0
+    }
+    // Round up to 3 significant figures, so the threshold never sits below the P95.
+    const step = 10 ** (Math.floor(Math.log10(Math.abs(p95))) - 2)
+    return Number((Math.ceil(p95 / step) * step).toPrecision(3))
+}

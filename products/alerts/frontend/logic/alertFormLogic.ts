@@ -64,7 +64,7 @@ import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { deriveMetricsAlertPreviewSeries, MetricsAlertPreviewSeries } from './metricsAlertPreview'
+import { deriveMetricsAlertPreviewSeries, MetricsAlertPreviewSeries, metricsPreviewP95 } from './metricsAlertPreview'
 
 export { canCheckOngoingInterval, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
@@ -1103,6 +1103,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (validationErrors.length > 0) {
                     const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
                     lemonToast.error(`Couldn't save alert: ${message}`)
+                }
+            },
+            loadMetricsPreviewResponseSuccess: () => {
+                const bounds = values.alertForm.threshold?.configuration?.bounds
+                if (props.alert || bounds?.lower != null || bounds?.upper != null) {
+                    return
+                }
+                const p95 = metricsPreviewP95(values.metricsAlertPreview)
+                if (p95 != null) {
+                    actions.setAlertFormValue('threshold', {
+                        configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: p95 } },
+                    })
                 }
             },
             submitAlertFormSuccess: async () => {
