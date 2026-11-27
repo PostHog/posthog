@@ -465,9 +465,8 @@ def _sessions_by_click(
             for index, at in enumerate(click_times)
             if not off_site[index] and at - CLOCK_SKEW <= landing.landed_at <= at + LANDING_AFTER_CLICK
         ]
-        same_page = [index for index in eligible if _lands_on(links[index], landing.landing_url)]
-        free = [index for index in same_page or eligible if index not in sessions]
-        if free and (same_page or len(free) == 1):
+        free = [index for index in eligible if index not in sessions and _lands_on(links[index], landing.landing_url)]
+        if free:
             sessions[_started_by(free, click_times, landing.landed_at)] = landing
     return sessions
 

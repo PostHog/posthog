@@ -693,6 +693,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     def test_gives_each_session_to_the_click_that_started_it(self, _flag):
         message_id, queued_at = self._clicked_send()
+        for seconds, page in ((300, "a"), (900, "b")):
+            self._email_event(
+                "$workflows_email_link_clicked",
+                message_id,
+                queued_at + timedelta(seconds=seconds),
+                f"https://example.com/{page}",
+            )
         self._visit(
             "second-visit", f"https://example.com/b?ph_workflow_run={message_id}", queued_at + timedelta(seconds=905)
         )
@@ -707,7 +714,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._visit("much-later", f"https://example.com/a?ph_workflow_run={message_id}", queued_at + timedelta(hours=5))
         flush_persons_and_events()
 
-        assert self._clicks(message_id) == [(None, "first-visit", None), (None, "second-visit", None)]
+        assert self._clicks(message_id) == [
+            ("https://example.com/a", "first-visit", None),
+            ("https://example.com/b", "second-visit", None),
+        ]
 
     @parameterized.expand(
         [
@@ -744,6 +754,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 [(300, BILLING), (330, DOCS)],
                 [("billing", "/billing", 303), ("reopened", "/billing", 340)],
                 [(BILLING, "billing", None), (DOCS, None, "not_found")],
+            ),
+            (
+                "a redirect that drops the link's parameter gets no session",
+                [(300, f"{BILLING}?ref=email")],
+                [("redirected", "/billing", 303)],
+                [(f"{BILLING}?ref=email", None, "not_found")],
             ),
             (
                 "a visit at the end of the window keeps its click",
@@ -821,12 +837,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [link for link, *_ in self._clicks(message_id)] == [BILLING] * len(click_seconds)
 
-    def test_finds_the_session_a_click_started_when_the_send_named_no_distinct_id(self, _flag):
+    def test_gives_no_session_to_a_click_whose_link_is_unknown_when_the_send_named_no_distinct_id(self, _flag):
         message_id, queued_at = self._clicked_send(distinct_id=None)
         self._visit("visit", f"https://example.com/a?ph_workflow_run={message_id}", queued_at + timedelta(seconds=301))
         flush_persons_and_events()
 
-        assert self._clicks(message_id) == [(None, "visit", None), (None, None, "link_unknown")]
+        assert self._clicks(message_id) == [(None, None, "link_unknown"), (None, None, "link_unknown")]
 
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])
