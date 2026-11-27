@@ -156,6 +156,27 @@ class TestConsumerTickDecision(BaseTest):
 
         assert self._decide(schema, flag=flag) is None
 
+    @parameterized.expand(
+        [
+            ("capture_paused_and_loaded", "cdc_extraction_paused", {}, TickDecision.STOOD_DOWN),
+            ("source_broken_and_loaded", "cdc_broken", {}, TickDecision.STOOD_DOWN),
+            (
+                "capture_paused_with_unread_writes",
+                "cdc_extraction_paused",
+                {BUFFER_GENERATION_KEY: 3},
+                TickDecision.OWED,
+            ),
+        ]
+    )
+    def test_a_halted_table_is_judged_by_its_buffer_not_its_status(
+        self, _name: str, marker: str, config: dict, expected: TickDecision
+    ) -> None:
+        schema = self._schema(
+            status=ExternalDataSchema.Status.FAILED, config={marker: {"reason": "replication_lag"}, **config}
+        )
+
+        assert self._decide(schema) == expected
+
     def test_a_gate_error_lets_the_tick_run(self) -> None:
         schema = self._schema()
 
