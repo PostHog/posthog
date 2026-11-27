@@ -199,10 +199,10 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
-    "django.middleware.security.SecurityMiddleware",
-    # Above every middleware that can answer without calling the view, so those responses carry
-    # the noindex header too.
+    # Above every middleware that can answer without calling the view, such as the HTTPS
+    # redirect from SecurityMiddleware, so those responses carry the noindex header too.
     "posthog.robots_tag_middleware.RobotsTagMiddleware",
+    "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be

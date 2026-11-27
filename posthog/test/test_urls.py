@@ -153,6 +153,16 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(response.headers.get("X-Robots-Tag"), expected_robots_tag)
 
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_https_redirect_of_an_app_route_is_not_indexable(self):
+        self.client.logout()
+
+        response = self.client.get("/project/1/settings", follow=False)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://testserver/project/1/settings")
+        self.assertEqual(response.headers.get("X-Robots-Tag"), "noindex")
+
     @parameterized.expand(
         [
             ("no_slash_no_qs", "/sign-up", "/signup"),
