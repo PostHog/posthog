@@ -1,16 +1,23 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@posthog/quill'
 
+import { AiVisibilityAddBrandForm } from './AiVisibilityAddBrandForm'
 import { AiVisibilityBrandsSetting } from './AiVisibilityBrandsSetting'
 import { AiVisibilityEnginesSetting } from './AiVisibilityEnginesSetting'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
 const SECTIONS = [
     {
         title: 'Brands',
         description:
-            'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones Rankings compares you against.',
+            'Add your own site and your competitors, and label the companies behind the sites AI answers cite. The competitors you confirm are the ones Rankings compares you against.',
         dataAttr: 'content-autopilot-brands-card',
-        content: <AiVisibilityBrandsSetting />,
+        content: (
+            <>
+                <div className="mb-4">
+                    <AiVisibilityAddBrandForm formKey="settings" kinds={['own', 'competitor']} />
+                </div>
+                <AiVisibilityBrandsSetting />
+            </>
+        ),
     },
     {
         title: 'Engines',
@@ -23,7 +30,6 @@ const SECTIONS = [
 
 export const ContentAutopilotSettings = (): JSX.Element => (
     <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-sections">
-        <ContentAutopilotSetup />
         {SECTIONS.map(({ title, description, dataAttr, content }) => (
             <Card key={title} className="w-full max-w-3xl" data-attr={dataAttr}>
                 <CardHeader>
