@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict
 from datetime import timedelta
 from hashlib import sha256
+from typing import Literal
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -10,21 +11,51 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import Change
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
+from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.app_delivery import app_output_tabs
-from products.notebooks.backend.facade.contracts import AppEmbedAudience, AppOutput, AppOutputTab, AppViewGrantResult
+from products.notebooks.backend.facade.contracts import (
+    ActiveAppEmbed,
+    AppEmbedAudience,
+    AppOutput,
+    AppOutputTab,
+    AppViewGrantResult,
+)
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease
 
 ISSUER = "posthog:notebook-app-embed"
 MAX_PROJECT_AUDIENCES = 100
 ISSUE_BUDGET = Budget(burst=10, per_hour=60)
 VERIFIED_VIEW_BUDGET = Budget(burst=300, per_hour=6000)
+
+
+def active_embed_audiences(team_id: int, notebook_id: UUID) -> list[ActiveAppEmbed]:
+    audiences = (
+        NotebookAppEmbed.objects.for_team(team_id)
+        .filter(release__notebook_id=notebook_id, expires_at__gt=timezone.now())
+        .select_related("release")
+        .only("id", "origin", "tenant_column", "tenant_value", "release__revision", "expires_at")
+        .order_by("origin", "tenant_column", "tenant_value", "-release__revision", "pk")
+    )
+    return [
+        ActiveAppEmbed(
+            embed_id=embed.pk,
+            origin=embed.origin,
+            tenant_column=embed.tenant_column,
+            tenant_value=embed.tenant_value,
+            revision=embed.release.revision,
+            expires_at=embed.expires_at,
+        )
+        for embed in audiences[:MAX_PROJECT_AUDIENCES]
+    ]
 
 
 class EmbedCapacityUnavailable(APIException):
@@ -41,11 +72,55 @@ def require_capacity(key: str, budget: Budget) -> None:
         raise Throttled(wait=admission.retry_after)
 
 
+def embed_change(embed: NotebookAppEmbed, action: Literal["created", "changed", "deleted"]) -> Change:
+    metadata = {
+        "embed_id": str(embed.pk),
+        "origin": embed.origin,
+        "tenant_column": embed.tenant_column,
+        "revision": embed.release.revision,
+        "expires_at": embed.expires_at.isoformat(),
+    }
+    return Change(
+        type="Notebook",
+        field="app_embed",
+        action=action,
+        before=metadata if action == "deleted" else None,
+        after=metadata if action != "deleted" else None,
+    )
+
+
+def revoke_signed_embeds(
+    notebook: Notebook, actor: User, was_impersonated: bool, *, audience: dict[str, str] | None = None
+) -> bool:
+    matching = NotebookAppEmbed.objects.for_team(notebook.team_id).filter(
+        release__notebook=notebook, **(audience or {})
+    )
+    rows = list(
+        matching.select_related("release")
+        .only("id", "origin", "tenant_column", "expires_at", "release__revision")
+        .select_for_update(of=("self",))
+    )
+    if not rows:
+        return False
+    matching.filter(pk__in=[row.pk for row in rows]).delete()
+    log_notebook_activity(
+        "updated",
+        notebook,
+        notebook.team.organization_id,
+        notebook.team_id,
+        actor,
+        was_impersonated,
+        changes=[embed_change(row, "deleted") for row in rows],
+    )
+    return True
+
+
 @transaction.atomic
 def change_signed_embed(
     team_id: int,
     notebook_id: UUID,
-    issuer_id: int,
+    actor: User,
+    was_impersonated: bool,
     origin: str,
     tenant_column: str,
     tenant_value: str,
@@ -59,7 +134,8 @@ def change_signed_embed(
     )
     audience = {"origin": origin, "tenant_column": tenant_column, "tenant_value": tenant_value}
     if revoke:
-        NotebookAppEmbed.objects.for_team(team_id).filter(release__notebook=notebook, **audience).delete()
+        if not revoke_signed_embeds(notebook, actor, was_impersonated, audience=audience):
+            raise NotFound("No embed was found for this audience.")
         return AppViewGrantResult(url=None, expires_at=None)
     if not notebook.team.organization.allow_publicly_shared_resources:
         raise PermissionDenied("Public sharing is disabled for this organization.")
@@ -90,14 +166,14 @@ def change_signed_embed(
             "This project has reached its embed audience limit. Revoke an existing embed and try again."
         )
     private_key = Ed25519PrivateKey.generate()
-    embed, _ = NotebookAppEmbed.objects.for_team(team_id).update_or_create(
+    embed, created = NotebookAppEmbed.objects.for_team(team_id).update_or_create(
         team_id=team_id,
         release=release,
         origin=origin,
         tenant_column=tenant_column,
         tenant_value=tenant_value,
         defaults={
-            "issued_by_id": issuer_id,
+            "issued_by_id": actor.pk,
             "verification_key": private_key.public_key().public_bytes_raw(),
             "expires_at": expires_at,
             "snapshot": snapshot,
@@ -115,6 +191,15 @@ def change_signed_embed(
         },
         private_key,
         algorithm="EdDSA",
+    )
+    log_notebook_activity(
+        "updated",
+        notebook,
+        notebook.team.organization_id,
+        team_id,
+        actor,
+        was_impersonated,
+        changes=[embed_change(embed, "created" if created else "changed")],
     )
     return AppViewGrantResult(
         url=reverse("notebook_app_embed", args=[team_id, embed.pk]) + "#" + token, expires_at=expires_at

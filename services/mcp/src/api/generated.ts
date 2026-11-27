@@ -6609,6 +6609,15 @@ export namespace Schemas {
       active_version: AppVersionContract;
     }
 
+    export interface ActiveAppEmbed {
+      embed_id: string;
+      origin: string;
+      tenant_column: string;
+      tenant_value: string;
+      revision: number;
+      expires_at: string;
+    }
+
     export interface ActiveAppViewGrant {
       recipient_uuid: string;
       email: string;

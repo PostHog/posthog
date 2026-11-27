@@ -63,6 +63,16 @@ class AppViewGrantResult:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ActiveAppEmbed:
+    embed_id: UUID
+    origin: str
+    tenant_column: str
+    tenant_value: str
+    revision: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, kw_only=True)
 class AppEmbedAudience:
     origin: str
     issued_by_id: int

@@ -489,6 +489,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
     {"scope": "Notebook", "activities": ["updated"], "change_field": "app_view_grant"},
+    {"scope": "Notebook", "activities": ["updated"], "change_field": "app_embed"},
     {
         # Account views are private to their creator, so even their IDs and timestamps stay out of
         # the team and org feeds.

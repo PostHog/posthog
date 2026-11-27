@@ -7,7 +7,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
-import { notebooksAppEmbedsCreate } from '../generated/api'
+import { notebooksAppEmbedsActiveList, notebooksAppEmbedsCreate } from '../generated/api'
+import type { ActiveAppEmbedApi } from '../generated/api.schemas'
 
 export function NotebookAppEmbed({
     project,
@@ -26,15 +27,35 @@ export function NotebookAppEmbed({
     const [snippet, setSnippet] = useState('')
     const [message, setMessage] = useState('')
 
-    async function issue(revoke: boolean): Promise<void> {
+    const [audiences, setAudiences] = useState<ActiveAppEmbedApi[]>([])
+    const [listError, setListError] = useState(false)
+
+    async function loadAudiences(): Promise<void> {
+        try {
+            setAudiences(await notebooksAppEmbedsActiveList(project, shortId))
+            setListError(false)
+        } catch {
+            setAudiences([])
+            setListError(true)
+        }
+    }
+
+    async function showAudiences(): Promise<void> {
+        setBusy(true)
+        await loadAudiences()
+        setBusy(false)
+    }
+
+    async function issue(audience?: ActiveAppEmbedApi): Promise<void> {
+        const revoke = !!audience
         setBusy(true)
         setSnippet('')
         setMessage('')
         try {
             const result = await notebooksAppEmbedsCreate(project, shortId, {
-                origin,
-                tenant_column: column.trim(),
-                tenant_value: tenant,
+                origin: audience?.origin ?? origin,
+                tenant_column: audience?.tenant_column ?? column.trim(),
+                tenant_value: audience?.tenant_value ?? tenant,
                 revoke,
                 revision,
             })
@@ -53,9 +74,12 @@ export function NotebookAppEmbed({
             posthog.capture(revoke ? 'notebook app embed revoked' : 'notebook app embed created', { short_id: shortId })
         } catch {
             setMessage(
-                'Could not update the embed. Check the site origin, the tenant column in each published result, and your organization’s public sharing settings.'
+                revoke
+                    ? 'Could not revoke this audience. Check the active list and try again.'
+                    : 'Could not create the embed. Check the site origin, tenant column, published revision, and public sharing settings.'
             )
         } finally {
+            await loadAudiences()
             setBusy(false)
         }
     }
@@ -69,7 +93,13 @@ export function NotebookAppEmbed({
         !origin || !column.trim() || !tenant ? 'Enter a site origin, tenant column, and tenant value.' : undefined
     return (
         <>
-            <LemonButton size="small" onClick={() => setOpen(true)}>
+            <LemonButton
+                size="small"
+                onClick={() => {
+                    setOpen(true)
+                    void showAudiences()
+                }}
+            >
                 Signed embed
             </LemonButton>
             <LemonModal
@@ -139,17 +169,9 @@ export function NotebookAppEmbed({
                         type="primary"
                         disabledReason={disabledReason}
                         loading={busy}
-                        onClick={() => void issue(false)}
+                        onClick={() => void issue()}
                     >
                         Create embed
-                    </LemonButton>
-                    <LemonButton
-                        status="danger"
-                        disabledReason={disabledReason}
-                        disabled={busy}
-                        onClick={() => void issue(true)}
-                    >
-                        Revoke embed
                     </LemonButton>
                 </div>
                 {message && (
@@ -162,6 +184,37 @@ export function NotebookAppEmbed({
                         Copy embed code
                     </LemonButton>
                 )}
+                <h4 className="mt-5 mb-2">Active audiences</h4>
+                {listError ? (
+                    <LemonButton disabled={busy} onClick={() => void showAudiences()}>
+                        Retry loading audiences
+                    </LemonButton>
+                ) : audiences.length ? (
+                    audiences.map((audience) => (
+                        <div key={audience.embed_id} className="flex items-center justify-between gap-3 py-2 border-t">
+                            <div className="min-w-0 break-words">
+                                <strong>{audience.origin}</strong>
+                                <div>
+                                    {audience.tenant_column} = <code>{audience.tenant_value}</code>
+                                </div>
+                                <small>
+                                    Revision {audience.revision} · Expires{' '}
+                                    {new Date(audience.expires_at).toLocaleString()}
+                                </small>
+                            </div>
+                            <LemonButton
+                                status="danger"
+                                disabled={busy}
+                                onClick={() => void issue(audience)}
+                                tooltip="Revoke this site and tenant across all releases"
+                            >
+                                Revoke
+                            </LemonButton>
+                        </div>
+                    ))
+                ) : !busy ? (
+                    <p>No active audiences.</p>
+                ) : null}
             </LemonModal>
         </>
     )

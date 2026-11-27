@@ -35,6 +35,15 @@ def public_embed_rate_limit(key: str, budget: Budget) -> HttpResponse | None:
     return None
 
 
+class ActiveAppEmbedSerializer(serializers.Serializer):
+    embed_id = serializers.UUIDField()
+    origin = serializers.URLField()
+    tenant_column = serializers.CharField()
+    tenant_value = serializers.CharField()
+    revision = serializers.IntegerField()
+    expires_at = serializers.DateTimeField()
+
+
 class AppEmbedRequestSerializer(serializers.Serializer):
     origin = serializers.URLField(
         max_length=255, help_text="Exact HTTPS origin that may frame the embed, without a path."

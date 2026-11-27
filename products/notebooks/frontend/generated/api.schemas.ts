@@ -1004,6 +1004,15 @@ export interface AppViewGrantResultApi {
     expires_at: string | null
 }
 
+export interface ActiveAppEmbedApi {
+    embed_id: string
+    origin: string
+    tenant_column: string
+    tenant_value: string
+    revision: number
+    expires_at: string
+}
+
 export interface NotebookAppReleaseReviewApi {
     has_previous: boolean
     problems: string[]

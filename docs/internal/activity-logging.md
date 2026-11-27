@@ -11,7 +11,7 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
-Notebook app grant changes appear in the individual notebook’s activity history after its access check. Project and organization feeds, exports, SQL queries and destination events omit those changes.
+Notebook app grant changes and signed embed changes appear in the individual notebook’s activity history after its access check. Project and organization feeds, exports, SQL queries and destination events omit those changes.
 
 Activity rows show the actor, optional client tag, and time above the action summary and its target.
 Long action summaries collapse to two lines.

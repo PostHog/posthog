@@ -9,6 +9,7 @@ from django.test import Client
 from django.utils import timezone
 
 from posthog.models import OrganizationMembership
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
@@ -80,6 +81,68 @@ class TestNotebookAppEmbeds(APIBaseTest):
         assert response.status_code == 200, response.content
         return urldefrag(response.json()["url"])
 
+    def test_admin_can_identify_live_audiences_without_exposing_signed_urls(self) -> None:
+        self.issue("Coast")
+        self.issue("Grove")
+        audiences = NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release)
+        coast = audiences.get(tenant_value="Coast")
+        audiences.filter(tenant_value="Grove").update(expires_at=timezone.now() - timedelta(seconds=1))
+        inventory = self.management + "active/"
+        response = self.client.get(inventory)
+        assert response.status_code == 200, response.content
+        rows = response.json()
+        assert len(rows) == 1
+        assert rows[0] == {
+            "embed_id": str(coast.pk),
+            "origin": "https://portal.example.com",
+            "tenant_column": "workspace_id",
+            "tenant_value": "Coast",
+            "revision": 1,
+            "expires_at": rows[0]["expires_at"],
+        }
+        assert rows[0]["expires_at"]
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        assert self.client.get(inventory).status_code == 403
+
+    def test_sharing_history_records_embed_changes_with_their_actor(self) -> None:
+        self.issue("coast")
+        embed = NotebookAppEmbed.objects.for_team(self.team.pk).get(release=self.release)
+        metadata = {
+            "embed_id": str(embed.pk),
+            "origin": "https://portal.example.com",
+            "tenant_column": "workspace_id",
+            "revision": self.release.revision,
+            "expires_at": embed.expires_at.isoformat(),
+        }
+        with patch("products.notebooks.backend.presentation.views.notebook.is_impersonated", return_value=True):
+            self.issue("coast")
+        embed.refresh_from_db()
+        replaced = {**metadata, "expires_at": embed.expires_at.isoformat()}
+        revoke = {**self.configuration("coast"), "revoke": True}
+        assert self.client.post(self.management, revoke, format="json").status_code == 200
+        assert self.client.post(self.management, revoke, format="json").status_code == 404
+        records = ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            scope="Notebook",
+            item_id=self.notebook.short_id,
+            detail__contains={"changes": [{"field": "app_embed"}]},
+        ).order_by("created_at", "id")
+        actual = [
+            (row.user_id, row.was_impersonated, change["action"], change.get("before"), change.get("after"))
+            for row in records
+            if isinstance(row.detail, dict)
+            for change in row.detail["changes"]
+        ]
+        assert actual == [
+            (self.user.pk, False, "created", None, metadata),
+            (self.user.pk, True, "changed", None, replaced),
+            (self.user.pk, False, "deleted", replaced, None),
+        ]
+        notebook_url = f"/api/projects/{self.team.pk}/notebooks/"
+        self.assertContains(self.client.get(f"{notebook_url}{self.notebook.short_id}/activity/"), str(embed.pk))
+        self.assertNotContains(self.client.get(f"{notebook_url}activity/"), str(embed.pk))
+
     def test_stale_release_cannot_be_shared_and_expired_audiences_release_capacity(self) -> None:
         stale = {**self.configuration("coast"), "revision": self.release.revision + 1}
         denied = self.client.post(self.management, stale, format="json")
@@ -136,6 +199,13 @@ class TestNotebookAppEmbeds(APIBaseTest):
         )
         assert unpublished.status_code == 200, unpublished.content
         assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+        assert ActivityLog.objects.filter(
+            team_id=self.team.pk,
+            user=self.user,
+            scope="Notebook",
+            item_id=self.notebook.short_id,
+            detail__contains={"changes": [{"field": "app_embed", "action": "deleted"}]},
+        ).exists()
         self.notebook.refresh_from_db()
         new_layout = {
             "tabs": [{"id": "note", "title": "Notes"}],
