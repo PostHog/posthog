@@ -1,6 +1,6 @@
 import type { Point } from '../../Workflows/hogflows/editor/tile-canvas/tileCanvasModel'
 import type { AdventPollShares } from '../adventCalendarLogic'
-import { ADVENT_LAST_DAY, ADVENT_QUESTIONS, adventQuestionBefore } from '../adventContent'
+import { ADVENT_LAST_DAY, ADVENT_QUESTIONS, AdventOption, adventQuestionBefore } from '../adventContent'
 import { ADVENT_TRIGGER_ID, AdventDoor, AdventGraph, AdventLink } from '../adventGraph'
 
 export const ADVENT_FLOW_DOOR = { width: 70, height: 74 }
@@ -282,7 +282,9 @@ function alongLastRun(points: Point[], share: number): Point {
     return { x: a.x + (b.x - a.x) * share, y: a.y + (b.y - a.y) * share }
 }
 
-function linksOf(graph: AdventGraph): Pick<AdventLink, 'id' | 'from' | 'to' | 'walked'>[] {
+type FlowLink = Pick<AdventLink, 'id' | 'from' | 'to' | 'walked'>
+
+function linksOf(graph: AdventGraph): FlowLink[] {
     const lastDoors = graph.doors.filter((door) => door.day === ADVENT_LAST_DAY)
     return [
         ...graph.links,
@@ -295,6 +297,57 @@ function linksOf(graph: AdventGraph): Pick<AdventLink, 'id' | 'from' | 'to' | 'w
     ]
 }
 
+function branchOption(source: AdventFlowNode, target: AdventFlowNode): AdventOption | null {
+    const question = source.door ? ADVENT_QUESTIONS[source.door.day] : undefined
+    if (!question) {
+        return null
+    }
+    return source.door?.answer ?? question.options[target.lane === 'lower' ? 1 : 0]
+}
+
+function routeOf(
+    source: AdventFlowNode,
+    target: AdventFlowNode,
+    isMerge: boolean,
+    orientation: AdventFlowOrientation
+): Point[] {
+    const route: Route = {
+        from: centerOf(source.tile),
+        to: centerOf(target.tile),
+        source: source.tile,
+        target: target.tile,
+        isSplit: !!(source.door && ADVENT_QUESTIONS[source.door.day]),
+        isMerge,
+    }
+    return orientation === 'rows' ? rowsRoute(route, source.row, target.row) : columnRoute(route)
+}
+
+function shareOf(shares: AdventPollShares, source: AdventFlowNode, option: AdventOption | null): number | null {
+    return option && source.door ? (shares[source.door.day]?.[option.id] ?? null) : null
+}
+
+function edgeOf(
+    link: FlowLink,
+    source: AdventFlowNode,
+    target: AdventFlowNode,
+    isMerge: boolean,
+    shares: AdventPollShares,
+    orientation: AdventFlowOrientation
+): AdventFlowEdge {
+    const points = routeOf(source, target, isMerge, orientation)
+    const option = branchOption(source, target)
+    return {
+        id: link.id,
+        source: link.from,
+        target: link.to,
+        points,
+        walked: link.walked,
+        label: option?.label ?? null,
+        share: shareOf(shares, source, option),
+        labelAt: option ? alongLastRun(points, orientation === 'rows' ? 0.5 : 0.66) : null,
+    }
+}
+
 function edgesOf(
     graph: AdventGraph,
     nodes: AdventFlowNode[],
@@ -304,34 +357,9 @@ function edgesOf(
     const byId = new Map(nodes.map((node) => [node.id, node]))
     const links = linksOf(graph)
     const incoming = (id: string): number => links.filter((link) => link.to === id).length
-    return links.flatMap((link): AdventFlowEdge[] => {
+    return links.flatMap(function edgesOfLink(link): AdventFlowEdge[] {
         const [source, target] = [byId.get(link.from), byId.get(link.to)]
-        if (!source || !target) {
-            return []
-        }
-        const question = source.door ? (ADVENT_QUESTIONS[source.door.day] ?? null) : null
-        const route: Route = {
-            from: centerOf(source.tile),
-            to: centerOf(target.tile),
-            source: source.tile,
-            target: target.tile,
-            isSplit: !!question,
-            isMerge: incoming(target.id) > 1,
-        }
-        const points = orientation === 'rows' ? rowsRoute(route, source.row, target.row) : columnRoute(route)
-        const option = question ? (source.door?.answer ?? question.options[target.lane === 'lower' ? 1 : 0]) : null
-        return [
-            {
-                id: link.id,
-                source: link.from,
-                target: link.to,
-                points,
-                walked: link.walked,
-                label: option?.label ?? null,
-                share: option && source.door ? (shares[source.door.day]?.[option.id] ?? null) : null,
-                labelAt: option ? alongLastRun(points, orientation === 'rows' ? 0.5 : 0.66) : null,
-            },
-        ]
+        return source && target ? [edgeOf(link, source, target, incoming(target.id) > 1, shares, orientation)] : []
     })
 }
 
