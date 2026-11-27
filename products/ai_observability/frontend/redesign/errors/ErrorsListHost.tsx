@@ -20,6 +20,8 @@ import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { ErrorsSetupState } from './components/ErrorsSetupState'
 import { errorsTableColumns } from './components/ErrorsTableColumns'
+import { errorFirstSeenLogic } from './errorFirstSeenLogic'
+import { errorNewCountLogic } from './errorNewCountLogic'
 import { ERRORS_LIST_FILTERS, errorsListLogic } from './errorsListLogic'
 
 // pinned: autocapture dashboards and tests select the list and its controls by this value and the suffixes built on it
@@ -40,6 +42,8 @@ export function ErrorsListHost(): JSX.Element {
         rangeTooLongDetail,
     } = useValues(errorsListLogic)
     const { setPageIndex, setOrder, reload } = useActions(errorsListLogic)
+    const { firstSeen } = useValues(errorFirstSeenLogic)
+    const { newCountLoad } = useValues(errorNewCountLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(ERRORS_LIST_FILTERS))
     const { setPropertyFilters, setSearchDraft, toggleQuickFilter, clearFilters } = useActions(
         listFiltersLogic(ERRORS_LIST_FILTERS)
@@ -50,8 +54,15 @@ export function ErrorsListHost(): JSX.Element {
 
     const maxOccurrences = counts?.maxOccurrences ?? 0
     const columns = useMemo(
-        () => errorsTableColumns({ maxOccurrences, order: sortedBy, onOrder: setOrder, 'data-attr': DATA_ATTR }),
-        [maxOccurrences, sortedBy, setOrder]
+        () =>
+            errorsTableColumns({
+                maxOccurrences,
+                order: sortedBy,
+                onOrder: setOrder,
+                firstSeen,
+                'data-attr': DATA_ATTR,
+            }),
+        [maxOccurrences, sortedBy, setOrder, firstSeen]
     )
 
     return (
@@ -72,7 +83,8 @@ export function ErrorsListHost(): JSX.Element {
                     {
                         id: AiObservabilityErrorsListView.New,
                         label: 'New',
-                        count: null,
+                        count: newCountLoad?.status === 'ready' ? newCountLoad.value : null,
+                        countStatus: newCountLoad?.status,
                     },
                 ]}
                 active={filters.quickFilter}

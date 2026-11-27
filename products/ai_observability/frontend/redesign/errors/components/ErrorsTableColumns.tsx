@@ -9,8 +9,12 @@ import { AiObservabilityErrorsListOrder, type ErrorListItemApi } from '../../../
 import { ChangeTag } from '../../diagnostics/components/ChangeTag'
 import { SortHeader } from '../../diagnostics/components/SortHeader'
 import { TrendSparkline } from '../../diagnostics/components/TrendSparkline'
+import type { CellLoads } from '../../shared/cellLoads'
 import { TraceCellValue } from '../../traces/components/TraceCellValue'
+import type { ErrorFirstSeen } from '../errorFirstSeenLogic'
+import { isNewError } from '../isNewError'
 import { ErrorMessageCell } from './ErrorMessageCell'
+import { FirstSeenCell } from './FirstSeenCell'
 
 export interface ErrorsTableColumnsOptions {
     /** The most occurrences of any error in the selection, which every page scales its volume bars against. */
@@ -18,6 +22,7 @@ export interface ErrorsTableColumnsOptions {
     /** The order the list is sorted by, or null before the list knows it. */
     order: AiObservabilityErrorsListOrder | null
     onOrder: (order: AiObservabilityErrorsListOrder) => void
+    firstSeen: CellLoads<ErrorFirstSeen>
     'data-attr': string
 }
 
@@ -33,6 +38,7 @@ export function errorsTableColumns({
     maxOccurrences,
     order,
     onOrder,
+    firstSeen,
     'data-attr': dataAttr,
 }: ErrorsTableColumnsOptions): LemonTableColumns<ErrorListItemApi> {
     const sortable = (
@@ -76,10 +82,17 @@ export function errorsTableColumns({
         },
         {
             ...sortable('Change', AiObservabilityErrorsListOrder.Change),
-            render: (_, { changeLabel, changeTone }) => (
-                <TraceCellValue>
-                    {changeLabel === null ? null : <ChangeTag label={changeLabel} tone={changeTone} />}
-                </TraceCellValue>
+            render: (_, { key, changeLabel, changeTone }) => (
+                <div className="flex flex-wrap items-center gap-1">
+                    <TraceCellValue>
+                        {changeLabel === null ? null : <ChangeTag label={changeLabel} tone={changeTone} />}
+                    </TraceCellValue>
+                    {isNewError(firstSeen.get(key)) ? (
+                        <LemonTag type="highlight" size="small">
+                            New
+                        </LemonTag>
+                    ) : null}
+                </div>
             ),
         },
         {
@@ -113,6 +126,11 @@ export function errorsTableColumns({
                     )}
                 </TraceCellValue>
             ),
+        },
+        {
+            title: 'First seen',
+            key: 'first_seen',
+            render: (_, { key }) => <FirstSeenCell load={firstSeen.get(key)} />,
         },
         {
             ...sortable('Last seen', AiObservabilityErrorsListOrder.LastSeen),

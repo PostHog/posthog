@@ -1,6 +1,14 @@
-import type { ErrorListApi, ErrorListCountsApi, ErrorListItemApi } from '../../generated/api.schemas'
+import type {
+    ErrorFirstSeenApi,
+    ErrorFirstSeenListApi,
+    ErrorListApi,
+    ErrorListCountsApi,
+    ErrorListItemApi,
+} from '../../generated/api.schemas'
 
 export const ERRORS_URL = '/api/projects/:team_id/ai_observability/errors/'
+export const ERROR_FIRST_SEEN_URL = '/api/projects/:team_id/ai_observability/errors/first_seen/'
+export const ERROR_NEW_COUNT_URL = '/api/projects/:team_id/ai_observability/errors/new_count/'
 
 const NO_COUNTS: ErrorListCountsApi = { total: 0, increasing: 0, decreasing: 0, maxOccurrences: 0 }
 
@@ -33,4 +41,14 @@ export function makeErrorListPage(keys: string[], overrides: Partial<ErrorListAp
         order: 'occurrences',
         ...overrides,
     }
+}
+
+export const CHECKED_FROM = '2026-08-02'
+
+export function makeErrorFirstSeen(key: string, overrides: Partial<ErrorFirstSeenApi> = {}): ErrorFirstSeenApi {
+    return { key, firstSeen: '2026-09-02T08:30:00Z', isNew: false, ...overrides }
+}
+
+export function makeErrorFirstSeenList(items: ErrorFirstSeenApi[]): ErrorFirstSeenListApi {
+    return { items, checkedFrom: CHECKED_FROM }
 }
