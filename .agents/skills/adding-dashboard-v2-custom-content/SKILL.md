@@ -47,7 +47,7 @@ Read `products/dashboards_v2/.agents/composing.md` ("Your own component in a til
 7. **Opt in only to what the product wants people to do.** By default a content cannot be moved and has an empty menu.
    - `movable: true` lets a person drag, resize, move and remove the tile.
    - `duplicable: true` adds Duplicate to the tile's menu.
-   - `backgroundColor: true` adds Background to the tile's menu, whatever `menuActions` returns.
+   - `backgroundColor: true` adds Background to the tile's menu, whatever `menuActions` returns. To color the tile from the component's own state instead, call `useTileBackground(color)` with one of `TILE_BACKGROUND_COLORS` or any CSS color.
    - `menuActions(actions, context)` returns the built-in actions to show, such as `actions.filter((action) => action.key === 'download')`. Left out, the menu is empty.
    - `keepMounted: true` keeps the component mounted after it scrolls out of view. Set it when the component holds state a person would lose, such as a picked tab or a draft, and leave it out otherwise, because the tile then stays in memory.
    - `showOnInteractiveOnly: true` leaves the tile out of images and printed pages. Use it for prompts, buttons and live counters, which mean nothing in a snapshot.

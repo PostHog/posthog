@@ -21,6 +21,7 @@ import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
+import { TileBackgroundContext } from '../../panels/core/tileBackground'
 import { TileActions } from './TileActions'
 import { NO_BACKGROUND, showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
@@ -32,9 +33,10 @@ const NO_ACTIONS: MenuAction[] = []
 
 function cardLook(
     panel: SavedPanel,
-    customizations: TileCustomization[]
+    customizations: TileCustomization[],
+    fromPanel: string | null
 ): { className: string; style: CSSProperties | undefined } {
-    const color = tileBackgroundColor(panel, customizations)
+    const color = fromPanel ?? tileBackgroundColor(panel, customizations)
     return {
         className: clsx(
             color === NO_BACKGROUND && 'dash-ContentTile--no-background',
@@ -94,7 +96,8 @@ export function ContentTile({
     const slots = panelSlots(definition)
     const showHeader = isPartShown(panel, 'header', slots)
     const showFooter = isPartShown(panel, 'footer', slots)
-    const look = cardLook(panel, definition?.allowedCustomizations ?? [])
+    const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
+    const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
     const HeaderExtra = definition?.HeaderExtra
     const Footer = definition?.Footer
     // Placement goes first so the slideshow stays above the image download in the shared view group.
@@ -133,7 +136,9 @@ export function ContentTile({
                 )}
                 {!showHeader && hasMenu && <TileActions menu className="dash-ContentTile__float-toolbar" />}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                    <PanelView panel={panel} definition={definition} setConfig={setConfig} />
+                    <TileBackgroundContext.Provider value={setBackgroundFromPanel}>
+                        <PanelView panel={panel} definition={definition} setConfig={setConfig} />
+                    </TileBackgroundContext.Provider>
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.

@@ -225,6 +225,10 @@ const APM_PANELS = [
 - `.describe('Label')` on an option sets its label in the chart options menu. Without it, the menu shows the capitalized key.
 - A document that names a kind the host did not pass still loads, and its tile says the kind is unknown.
 
+### Color a tile from its data
+
+`backgroundColor` colors a chart's tile from the data it drew: `createChartPanel({ backgroundColor: ({ panel, frames }) => ... })` returns one of `TILE_BACKGROUND_COLORS`, any CSS color, or null. A custom content does the same from inside its component with `useTileBackground(color)`. Both win over the color a person picked.
+
 ### Add to the chart menu
 
 `menuActions` gets every chart's menu with the chart's own entries, and returns the menu to show.

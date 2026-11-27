@@ -12,7 +12,7 @@ import { type PanelType, type PanelMenuContext, definePanel } from '../core/pane
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
-import { ChartPanel, hasNoValues, shownFramesOf } from './ChartPanel'
+import { type ChartBackgroundColor, ChartPanel, hasNoValues, shownFramesOf } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
 import { framesToCsv } from './data/framesToCsv'
@@ -171,6 +171,8 @@ function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefin
  * - `runQuery` runs each chart's query. The host supplies it, so the dashboard never fetches data itself.
  * - `states` sets the loading, empty, error and sample data states for every chart, unless one of the host's own kinds sets its own.
  * - `sampleData` draws every chart from made-up data and runs no queries, such as in a project with no events yet.
+ * - `backgroundColor` colors a chart's tile from the data it drew, such as red while a number is past its limit. It wins
+ *   over the color a person picked.
  * - `menuActions` gets every chart's menu, with the chart's own entries added, so the host can add entries such as
  *   "Open in traces" or remove ones it does not want.
  */
@@ -179,12 +181,14 @@ export function createChartPanel({
     runQuery,
     states,
     sampleData = false,
+    backgroundColor,
     menuActions,
 }: {
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
     sampleData?: boolean
+    backgroundColor?: ChartBackgroundColor
     menuActions?: (actions: MenuAction[], context: PanelMenuContext<ChartConfig>) => MenuAction[]
 } = {}): PanelType {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
@@ -212,7 +216,15 @@ export function createChartPanel({
         if (sampleData) {
             return <ChartSample panel={panel} />
         }
-        return <ChartPanel panel={panel} vizTypes={vizTypes} runQuery={runQuery} states={states} />
+        return (
+            <ChartPanel
+                panel={panel}
+                vizTypes={vizTypes}
+                runQuery={runQuery}
+                states={states}
+                backgroundColor={backgroundColor}
+            />
+        )
     }
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
     return definePanel<ChartConfig, 'chart'>({

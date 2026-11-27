@@ -6,6 +6,7 @@ import type { DataFrame, RunQuery } from '../../query/queryTypes'
 import { useQueryFrames } from '../../query/useQueryFrames'
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading, PanelMessage } from '../core/PanelView'
+import { useTileBackground } from '../core/tileBackground'
 import { type ChartConfig, chartTargets, hasNoOwnRange } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './data/targetResults'
 import type { ChartStates, VizDefinition } from './vizTypes'
@@ -39,6 +40,9 @@ function TargetFailures({ failures }: { failures: TargetFailure[] }): JSX.Elemen
     )
 }
 
+/** Returns one of `TILE_BACKGROUND_COLORS`, any CSS color, or null for the tile's own background. */
+export type ChartBackgroundColor = (chart: { panel: ContentPanel<ChartConfig>; frames: DataFrame[] }) => string | null
+
 // A menu entry is built before the chart's data arrives and outside its component, so it reads the frames from here.
 const shownFrames = new WeakMap<ContentPanel<ChartConfig>, DataFrame[]>()
 
@@ -56,11 +60,13 @@ function ChartData({
     viz,
     runQuery,
     states,
+    backgroundColor,
 }: {
     panel: ContentPanel<ChartConfig>
     viz: VizDefinition
     runQuery: RunQuery
     states?: ChartStates
+    backgroundColor?: ChartBackgroundColor
 }): JSX.Element {
     const { time: surroundingTime, filters } = useContext(FiltersContext)
     const time = panel.config.time ?? surroundingTime
@@ -89,6 +95,10 @@ function ChartData({
             shownFrames.delete(panel)
         }
     }, [panel, result])
+    const frames = result.status === 'ready' ? result.frames : null
+    useTileBackground(
+        useMemo(() => (frames && backgroundColor?.({ panel, frames })) || null, [backgroundColor, panel, frames])
+    )
     // The kind of chart wins over the host's defaults, which win over the built-in states.
     const Loading = viz.Loading ?? states?.Loading ?? PanelLoading
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
@@ -129,11 +139,13 @@ export function ChartPanel({
     vizTypes,
     runQuery,
     states,
+    backgroundColor,
 }: {
     panel: ContentPanel<ChartConfig>
     vizTypes: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
+    backgroundColor?: ChartBackgroundColor
 }): JSX.Element {
     const { time: surroundingTime } = useContext(FiltersContext)
     const viz = vizTypes.find((candidate) => candidate.type === panel.config.viz.type)
@@ -159,5 +171,5 @@ export function ChartPanel({
             />
         )
     }
-    return <ChartData panel={panel} viz={viz} runQuery={runQuery} states={states} />
+    return <ChartData panel={panel} viz={viz} runQuery={runQuery} states={states} backgroundColor={backgroundColor} />
 }
