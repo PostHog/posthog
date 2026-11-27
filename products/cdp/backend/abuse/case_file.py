@@ -4,13 +4,16 @@ account, and counts of the organization's other functions.
 Built from Postgres only, bounded in size, and without secret input values.
 """
 
+import re
 import json
 from collections import Counter
 from dataclasses import asdict, replace
 from datetime import datetime
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from django.db.models import Count, Q
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -22,6 +25,8 @@ from products.cdp.backend.abuse.shadow import ScoredHogFunction, _with_secret_in
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.services.destination_test_runs import redact_secrets_in_origins, stored_secret_values
 from products.ml_inference.backend.facade.contracts import JsonValue
+
+logger = structlog.get_logger(__name__)
 
 MAX_HISTORY_ENTRIES = 10
 MAX_ORG_FUNCTIONS_CHECKED = 50
@@ -50,6 +55,9 @@ _RULE_FIELDS = (
 # Shorter values, such as "true" or a port number, would redact ordinary code.
 _MIN_SECRET_CHARS = 8
 _REDACTED = "[secret]"
+# JSON escapes a control character to six characters, so a host or old code full of them would cost six times its
+# length against the cap. The Control Pictures block shows each one as a single visible symbol instead.
+_VISIBLE_CONTROLS = {code: 0x2400 + code for code in range(0x20) if chr(code) not in "\n\t"}
 # Only these fields of an update show their new value. The activity log masks the inputs, but not every field that
 # can hold a secret: the default of a secret input sits unmasked in the inputs schema.
 _HISTORY_VALUE_FIELDS = frozenset({"hog", "enabled"})
@@ -62,8 +70,9 @@ class Classification:
     # content does not explain depends on a secret input, so it shows `UNLOCATED` and no host, and the value stays out.
     rule_evidence: tuple[rules.RuleEvidence, ...]
     rule_evidence_omitted: int
-    # The hosts the rules count as request targets.
+    # The hosts the rules count as request targets, flagged ones first.
     request_hosts: tuple[str, ...]
+    request_hosts_omitted: int
     scores: dict[str, float] | None
     risk_score: float | None
     would_alert: bool
@@ -162,7 +171,8 @@ def build_case_file(hog_function: HogFunction, scored: ScoredHogFunction) -> Cas
 def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction) -> FunctionUnderReview:
     content = content_of(hog_function, hog_function.template)
     config, truncated = build_state(content)
-    hosts = _named_hosts(content)
+    hosts = _capped_hosts(rules.named_hosts(content))
+    targets = _capped_hosts(rules.request_hosts(content))
     evidence = _rule_evidence(content, scored.rule_hits)
     verdict = scored.verdict
     return FunctionUnderReview(
@@ -181,7 +191,8 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
             rule_hits=tuple(rule.value for rule in scored.rule_hits),
             rule_evidence=evidence[:MAX_RULE_EVIDENCE],
             rule_evidence_omitted=max(len(evidence) - MAX_RULE_EVIDENCE, 0),
-            request_hosts=rules.request_hosts(content)[:MAX_HOSTS_PER_FUNCTION],
+            request_hosts=targets.shown,
+            request_hosts_omitted=targets.omitted,
             scores=None if verdict is None else dict(verdict.scores),
             risk_score=None if verdict is None else verdict.risk_score,
             would_alert=scored.would_alert,
@@ -195,7 +206,11 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
 
 
 def _rule_evidence(content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]) -> tuple[rules.RuleEvidence, ...]:
-    public = tuple(entry for entry in rules.rule_evidence(content) if entry.rule in rule_hits)
+    public = tuple(
+        replace(entry, host=None if entry.host is None else _visible(entry.host))
+        for entry in rules.rule_evidence(content)
+        if entry.rule in rule_hits
+    )
     explained = {entry.rule for entry in public}
     secret_only = tuple(
         rules.RuleEvidence(rule=rule, location=UNLOCATED, host=None, request_target=False)
@@ -240,13 +255,22 @@ def _history(hog_function: HogFunction) -> _History:
     total = logged.count()
     latest = list(logged.order_by("-created_at").only("activity", "created_at", "detail")[:MAX_HISTORY_ENTRIES])
     rows = list(reversed(latest))
-    secrets = stored_secret_values(
-        hog_function.team_id,
-        _tested_integration_ids(rows),
-        [hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs, _plaintext_mapping_secrets(hog_function)],
-    )
+    values = _secret_values(hog_function)
+    origin_secrets = [
+        *stored_secret_values(
+            hog_function.team_id,
+            _tested_integration_ids(rows),
+            [
+                hog_function.encrypted_inputs,
+                hog_function.draft_encrypted_inputs,
+                _plaintext_mapping_secrets(hog_function),
+            ],
+        ),
+        *values,
+    ]
+    code_secrets = _secret_pattern(values)
     return _History(
-        entries=tuple(_history_entry(row, secrets) for row in rows),
+        entries=tuple(_history_entry(row, origin_secrets, code_secrets) for row in rows),
         omitted=max(total - MAX_HISTORY_ENTRIES, 0),
     )
 
@@ -265,11 +289,46 @@ def _plaintext_mapping_secrets(hog_function: HogFunction) -> list[JsonValue]:
     return found
 
 
-def _without_secrets(text: str, secrets: list[str]) -> str:
+def _secret_values(hog_function: HogFunction) -> list[str]:
+    """The values of the secret inputs and the defaults of secret schema entries. The compiled bytecode stored beside
+    a value is left out, because its strings are names such as `properties` that would redact ordinary code."""
+    entries: list[JsonValue] = [*_plaintext_mapping_secrets(hog_function)]
+    for stored in (hog_function.encrypted_inputs, hog_function.draft_encrypted_inputs):
+        if isinstance(stored, dict):
+            entries.extend(stored.values())
+    values = [entry.get("value") for entry in entries if isinstance(entry, dict)]
+    schemas = [
+        hog_function.inputs_schema,
+        *(m.get("inputs_schema") for m in hog_function.mappings or [] if isinstance(m, dict)),
+    ]
+    for schema in schemas:
+        items = schema if isinstance(schema, list) else []
+        values.extend(item.get("default") for item in items if isinstance(item, dict) and item.get("secret"))
+    return [text for value in values for text in _texts_in(value)]
+
+
+def _texts_in(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _texts_in(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _texts_in(item)]
+    return []
+
+
+def _secret_pattern(values: list[str]) -> re.Pattern[str] | None:
+    # One pass, longest first, so a secret inside or overlapping a longer one cannot leave part of either behind.
+    # A secret in a URL is often percent-encoded.
+    forms = {form for value in values if len(value) >= _MIN_SECRET_CHARS for form in (value, quote(value, safe=""))}
+    if not forms:
+        return None
+    return re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)), re.IGNORECASE)
+
+
+def _without_secrets(text: str, secrets: re.Pattern[str] | None) -> str:
     # Code saved before a credential moved into a secret input still holds it as a literal.
-    for secret in sorted({value for value in secrets if len(value) >= _MIN_SECRET_CHARS}, key=len, reverse=True):
-        text = text.replace(secret, _REDACTED)
-    return text
+    return text if secrets is None else secrets.sub(_REDACTED, text)
 
 
 def _tested_integration_ids(rows: list[ActivityLog]) -> list[int]:
@@ -287,7 +346,7 @@ def _test_context(row: ActivityLog) -> dict[str, JsonValue]:
     return context if isinstance(context, dict) else {}
 
 
-def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
+def _history_entry(row: ActivityLog, secrets: list[str], code_secrets: re.Pattern[str] | None) -> HistoryEntry:
     detail = row.detail if isinstance(row.detail, dict) else {}
     changes = [change for change in detail.get("changes") or [] if isinstance(change, dict)]
     new_values = {
@@ -303,7 +362,9 @@ def _history_entry(row: ActivityLog, secrets: list[str]) -> HistoryEntry:
         activity=row.activity,
         at=row.created_at,
         changed_fields=tuple(str(change.get("field")) for change in changes if change.get("field")),
-        code=_cut(_without_secrets(code, secrets), MAX_HISTORY_CODE_CHARS) if isinstance(code, str) else None,
+        code=_cut(_visible(_without_secrets(code, code_secrets)), MAX_HISTORY_CODE_CHARS)
+        if isinstance(code, str)
+        else None,
         enabled=enabled if isinstance(enabled, bool) else None,
         request_origins=shown_origins,
         request_origins_omitted=max(len(origins) - MAX_ORIGINS_PER_TEST, 0) if isinstance(origins, list) else 0,
@@ -335,8 +396,8 @@ def _org_function_counts(hog_function: HogFunction) -> OrgFunctionCounts:
     )
     hits: Counter[str] = Counter()
     checked = 0
-    # Streamed, so one large function at a time is in memory. The linked template only, so the check costs no query
-    # per function. Only rule names leave, never values.
+    # Only the fields the rules read, streamed in small chunks, so the decoded rows of every function are not held at
+    # once. The linked template only, so the check costs no query per function. Only rule names leave, never values.
     for other in recent.iterator(chunk_size=10):
         checked += 1
         runtime = _with_secret_inputs(other, content_of(other, other.hog_function_template))
@@ -356,24 +417,34 @@ class _Hosts:
     omitted: int
 
 
-def _named_hosts(content: HogFunctionContent) -> _Hosts:
-    hosts = rules.named_hosts(content)
-    return _Hosts(shown=hosts[:MAX_HOSTS_PER_FUNCTION], omitted=max(len(hosts) - MAX_HOSTS_PER_FUNCTION, 0))
+def _capped_hosts(hosts: tuple[str, ...]) -> _Hosts:
+    return _Hosts(
+        shown=tuple(_visible(host) for host in hosts[:MAX_HOSTS_PER_FUNCTION]),
+        omitted=max(len(hosts) - MAX_HOSTS_PER_FUNCTION, 0),
+    )
+
+
+def _visible(text: str) -> str:
+    return text.translate(_VISIBLE_CONTROLS)
 
 
 def _fit(case_file: CaseFile) -> CaseFile:
-    """Shrink the case file until it fits. The hosts and the rule evidence come from the customer's config, and JSON
-    escaping can make a host several times longer than its characters, so they are cut before the history, which a
-    probe cannot pad. One evidence entry per rule hit stays until the history is gone."""
+    """Shrink the case file until it fits: the oldest history down to the latest entry, then the hosts, then rule
+    evidence past one entry per rule, then the latest history entry. A long config with ordinary history keeps its
+    hosts, and padding in the hosts cannot push out the latest edit."""
     while len(case_file.to_json()) > MAX_CASE_FILE_CHARS:
         shrunk = _without_last_list_item(case_file)
         if shrunk is None:
+            # Every remaining part has its own bound that keeps it under the cap, so this means one of them grew.
+            logger.warning("cdp_abuse_case_file_over_cap", chars=len(case_file.to_json()))
             break
         case_file = shrunk
     return case_file
 
 
 def _without_last_list_item(case_file: CaseFile) -> CaseFile | None:
+    if len(case_file.history) > 1:
+        return replace(case_file, history=case_file.history[1:], history_omitted=case_file.history_omitted + 1)
     function = case_file.function
     classification = function.classification
     if function.named_hosts:
@@ -384,12 +455,12 @@ def _without_last_list_item(case_file: CaseFile) -> CaseFile | None:
             ),
         )
     if classification.request_hosts:
-        return replace(
-            case_file,
-            function=replace(
-                function, classification=replace(classification, request_hosts=classification.request_hosts[:-1])
-            ),
+        trimmed_hosts = replace(
+            classification,
+            request_hosts=classification.request_hosts[:-1],
+            request_hosts_omitted=classification.request_hosts_omitted + 1,
         )
+        return replace(case_file, function=replace(function, classification=trimmed_hosts))
     if len(classification.rule_evidence) > len({entry.rule for entry in classification.rule_evidence}):
         trimmed = replace(
             classification,

@@ -1214,8 +1214,12 @@ _MAX_NAMED_HOST_CHARS = 253
 def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
     """The hosts of the URLs in the code, the inputs and the masking hash, for a reviewer to read. Hosts that a
     rule flags come first, so a list cut to length keeps them however many other hosts the code names."""
+    return _flagged_first(_hosts_in(_texts(content)))
+
+
+def _flagged_first(hosts: Iterable[str]) -> tuple[str, ...]:
     flagged: dict[str, bool] = {}
-    for host in _hosts_in(_texts(content)):
+    for host in hosts:
         named = host[:_MAX_NAMED_HOST_CHARS]
         flagged[named] = flagged.get(named, False) or is_flagged_host(host)
     return tuple(sorted(flagged, key=lambda host: (not flagged[host], host)))
@@ -1259,9 +1263,9 @@ def rule_evidence(content: HogFunctionContent) -> tuple[RuleEvidence, ...]:
 
 
 def request_hosts(content: HogFunctionContent) -> tuple[str, ...]:
-    """The hosts the rules count as request targets: literal `fetch` URLs, and the inputs that can reach a URL."""
-    targets = _hosts_in(_request_targets(content, _template_url_inputs(content)))
-    return tuple(sorted({host[:_MAX_NAMED_HOST_CHARS] for host in targets}))
+    """The hosts the rules count as request targets: literal `fetch` URLs, and the inputs that can reach a URL.
+    Hosts that a rule flags come first."""
+    return _flagged_first(_hosts_in(_request_targets(content, _template_url_inputs(content))))
 
 
 def _host_rules(host: str, *, is_target: bool, is_reference: bool) -> Iterator[Rule]:
