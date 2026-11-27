@@ -248,7 +248,7 @@ class TestHmacSha256(SimpleTestCase):
         self.assertEqual(named.digest, explicit.digest)
         # A name that promises SHA-256 and hashes something else is the trap this closes.
         with self.assertRaises(TypeError):
-            HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", digest="sha1")
+            HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", digest="sha1")  # type: ignore[call-arg]
 
     @parameterized.expand(
         [

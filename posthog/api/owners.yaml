@@ -7,6 +7,8 @@ rules:
       owners: team-feature-flags
     - match: '/comments.py'
       owners: conversations
+    - match: ['/contract_serializer.py', '/test/test_contract_serializer.py']
+      owners: team-devex
     - match: '/documentation.py'
       owners: team-devex
     - match: '/file_system/test/test_file_system_concurrency.py'
