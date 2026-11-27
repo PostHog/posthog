@@ -198,7 +198,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         options={[
                                             {
                                                 value: WORKSPACE_DEFAULT,
-                                                label: `Workspace default (${replyModeLabel(THREAD_JOIN_OPTIONS, workspaceThreadJoinMode)})`,
+                                                label: `Default (${replyModeLabel(THREAD_JOIN_OPTIONS, workspaceThreadJoinMode)})`,
                                             },
                                             ...THREAD_JOIN_OPTIONS,
                                         ]}
