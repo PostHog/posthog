@@ -1,18 +1,13 @@
 import { pluralize } from 'lib/utils/strings'
 
-import { engineLabel } from './utils'
-
 /** How many paid checks one run makes, in counts only. */
 export const ContentAutopilotSetupCostNote = ({
     prompts,
     engines,
-    pendingEngines = [],
 }: {
     prompts: number
     /** Engines that can run today. */
     engines: number
-    /** Chosen engines that are not available yet. */
-    pendingEngines?: string[]
 }): JSX.Element => (
     <div
         className="flex flex-col gap-1 text-xs text-secondary"
@@ -26,14 +21,8 @@ export const ContentAutopilotSetupCostNote = ({
             </span>
         ) : null}
         <span>
-            Each check is a paid call to an AI engine. Engines check your active prompts daily or weekly. Turn engines
-            off or pause prompts in settings to spend less.
+            Each check asks an AI engine with web search on, so you see the same answer your buyers see. Engines check
+            the prompts that are on, daily or weekly. Turn off engines or prompts to spend less.
         </span>
-        {pendingEngines.length > 0 ? (
-            <span data-attr="content-autopilot-setup-pending-engines">
-                Checks with {pendingEngines.map(engineLabel).join(', ')} start, and cost, once{' '}
-                {pendingEngines.length === 1 ? "it's" : "they're"} available for your project.
-            </span>
-        ) : null}
     </div>
 )

@@ -13,7 +13,11 @@ function loadTiles(tiles: DocumentTile[], panels: Record<string, SharedPanel>): 
     return tiles.flatMap((tile): Tile[] => {
         const panel = tile.panel
         if ('tiles' in panel) {
-            return [{ ...tile, panel: { ...panel, tiles: loadTiles(panel.tiles, panels) } }]
+            // `isDashboardDocument` bounds how deep sections nest, so a tile whose `tiles` hang off another kind of
+            // panel is left out rather than walked. `validateDashboard` reports it.
+            return panel.type === 'section'
+                ? [{ ...tile, panel: { ...panel, tiles: loadTiles(panel.tiles, panels) } }]
+                : []
         }
         if ('type' in panel) {
             return [{ ...tile, panel }]

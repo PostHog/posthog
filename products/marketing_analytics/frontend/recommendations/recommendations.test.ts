@@ -94,40 +94,27 @@ describe('recommendations', () => {
 
         it.each([
             {
-                name: 'puts groups that only say keep last and leaves out fully resolved rules',
-                showResolved: false,
+                name: 'puts groups that only say keep last and leaves out resolved rows and fully resolved rules',
                 keepRule: null,
                 expected: [
-                    ['spend_without_conversions', ['a'], 1],
-                    ['brand_overlap', ['keep'], 1],
+                    ['spend_without_conversions', ['a']],
+                    ['brand_overlap', ['keep']],
                 ],
             },
             {
                 name: 'keeps the open rule with no rows once all of it is resolved',
-                showResolved: false,
                 keepRule: 'keyword_gap' as const,
                 expected: [
-                    ['spend_without_conversions', ['a'], 1],
-                    ['keyword_gap', [], 0],
-                    ['brand_overlap', ['keep'], 1],
+                    ['spend_without_conversions', ['a']],
+                    ['keyword_gap', []],
+                    ['brand_overlap', ['keep']],
                 ],
             },
-            {
-                name: 'lists resolved rows while they are on show',
-                showResolved: true,
-                keepRule: null,
-                expected: [
-                    ['spend_without_conversions', ['a', 'b'], 1],
-                    ['keyword_gap', ['c'], 0],
-                    ['brand_overlap', ['keep'], 1],
-                ],
-            },
-        ])('$name', ({ showResolved, keepRule, expected }) => {
+        ])('$name', ({ keepRule, expected }) => {
             expect(
-                groupRecommendations(rows, showResolved, keepRule).map((group) => [
+                groupRecommendations(rows, keepRule).map((group) => [
                     group.rule,
                     group.recommendations.map((row) => row.key),
-                    group.activeCount,
                 ])
             ).toEqual(expected)
         })
@@ -139,30 +126,24 @@ describe('recommendations', () => {
             recommendation({ key: 'small', minor: true }),
             recommendation({ rule: 'keyword_gap', key: 'gap', minor: true, resolution: DISMISSED }),
             recommendation({ rule: 'policy_limited', key: 'policy', impact: null, minor: false }),
+            recommendation({ rule: 'brand_overlap', key: 'overlap', impactDirection: 'keep', minor: true }),
+            recommendation({ rule: 'brand_leak', key: 'leak-keep', impactDirection: 'keep' }),
+            recommendation({ rule: 'brand_leak', key: 'leak-save' }),
         ]
 
-        it.each([
-            { name: 'with resolved rows on show', showResolved: true, keepRule: null },
-            {
-                name: 'after the last row of a minor rule is resolved',
-                showResolved: false,
-                keepRule: 'keyword_gap' as const,
-            },
-        ])(
-            'moves a rule to the minor section only when all its rows are minor, $name',
-            ({ showResolved, keepRule }) => {
-                expect(
-                    sectionRecommendations(groupRecommendations(rows, showResolved, keepRule)).map((section) => [
-                        section.category,
-                        section.groups.map((group) => group.rule),
-                    ])
-                ).toEqual([
-                    ['waste', ['spend_without_conversions']],
-                    ['fix', ['policy_limited']],
-                    ['minor', ['keyword_gap']],
+        it('moves a rule to the minor or keep section only when all its rows are minor or keep, resolved ones included', () => {
+            expect(
+                sectionRecommendations(groupRecommendations(rows, 'keyword_gap')).map((section) => [
+                    section.category,
+                    section.groups.map((group) => group.rule),
                 ])
-            }
-        )
+            ).toEqual([
+                ['waste', ['spend_without_conversions', 'brand_leak']],
+                ['fix', ['policy_limited']],
+                ['keep', ['brand_overlap']],
+                ['minor', ['keyword_gap']],
+            ])
+        })
     })
 
     describe('withResolutionOverrides', () => {

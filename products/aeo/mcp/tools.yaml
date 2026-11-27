@@ -502,6 +502,23 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: web-analytics-content-autopilot
+    aeo-setup-cancel:
+        operation: aeo_setup_cancel
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Cancel an AI visibility setup job
+        description: >
+            Cancel a running setup job started with `aeo-setup-start`, by its `id`. PostHog stops before its next step
+            and keeps what it already saved; its `status` becomes `cancelled`. The job's first run stops too: checks
+            already under way finish and are kept, and the rest don't run. A finished job is returned unchanged, and no
+            run is stopped.
+        param_overrides:
+            id:
+                description: The setup job id, from `aeo-setup-start`.
+        feature_flag: web-analytics-content-autopilot
     aeo-setup-context-get:
         operation: aeo_setup_context
         enabled: true
@@ -519,12 +536,28 @@ tools:
         title: Get an AI visibility setup job
         description: >
             Get a setup job started with `aeo-setup-start`, by its `id`. `status` is `pending` while PostHog works, then
-            `completed` or `failed` with an `error`. `steps` lists `brand`, `prompts`, `keywords` and `first_run`, each
-            with a `status` (`pending`, `running`, `done`, `skipped` or `failed`), how many items it `added` and a
-            `detail`. A failed `keywords` step does not fail the job. Jobs expire an hour after their last update.
+            `completed`, `cancelled`, or `failed` with an `error`. `steps` lists `brand`, `research`, `prompts`,
+            `keywords` and `first_run`, each with a `status` (`pending`, `running`, `done`, `skipped` or `failed`), how
+            many items it `added` and a `detail`. A failed `keywords` step does not fail the job. Jobs expire an hour
+            after their last update.
         param_overrides:
             id:
                 description: The setup job id, from `aeo-setup-start`.
+        feature_flag: web-analytics-content-autopilot
+    aeo-setup-reset:
+        operation: aeo_setup_reset
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Reset AI visibility setup
+        description: >
+            Undo what setup saved so the project can be set up again, such as for another site. It archives the prompts
+            that have answers, deletes the rest, removes every keyword, and turns the own site and the competitors
+            suggested for it back into cited domains. Checks already collected, confirmed competitors and engine
+            settings stay. Confirm with the user first. A 409 means a setup job is running: cancel it with
+            `aeo-setup-cancel` and try again. Then call `aeo-setup-start` to set up again.
         feature_flag: web-analytics-content-autopilot
     aeo-setup-start:
         operation: aeo_setup_create
@@ -553,4 +586,17 @@ tools:
             `failed`, which takes a few minutes. Then show the user the prompts and keywords it added. A 409 means a
             setup job is already running: poll its `job_id` instead.
         requires_ai_consent: true
+        feature_flag: web-analytics-content-autopilot
+    aeo-setup-stop-checks:
+        operation: aeo_setup_stop_checks
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Stop the AI visibility check run
+        description: >
+            Stop the project's current check run, such as the first run setup queued. Checks already in flight finish
+            and are kept, and the rest are dropped, so they cost nothing. Prompts and engines stay on, so the next
+            scheduled run checks them as usual.
         feature_flag: web-analytics-content-autopilot
