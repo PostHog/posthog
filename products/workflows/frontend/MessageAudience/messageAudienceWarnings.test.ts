@@ -247,26 +247,50 @@ describe('loadMessageAudienceWarnings', () => {
         }
     })
 
-    it('answers at once when a verified sender leaves nothing for the test sender to change', async () => {
-        jest.useFakeTimers()
-        try {
-            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
-                email_sending_suspended: false,
-            } as never)
-            jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
-            jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [verified], next: null } as never)
+    it.each<{ destination: MessageAudienceDestination; selected: 'same' | 'child' }>([
+        { destination: 'workflow', selected: 'same' },
+        { destination: 'broadcast', selected: 'child' },
+    ])(
+        'answers a $destination at once when a verified sender leaves nothing for the test sender to change',
+        async ({ destination, selected }) => {
+            jest.useFakeTimers()
+            const projectId = String(ApiConfig.getCurrentProjectId())
+            const teamId = ApiConfig.getCurrentTeamId()
+            try {
+                if (selected === 'child') {
+                    ApiConfig.setCurrentTeamId(teamId + 1)
+                }
+                const answersNow = (id: string): boolean => selected === 'same' || id === projectId
+                jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockImplementation((id) =>
+                    answersNow(id)
+                        ? (Promise.resolve({ email_sending_suspended: false }) as never)
+                        : new Promise(() => {})
+                )
+                jest.mocked(integrationsList).mockImplementation((id) =>
+                    answersNow(id)
+                        ? (Promise.resolve({ count: 1, results: [verified], next: null }) as never)
+                        : new Promise(() => {})
+                )
+                jest.mocked(workflowEmailSandboxStatus).mockReturnValue(new Promise(() => {}))
+                jest.mocked(cohortsRetrieve).mockResolvedValue({
+                    name: 'Signups',
+                    is_static: true,
+                    is_calculating: false,
+                } as never)
 
-            let warnings: MessageAudienceWarning[] | undefined
-            void loadMessageAudienceWarnings(audience, 'workflow', { offerTestSender: true }).then((result) => {
-                warnings = result
-            })
-            await jest.advanceTimersByTimeAsync(0)
+                let warnings: MessageAudienceWarning[] | undefined
+                void loadMessageAudienceWarnings(audience, destination, { offerTestSender: true }).then((result) => {
+                    warnings = result
+                })
+                await jest.advanceTimersByTimeAsync(0)
 
-            expect(warnings).toEqual([])
-        } finally {
-            jest.useRealTimers()
+                expect(warnings).toEqual([])
+            } finally {
+                ApiConfig.setCurrentTeamId(teamId)
+                jest.useRealTimers()
+            }
         }
-    })
+    )
 
     it.each<{
         case: string

@@ -118,10 +118,10 @@ export async function loadMessageAudienceWarnings(
         ),
     ])
     const senderWarning = senderWarningOf(integrations)
-    const [workflowSuspension, workflowIntegrations] = (await workflowChecks) ?? [null, null]
+    const offerPossible = !!senderWarning && suspension?.email_sending_suspended === false
+    const [workflowSuspension, workflowIntegrations] = (offerPossible && (await workflowChecks)) || [null, null]
     const offerWorkflowTest =
-        !!senderWarning &&
-        suspension?.email_sending_suspended === false &&
+        offerPossible &&
         workflowSuspension?.email_sending_suspended === false &&
         !!senderWarningOf(workflowIntegrations)
     return [
