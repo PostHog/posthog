@@ -36,6 +36,7 @@ So the spec file loads its components with `React.lazy` and never imports one di
 - Components read only the small contexts they need, such as `FiltersContext` and `PanelHostContext`, and never the dashboard state. A component that changes the dashboard's filters or time range reads `FilterControlsContext`.
 - `showOnInteractiveOnly(panel)` returning true leaves the tile out of snapshots, such as images and printed pages.
 - `movable(panel)` returning false stops a person dragging, resizing, moving or removing the tile. Left out, every tile is movable.
+- `keepMounted(panel)` returning true keeps the panel mounted after it scrolls out of view. Use it only for a panel that holds state a person would lose, because the panel then stays in memory.
 - To show a product's own component rather than add a type, use `/adding-dashboard-v2-custom-content`.
 - `allowedCustomizations` lists the tile customizations the type allows, such as `['backgroundColor']`. The values a person picks are saved on the tile's `panel.appearance`.
 - `menuActions(actions, context)` returns the tile's menu. Append entries to `actions` with a stable `key`, and change the config with `context.setConfig`, which saves one undo step.
