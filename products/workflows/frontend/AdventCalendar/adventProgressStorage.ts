@@ -17,12 +17,15 @@ function isAdventAnswer(answer: [string, unknown]): answer is [string, string] {
 }
 
 function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
-    const answered = Object.fromEntries(Object.entries(isRecord(answers) ? answers : {}).filter(isAdventAnswer))
-    const unanswered = ADVENT_QUESTION_DAYS.find((day) => opened.includes(day) && !answered[day])
     return {
-        opened: [...new Set(opened.filter(isAdventDay))].filter((day) => unanswered === undefined || day < unanswered),
-        answers: answered,
+        opened: [...new Set(opened.filter(isAdventDay))],
+        answers: Object.fromEntries(Object.entries(isRecord(answers) ? answers : {}).filter(isAdventAnswer)),
     }
+}
+
+export function reachableProgress({ opened, answers }: AdventProgress): AdventProgress {
+    const unanswered = ADVENT_QUESTION_DAYS.find((day) => opened.includes(day) && !answers[day])
+    return { opened: opened.filter((day) => unanswered === undefined || day < unanswered), answers }
 }
 
 export function storedProgressByUser(): unknown {

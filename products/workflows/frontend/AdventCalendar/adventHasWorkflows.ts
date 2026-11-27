@@ -6,8 +6,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 export function adventHasWorkflows(): boolean | null {
     const status = productSetupStatusLogic.findMounted({ productKey: ProductKey.WORKFLOWS })?.values.status
-    if (status === 'has-data' || status === 'needs-setup') {
-        return status === 'has-data'
+    if (status === 'needs-setup') {
+        return false
     }
     return readCachedHasData(teamLogic.findMounted()?.values.currentTeamId ?? null, ProductKey.WORKFLOWS) || null
 }
