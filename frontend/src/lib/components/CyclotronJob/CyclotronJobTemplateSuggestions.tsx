@@ -150,8 +150,12 @@ export function CyclotronJobTemplateSuggestions({
 
 export function CyclotronJobTemplateSuggestionsButton({
     onOptionSelect,
+    trigger,
     ...props
-}: CyclotronJobTemplateSuggestionsProps): JSX.Element {
+}: CyclotronJobTemplateSuggestionsProps & {
+    /** Replaces the default button, for a field that renders its own buttons. */
+    trigger?: JSX.Element
+}): JSX.Element {
     const [showPopover, setShowPopover] = useState(false) // TODO: Move this to the logic somehow
 
     const _onOptionSelect = (option: CyclotronJobTemplateOption): void => {
@@ -169,11 +173,13 @@ export function CyclotronJobTemplateSuggestionsButton({
             overlay={<CyclotronJobTemplateSuggestions {...props} onOptionSelect={_onOptionSelect} />}
             overflowHidden
         >
-            <LemonButton
-                size="small"
-                icon={<IconCode />}
-                tooltip="Supports templating - click to see available options"
-            />
+            {trigger ?? (
+                <LemonButton
+                    size="small"
+                    icon={<IconCode />}
+                    tooltip="Supports templating - click to see available options"
+                />
+            )}
         </LemonDropdown>
     )
 }

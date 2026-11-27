@@ -1,8 +1,13 @@
 import type { ComponentType } from 'react'
-import type { z } from 'zod'
+import { z } from 'zod'
 
 import type { DataFrame } from '../../query/queryTypes'
 import { type PanelSize } from '../core/panelSpec'
+
+/** The options of a kind of chart that has none. */
+export const NO_OPTIONS = z.strictObject({})
+
+export type NoOptions = z.infer<typeof NO_OPTIONS>
 
 /** One kind of chart, without its component, so code outside the browser can load it. */
 export type VizSpec<Options = unknown> = {

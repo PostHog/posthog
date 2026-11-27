@@ -1,12 +1,12 @@
 import { Text } from '@posthog/quill'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import type { PromptSentimentCounts, PromptSentimentSummary } from './promptReport'
+import { formatShare } from './shares'
 
 const LABELS: { key: keyof PromptSentimentCounts; label: string }[] = [
     { key: 'positive', label: 'positive' },
@@ -38,7 +38,7 @@ export const ContentAutopilotPromptSentiment = ({
                     <span key={key}>
                         {index > 0 ? ', ' : ''}
                         <span className="font-semibold tabular-nums">{summary[key]}</span> {label} (
-                        {percentage(summary[key] / summary.scored, 0)})
+                        {formatShare(summary[key] / summary.scored)})
                     </span>
                 ))}
                 {summary.unscored > 0 ? `. ${pluralize(summary.unscored, 'answer')} not scored yet.` : '.'}

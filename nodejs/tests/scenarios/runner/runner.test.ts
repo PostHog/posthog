@@ -1966,6 +1966,7 @@ describe('runner through seed, drive and judge', () => {
                 drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
                 writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
                 queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+                activity: expect.arrayContaining([{ at: expect.any(Number), backends: expect.any(Array) }]),
                 dependencies: [],
             })
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)

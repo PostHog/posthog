@@ -33,6 +33,7 @@ export interface MCPRequestContext
             | 'features'
             | 'tools'
             | 'excludeTools'
+            | 'requestHeaderNames'
         > {
     mode?: McpMode | undefined
     authMethod: McpAuthMethod
@@ -67,6 +68,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         tools: props.tools,
         excludeTools: props.excludeTools,
         mcpVendorClient: props.mcpVendorClient,
+        requestHeaderNames: props.requestHeaderNames,
         authMethod: classifyAuthMethod(props.apiToken),
     }
 }

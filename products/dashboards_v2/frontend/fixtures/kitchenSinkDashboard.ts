@@ -3,7 +3,7 @@ import { BaseMathType } from '~/types'
 
 import { type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
-import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
+import { type MetricOptions, metricSpec } from '../panels/chart/viz/metric/metricSpec'
 import { type PanelQuery } from '../query/querySchema'
 import { type ContentPanel, type SavedPanel } from '../panels/core/panelSchema'
 
@@ -28,11 +28,15 @@ const traces = (title: string, service: string, viz: ChartConfig['viz']): Conten
         },
         viz
     )
-const stat = (title: string, sql: string, format?: StatOptions['format']): ContentPanel<ChartConfig> =>
-    chart(title, sql, format ? { type: 'stat', options: { format } } : { type: 'stat' })
+const metric = (title: string, sql: string, format?: MetricOptions['format']): ContentPanel<ChartConfig> =>
+    chart(title, sql, format ? { type: 'metric', options: { format } } : { type: 'metric' })
 const line = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'line' })
 const bar = (title: string, sql: string): ContentPanel<ChartConfig> => chart(title, sql, { type: 'bar' })
-const text = (markdown: string): SavedPanel => ({ type: 'markdown', config: { text: markdown } })
+const text = (markdown: string): SavedPanel => ({
+    type: 'markdown',
+    config: { text: markdown },
+    appearance: { backgroundColor: 'transparent' },
+})
 
 const tile = (id: string, x: number, y: number, w: number, h: number, panel: Tile['panel']): Tile => ({
     id,
@@ -42,10 +46,13 @@ const tile = (id: string, x: number, y: number, w: number, h: number, panel: Til
 const section = (id: string, x: number, y: number, w: number, title: string, tiles: Tile[], collapsed = false): Tile =>
     tile(id, x, y, w, GRID.collapsedSectionRows, { type: 'section', title, tiles, collapsed })
 
-const STAT_ROWS = statSpec.size.h
-const statRow = (prefix: string, y: number, cols: number, stats: ContentPanel<ChartConfig>[]): Tile[] => {
-    const w = Math.floor(cols / stats.length)
-    return stats.map((panel, index) => tile(`${prefix}-${index}`, index * w, y, w, STAT_ROWS, panel))
+const METRIC_ROWS = metricSpec.size.h
+// Spreads the leftover columns over the row, so five metrics still fill 24 columns.
+const metricRow = (prefix: string, y: number, cols: number, metrics: ContentPanel<ChartConfig>[]): Tile[] => {
+    const edge = (index: number): number => Math.round((index * cols) / metrics.length)
+    return metrics.map((panel, index) =>
+        tile(`${prefix}-${index}`, edge(index), y, edge(index + 1) - edge(index), METRIC_ROWS, panel)
+    )
 }
 
 // The SQL reads the dashboard's time range through `{filters}`.
@@ -164,6 +171,7 @@ const SAMPLE = {
     error: 'select missing_column from events -- sample: error',
     slow: `${SQL.pageviewsOverTime} -- sample: slow`,
     slowTotal: `${SQL.pageviews} -- sample: slow`,
+    loading: `${SQL.pageviewsOverTime} -- sample: loading`,
     stale: `${SQL.signupsOverTime} -- sample: stale`,
     malformed: `${SQL.visitorsOverTime} -- sample: malformed`,
 }
@@ -198,12 +206,12 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'kitchen-sink',
             title: 'Kitchen sink',
             tiles: [
-                ...statRow('ks-stat', 0, 18, [
-                    stat('Visitors', SQL.visitors),
-                    stat('Sessions', SQL.sessions),
-                    stat('Signups', SQL.signups),
+                ...metricRow('ks-metric', 0, 18, [
+                    metric('Visitors', SQL.visitors),
+                    metric('Sessions', SQL.sessions),
+                    metric('Signups', SQL.signups),
                 ]),
-                tile('ks-stat-3', 18, 0, 6, STAT_ROWS, { ...stat('Revenue', SQL.revenue, 'currency'), refreshedAt: REFRESHED_AT }),
+                tile('ks-metric-3', 18, 0, 6, METRIC_ROWS, { ...metric('Revenue', SQL.revenue, 'currency'), refreshedAt: REFRESHED_AT }),
                 tile('ks-trend', 0, 8, 16, 16, { ...line('Signups over time', SQL.signupsOverTime), description: 'New accounts per day', refreshedAt: REFRESHED_AT }),
                 tile('ks-notes', 16, 8, 8, 16, text('## Notes\n\nDrag a tile by its title. Resize it from its left, right or bottom edge.')),
                 section('ks-section', 0, 24, 24, 'Section with tiles', [
@@ -214,8 +222,8 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-s-line', 12, 0, 12, 14, line('Activation', SQL.activation)),
                 ]),
                 section('ks-nested', 0, 42, 24, 'Section with a section inside', [
-                    tile('ks-n-stat', 0, 0, 6, STAT_ROWS, stat('Errors', SQL.errors)),
-                    tile('ks-n-stat2', 6, 0, 6, STAT_ROWS, stat('Error rate', SQL.sessionErrorRate, 'percentage')),
+                    tile('ks-n-metric', 0, 0, 6, METRIC_ROWS, metric('Errors', SQL.errors)),
+                    tile('ks-n-metric2', 6, 0, 6, METRIC_ROWS, metric('Error rate', SQL.sessionErrorRate, 'percentage')),
                     section('ks-inner', 12, 0, 12, 'Inner section', [
                         tile('ks-i-line', 0, 0, 12, 12, line('Errors over time', SQL.errorsOverTime)),
                     ]),
@@ -229,8 +237,8 @@ export const kitchenSinkDashboard: Dashboard = {
                     tile('ks-q-metrics', 8, 0, 8, 14, metrics('Metrics query', 'sum(rate(http_requests_total[5m]))', { type: 'line' })),
                     tile('ks-q-traces', 16, 0, 8, 14, traces('Trace query', 'posthog-web-django', { type: 'bar' })),
                     tile('ks-q-stacked', 0, 14, 12, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
-                    tile('ks-q-currency', 12, 14, 6, STAT_ROWS, stat('Revenue', SQL.revenue, 'currency')),
-                    tile('ks-q-number', 18, 14, 6, STAT_ROWS, stat('Signups', SQL.signups, 'number')),
+                    tile('ks-q-currency', 12, 14, 6, METRIC_ROWS, metric('Revenue', SQL.revenue, 'currency')),
+                    tile('ks-q-number', 18, 14, 6, METRIC_ROWS, metric('Signups', SQL.signups, 'number')),
                     tile('ks-q-insight', 12, 22, 12, 8, {
                         type: 'chart',
                         title: 'Insight query, last 24 hours',
@@ -306,26 +314,26 @@ export const kitchenSinkDashboard: Dashboard = {
                     )
                 ),
                 section('ts-good', 0, 4, 24, 'Every panel type', [
-                    ...statRow('ts-good-stat', 0, 24, [
-                        stat('Number', SQL.signups, 'number'),
-                        stat('Currency', SQL.revenue, 'currency'),
-                        stat('Percentage', SQL.conversionRate, 'percentage'),
-                        stat('No format', SQL.visitors),
+                    ...metricRow('ts-good-metric', 0, 24, [
+                        metric('Number', SQL.signups, 'number'),
+                        metric('Currency', SQL.revenue, 'currency'),
+                        metric('Percentage', SQL.conversionRate, 'percentage'),
+                        metric('No format', SQL.visitors),
                     ]),
-                    tile('ts-good-line', 0, STAT_ROWS, 8, 14, line('Line', SQL.signupsOverTime)),
-                    tile('ts-good-bar', 8, STAT_ROWS, 8, 14, bar('Bars by breakdown', SQL.sources)),
-                    tile('ts-good-stacked', 16, STAT_ROWS, 8, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
-                    tile('ts-good-markdown', 0, STAT_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
+                    tile('ts-good-line', 0, METRIC_ROWS, 8, 14, line('Line', SQL.signupsOverTime)),
+                    tile('ts-good-bar', 8, METRIC_ROWS, 8, 14, bar('Bars by breakdown', SQL.sources)),
+                    tile('ts-good-stacked', 16, METRIC_ROWS, 8, 14, chart('Stacked bars', SQL.eventsByType, { type: 'bar', options: { stack: true } })),
+                    tile('ts-good-markdown', 0, METRIC_ROWS + 14, 24, 12, text(RICH_MARKDOWN)),
                 ]),
                 section('ts-loading', 0, 40, 24, 'Loading and refreshing', [
                     tile('ts-slow-line', 0, 0, 12, 12, { ...line('Slow query', SAMPLE.slow), description: 'The sample runner answers after 4 seconds' }),
-                    tile('ts-slow-stat', 12, 0, 6, STAT_ROWS, stat('Slow total', SAMPLE.slowTotal)),
+                    tile('ts-slow-metric', 12, 0, 6, METRIC_ROWS, metric('Slow total', SAMPLE.slowTotal)),
                     tile('ts-stale', 18, 0, 6, 12, { ...line('Stale result', SAMPLE.stale), refreshedAt: REFRESHED_AT }),
                 ]),
                 section('ts-failed', 0, 54, 24, 'Empty and failed queries', [
                     tile('ts-empty-line', 0, 0, 8, 12, line('Empty result', SAMPLE.empty)),
-                    tile('ts-empty-stat', 8, 0, 4, STAT_ROWS, stat('Empty total', SAMPLE.emptyTotal)),
-                    tile('ts-error-stat', 12, 0, 4, STAT_ROWS, stat('Failed total', SAMPLE.error)),
+                    tile('ts-empty-metric', 8, 0, 4, METRIC_ROWS, metric('Empty total', SAMPLE.emptyTotal)),
+                    tile('ts-error-metric', 12, 0, 4, METRIC_ROWS, metric('Failed total', SAMPLE.error)),
                     tile('ts-error-line', 16, 0, 8, 12, line('Failed query', SAMPLE.error)),
                     tile('ts-partial', 0, 12, 24, 14, {
                         type: 'chart',
@@ -342,19 +350,44 @@ export const kitchenSinkDashboard: Dashboard = {
                 section('ts-broken', 0, 82, 24, 'Broken tiles', [
                     tile('ts-throws', 0, 0, 8, 10, { ...line('Panel throws', SAMPLE.malformed), description: 'The sample runner returns a frame without fields' }),
                     tile('ts-unknown-type', 8, 0, 8, 10, { type: 'heatmap', title: 'Unknown panel type', config: {} }),
-                    tile('ts-unknown-viz', 16, 0, 8, 10, { type: 'chart', title: 'Unknown chart type', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'pie' } } }),
-                    tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'stat', options: { format: 'banana' } } } }),
+                    tile('ts-unknown-viz', 16, 0, 8, 10, { type: 'chart', title: 'Unknown chart type', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'radar' } } }),
+                    tile('ts-bad-options', 0, 10, 8, 10, { type: 'chart', title: 'Invalid chart options', config: { query: { language: 'hogql', query: SQL.signups }, viz: { type: 'metric', options: { format: 'banana' } } } }),
                     tile('ts-bad-markdown', 8, 10, 8, 10, { type: 'markdown', title: 'Invalid text config', config: { text: 42 } }),
                     tile('ts-bad-chart', 16, 10, 8, 10, { type: 'chart', title: 'Chart with no query', config: { viz: { type: 'line' } } }),
                 ]),
                 section('ts-appearance', 0, 104, 24, 'Tile appearance', [
                     tile('ts-headerless', 0, 0, 6, 8, { ...text('A tile with its header hidden.'), title: 'Hidden title', parts: { header: false } }),
                     tile('ts-long-title', 6, 0, 6, 8, {
-                        ...stat('A very long title that is cut off at the edge of the tile instead of wrapping onto another line', SQL.visitors),
+                        ...metric('A very long title that is cut off at the edge of the tile instead of wrapping onto another line', SQL.visitors),
                         description: 'Hover the icon to read the description.',
                     }),
-                    tile('ts-tinted', 12, 0, 6, 8, { ...stat('Blue background', SQL.sessions), appearance: { backgroundColor: 'var(--color-blue-500)' } }),
+                    tile('ts-tinted', 12, 0, 6, 8, { ...metric('Blue background', SQL.sessions), appearance: { backgroundColor: 'var(--color-blue-500)' } }),
                     tile('ts-no-background', 18, 0, 6, 8, { ...text('No background and no border.'), appearance: { backgroundColor: 'transparent', border: false } }),
+                ]),
+                section('ts-kinds', 0, 112, 24, 'Other kinds of chart', [
+                    tile('ts-kind-slow-pie', 0, 0, 6, 12, chart('Slow pie', SAMPLE.slow, { type: 'pie' })),
+                    tile('ts-kind-empty-bar-list', 6, 0, 6, 12, chart('Empty bar list', SAMPLE.empty, { type: 'bar-list' })),
+                    tile('ts-kind-empty-gauge', 12, 0, 6, 12, chart('Empty gauge', SAMPLE.emptyTotal, { type: 'gauge' })),
+                    tile('ts-kind-error-heatmap', 18, 0, 6, 12, chart('Failed heatmap', SAMPLE.error, { type: 'heatmap' })),
+                    tile('ts-kind-stale-funnel', 0, 12, 24, 12, { ...chart('Stale funnel', SAMPLE.stale, { type: 'funnel' }), refreshedAt: REFRESHED_AT }),
+                ]),
+                section('ts-skeletons', 0, 138, 24, 'Loading skeletons', [
+                    tile('ts-skeleton-metric', 0, 0, 6, 10, chart('Metric', SAMPLE.loading, { type: 'metric' })),
+                    tile('ts-skeleton-line', 6, 0, 6, 10, chart('Line', SAMPLE.loading, { type: 'line' })),
+                    tile('ts-skeleton-bar', 12, 0, 6, 10, chart('Bar', SAMPLE.loading, { type: 'bar' })),
+                    tile('ts-skeleton-area', 18, 0, 6, 10, chart('Area', SAMPLE.loading, { type: 'area' })),
+                    tile('ts-skeleton-combo', 0, 10, 6, 10, chart('Bar and line', SAMPLE.loading, { type: 'combo' })),
+                    tile('ts-skeleton-pie', 6, 10, 6, 10, chart('Pie', SAMPLE.loading, { type: 'pie' })),
+                    tile('ts-skeleton-bar-list', 12, 10, 6, 10, chart('Bar list', SAMPLE.loading, { type: 'bar-list' })),
+                    tile('ts-skeleton-proportion', 18, 10, 6, 10, chart('Proportion bar', SAMPLE.loading, { type: 'proportion' })),
+                    tile('ts-skeleton-funnel', 0, 20, 6, 10, chart('Funnel', SAMPLE.loading, { type: 'funnel' })),
+                    tile('ts-skeleton-gauge', 6, 20, 6, 10, chart('Gauge', SAMPLE.loading, { type: 'gauge' })),
+                    tile('ts-skeleton-heatmap', 12, 20, 6, 10, chart('Heatmap', SAMPLE.loading, { type: 'heatmap' })),
+                    tile('ts-skeleton-scatter', 18, 20, 6, 10, chart('Scatter', SAMPLE.loading, { type: 'scatter' })),
+                    tile('ts-skeleton-box-plot', 0, 30, 6, 10, chart('Box plot', SAMPLE.loading, { type: 'box-plot' })),
+                    tile('ts-skeleton-slope', 6, 30, 6, 10, chart('Slope', SAMPLE.loading, { type: 'slope' })),
+                    tile('ts-skeleton-sankey', 12, 30, 6, 10, chart('Sankey', SAMPLE.loading, { type: 'sankey' })),
+                    tile('ts-skeleton-flame-graph', 0, 40, 12, 10, chart('Flame graph', SAMPLE.loading, { type: 'flame-graph' })),
                 ]),
             ],
         },
@@ -362,22 +395,24 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'web-analytics',
             title: 'Web analytics',
             tiles: [
-                ...statRow('wa-stat', 0, 24, [
-                    stat('Visitors', SQL.visitors),
-                    stat('Page views', SQL.pageviews),
-                    stat('Sessions', SQL.sessions),
-                    stat('Session duration', SQL.sessionDuration),
-                    stat('Bounce rate', SQL.bounceRate, 'percentage'),
+                ...metricRow('wa-metric', 0, 24, [
+                    metric('Visitors', SQL.visitors),
+                    metric('Page views', SQL.pageviews),
+                    metric('Sessions', SQL.sessions),
+                    metric('Session duration', SQL.sessionDuration),
+                    metric('Bounce rate', SQL.bounceRate, 'percentage'),
                 ]),
-                tile('wa-trend', 0, 8, 24, 18, line('Unique visitors', SQL.visitorsOverTime)),
-                tile('wa-paths', 0, 26, 12, 18, bar('Paths', SQL.paths)),
-                tile('wa-sources', 12, 26, 12, 18, bar('Sources', SQL.sources)),
-                tile('wa-devices', 0, 44, 12, 16, bar('Device types', SQL.devices)),
-                tile('wa-geo', 12, 44, 12, 16, bar('Countries', SQL.countries)),
-                section('wa-goals', 0, 60, 24, 'Goals', [
-                    tile('wa-goal-trend', 0, 0, 16, 14, line('Goal conversions', SQL.signupsOverTime)),
-                    tile('wa-goal-rate', 16, 0, 8, STAT_ROWS, stat('Conversion rate', SQL.conversionRate, 'percentage')),
-                    tile('wa-goal-total', 16, 8, 8, 8, stat('Conversions', SQL.signups)),
+                tile('wa-trend', 0, 8, 24, 16, chart('Visitors and page views', SQL.eventsByType, { type: 'area' })),
+                tile('wa-paths', 0, 24, 12, 10, chart('Top paths', SQL.paths, { type: 'bar-list' })),
+                tile('wa-sources', 12, 24, 12, 10, chart('Top sources', SQL.sources, { type: 'bar-list' })),
+                tile('wa-devices', 0, 34, 8, 14, chart('Device types', SQL.devices, { type: 'pie' })),
+                tile('wa-geo', 8, 34, 8, 14, chart('Countries', SQL.countries, { type: 'bar-list' })),
+                tile('wa-hours', 16, 34, 8, 14, chart('Active days', SQL.devices, { type: 'heatmap' })),
+                section('wa-goals', 0, 48, 24, 'Goals', [
+                    tile('wa-goal-funnel', 0, 0, 12, 14, chart('Visit to signup', SQL.paths, { type: 'funnel' })),
+                    tile('wa-goal-trend', 12, 0, 12, 14, line('Goal conversions', SQL.signupsOverTime)),
+                    tile('wa-goal-rate', 0, 14, 12, METRIC_ROWS, metric('Conversion rate', SQL.conversionRate, 'percentage')),
+                    tile('wa-goal-total', 12, 14, 12, METRIC_ROWS, metric('Conversions', SQL.signups)),
                 ]),
             ],
         },
@@ -385,21 +420,26 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'ai-observability',
             title: 'AI observability',
             tiles: [
-                ...statRow('aio-stat', 0, 24, [
-                    stat('Traces', SQL.traces),
-                    stat('Generations', SQL.generations),
-                    stat('Users', SQL.aiUsers),
-                    stat('Total cost', SQL.aiCost, 'currency'),
+                ...metricRow('aio-metric', 0, 24, [
+                    metric('Traces', SQL.traces),
+                    metric('Generations', SQL.generations),
+                    metric('Users', SQL.aiUsers),
+                    metric('Total cost', SQL.aiCost, 'currency'),
                 ]),
-                tile('aio-cost', 0, 8, 12, 16, line('Cost by model', SQL.costByModel)),
-                tile('aio-latency', 12, 8, 12, 16, line('Generation latency', SQL.generationLatency)),
+                tile('aio-cost', 0, 8, 16, 16, chart('Cost by model', SQL.costByModel, { type: 'area' })),
+                tile('aio-cost-share', 16, 8, 8, 16, chart('Share of cost', SQL.costByModel, { type: 'pie' })),
                 section('aio-usage', 0, 24, 24, 'Usage', [
-                    tile('aio-tokens', 0, 0, 8, 14, bar('Tokens by model', SQL.tokensByModel)),
-                    tile('aio-calls', 8, 0, 8, 14, line('Generations over time', SQL.generationsOverTime)),
-                    tile('aio-users', 16, 0, 8, 14, bar('Cost per user', SQL.costPerUser)),
+                    tile('aio-calls', 0, 0, 16, 14, chart('Generations and errors', SQL.clicksAndSignups, { type: 'combo' })),
+                    tile('aio-tokens', 16, 0, 8, 10, chart('Tokens by model', SQL.tokensByModel, { type: 'bar-list' })),
+                    tile('aio-users', 0, 14, 12, 14, bar('Cost per user', SQL.costPerUser)),
+                    tile('aio-models', 12, 14, 12, 14, chart('Cost change by model', SQL.costByModel, { type: 'slope' })),
                 ]),
-                section('aio-errors', 0, 42, 24, 'Errors', [
-                    tile('aio-error-rate', 0, 0, 6, STAT_ROWS, stat('Error rate', SQL.aiErrorRate, 'percentage')),
+                section('aio-latency', 0, 52, 24, 'Latency', [
+                    tile('aio-latency-trend', 0, 0, 12, 14, line('p95 generation latency', SQL.generationLatency)),
+                    tile('aio-latency-spread', 12, 0, 12, 14, chart('Latency by model', SQL.tokensByModel, { type: 'box-plot' })),
+                ]),
+                section('aio-errors', 0, 70, 24, 'Errors', [
+                    tile('aio-error-rate', 0, 0, 6, 10, metric('Error rate', SQL.aiErrorRate, 'percentage')),
                     tile('aio-error-trend', 6, 0, 18, 12, line('Errors over time', SQL.aiErrorsOverTime)),
                 ]),
             ],
@@ -408,18 +448,25 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'apm',
             title: 'APM',
             tiles: [
-                ...statRow('apm-stat', 0, 24, [
-                    stat('Requests', SQL.requests),
-                    stat('Request rate', SQL.requestRate),
-                    stat('Errors', SQL.requestErrors),
-                    stat('Error rate', SQL.aiErrorRate, 'percentage'),
-                    stat('p95', SQL.p95),
+                ...metricRow('apm-metric', 0, 20, [
+                    metric('Requests', SQL.requests),
+                    metric('Request rate', SQL.requestRate),
+                    metric('Errors', SQL.requestErrors),
+                    metric('Error rate', SQL.aiErrorRate, 'percentage'),
                 ]),
-                tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'line' })),
+                tile('apm-p95', 20, 0, 4, METRIC_ROWS, chart('p95 latency', SQL.p95, { type: 'gauge', options: { max: 3000 } })),
+                tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'combo' })),
                 tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
-                section('apm-endpoints', 0, 24, 24, 'Endpoints', [
-                    tile('apm-slowest', 0, 0, 12, 16, traces('Slowest operations', 'posthog-web-django', { type: 'bar' })),
-                    tile('apm-busiest', 12, 0, 12, 16, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
+                tile('apm-latency-heatmap', 0, 24, 24, 14, metrics('Latency distribution', 'sum by (le) (rate(http_server_duration_bucket[5m]))', { type: 'heatmap' })),
+                section('apm-endpoints', 0, 38, 24, 'Endpoints', [
+                    tile('apm-slowest', 0, 0, 12, 14, traces('Slowest operations', 'posthog-web-django', { type: 'bar-list' })),
+                    tile('apm-busiest', 12, 0, 12, 14, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
+                    tile('apm-spread', 0, 14, 12, 14, traces('Duration by operation', 'posthog-web-django', { type: 'box-plot' })),
+                    tile('apm-scatter', 12, 14, 12, 14, traces('Span durations', 'posthog-web-django', { type: 'scatter' })),
+                ]),
+                section('apm-traces', 0, 70, 24, 'Traces', [
+                    tile('apm-flow', 0, 0, 12, 16, traces('Service calls', 'posthog-web-django', { type: 'sankey' })),
+                    tile('apm-flame', 12, 0, 12, 16, traces('Time by operation', 'posthog-web-django', { type: 'flame-graph' })),
                 ]),
             ],
         },
@@ -427,22 +474,60 @@ export const kitchenSinkDashboard: Dashboard = {
             id: 'marketing',
             title: 'Marketing analytics',
             tiles: [
-                ...statRow('mk-stat', 0, 24, [
-                    stat('Ad clicks', SQL.adClicks),
-                    stat('Ad visitors', SQL.adVisitors),
-                    stat('Campaigns', SQL.campaigns),
-                    stat('Signups from campaigns', SQL.adSignups),
-                    stat('Clicks per visitor', SQL.clicksPerVisitor),
-                    stat('Conversion rate', SQL.conversionRate, 'percentage'),
+                ...metricRow('mk-metric', 0, 24, [
+                    metric('Ad clicks', SQL.adClicks),
+                    metric('Ad visitors', SQL.adVisitors),
+                    metric('Campaigns', SQL.campaigns),
+                    metric('Signups from campaigns', SQL.adSignups),
+                    metric('Clicks per visitor', SQL.clicksPerVisitor),
+                    metric('Conversion rate', SQL.conversionRate, 'percentage'),
                 ]),
-                tile('mk-trend', 0, 8, 24, 16, line('Ad clicks and signups', SQL.clicksAndSignups)),
-                section('mk-google', 0, 24, 12, 'Google Ads', [
-                    ...statRow('mk-g', 0, 12, [stat('Clicks', SQL.googleClicks), stat('Visitors', SQL.googleVisitors)]),
-                    tile('mk-g-bar', 0, 8, 12, 12, bar('Campaigns', SQL.googleCampaigns)),
+                tile('mk-trend', 0, 8, 16, 16, chart('Ad clicks and signups', SQL.clicksAndSignups, { type: 'combo' })),
+                tile('mk-funnel', 16, 8, 8, 16, chart('Click to signup', SQL.clicksAndSignups, { type: 'funnel' })),
+                tile('mk-share', 0, 24, 24, 6, chart('Clicks by network', SQL.clicksAndSignups, { type: 'proportion' })),
+                section('mk-google', 0, 30, 12, 'Google Ads', [
+                    ...metricRow('mk-g', 0, 12, [metric('Clicks', SQL.googleClicks), metric('Visitors', SQL.googleVisitors)]),
+                    tile('mk-g-bar', 0, 8, 12, 8, chart('Campaigns', SQL.googleCampaigns, { type: 'bar-list' })),
+                    tile('mk-g-slope', 0, 16, 12, 12, chart('Campaign change', SQL.googleCampaigns, { type: 'slope' })),
                 ]),
-                section('mk-meta', 12, 24, 12, 'Meta Ads', [
-                    ...statRow('mk-m', 0, 12, [stat('Clicks', SQL.metaClicks), stat('Visitors', SQL.metaVisitors)]),
-                    tile('mk-m-bar', 0, 8, 12, 12, bar('Campaigns', SQL.metaCampaigns)),
+                section('mk-meta', 12, 30, 12, 'Meta Ads', [
+                    ...metricRow('mk-m', 0, 12, [metric('Clicks', SQL.metaClicks), metric('Visitors', SQL.metaVisitors)]),
+                    tile('mk-m-bar', 0, 8, 12, 8, chart('Campaigns', SQL.metaCampaigns, { type: 'bar-list' })),
+                    tile('mk-m-slope', 0, 16, 12, 12, chart('Campaign change', SQL.metaCampaigns, { type: 'slope' })),
+                ]),
+            ],
+        },
+        {
+            id: 'chart-kinds',
+            title: 'Chart kinds',
+            tiles: [
+                tile('kind-intro', 0, 0, 24, 4, text('Every kind of chart quill draws, each from the query a team would give it. Change a tile\'s kind from its menu to compare kinds on the same data.')),
+                section('kind-time', 0, 4, 24, 'Over time', [
+                    tile('kind-line', 0, 0, 12, 14, line('Line', SQL.paths)),
+                    tile('kind-bar', 12, 0, 12, 14, chart('Stacked bar', SQL.paths, { type: 'bar', options: { stack: true } })),
+                    tile('kind-area', 0, 14, 12, 14, chart('Area', SQL.paths, { type: 'area' })),
+                    tile('kind-combo', 12, 14, 12, 14, chart('Bar and line', SQL.clicksAndSignups, { type: 'combo' })),
+                ]),
+                section('kind-single', 0, 32, 24, 'One number', [
+                    tile('kind-metric', 0, 0, 8, 10, metric('Metric card', SQL.signups)),
+                    tile('kind-metric-currency', 8, 0, 8, 10, metric('Metric card, currency', SQL.revenue, 'currency')),
+                    tile('kind-gauge', 16, 0, 8, 10, chart('Gauge', SQL.p95, { type: 'gauge', options: { max: 3000 } })),
+                ]),
+                section('kind-parts', 0, 44, 24, 'Parts of a whole', [
+                    tile('kind-pie', 0, 0, 8, 14, chart('Pie', SQL.devices, { type: 'pie' })),
+                    tile('kind-bar-list', 8, 0, 8, 14, chart('Bar list', SQL.sources, { type: 'bar-list' })),
+                    tile('kind-funnel', 16, 0, 8, 14, chart('Funnel', SQL.paths, { type: 'funnel' })),
+                    tile('kind-proportion', 0, 14, 24, 6, chart('Proportion bar', SQL.devices, { type: 'proportion' })),
+                ]),
+                section('kind-distribution', 0, 66, 24, 'Distribution and change', [
+                    tile('kind-heatmap', 0, 0, 12, 14, chart('Heatmap', SQL.countries, { type: 'heatmap' })),
+                    tile('kind-scatter', 12, 0, 12, 14, chart('Scatter', SQL.sources, { type: 'scatter' })),
+                    tile('kind-box-plot', 0, 14, 12, 14, chart('Box plot', SQL.devices, { type: 'box-plot' })),
+                    tile('kind-slope', 12, 14, 12, 14, chart('Slope', SQL.countries, { type: 'slope' })),
+                ]),
+                section('kind-flow', 0, 96, 24, 'Flows and trees', [
+                    tile('kind-sankey', 0, 0, 12, 16, chart('Sankey', SQL.sources, { type: 'sankey' })),
+                    tile('kind-flame-graph', 12, 0, 12, 16, traces('Flame graph', 'posthog-web-django', { type: 'flame-graph' })),
                 ]),
             ],
         },

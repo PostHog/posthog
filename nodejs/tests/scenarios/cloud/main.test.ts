@@ -456,6 +456,28 @@ describe('cloud controller', () => {
             `${FAILOVER_CARD} fails the reader over, so the cloud profile needs readerAcu.idleMax`,
             { profile: (p) => ({ ...p, readerAcu: { min: p.readerAcu.min, max: p.readerAcu.max } }) },
         ],
+        [
+            'a card whose failovers disagree on a warm reader',
+            FAILOVER_CARD,
+            `${FAILOVER_CARD} fails the reader over both with and without warmReader`,
+            {
+                cards: {
+                    [FAILOVER_CARD]: (() => {
+                        const card = parse(
+                            readFileSync(path.join(__dirname, '..', 'cards', `${FAILOVER_CARD}.yaml`), 'utf8')
+                        )
+                        const [failover] = card.valves
+                        return stringify({
+                            ...card,
+                            valves: [
+                                { ...failover, at: '15m', for: '10m' },
+                                { ...failover, dose: { warmReader: true }, at: '40m', for: '10m' },
+                            ],
+                        })
+                    })(),
+                },
+            },
+        ],
         ['a card path, which the run host cannot read', '../cards/cyclotron-scale.yaml', 'card id', {}],
         [
             'a paired card whose control and faulted run do not both fit before the teardown',
@@ -1702,7 +1724,13 @@ describe('cloud controller', () => {
             {
                 card: {
                     intentAt: new Date(T.getTime() - 2 * 24 * HOUR_MS).toISOString(),
-                    eventFields: { acu_peak: 9, acu_after_t0_max: [4], acu_pre_t0_above_idle: ['x'] },
+                    eventFields: {
+                        acu_peak: 9,
+                        acu_after_t0_max: [4],
+                        acu_pre_t0_above_idle: ['x'],
+                        acu_pre_t0_avg: [1],
+                        reader_at_t0: 'warm',
+                    },
                 },
             },
             () => undefined,
@@ -1710,7 +1738,13 @@ describe('cloud controller', () => {
             'falls outside the run',
             {
                 printed: 'falls outside the run, so the reader was not judged.',
-                published: { acu_peak: null, acu_after_t0_max: null, acu_pre_t0_above_idle: null },
+                published: {
+                    acu_peak: null,
+                    acu_after_t0_max: null,
+                    acu_pre_t0_above_idle: null,
+                    acu_pre_t0_avg: null,
+                    reader_at_t0: null,
+                },
             },
         ],
         [
@@ -1773,6 +1807,7 @@ describe('cloud controller', () => {
                 acu_seconds_to_peak: 60,
                 acu_after_t0_max: [4, 8, 8],
                 reader_acu_at_t0: 1.5,
+                reader_at_t0: 'cold',
                 ...also.published,
             })
             const t0 = Date.parse(String(published().t0_at))
@@ -1805,6 +1840,87 @@ describe('cloud controller', () => {
             acu_pre_t0_max: 5,
             acu_pre_t0_above_idle: [-6, -3].map((minute) => new Date(t0Minute + minute * 60_000).toISOString()),
         })
+    })
+
+    it.each<[string, FakeCloudOptions['readerAcu'], (number | null)[], string, string, string]>([
+        [
+            'passes on a reader above its idle limit before T0, and marks the reader warm',
+            [...minutes(-5, -3, 1, 1), ...minutes(-2, -2, 3, 2.6), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [1, 1, 1, 2.6, 3],
+            'passed',
+            '',
+            'warm',
+        ],
+        [
+            'still refuses a reader under its minimum before T0',
+            [...minutes(-5, -3, 3, 2.6), ...minutes(-2, -2, 3, 0.5), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [2.6, 2.6, 2.6, 0.5, 3],
+            'invalid',
+            'reader capacity under its 1 ACU minimum before T0',
+            'warm',
+        ],
+        [
+            'marks a reader that was warm earlier but idle in the minute before T0 cold',
+            [...minutes(-5, -2, 3, 2.8), ...minutes(-1, -1, 4, 1), ...minutes(0, 2, 8, 6)],
+            [2.8, 2.8, 2.8, 2.8, 1],
+            'passed',
+            '',
+            'cold',
+        ],
+        [
+            'marks the reader unknown when the minute before T0 has no average',
+            [...minutes(-5, -2, 3, 2.8), { minute: -1, max: 4 }, ...minutes(0, 2, 8, 6)],
+            [2.8, 2.8, 2.8, 2.8, null],
+            'passed',
+            '',
+            'unknown',
+        ],
+        [
+            'refuses a reading above the reader maximum before T0',
+            [...minutes(-5, -3, 3, 2.8), ...minutes(-2, -2, 40, 3), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [2.8, 2.8, 2.8, 3, 3],
+            'invalid',
+            'reader above its 32 ACU maximum before T0',
+            'warm',
+        ],
+        [
+            'passes a reading above the reader maximum before the five judged minutes',
+            [...minutes(-6, -6, 40, 3), ...minutes(-5, -2, 1, 1), ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [1, 1, 1, 1, 3],
+            'passed',
+            '',
+            'warm',
+        ],
+        [
+            'refuses an average above the reader maximum before T0 with no maximum beside it',
+            [...minutes(-5, -3, 3, 2.8), { minute: -2, avg: 33 }, ...minutes(-1, -1, 4, 3), ...minutes(0, 2, 8, 6)],
+            [2.8, 2.8, 2.8, 33, 3],
+            'invalid',
+            'reader above its 32 ACU maximum before T0',
+            'warm',
+        ],
+        [
+            'keeps the averages and the label before T0 when no reader maximum follows T0',
+            [...minutes(-5, -2, 1, 1), ...minutes(-1, -1, 4, 3)],
+            [1, 1, 1, 1, 3],
+            'invalid',
+            'no measured reader maximum from T0 on',
+            'warm',
+        ],
+    ])('judges a card that fails a warm reader over: %s', async (_, readerAcu, avgs, status, reason, label) => {
+        const card = parse(readFileSync(path.join(__dirname, '..', 'cards', `${FAILOVER_CARD}.yaml`), 'utf8'))
+        const warm = { ...card, valves: [{ ...card.valves[0], dose: { warmReader: true } }] }
+        const { controller } = prepare({
+            cloud: { readerAcu },
+            env: api.credentials,
+            cards: { [FAILOVER_CARD]: stringify(warm) },
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
+
+        expect(published()).toMatchObject({ status, reader_at_t0: label, reader_acu_at_t0: 4, acu_pre_t0_avg: avgs })
+        expect(published().status_reason).toContain(reason)
+        expect(published().status_reason).not.toContain('idle limit')
     })
 
     const RUNNER_REASON_CARDS: [string, Partial<FakeCloudOptions>, string][] = [

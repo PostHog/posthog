@@ -118,8 +118,7 @@ payload.
 - Adding a surfacing channel (in-app notification, settings banner, onboarding wizard step): read the
   team's active `path_cleaning_suggestions` health issue and render its `payload["rules"]`. Keep
   apply manual.
-- Changing the model: it must be allowlisted for the `web_analytics` product in
-  `services/llm-gateway/src/llm_gateway/products/config.py`.
+- Changing the model: set `WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL` to a model the AI gateway serves.
 - The agentic alternative — a `signals-scout-web-analytics-path-cleaning` scout — is sketched in the
   design notes; prefer the dedicated job for the precompute cohort because it targets that exact
   cohort and surfaces structured, validated rows rather than Signals-inbox findings.

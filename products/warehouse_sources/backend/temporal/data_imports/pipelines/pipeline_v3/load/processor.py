@@ -941,6 +941,20 @@ def _resume_schedule_after_ad_hoc_run(export_signal: ExportSignalMessage) -> Non
         capture_exception(e)
 
 
+def _ducklake_registration_allowed(team_id: int) -> bool | None:
+    """Shadow of the registration gate's first condition, logged with the start. None when it cannot answer."""
+    try:
+        from posthog.models import Team
+
+        from products.managed_warehouse.backend.facade.access import data_imports_registration_allowed
+
+        organization_id = Team.objects.only("organization_id").get(id=team_id).organization_id
+        return data_imports_registration_allowed(str(organization_id))
+    except Exception:
+        logger.warning("ducklake_registration_precheck_failed", team_id=team_id, exc_info=True)
+        return None
+
+
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
     """Fire-and-forget start of `ducklake-register.data-imports` after a V3 final batch lands.
 
@@ -995,11 +1009,14 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             )
 
         async_to_sync(_start)()
+        # After the start, so a deployment that cannot start workflows pays nothing for the shadow.
+        registration_allowed = _ducklake_registration_allowed(export_signal.team_id)
         logger.info(
             "ducklake_registration_workflow_started",
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             external_data_job_id=export_signal.job_id,
+            registration_allowed=registration_allowed,
         )
     except WorkflowAlreadyStartedError:
         # The id is one per schema, so a collision means a register is already

@@ -19,6 +19,7 @@ import sys
 import json
 import argparse
 from pathlib import Path
+from typing import Any
 
 from defusedxml import ElementTree
 
@@ -153,6 +154,58 @@ def compute_verdict(
     }
 
 
+EVENT_MISSED_FILES_LIMIT = 20
+EVENT_FULL_RUN_REASONS_LIMIT = 5
+
+
+def event_properties(
+    verdict: dict[str, Any],
+    *,
+    pr_number: int | None,
+    pr_draft: bool | None,
+    merge_queue: bool,
+    branch: str,
+    sha: str,
+    run_id: str,
+) -> dict[str, object]:
+    missed: list[str] = verdict["missed"]
+    return {
+        "suite": "backend",
+        "backend_conclusion": verdict["backend_conclusion"],
+        "junit_xml_files_seen": verdict["junit_xml_files_seen"],
+        "total_tests_run": verdict["total_tests_run"],
+        "failure_count": verdict["failure_count"],
+        "selected_test_count": verdict["selected_test_count"],
+        "caught_count": len(verdict["caught"]),
+        "missed_count": len(missed),
+        "missed_files": missed[:EVENT_MISSED_FILES_LIMIT],
+        "missed_files_truncated": len(missed) > EVENT_MISSED_FILES_LIMIT,
+        "recall": verdict["recall"],
+        "full_run_triggered": verdict["full_run_triggered"],
+        "full_run_reasons": verdict["full_run_reasons"][:EVENT_FULL_RUN_REASONS_LIMIT],
+        "pr_number": pr_number,
+        "pr_draft": pr_draft,
+        "merge_queue": merge_queue,
+        "branch": branch,
+        "sha": sha,
+        "run_id": run_id,
+    }
+
+
+def event_properties_from_env(verdict: dict[str, Any]) -> dict[str, object]:
+    pr_number = os.environ.get("PR_NUMBER", "")
+    pr_draft = os.environ.get("PR_DRAFT", "")
+    return event_properties(
+        verdict,
+        pr_number=int(pr_number) if pr_number.isdigit() else None,
+        pr_draft={"true": True, "false": False}.get(pr_draft),
+        merge_queue=os.environ.get("MERGE_QUEUE") == "true",
+        branch=os.environ.get("BRANCH", ""),
+        sha=os.environ.get("GITHUB_SHA", ""),
+        run_id=os.environ.get("GITHUB_RUN_ID", ""),
+    )
+
+
 def format_summary(verdict: dict[str, object]) -> str:
     """Produce a concise markdown summary for GITHUB_STEP_SUMMARY."""
     lines: list[str] = []
@@ -212,6 +265,7 @@ def main() -> None:
     parser.add_argument("junit_dir", help="Directory containing JUnit XML files (searched recursively)")
     parser.add_argument("--summary-path", help="Append markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+    parser.add_argument("--event-path", help="Write the telemetry event properties as JSON to this file")
     args = parser.parse_args()
 
     selection_path = Path(args.selection_json)
@@ -229,6 +283,9 @@ def main() -> None:
     if args.summary_path:
         with Path(args.summary_path).expanduser().open("a") as fh:
             fh.write(format_summary(verdict))
+
+    if args.event_path:
+        Path(args.event_path).write_text(json.dumps(event_properties_from_env(verdict)) + "\n")
 
 
 if __name__ == "__main__":

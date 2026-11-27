@@ -4,13 +4,13 @@ import { chartMenuActions } from './chartMenuActions'
 import type { ChartConfig } from './chartSpec'
 import { barSpec } from './viz/bar/barSpec'
 import { lineSpec } from './viz/line/lineSpec'
-import { statSpec } from './viz/stat/statSpec'
+import { metricSpec } from './viz/metric/metricSpec'
 
 const query = { language: 'hogql', query: 'select 1' } as const
 
 function select(panel: ContentPanel<ChartConfig>, path: string[]): ChartConfig | undefined {
     let saved: ChartConfig | undefined
-    let entries: MenuAction[] = chartMenuActions([statSpec, lineSpec, barSpec], {
+    let entries: MenuAction[] = chartMenuActions([metricSpec, lineSpec, barSpec], {
         panel,
         setConfig: (config) => (saved = config),
         disabledReason: null,
@@ -42,9 +42,9 @@ describe('chartMenuActions', () => {
         },
         {
             name: 'picks a value for an enum option',
-            viz: { type: 'stat' },
+            viz: { type: 'metric' },
             path: ['chart-options', 'format', 'currency'],
-            expected: { type: 'stat', options: { format: 'currency' } },
+            expected: { type: 'metric', options: { format: 'currency' } },
         },
     ])('$name', ({ viz, path, expected }) => {
         expect(select({ type: 'chart', config: { query, viz } }, path)).toEqual({ query, viz: expected })

@@ -26,50 +26,7 @@ The `/dashboard-v2` scene is one host that composes them. It is not where they b
 - The host owns everything scene-specific: where the document comes from and how it is saved, who can edit it, which panel types and filter kinds exist, and how queries run. `scene/` holds that code for the `/dashboard-v2` scene, and no primitive imports from it.
 - A primitive renders with only the providers it needs. Do not add a provider that every primitive must have before it can render.
 
-### A dashboard in another product
-
-Pass your own state to `DashboardView` as props. Pick the panel types and the query runner your product needs.
-`scene/DashboardScene.tsx` is the full example.
-
-```tsx
-const { filters, timeRange } = useDashboardFilters({ types: myFilterTypes, time: { timezone } })
-return (
-  <DashboardView
-    dashboard={dashboard}
-    activeTabId={activeTabId}
-    panels={MY_PANELS}
-    disabledReasonFor={disabledReasonFor}
-    onEdit={onEdit}
-    onActiveTabChange={setActiveTab}
-    filters={filters}
-    timeRange={timeRange}
-    header={<MyHeader />}
-    surface="my-product"
-  />
-)
-```
-
-Event handlers, `history` and `refresh` can be written inline. Keep `dashboard`, `panels`, `filters`, `timeRange`, `disabledReasonFor`, `tileActions`, `tilePlacementActions` and `dashboardActions` the same between renders, such as from a logic, a hook or a module constant. A new one re-renders every tile.
-
-Leave out what you do not need. With no `filters`, `timeRange`, `refresh` or `history`, the dashboard shows no filter bar, picker, refresh button or undo.
-With no `onEdit`, the dashboard is read-only. With no `onActiveTabChange`, it keeps the shown tab itself.
-
-```tsx
-const { dashboard } = dashboardFromJson(MY_DASHBOARD_JSON, MY_PANELS)
-return dashboard && <DashboardView dashboard={dashboard} panels={MY_PANELS} surface="my-product" />
-```
-
-### One tile on its own
-
-Render `ContentTile` with the panel and the panel types that can draw it. No dashboard, grid or controller is needed.
-A tile's menu takes two lists: `actions` for what the tile does to itself, and `placementActions` for where it sits, such as moving or removing it. A tile on its own passes only `actions`, or neither for no menu.
-Wrap it in `FiltersContext` or `PanelHostContext` only when the page has filters or a refresh to pass down.
-
-```tsx
-<FiltersContext.Provider value={{ time: { from: 'now-30d', to: 'now' }, filters: [] }}>
-  <ContentTile panel={signupsChart} panels={[createChartPanel({ runQuery: myRunner })]} />
-</FiltersContext.Provider>
-```
+To compose the primitives on another product's page, follow [composing.md](composing.md).
 
 ## Tiles and panels
 

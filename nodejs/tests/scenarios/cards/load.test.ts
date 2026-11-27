@@ -327,13 +327,31 @@ describe('load', () => {
             'valves.0.dose.share: ',
         ],
         [
+            'a terminate armed on running_on_queue',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' } }] },
+            undefined,
+            'valves.0.when: arm role.terminate on edge_accepted or at, since a worker given SIGTERM drains its jobs before it exits',
+        ],
+        [
+            'a terminate with no grace on a profile that names none',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            profile,
+            'valves.0.dose.grace: role.terminate needs a grace; give one here or terminationGrace in profile synthetic',
+        ],
+        [
             'a terminate whose grace is longer than a stopped run waits for its release',
             {
                 ...card,
-                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' } }],
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' }, when: edgeAccepted }],
             },
             undefined,
             'valves.0.dose.grace: at most 5m, so a stopped run releases the role within its release window',
+        ],
+        [
+            'a profile whose termination grace is longer than a stopped run waits for its release',
+            { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', when: edgeAccepted }] },
+            { ...profile, terminationGrace: '301s' },
+            'terminationGrace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
             'a kill aimed at something that is not a role',
@@ -1148,4 +1166,24 @@ describe('load', () => {
             expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
         }
     )
+
+    it('admits cyclotron-failover-at-scale on a profile shaped like the US scale profile', () => {
+        const scaleShaped = {
+            name: 'scale-shaped',
+            traffic: {
+                event_email: { ratePerSecond: 20, parks: 1 },
+                event_webhook: { ratePerSecond: 20, parks: 1 },
+                transactional_email: { ratePerSecond: 5, parks: 1 },
+            },
+            replicas: { 'cdp-cyclotron-worker-hogflow': 4, 'cdp-cyclotron-worker-email': 4, 'cdp-api': 4 },
+            settings: { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2000', CDP_SES_RATE_LIMIT_CAPACITY: '5000' },
+            load: { targets: { claimsPerSecond: { hogflow: 40, email: 30 } }, tolerance: 0.1 },
+            host: { cpuCeiling: 0.5 },
+        }
+        const profilePath = write('profile.yaml', scaleShaped)
+
+        expect(load(path.join(__dirname, 'cyclotron-failover-at-scale.yaml'), { profilePath }).card.id).toBe(
+            'cyclotron-failover-at-scale'
+        )
+    })
 })
