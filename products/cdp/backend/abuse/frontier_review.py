@@ -1,10 +1,14 @@
 """Run the frontier review of a function once its burst of saves is over, and report it as `cdp abuse review`.
 It only reports: nothing here acts on the verdict."""
 
+import structlog
+
 from products.cdp.backend.abuse import frontier, metrics, shadow
 from products.cdp.backend.abuse.case_file import build_case_file
 from products.cdp.backend.abuse.judge import Review, ReviewFailure, Verdict, review_case
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+logger = structlog.get_logger(__name__)
 
 EVENT = "cdp abuse review"
 
@@ -39,15 +43,23 @@ def review_latest(hog_function: HogFunction) -> None:
     shadow.capture(hog_function, scored, _review_properties(scored, result), event=EVENT)
     if isinstance(result, Review):
         metrics.FRONTIER_REVIEWS.labels(result.verdict.value).inc()
-        # Remembered only after the event is captured, so a failed capture retries the task and reviews again.
-        frontier.store_verdict(
-            str(hog_function.id),
-            verdict=result.verdict.value,
-            parked=result.verdict is Verdict.TRUE_POSITIVE,
-            fingerprint=fingerprint,
-        )
+        _remember(hog_function, result.verdict, fingerprint)
     else:
         metrics.FRONTIER_REVIEWS.labels(result.reason.value).inc()
+
+
+def _remember(hog_function: HogFunction, verdict: Verdict, fingerprint: str) -> None:
+    """Only after the event is captured, so a failed capture retries the task and reviews again. A failure here never
+    fails the task, because a retry would post the same review twice."""
+    try:
+        frontier.store_verdict(
+            str(hog_function.id),
+            verdict=verdict.value,
+            parked=verdict is Verdict.TRUE_POSITIVE,
+            fingerprint=fingerprint,
+        )
+    except Exception:
+        logger.exception("cdp_abuse_frontier_verdict_not_stored", hog_function_id=str(hog_function.id))
 
 
 def _review_properties(scored: shadow.ScoredHogFunction, result: Review | ReviewFailure) -> dict[str, object]:

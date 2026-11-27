@@ -12,6 +12,7 @@ from dataclasses import asdict, fields
 from enum import StrEnum
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 
 from posthog.dataclasses import frozen
@@ -24,9 +25,9 @@ SWITCH = "frontier_review"
 DEBOUNCE_SECONDS = 120
 # A function saved again and again is still reviewed this long after the first save of the burst.
 MAX_DELAY_SECONDS = 600
-# The task claims the pending key by the time the burst is capped, so only a lost task leaves it to expire, and the
-# next save after that starts a new burst.
-_PENDING_TTL_SECONDS = MAX_DELAY_SECONDS + 900
+# Kombu's default for the Redis broker. A worker killed while it holds a countdown message gets it back only after
+# this, so the pending key has to outlive it, or the redelivered task finds nothing to claim.
+_DEFAULT_BROKER_VISIBILITY_TIMEOUT_SECONDS = 3600
 VERDICT_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
@@ -82,6 +83,12 @@ def skip_reason(*, stored: StoredVerdict | None, fingerprint: str) -> SkipReason
     return SkipReason.UNCHANGED if stored.fingerprint == fingerprint else None
 
 
+def _pending_ttl_seconds() -> int:
+    transport = getattr(settings, "CELERY_BROKER_TRANSPORT_OPTIONS", None) or {}
+    visibility = transport.get("visibility_timeout", _DEFAULT_BROKER_VISIBILITY_TIMEOUT_SECONDS)
+    return MAX_DELAY_SECONDS + int(visibility) + DEBOUNCE_SECONDS
+
+
 def due_at(first_saved_at: float, last_saved_at: float) -> float:
     """A burst is reviewed once the function has not been saved for the debounce, and at the latest at the cap."""
     return min(last_saved_at + DEBOUNCE_SECONDS, first_saved_at + MAX_DELAY_SECONDS)
@@ -100,8 +107,9 @@ def start_or_push_back(hog_function_id: str) -> bool:
     """Record this save in the burst. True when it started the burst, so it queues the task. A save never rewrites the
     pending key: `cache.add` lets only one save start a burst, and a save after the task claimed it starts a new one."""
     now = time.time()
-    cache.set(last_saved_key(hog_function_id), now, _PENDING_TTL_SECONDS)
-    return cache.add(pending_key(hog_function_id), now, _PENDING_TTL_SECONDS)
+    ttl = _pending_ttl_seconds()
+    cache.set(last_saved_key(hog_function_id), now, ttl)
+    return cache.add(pending_key(hog_function_id), now, ttl)
 
 
 def seconds_until_due(hog_function_id: str) -> float | None:
