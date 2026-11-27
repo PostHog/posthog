@@ -183,6 +183,22 @@ class TestCheckLaunch(TestCase):
                 _not_qualified(LaunchReason.GROUP, ReleasePath.CONDITIONS),
             ),
             (
+                "second_group_type_opened_under_early_exit",
+                _flag(
+                    _condition(50, aggregation=0),
+                    _condition(100, aggregation=0),
+                    _condition(50, aggregation=1),
+                    early_exit=True,
+                ),
+                _flag(
+                    _condition(50, aggregation=0),
+                    _condition(100, aggregation=0),
+                    _condition(100, aggregation=1),
+                    early_exit=True,
+                ),
+                _not_qualified(LaunchReason.GROUP, ReleasePath.CONDITIONS),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),
@@ -239,6 +255,11 @@ class TestCheckLaunch(TestCase):
                 "full_group_flag_moved_to_server_runtime",
                 _flag(_condition(100), aggregation=0),
                 _flag(_condition(100), aggregation=0, runtime="server"),
+            ),
+            (
+                "person_fallback_removed_under_early_exit",
+                _flag(_condition(100, aggregation=0), _condition(50, aggregation=1), _condition(100), early_exit=True),
+                _flag(_condition(100, aggregation=0), _condition(50, aggregation=1), early_exit=True),
             ),
             (
                 "variant_split_change_on_full_flag",

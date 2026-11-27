@@ -71,31 +71,33 @@ class _Side:
     def runtime_restricted(self) -> bool:
         return self._side.evaluation_runtime not in (None, "all")
 
-    def _first_open_condition(self, *, for_persons: bool) -> int | None:
+    def _aggregation(self, condition: Mapping[str, Any]) -> int | None:
+        return condition_aggregation(condition, self.flag_aggregation)
+
+    def _audiences(self) -> set[int | None]:
+        return {self._aggregation(condition) for condition in self.conditions}
+
+    def _open_condition(self, audience: int | None) -> int | None:
         return next(
             (
                 index
                 for index, condition in enumerate(self.conditions)
                 if not condition.get("properties")
                 and condition_rollout_percentage(condition) >= 100
-                and (condition_aggregation(condition, self.flag_aggregation) is None) == for_persons
+                and self._aggregation(condition) == audience
             ),
             None,
         )
 
     @property
     def person_catch_all(self) -> int | None:
-        return self._first_open_condition(for_persons=True)
-
-    @property
-    def group_catch_all(self) -> int | None:
-        return self._first_open_condition(for_persons=False)
+        return self._open_condition(None)
 
     def _reachable(self, conditions: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         ended_group_types: set[int] = set()
         reachable: list[Mapping[str, Any]] = []
         for condition in conditions:
-            group_type = condition_aggregation(condition, self.flag_aggregation)
+            group_type = self._aggregation(condition)
             if group_type in ended_group_types:
                 continue
             reachable.append(condition)
@@ -105,36 +107,42 @@ class _Side:
                 ended_group_types.add(group_type)
         return reachable
 
-    def gives_false_ahead_of(self, index: int | None) -> bool:
-        return (
-            index is not None
-            and self.early_exit
-            and any(
-                condition_rollout_percentage(condition) < 100 for condition in self._reachable(self.conditions[:index])
-            )
+    def gives_false_ahead_of(self, index: int, audience: int | None = None) -> bool:
+        return self.early_exit and any(
+            condition_rollout_percentage(condition) < 100
+            for condition in self._reachable(self.conditions[:index])
+            if audience is None or self._aggregation(condition) in (audience, None)
         )
 
     def reaches_everyone(self) -> bool:
+        catch_all = self.person_catch_all
         return (
             self.is_on
-            and self.person_catch_all is not None
+            and catch_all is not None
             and not self.has_holdout
             and not self.has_enrollment
             and not self.runtime_restricted
-            and not self.gives_false_ahead_of(self.person_catch_all)
+            and not self.gives_false_ahead_of(catch_all)
         )
 
-    def openness(self) -> tuple[bool, ...]:
-        return (
-            self.is_on,
-            self.person_catch_all is not None,
-            self.group_catch_all is not None,
-            not self.has_holdout,
-            not self.has_enrollment,
-            not self.runtime_restricted,
-            not self.gives_false_ahead_of(self.person_catch_all),
-            not self.gives_false_ahead_of(self.group_catch_all),
-        )
+    def open_parts(self) -> set[tuple[str, int | None]]:
+        parts: set[tuple[str, int | None]] = set()
+        for audience in self._audiences():
+            index = self._open_condition(audience)
+            if index is None:
+                continue
+            parts.add(("open", audience))
+            if not self.gives_false_ahead_of(index, audience):
+                parts.add(("unblocked", audience))
+        for part, is_open in (
+            ("on", self.is_on),
+            ("no_holdout", not self.has_holdout),
+            ("no_enrollment", not self.has_enrollment),
+            ("all_runtimes", not self.runtime_restricted),
+        ):
+            if is_open:
+                parts.add((part, None))
+        return parts
 
     def is_staged(self) -> bool:
         return self.has_enrollment or any(
@@ -144,11 +152,12 @@ class _Side:
 
 
 def _is_candidate(old: _Side, new: _Side) -> bool:
+    opened = new.open_parts() - old.open_parts()
     return (
         new.is_on
-        and (new.person_catch_all is not None or new.group_catch_all is not None)
+        and any(part == "open" for part, _ in new.open_parts())
         and not old.reaches_everyone()
-        and any(opened and not was_open for opened, was_open in zip(new.openness(), old.openness()))
+        and bool(opened)
     )
 
 
