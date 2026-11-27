@@ -97,7 +97,10 @@ def recheck_run(run: Run) -> LedgerRecheck | None:
     identifiers = rendered | ledger_only
     ledger_hashes = ledger.hashes_at(run.repo_id, run.run_type, identifiers, record.position)
     overlay = baseline_approvals.reduce_overlay(
-        [approval for approval in candidates if approval.identifier in identifiers], ledger_hashes
+        baseline_approvals.without_closed_lower_layers(
+            [approval for approval in candidates if approval.identifier in identifiers], ledger_hashes
+        ),
+        ledger_hashes,
     )
     overlay_hashes = {identifier: entry.content_hash for identifier, entry in overlay.entries.items()}
     tolerated_lookup = toleration.build_tolerated_lookup(

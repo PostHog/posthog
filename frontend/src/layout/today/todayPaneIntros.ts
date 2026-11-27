@@ -1,6 +1,6 @@
 import type { TodayRailPane } from './todayShellLogic'
 
-export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
+export type TodayIntroPane = TodayRailPane
 
 export interface TodayPaneIntroCopy {
     title: string
@@ -8,6 +8,10 @@ export interface TodayPaneIntroCopy {
 }
 
 export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
+    home: {
+        title: 'See what needs you today',
+        description: 'What you care about, what you should care about, and what’s happening.',
+    },
     spaces: {
         title: 'Work with PostHog AI',
         description: 'Ask questions, run tasks and pick up past chats.',
@@ -44,10 +48,4 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         title: 'Set up PostHog',
         description: 'Settings for you, this project and your organization.',
     },
-}
-
-// pinned: keys in the user's server-side `has_seen_product_intro_for`. Renaming one shows that intro again to
-// everyone who dismissed it.
-export function todayPaneIntroKey(pane: TodayIntroPane): string {
-    return `today_pane_intro_${pane}`
 }

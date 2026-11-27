@@ -1,6 +1,7 @@
 from django.db import OperationalError
 
 import psycopg
+import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
@@ -14,9 +15,14 @@ from posthog.temporal.delete_teams.types import (
     TeamDataActivityInputs,
 )
 
+LOGGER = structlog.get_logger(__name__)
+
 # The delete_team_records attempt from which a statement timeout fails the deletion. Earlier attempts retry it,
 # because lock contention can also push a statement past its timeout.
 STATEMENT_TIMEOUT_TERMINAL_ATTEMPT = 5
+
+TASK_SESSION_PAGE_TASKS_MAX = 1000
+TASK_SESSION_PAGES_MAX = 5000
 
 
 def _resolve_deleted_by(user_id: int) -> str:
@@ -190,6 +196,60 @@ async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -
         await database_sync_to_async_pool(_enqueue_clickhouse_deletion)(inputs.team_ids, inputs.user_id)
 
 
+@temporalio.activity.defn
+async def delete_task_session_storage_activity(inputs: TeamDataActivityInputs) -> None:
+    async with Heartbeater() as heartbeater:
+        from products.tasks.backend.facade.api import delete_team_task_session_storage_page
+
+        heartbeat_details = temporalio.activity.info().heartbeat_details
+        after_task_id: str | None = heartbeat_details[0] if heartbeat_details else None
+        for _ in range(TASK_SESSION_PAGES_MAX):
+            try:
+                after_task_id = await database_sync_to_async_pool(delete_team_task_session_storage_page)(
+                    inputs.team_ids,
+                    after_task_id=after_task_id,
+                    limit=TASK_SESSION_PAGE_TASKS_MAX,
+                    should_stop=temporalio.activity.is_cancelled,
+                )
+            except Exception:
+                LOGGER.exception(
+                    "delete_teams.task_session_storage_deletion_failed",
+                    team_ids=inputs.team_ids,
+                    after_task_id=after_task_id,
+                )
+                raise
+            if after_task_id is None:
+                return
+            heartbeater.details = (after_task_id,)
+        LOGGER.warning(
+            "delete_teams.task_session_storage_page_limit_reached",
+            team_ids=inputs.team_ids,
+            after_task_id=after_task_id,
+            pages_max=TASK_SESSION_PAGES_MAX,
+        )
+        raise ApplicationError(
+            f"Swept {TASK_SESSION_PAGES_MAX} pages of task sessions, resuming after task {after_task_id}",
+            type="TaskSessionPageLimitReached",
+            non_retryable=False,
+        )
+
+
+@temporalio.activity.defn
+async def delete_task_storage_activity(inputs: TeamDataActivityInputs) -> None:
+    async with Heartbeater() as heartbeater:
+        from products.tasks.backend.facade.api import delete_team_task_storage
+
+        for team_id in inputs.team_ids:
+            heartbeater.details = (team_id,)
+            try:
+                await database_sync_to_async_pool(delete_team_task_storage)(
+                    team_id, should_stop=temporalio.activity.is_cancelled
+                )
+            except Exception:
+                LOGGER.exception("delete_teams.task_storage_deletion_failed", team_id=team_id)
+                raise
+
+
 def _is_project_pending_deletion(project_id: int) -> bool:
     from posthog.models.project import Project
 
@@ -241,6 +301,22 @@ def _delete_organization_record(organization_id: str, user_id: int) -> None:
 async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
     async with Heartbeater():
         await database_sync_to_async_pool(_delete_organization_record)(inputs.organization_id, inputs.user_id)
+
+
+@temporalio.activity.defn
+async def delete_organization_task_storage_activity(inputs: OrganizationRecordInputs) -> None:
+    async with Heartbeater():
+        from products.tasks.backend.facade.api import delete_organization_task_storage
+
+        try:
+            await database_sync_to_async_pool(delete_organization_task_storage)(
+                inputs.organization_id, should_stop=temporalio.activity.is_cancelled
+            )
+        except Exception:
+            LOGGER.exception(
+                "delete_teams.organization_task_storage_deletion_failed", organization_id=inputs.organization_id
+            )
+            raise
 
 
 def _send_project_deleted_email(user_id: int, project_name: str) -> None:

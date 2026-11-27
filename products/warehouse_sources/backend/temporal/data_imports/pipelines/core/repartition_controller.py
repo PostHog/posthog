@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
+from django.db import close_old_connections
 from django.utils import timezone
 
 import deltalake as deltalake
@@ -271,12 +272,6 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         schema, operator_requested=False
     ):
         return False
-    if (
-        not schema.is_append
-        and ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
-        >= repartition_oom_threshold()
-    ):
-        return False
     # The equality filters are the schema and the team so that `idx_extdatajob_schema_team` serves
     # this read as one index range. An equality filter on a column outside that index, such as the
     # source, makes Postgres read every job the schema has run.
@@ -288,7 +283,14 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         .order_by("-created_at")
         .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
     ]
-    return partition_measurement_holds(measurement, earlier_jobs)
+    if not partition_measurement_holds(measurement, earlier_jobs):
+        return False
+    # Last: the OOM count can read every team's OOM events, and job creation runs this under a short timeout.
+    return (
+        schema.is_append
+        or ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        < repartition_oom_threshold()
+    )
 
 
 AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
@@ -310,19 +312,27 @@ def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool
     )
 
 
-def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
+def repartition_activity_has_work(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
     """Whether the pre-extraction repartition activity would do more than log and return.
 
     The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
     itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
     that needs measuring on disk. A pending corruption revive makes the activity stand down before any
-    of that, so it is a no-op here too.
+    of that, so it is a no-op here too. So is a table whose last measurement still holds, which the
+    activity checks with the same function. A failed check says True, so the activity measures.
     """
     if schema.delta_revive_required is not None:
         return False
     if schema.repartition_swap is not None or schema.repartition_pending is not None:
         return True
-    return needs_pre_extraction_detection(schema)
+    if not needs_pre_extraction_detection(schema):
+        return False
+    try:
+        return not pre_extraction_measurement_is_redundant(schema, job)
+    except Exception:
+        # Job creation queries again after this, so drop a connection the failed query left broken.
+        close_old_connections()
+        return True
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:

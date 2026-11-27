@@ -360,9 +360,10 @@ class TestMintScopedToken:
                 "deepseek-ai/deepseek-v4.1-flash-1017",
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
-                "zai-org/glm-5.3-flash",
                 "gpt-6.1-terra",
             }
+        if product not in ("review_hog", "slack_app"):
+            expected -= {"zai-org/glm-5.3-flash"}
         assert set(pin) == expected
 
     def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):

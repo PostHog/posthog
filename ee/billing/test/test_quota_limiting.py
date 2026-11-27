@@ -40,6 +40,7 @@ from ee.billing.quota_limiting import (
     QuotaLimitingRunResult,
     QuotaResource,
     UsageCounters,
+    _has_usage,
     _identify_refresh_candidates,
     _patch_todays_usage,
     add_limited_team_tokens,
@@ -101,6 +102,25 @@ class TestQuotaLimiting(BaseTest):
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    def test_run_result_names_the_limited_orgs_with_usage(self) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "events": {"usage": 100, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": 0, "todays_usage": 0},
+                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
+            }
+            self.organization.is_active = False
+            self.organization.save()
+
+            result = self._run_quota_limiting()
+
+        org_id = str(self.organization.id)
+        limited = {resource for resource, orgs in result.quota_limited_orgs.items() if org_id in orgs}
+        with_usage = {resource for resource, orgs in result.orgs_with_usage.items() if org_id in orgs}
+        assert limited >= {"events", "rows_synced", "feature_flag_requests"}
+        assert with_usage == {"events", "feature_flag_requests"}
 
     @parameterized.expand(
         [
@@ -2810,6 +2830,27 @@ _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
 _PATCH_DAY = datetime.date(2021, 1, 15)
 
 
+class TestHasUsage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("used", {"events": {"usage": 5, "limit": 5}}, QuotaResource.EVENTS, True),
+            ("used_today_only", {"events": {"usage": 0, "limit": 0, "todays_usage": 5}}, QuotaResource.EVENTS, True),
+            ("zero_allowance", {"events": {"usage": 0, "limit": 0, "todays_usage": 0}}, QuotaResource.EVENTS, False),
+            ("without_usage", None, QuotaResource.EVENTS, False),
+            ("without_the_resource", {"events": {"usage": 5, "limit": 5}}, QuotaResource.RECORDINGS, False),
+        ]
+    )
+    def test_an_organization_has_usage_once_it_used_any_of_the_resource(
+        self, _name: str, usage: dict[str, Any] | None, resource: QuotaResource, expected: bool
+    ) -> None:
+        assert _has_usage(Organization(usage=usage), resource) is expected
+
+    def test_a_deactivated_organization_has_usage_like_any_other(self) -> None:
+        organization = Organization(usage={"feature_flag_requests": {"usage": 5, "limit": 100}}, is_active=False)
+
+        assert _has_usage(organization, QuotaResource.FEATURE_FLAG_REQUESTS)
+
+
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestIdentifyRefreshCandidates(SimpleTestCase):
     """Isolated unit coverage for `_identify_refresh_candidates`. The cron-loop
@@ -3779,9 +3820,10 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 side_effect=DatabaseError("Signals usage unavailable") if recount_fails else None,
             ) as live_mock,
         ):
-            update_all_orgs_billing_quotas()
+            result = update_all_orgs_billing_quotas()
 
         assert live_mock.call_args.args[0] == [str(self.organization.id)]
+        assert result.discarded_orgs >= ({str(self.organization.id)} if recount_fails else set())
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"]["todays_usage"] == 1500

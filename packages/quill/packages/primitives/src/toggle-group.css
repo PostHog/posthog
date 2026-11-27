@@ -26,6 +26,16 @@
     }
 
     /*
+     * The selected item sits on a 1px brand-color shelf, so a column of groups
+     * shows at a glance which item each row has on. A shadow draws the shelf, so
+     * it follows the item's corners. The -1px spread keeps it inside the item's
+     * own side borders, clear of the border it shares with each neighbor.
+     */
+    .quill-toggle-group__item {
+        --quill-toggle-pressed-shelf: 0 2px 0 -1px var(--primary);
+    }
+
+    /*
      * Only keyboard focus lifts above neighbors. Click focus would keep the
      * item at z-index 10 even after mouse-up; combined with the toggle's
      * translate snap-back, that left a frame where the item's border didn't

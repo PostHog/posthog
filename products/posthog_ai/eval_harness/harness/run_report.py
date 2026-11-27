@@ -33,6 +33,8 @@ class RunReport(BaseModel):
     reasoning_effort: str | None
     service_tier: str | None = None
     provider: str
+    team_setup_concurrency: int | None = None
+    max_sandboxes: int | None = None
     trials: int
     suite_ids: list[str]
     suite_kinds: list[str]

@@ -16,7 +16,11 @@ export function canCopyImageToClipboard(): boolean {
     return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write
 }
 
-export async function captureElementAsPng(element: HTMLElement, excludeSelector?: string): Promise<Blob> {
+export async function captureElementAsImage(
+    element: HTMLElement,
+    excludeSelector?: string,
+    type: 'image/png' | 'image/webp' = CLIPBOARD_IMAGE_TYPE
+): Promise<Blob> {
     return captureElementImage(element, {
         // Hover controls and other chrome inside the element are part of the app, not of the picture.
         filter: excludeSelector ? (node) => !(node instanceof Element && node.matches(excludeSelector)) : undefined,
@@ -24,7 +28,7 @@ export async function captureElementAsPng(element: HTMLElement, excludeSelector?
         // element. A dashboard tile carries react-grid-layout's translate to its slot in the grid, which
         // would push it straight out of that frame, so the element is put back at the origin to be drawn.
         style: { transform: 'none', position: 'relative', inset: 'auto', margin: '0' },
-        type: CLIPBOARD_IMAGE_TYPE,
+        type,
         // Charts are read at a glance after being pasted, so capture at 2x to keep text and lines sharp.
         pixelRatio: 2,
         // Anything the element leaves transparent shows the page behind it, which turns into a
@@ -44,7 +48,7 @@ export async function copyElementImageToClipboard(
     // Safari only accepts a clipboard write that starts in the same task as the click, so the pending
     // capture goes onto the ClipboardItem rather than being awaited first. Attach a no-op handler as
     // well, because the write never observes the promise if the ClipboardItem constructor throws.
-    const capture = captureElementAsPng(element, excludeSelector)
+    const capture = captureElementAsImage(element, excludeSelector)
     capture.catch(() => {})
 
     try {

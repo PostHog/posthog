@@ -64,6 +64,7 @@ async def test_oneshot_call_pins_model_effort_schema_and_stage() -> None:
     assert kwargs["thinking"] == {"type": "adaptive"}
     assert kwargs["system"] == "the system prompt"
     assert kwargs["messages"] == [{"role": "user", "content": "the prompt"}]
+    assert "extra_headers" not in kwargs
 
 
 @pytest.mark.asyncio

@@ -65,6 +65,8 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
     ComposeTicketSustainedThrottle,
+    TicketAiRerunBurstThrottle,
+    TicketAiRerunSustainedThrottle,
     TicketNoteBurstThrottle,
     TicketNoteSustainedThrottle,
 )
@@ -76,6 +78,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
 from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
+from products.conversations.backend.ai.rerun import ManualRerunRefused, start_manual_rerun
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -95,6 +98,7 @@ from products.conversations.backend.events import (
     capture_ticket_assigned,
     capture_ticket_priority_changed,
     capture_ticket_status_changed,
+    has_unverified_relayed_identity,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import (
@@ -321,6 +325,12 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
         max_length=len(AiFeedbackReason.choices),
         help_text="Optional reasons for a bad rating. Ignored for a good rating.",
     )
+
+
+class AiRerunResponseSerializer(serializers.Serializer):
+    """Returned when a Support AI run was started for a ticket."""
+
+    workflow_id = serializers.CharField(help_text="ID of the Support AI run that was started.")
 
 
 class AiHumanOutcomeRequestSerializer(serializers.Serializer):
@@ -637,6 +647,8 @@ class TicketAssigneeRequestField(serializers.Field):
 
 
 MAX_TAGS_ADDED_PER_UPDATE = 100
+# Inbound email sets these traits, and they keep unverified relayed or forwarded mail private and unattributed.
+INBOUND_EMAIL_TRAIT_KEYS = frozenset({"email_relayed", "email_forwarded"})
 
 
 class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -680,6 +692,13 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
 
+    def validate_anonymous_traits(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "Send customer details as an object of fields, such as name and email.", code="invalid"
+            )
+        return value
+
     def validate_tags(self, value: list[str]) -> list[str]:
         # The cap counts new tags only. A client sends the whole list on every save, so a cap on
         # its length would reject every update of a ticket that already has more tags than the cap.
@@ -694,6 +713,11 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
         tags = validated_data.pop("tags", None)
+        traits = validated_data.get("anonymous_traits")
+        if isinstance(traits, dict):
+            existing = instance.anonymous_traits if isinstance(instance.anonymous_traits, dict) else {}
+            kept = {key: value for key, value in existing.items() if key in INBOUND_EMAIL_TRAIT_KEYS}
+            validated_data["anonymous_traits"] = {**traits, **kept}
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request
@@ -856,6 +880,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "attachments",
         "ai_feedback",
         "ai_human_outcome",
+        "ai_rerun",
         "note",
         "delete_note",
         "create_note",
@@ -879,6 +904,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 raise PermissionDenied(
                     "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
                 )
+            if self.action == "ai_rerun":
+                raise PermissionDenied("Scouts cannot start Support AI runs.")
             if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
                 raise PermissionDenied("Scouts cannot change customer identity fields.")
 
@@ -1082,11 +1109,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         # Fallback: for email-channel tickets with no person match,
         # try matching on properties.email (handles cases where the
-        # person's distinct_id differs from their email address)
+        # person's distinct_id differs from their email address).
+        # An unverified relayed email can carry any sender address, so it gets no email match.
         unmatched = [
             t
             for t in tickets
-            if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
+            if t.distinct_id
+            and not getattr(t, "person", None)
+            and t.channel_source == Channel.EMAIL
+            and t.email_from
+            and not has_unverified_relayed_identity(t)
         ]
         if unmatched:
             emails = [t.email_from for t in unmatched if t.email_from]
@@ -2195,6 +2227,44 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=drf_status.HTTP_409_CONFLICT,
             )
         return Response(serializer.data, status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=None,
+        responses={
+            202: AiRerunResponseSerializer,
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        # Each accepted request starts LLM and sandbox work, and one person can reach many tickets.
+        throttle_classes=[TicketAiRerunBurstThrottle, TicketAiRerunSustainedThrottle],
+    )
+    def ai_rerun(self, request, *args, **kwargs):
+        """Start a new Support AI run on this ticket. Its output is a private note and is never sent to the customer."""
+        ticket = self.get_object()
+        properties = {**_ticket_action_properties(ticket), "ticket_id": str(ticket.id)}
+        try:
+            workflow_id = start_manual_rerun(ticket, self.team)
+        except ManualRerunRefused as refusal:
+            report_user_action(
+                request.user,
+                "support ai rerun refused",
+                {**properties, "reason": refusal.error_type},
+                team=self.team,
+                request=request,
+            )
+            return Response(
+                TicketErrorSerializer({"detail": refusal.detail, "error_type": refusal.error_type}).data,
+                status=drf_status.HTTP_409_CONFLICT if refusal.conflict else drf_status.HTTP_400_BAD_REQUEST,
+            )
+        report_user_action(request.user, "support ai rerun requested", properties, team=self.team, request=request)
+        return Response(
+            AiRerunResponseSerializer({"workflow_id": workflow_id}).data, status=drf_status.HTTP_202_ACCEPTED
+        )
 
     @extend_schema(
         request=ComposeTicketSerializer,

@@ -26,6 +26,8 @@ from posthog.schema import (
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
+    HogQLQueryResponse,
     IntervalType,
     MultipleVariantHandling,
     SampleRatioMismatch,
@@ -33,6 +35,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
@@ -70,14 +73,17 @@ from products.experiments.backend.health.checks.srm import (
 )
 from products.experiments.backend.health.checks.zero_exposures import reads_exposed_without_test_account_filter
 from products.experiments.backend.health.context import (
+    BillingLimits,
     ExposureSegment,
     ExposureTotals,
     flag_calls_readable,
+    load_billing_limits,
     load_health_context,
 )
 from products.experiments.backend.health.exposure_gate import load_split_history
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
+    WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
     not_checked_health,
 )
@@ -125,7 +131,7 @@ HEALTH_QUERY_TIMEOUT_SECONDS = 60
 # The page recalculates the exposures on a forced refresh, and on every entry while few users are exposed. The queries
 # that explain a finding must not repeat their scan each time.
 HEALTH_QUERY_CACHE_SECONDS = 60 * 60
-# The exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
+# Most exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
 NOT_ON_WAREHOUSE_NATIVE = "Couldn't check because the exposures come from a warehouse, which isn't supported yet"
 
 
@@ -194,6 +200,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
         if self.warehouse_native_exposure is not None:
             refuse_anonymous_warehouse_native_reader(self.user)
+        # What the warehouse-native statements left out. Only that path sets it.
+        self._rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = None
 
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
@@ -454,6 +462,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             restricted_properties=frozenset(restrictions),
         )
 
+    @cached_property
+    def _billing_limits(self) -> BillingLimits | None:
+        # A limit in force now says nothing about the run of an ended experiment, and no check reads a rule yet.
+        if not self.experiment.is_running or self._rule is not None:
+            return None
+        return load_billing_limits(self.team)
+
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
         if self._rule is not None:
             # The checks read the release conditions and the variants of a v1 flag, and none reads a rule yet.
@@ -466,6 +481,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             exposures,
             can_read_flag_history=self._can_read_flag_history(),
             can_read_flag_calls=reader_access is not None and flag_calls_readable(reader_access),
+            billing_limits=self._billing_limits,
         )
         if reads_flag_history(context) and reader_access is not None:
             context = replace(context, flag_history=load_split_history(self.experiment, reader_access=reader_access))
@@ -481,6 +497,20 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             exposed = self._exposed_without_test_account_filter(exposure_params)
             context = replace(context, exposures=replace(exposures, exposed_without_test_account_filter=exposed))
         return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
+
+    def _evaluate_warehouse_native_health(self, exposures: ExposureTotals) -> ExperimentHealth:
+        """The checks that read the counts of a warehouse-native run. The other exposure checks keep "not checked",
+        in the order of the list, so the page shows every check once."""
+        if self._rule is not None:
+            return not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
+        # The query's criteria ran, so the context says so even when the stored criteria differ.
+        context = replace(load_health_context(self.experiment, exposures), warehouse_native_exposures=True)
+        checked = evaluate_health(context, WAREHOUSE_NATIVE_EXPOSURE_HEALTH_CHECKS)
+        unchecked = {
+            check.key: check for check in not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_WAREHOUSE_NATIVE).checks
+        }
+        unchecked.update({check.key: check for check in checked.checks})
+        return ExperimentHealth(findings=checked.findings, checks=tuple(unchecked.values()))
 
     def _segments(
         self, exposure_params: ExposureQueryParams, first_exposed_after: date | None
@@ -646,20 +676,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             return None
         return [f"{WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX}{self.warehouse_native_exposure.connection_id}"]
 
-    def _evaluate_warehouse_native_exposures(
-        self, multiple_variant_handling: MultipleVariantHandling
-    ) -> list[ExposureDayCount]:
-        """Runs the exposure query in the customer's warehouse. One row per day and variant comes back."""
-        assert self.warehouse_native_exposure is not None
-        connection_id = self._validate_warehouse_native_exposure(self.user)
-        statement = WarehouseNativeQueryBuilder(
-            exposure=self.warehouse_native_exposure,
-            variants=tuple(self.variants),
-            date_from=self.date_range_query.date_from(),
-            date_to=self.date_range_query.date_to(),
-            multiple_variant_handling=multiple_variant_handling,
-        ).build_exposures(self.team.timezone)
-        response = execute_hogql_query(
+    def _run_in_warehouse(self, statement: str, connection_id: str) -> HogQLQueryResponse:
+        return execute_hogql_query(
             query_type="ExperimentExposuresQuery",
             query=statement,
             team=self.team,
@@ -670,6 +688,36 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             timings=self.timings,
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
+
+    def _evaluate_warehouse_native_exposures(
+        self, multiple_variant_handling: MultipleVariantHandling
+    ) -> list[ExposureDayCount]:
+        """Runs the exposure query in the customer's warehouse. One row per day and variant comes back."""
+        assert self.warehouse_native_exposure is not None
+        connection_id = self._validate_warehouse_native_exposure(self.user)
+        builder = WarehouseNativeQueryBuilder(
+            exposure=self.warehouse_native_exposure,
+            variants=tuple(self.variants),
+            excluded_variants=tuple(sorted(self.excluded_variants)),
+            date_from=self.date_range_query.date_from(),
+            date_to=self.date_range_query.date_to(),
+            multiple_variant_handling=multiple_variant_handling,
+        )
+        response = self._run_in_warehouse(builder.build_exposures(self.team.timezone), connection_id)
+        # A second pass over the exposure query, so a wrong total comes with the rows it left out and why. The counts
+        # only explain the totals, so a timeout or an outage on this statement leaves them unknown and keeps the totals.
+        try:
+            left_out = self._run_in_warehouse(builder.build_exposure_rows_left_out(), connection_id)
+        except ExposedHogQLError as error:
+            # The type, not the message: BigQuery can put a row's contents into an error message.
+            logger.warning(
+                "warehouse_native_rows_left_out_failed",
+                experiment_id=self.experiment.id,
+                error_type=type(error).__name__,
+            )
+            self._rows_left_out = None
+        else:
+            self._rows_left_out = _exposure_rows_left_out(left_out.results or [])
         return [
             ExposureDayCount(
                 # The BigQuery client returns a DATE column as a date. A response that went through JSON carries text.
@@ -705,9 +753,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 ]
             )
         else:
-            exposure_params = get_exposure_config_params_for_builder(
-                self.exposure_criteria, self.team, self.experiment.start_date
-            )
+            exposure_params = get_exposure_config_params_for_builder(self.exposure_criteria, self.experiment.start_date)
             multiple_variant_handling = exposure_params.multiple_variant_handling
             # Set limit to avoid being cut-off by the default 100 rows limit
             query = self._get_exposure_query(exposure_params)
@@ -766,26 +812,23 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
+        exposures = ExposureTotals(
+            total_exposures=total_exposures,
+            multiple_variant_handling=multiple_variant_handling,
+            sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
+            sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
+            daily_exposures=daily_exposures,
+            hours_since_launch=self.experiment.hours_since_launch(read_activity_log=self._can_read_flag_history()),
+            counts_groups=aggregates_by_group(self.group_type_index),
+            filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
+            has_positive_test_account_filter=has_positive_test_account_filter(self.team),
+            reads_precomputed_exposures=self._reads_precomputed_exposures,
+            rows_left_out=self._rows_left_out,
+        )
         if exposure_params is None:
-            health = not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_WAREHOUSE_NATIVE)
+            health = self._evaluate_warehouse_native_health(exposures)
         else:
-            health = self._evaluate_health(
-                ExposureTotals(
-                    total_exposures=total_exposures,
-                    multiple_variant_handling=multiple_variant_handling,
-                    sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                    sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
-                    daily_exposures=daily_exposures,
-                    hours_since_launch=self.experiment.hours_since_launch(
-                        read_activity_log=self._can_read_flag_history()
-                    ),
-                    counts_groups=aggregates_by_group(self.group_type_index),
-                    filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
-                    has_positive_test_account_filter=has_positive_test_account_filter(self.team),
-                    reads_precomputed_exposures=self._reads_precomputed_exposures,
-                ),
-                exposure_params,
-            )
+            health = self._evaluate_health(exposures, exposure_params)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -796,6 +839,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             health_findings=self._health_findings(health),
             health_checks=self._health_checks(health),
             exposed_by_library=exposed_by_library,
+            rows_left_out=self._rows_left_out,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -842,6 +886,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The test account filter finding asks the user to edit these filters, so an edit must not serve the old answer.
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
+        # The billing limit checks read the limits when the answer is computed, so a limit that starts, moves or lifts
+        # must not serve the answer computed before it.
+        limits = self._billing_limits
+        if limits is not None and limits.events_ends_at is not None:
+            payload["events_billing_limit_ends_at"] = limits.events_ends_at.isoformat()
+        if limits is not None and limits.feature_flags_ends_at is not None:
+            payload["feature_flags_billing_limit_ends_at"] = limits.feature_flags_ends_at.isoformat()
         return payload
 
 
@@ -849,6 +900,23 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 _RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
     ExperimentHealthRuleTest.CHI_SQUARED: "chi_squared"
 }
+
+
+def _exposure_rows_left_out(rows: list[Any]) -> ExperimentWarehouseNativeRowsLeftOut:
+    """The rows of the diagnostic statement: one per reason, and one per value for an unknown variant. The statement
+    caps the values, so every row also carries the total of its reason."""
+    unknown_variants: dict[str, int] = {}
+    unknown_variant_rows = 0
+    empty_id = 0
+    for reason, value, count, reason_count in rows:
+        if reason == "unknown_variant":
+            unknown_variants[str(value)] = unknown_variants.get(str(value), 0) + int(count)
+            unknown_variant_rows = int(reason_count)
+        elif reason == "empty_id":
+            empty_id += int(count)
+    return ExperimentWarehouseNativeRowsLeftOut(
+        unknown_variants=unknown_variants, unknown_variant_rows=unknown_variant_rows, empty_id=empty_id
+    )
 
 
 def _exposed_by_library(rows: list[Any]) -> dict[str, int]:

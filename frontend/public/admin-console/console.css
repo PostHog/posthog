@@ -448,6 +448,9 @@
     .mt-0 {
         margin-top: calc(0.25rem * 0);
     }
+    .mt-0\.5 {
+        margin-top: calc(0.25rem * 0.5);
+    }
     .mt-1 {
         margin-top: calc(0.25rem * 1);
     }
@@ -547,6 +550,9 @@
     }
     .h-1 {
         height: calc(0.25rem * 1);
+    }
+    .h-2 {
+        height: calc(0.25rem * 2);
     }
     .h-6 {
         height: calc(0.25rem * 6);
@@ -669,6 +675,9 @@
     }
     .min-w-0 {
         min-width: calc(0.25rem * 0);
+    }
+    .min-w-1 {
+        min-width: calc(0.25rem * 1);
     }
     .min-w-\[16rem\] {
         min-width: 16rem;
@@ -915,6 +924,10 @@
         border-style: var(--tw-border-style);
         border-width: 1px;
     }
+    .border-0 {
+        border-style: var(--tw-border-style);
+        border-width: 0px;
+    }
     .border-t {
         border-top-style: var(--tw-border-style);
         border-top-width: 1px;
@@ -951,6 +964,14 @@
     }
     .bg-muted {
         background-color: var(--muted);
+    }
+    .bg-muted-foreground\/40 {
+        background-color: var(--muted-foreground);
+    }
+    @supports (color: color-mix(in lab, red, red)) {
+        .bg-muted-foreground\/40 {
+            background-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+        }
     }
     .bg-muted\/30 {
         background-color: var(--muted);
@@ -1303,8 +1324,22 @@
         -moz-user-select: none;
         user-select: none;
     }
+    :is(.\*\:mb-4 > *) {
+        margin-bottom: calc(0.25rem * 4);
+    }
     :is(.\*\:w-full > *) {
         width: 100%;
+    }
+    :is(.\*\:break-inside-avoid > *) {
+        page-break-inside: avoid;
+        -moz-column-break-inside: avoid;
+        break-inside: avoid;
+    }
+    .group-open\/fact\:hidden:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: none;
+    }
+    .group-open\/fact\:inline:is(:where(.group\/fact):is([open], :popover-open, :open) *) {
+        display: inline;
     }
     .group-open\/group\:rotate-90:is(:where(.group\/group):is([open], :popover-open, :open) *) {
         rotate: 90deg;
@@ -1640,6 +1675,11 @@
     .nth-last-2\:mt-0:nth-last-child(2) {
         margin-top: calc(0.25rem * 0);
     }
+    @media (prefers-reduced-motion: no-preference) {
+        .motion-safe\:animate-pulse {
+            animation: var(--animate-pulse);
+        }
+    }
     @media (prefers-reduced-motion: reduce) {
         .motion-reduce\:transition-none {
             transition-property: none;
@@ -1785,6 +1825,12 @@
     @container (width >= 48rem) {
         .\@3xl\:max-h-screen {
             max-height: 100vh;
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:columns-2 {
+            -moz-columns: 2;
+            columns: 2;
         }
     }
     @container (width >= 48rem) {

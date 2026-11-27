@@ -4,6 +4,7 @@ import { createTestTeam } from '~/tests/helpers/team'
 
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
+import { CymbalResult } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 
 describe('createCymbalProcessingStep', () => {
@@ -11,6 +12,11 @@ describe('createCymbalProcessingStep', () => {
     let step: ReturnType<typeof createCymbalProcessingStep>
 
     const team = createTestTeam({ id: 123 })
+
+    const toOutcomes = (responses: (CymbalResponse | null)[]): CymbalResult[] =>
+        responses.map((response) =>
+            response ? { result: 'ok', value: response } : { result: 'drop', reason: 'suppressed' }
+        )
 
     const createInput = (overrides: Partial<ReturnType<typeof createTestPluginEvent>> = {}) => ({
         event: createTestPluginEvent({
@@ -54,7 +60,7 @@ describe('createCymbalProcessingStep', () => {
             createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
         ]
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce(responses)
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes(responses))
 
         const results = await step(inputs)
 
@@ -100,7 +106,7 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([response]))
 
         const results = await step([input])
 
@@ -111,13 +117,15 @@ describe('createCymbalProcessingStep', () => {
         }
     })
 
-    it('drops events when Cymbal returns null (suppressed)', async () => {
+    it('drops suppressed events', async () => {
         const inputs = [createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })]
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([
-            null, // Suppressed
-            createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
-        ])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(
+            toOutcomes([
+                null, // Suppressed
+                createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } }),
+            ])
+        )
 
         const results = await step(inputs)
 
@@ -125,6 +133,91 @@ describe('createCymbalProcessingStep', () => {
         expect(results[0].type).toBe(PipelineResultType.DROP)
         expect(isDropResult(results[0])).toBe(true)
         expect(results[1].type).toBe(PipelineResultType.OK)
+    })
+
+    it('drops an event with the reason Cymbal gives', async () => {
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([{ result: 'drop', reason: 'rate_limited_per_issue' }])
+
+        const results = await step([createInput()])
+
+        expect(results[0]).toMatchObject({ type: PipelineResultType.DROP, reason: 'rate_limited_per_issue' })
+    })
+
+    it('sends an event Cymbal fails to the DLQ and keeps its neighbour', async () => {
+        mockCymbalClient.processExceptions.mockResolvedValueOnce([
+            { result: 'fail', error: { code: 'invalid_input', message: 'cannot process uuid-1' } },
+            ...toOutcomes([createResponse({ uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } })]),
+        ])
+
+        const results = await step([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
+
+        expect(results[0]).toMatchObject({
+            type: PipelineResultType.DLQ,
+            reason: 'cymbal_item_fail',
+            error: expect.objectContaining({ message: 'invalid_input: cannot process uuid-1' }),
+        })
+        expect(results[1]).toMatchObject({
+            type: PipelineResultType.OK,
+            value: { event: { uuid: 'uuid-2', properties: { $exception_fingerprint: 'fp-2' } } },
+        })
+    })
+
+    describe('an event Cymbal asks to retry', () => {
+        const retry: CymbalResult = { result: 'retry', error: { code: 'deadline_exceeded', message: 'slow' } }
+        const withAttempts = (attempts?: string) => ({
+            ...createInput(),
+            message: { headers: attempts === undefined ? [] : [{ 'cymbal-retry-attempts': Buffer.from(attempts) }] },
+        })
+
+        it('goes to the overflow lane from the main lane, also when the whole batch asks', async () => {
+            step = createCymbalProcessingStep(mockCymbalClient, {
+                overflowMode: 'redirect',
+                preservePartitionLocality: false,
+            })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry, retry])
+
+            const results = await step([createInput({ uuid: 'uuid-1' }), createInput({ uuid: 'uuid-2' })])
+
+            for (const result of results) {
+                expect(result).toMatchObject({
+                    type: PipelineResultType.REDIRECT,
+                    reason: 'cymbal_item_retry',
+                    output: 'overflow',
+                    preserveKey: false,
+                })
+            }
+        })
+
+        it.each([
+            [undefined, '1'],
+            ['1', '2'],
+        ])('goes back on the overflow topic after %s earlier attempts there', async (attempts, next) => {
+            step = createCymbalProcessingStep(mockCymbalClient, {
+                overflowMode: 'consume',
+                preservePartitionLocality: true,
+            })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+
+            const results = await step([withAttempts(attempts)])
+
+            expect(results[0]).toMatchObject({
+                type: PipelineResultType.REDIRECT,
+                output: 'overflow',
+                headers: { 'cymbal-retry-attempts': next },
+            })
+        })
+
+        it.each([
+            ['after its third attempt on the overflow lane', 'consume' as const, '2'],
+            ['when the consumer has no overflow lane', 'disabled' as const, undefined],
+        ])('goes to the DLQ %s', async (_name, overflowMode, attempts) => {
+            step = createCymbalProcessingStep(mockCymbalClient, { overflowMode, preservePartitionLocality: true })
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([retry])
+
+            const results = await step([withAttempts(attempts)])
+
+            expect(results[0]).toMatchObject({ type: PipelineResultType.DLQ, reason: 'cymbal_item_retry' })
+        })
     })
 
     it('passes all properties to Cymbal including GeoIP', async () => {
@@ -138,7 +231,7 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
         await step([input])
 
@@ -166,7 +259,7 @@ describe('createCymbalProcessingStep', () => {
             },
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
         await step([input])
 
@@ -194,7 +287,7 @@ describe('createCymbalProcessingStep', () => {
     it('preserves team in output', async () => {
         const input = createInput()
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
         const results = await step([input])
 
@@ -209,7 +302,7 @@ describe('createCymbalProcessingStep', () => {
             properties: { some_prop: 'value' }, // No $exception_list
         })
 
-        mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+        mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
         await step([input])
 
@@ -228,7 +321,7 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = '2024-01-15T10:30:00.000Z'
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
             await step([input])
 
@@ -250,7 +343,7 @@ describe('createCymbalProcessingStep', () => {
                 const input = createInput()
                 input.event.timestamp = undefined as any
 
-                mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+                mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
                 await step([input])
 
@@ -271,7 +364,7 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = '2024-01-15T10:30:00.000Z'
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
             const results = await step([input])
 
@@ -286,7 +379,7 @@ describe('createCymbalProcessingStep', () => {
             const input = createInput()
             input.event.timestamp = 'not-a-valid-timestamp' as any
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([createResponse()])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([createResponse()]))
 
             const results = await step([input])
 
@@ -309,112 +402,31 @@ describe('createCymbalProcessingStep', () => {
     })
 
     describe('ingestion warnings', () => {
-        it('emits warning when Cymbal returns $cymbal_errors', async () => {
+        it('emits the warnings Cymbal reports for an event', async () => {
             const input = createInput({ uuid: 'event-with-errors' })
-
-            const response = createResponse({
-                uuid: 'event-with-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    $cymbal_errors: ['No sourcemap found for source url: https://example.com/app.js'],
+            const warning = {
+                type: 'error_tracking_exception_processing_errors',
+                details: {
+                    eventUuid: 'event-with-errors',
+                    errors: ['No sourcemap found for source url: https://example.com/app.js'],
                 },
-            })
+                key: 'event-with-errors',
+            }
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce([
+                { result: 'ok', value: createResponse({ uuid: 'event-with-errors' }), warnings: [warning] },
+            ])
 
             const results = await step([input])
 
             expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0]).toEqual({
-                    type: 'error_tracking_exception_processing_errors',
-                    details: {
-                        eventUuid: 'event-with-errors',
-                        errors: ['No sourcemap found for source url: https://example.com/app.js'],
-                    },
-                    key: 'event-with-errors',
-                })
-            }
-        })
-
-        it('emits warning with multiple errors', async () => {
-            const input = createInput({ uuid: 'event-multiple-errors' })
-
-            const response = createResponse({
-                uuid: 'event-multiple-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $cymbal_errors: [
-                        'No sourcemap found for source url: https://example.com/app.js',
-                        'Invalid source map: failed to parse',
-                    ],
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(1)
-                expect(results[0].warnings[0].details.errors).toEqual([
-                    'No sourcemap found for source url: https://example.com/app.js',
-                    'Invalid source map: failed to parse',
-                ])
-            }
-        })
-
-        it('does not emit warning when $cymbal_errors is empty', async () => {
-            const input = createInput({ uuid: 'event-no-errors' })
-
-            const response = createResponse({
-                uuid: 'event-no-errors',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    $cymbal_errors: [],
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
-            }
-        })
-
-        it('does not emit warning when $cymbal_errors is absent', async () => {
-            const input = createInput({ uuid: 'event-no-errors-field' })
-
-            const response = createResponse({
-                uuid: 'event-no-errors-field',
-                properties: {
-                    $exception_list: [{ type: 'Error', value: 'Test error' }],
-                    $exception_fingerprint: 'test-fingerprint',
-                    // No $cymbal_errors field
-                },
-            })
-
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([response])
-
-            const results = await step([input])
-
-            expect(results[0].type).toBe(PipelineResultType.OK)
-            if (isOkResult(results[0])) {
-                expect(results[0].warnings).toHaveLength(0)
-            }
+            expect(results[0].warnings).toEqual([warning])
         })
 
         it('does not emit warning for suppressed events', async () => {
             const input = createInput({ uuid: 'suppressed-event' })
 
-            mockCymbalClient.processExceptions.mockResolvedValueOnce([null])
+            mockCymbalClient.processExceptions.mockResolvedValueOnce(toOutcomes([null]))
 
             const results = await step([input])
 

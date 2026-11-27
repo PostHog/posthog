@@ -121,7 +121,7 @@ export function TodayNewPeopleButton(): JSX.Element {
                 render={
                     <Button
                         size="icon"
-                        className="-me-2 text-muted-foreground"
+                        variant="outline"
                         aria-label="New in People"
                         data-attr="today-new-people-header"
                     />

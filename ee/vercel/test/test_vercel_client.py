@@ -1,11 +1,28 @@
 import json
+import base64
+from urllib.parse import parse_qs
+from uuid import uuid4
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+import responses
+from prometheus_client import REGISTRY
 
-from ee.vercel.client import OperationResult, VercelAPIClient
+from posthog.egress.vercel.observability import normalize_vercel_endpoint
+
+from ee.api.vercel.crypto import encrypt_payload
+from ee.vercel.client import (
+    INSTALLATION_TOKEN_CACHE_PREFIX,
+    INSTALLATION_TOKEN_CACHE_SALT,
+    INSTALLATION_TOKEN_LOCK_PREFIX,
+    VERCEL_OAUTH_TOKEN_URL,
+    OperationResult,
+    VercelAPIClient,
+    get_installation_access_token,
+    token_cache,
+)
 
 
 class TestVercelAPIClient:
@@ -57,14 +74,26 @@ class TestVercelAPIClient:
     def assert_successful_request(self, mock_request, method, url, callable_func, args, expected_result, **kwargs):
         mock_response = MagicMock()
         mock_response.status_code = 204
+        mock_response.request.method = method
+        mock_response.request.url = url
         mock_request.return_value = mock_response
+        egress_labels = {
+            "installation": args[0],
+            "method": method,
+            "endpoint": normalize_vercel_endpoint(url),
+            "status_code": "204",
+            "source": "integration",
+        }
+        recorded_before = REGISTRY.get_sample_value("vercel_api_requests_total", egress_labels) or 0
 
         result = callable_func(*args)
-        assert result == expected_result
 
-        expected_kwargs = {"timeout": 30}
-        expected_kwargs.update(kwargs)
+        assert result == expected_result
+        expected_kwargs: dict = {"headers": {}, "timeout": 30, "data": None, "auth": None}
+        if "json" in kwargs:
+            expected_kwargs.update(headers={"Content-Type": "application/json"}, data=json.dumps(kwargs["json"]))
         mock_request.assert_called_once_with(method, url, **expected_kwargs)
+        assert REGISTRY.get_sample_value("vercel_api_requests_total", egress_labels) == recorded_before + 1
 
     def test_client_initialization(self):
         client = VercelAPIClient("my_token")
@@ -354,6 +383,7 @@ class TestVercelAPIClient:
             data=urlencode(expected_data),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
+            auth=None,
         )
 
     @pytest.mark.parametrize(
@@ -380,3 +410,99 @@ class TestVercelAPIClient:
     def test_update_experimentation_item_validates_parameters(self, client):
         with pytest.raises(ValueError):
             client.update_experimentation_item("config_id", "resource_id", "item_id", {})
+
+    @responses.activate
+    def test_installation_token_uses_client_credentials_and_is_reused_from_cache(self, settings):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        installation_id = f"icfg_{uuid4().hex}"
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+        labels = {
+            "installation": installation_id,
+            "method": "POST",
+            "endpoint": normalize_vercel_endpoint(VERCEL_OAUTH_TOKEN_URL),
+            "status_code": "200",
+            "source": "installation_token",
+        }
+
+        tokens = [get_installation_access_token(installation_id) for _ in range(2)]
+
+        assert tokens == ["short_lived", "short_lived"]
+        assert len(responses.calls) == 1
+        assert REGISTRY.get_sample_value("vercel_api_requests_total", labels) == 1
+        request = responses.calls[0].request
+        assert parse_qs(request.body) == {"grant_type": ["client_credentials"], "installation_id": [installation_id]}
+        assert request.headers["Authorization"] == f"Basic {base64.b64encode(b'client_id:client_secret').decode()}"
+
+    @responses.activate
+    def test_installation_token_survives_a_cache_outage(self, settings):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+
+        with (
+            patch("ee.vercel.client.token_cache.get", side_effect=ConnectionError("cache down")),
+            patch("ee.vercel.client.token_cache.set", side_effect=ConnectionError("cache down")),
+        ):
+            assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
+
+    @pytest.mark.parametrize(
+        "status, code", [(503, "server_error"), (429, "rate_limit_exceeded")], ids=["server_error", "rate_limited"]
+    )
+    @responses.activate
+    def test_installation_token_request_retries_a_transient_failure(self, settings, status, code):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        responses.add(responses.POST, VERCEL_OAUTH_TOKEN_URL, status=status, json={"error": {"code": code}})
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+
+        with patch("tenacity.nap.time.sleep"):
+            assert get_installation_access_token(f"icfg_{uuid4().hex}") == "short_lived"
+
+        assert len(responses.calls) == 2
+
+    @pytest.mark.parametrize(
+        "holder_writes_token, expected_token, expected_requests",
+        [(True, "from_lock_holder", 0), (False, "short_lived", 1)],
+        ids=["holder_finishes", "holder_too_slow"],
+    )
+    @responses.activate
+    def test_installation_token_waits_for_the_worker_holding_the_lock(
+        self, settings, holder_writes_token, expected_token, expected_requests
+    ):
+        settings.VERCEL_CLIENT_INTEGRATION_ID = "client_id"
+        settings.VERCEL_CLIENT_INTEGRATION_SECRET = "client_secret"
+        installation_id = f"icfg_{uuid4().hex}"
+        responses.add(
+            responses.POST,
+            VERCEL_OAUTH_TOKEN_URL,
+            json={"access_token": "short_lived", "token_type": "Bearer", "expires_in": 3600},
+        )
+        token_cache.set(f"{INSTALLATION_TOKEN_LOCK_PREFIX}{installation_id}", True, timeout=60)
+
+        def holder_finishes_during_wait(_seconds: float) -> None:
+            if holder_writes_token:
+                token_cache.set(
+                    f"{INSTALLATION_TOKEN_CACHE_PREFIX}{installation_id}",
+                    encrypt_payload(
+                        {"access_token": "from_lock_holder"}, salt=INSTALLATION_TOKEN_CACHE_SALT, jti=False
+                    ),
+                )
+
+        with patch("ee.vercel.client.time.sleep", side_effect=holder_finishes_during_wait):
+            token = get_installation_access_token(installation_id)
+
+        assert token == expected_token
+        assert len(responses.calls) == expected_requests

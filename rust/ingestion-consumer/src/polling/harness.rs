@@ -9,6 +9,7 @@ use tokio::time::Instant;
 
 use super::collector::tests::message;
 use super::{CollectedBatch, InFlightPoll, Parts, PollLimits, PollingStrategy, Step};
+use crate::debug_recorder::{DebugEventKind, DebugRecorder};
 use crate::partition_budget::BudgetLimits;
 use crate::settlement::{GroupSettlement, Settlement};
 
@@ -18,7 +19,9 @@ pub(super) struct Harness<P> {
     pub(super) poller: P,
     pub(super) settlement: Arc<GroupSettlement>,
     pub(super) ledger: Arc<TopicOffsetLedger>,
+    pub(super) recorder: Arc<DebugRecorder>,
     pub(super) now: Instant,
+    submitted: usize,
 }
 
 impl<P: PollingStrategy> Harness<P> {
@@ -29,6 +32,7 @@ impl<P: PollingStrategy> Harness<P> {
             Duration::ZERO,
             BudgetLimits::unset(),
         ));
+        let recorder = DebugRecorder::new(1_000, Duration::from_secs(3600));
         let poller = make(Parts {
             limits: PollLimits {
                 batch_size: 100,
@@ -37,13 +41,29 @@ impl<P: PollingStrategy> Harness<P> {
             },
             settlement: Arc::clone(&settlement),
             group_id: "test".to_string(),
+            debug_recorder: Some(Arc::clone(&recorder)),
         });
         Self {
             poller,
             settlement,
             ledger,
+            recorder,
             now: Instant::now(),
+            submitted: 0,
         }
+    }
+
+    pub(super) fn completed_polls(&self) -> Vec<(String, u32)> {
+        self.recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::PollCompleted {
+                    batch_id, accepted, ..
+                } => Some((batch_id, accepted)),
+                _ => None,
+            })
+            .collect()
     }
 
     pub(super) fn receive(&mut self, partition: i32, offsets: &[i64]) {
@@ -62,6 +82,13 @@ impl<P: PollingStrategy> Harness<P> {
     }
 
     pub(super) fn submit(&mut self) -> HashMap<TopicPartition, (i64, i64)> {
+        self.submit_with_a_stale_charge_on(&[])
+    }
+
+    pub(super) fn submit_with_a_stale_charge_on(
+        &mut self,
+        stale: &[i32],
+    ) -> HashMap<TopicPartition, (i64, i64)> {
         let Some(Step::Submit(collected)) = self.step() else {
             panic!("expected a poll to submit");
         };
@@ -69,6 +96,14 @@ impl<P: PollingStrategy> Harness<P> {
         let mut uncommitted = HashMap::new();
         for (topic_partition, deliveries) in &mut partitions {
             deliveries.generation = self.ledger.generation(topic_partition);
+            if stale.contains(&topic_partition.partition) {
+                self.settlement
+                    .on_revoked(std::slice::from_ref(topic_partition));
+                self.settlement
+                    .charge(topic_partition, deliveries.generation, &deliveries.charges)
+                    .expect_err("a charge under a forgotten generation is stale");
+                continue;
+            }
             let charged = self
                 .settlement
                 .charge(topic_partition, deliveries.generation, &deliveries.charges)
@@ -84,7 +119,11 @@ impl<P: PollingStrategy> Harness<P> {
                 )
             })
             .collect();
+        let poll_id = format!("poll-{}", self.submitted);
+        self.submitted += 1;
         self.poller.on_submitted(InFlightPoll {
+            poll_id,
+            dispatched_at: std::time::Instant::now(),
             partitions,
             uncommitted,
         });

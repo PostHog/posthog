@@ -1148,13 +1148,15 @@ export class ApiClient {
 
             getHealth: async ({
                 experimentId,
+                atLaunch = false,
                 signal,
             }: {
                 experimentId: number
+                atLaunch?: boolean
                 signal?: AbortSignal
             }): Promise<Result<Schemas.ExperimentHealth>> => {
                 return this.fetchJson<Schemas.ExperimentHealth>(
-                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/${atLaunch ? '?at_launch=true' : ''}`,
                     { signal }
                 )
             },
@@ -1751,6 +1753,7 @@ export class ApiClient {
                 warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
+                hasMore?: boolean | null
             }> => {
                 return this.request<{
                     results: unknown
@@ -1760,6 +1763,7 @@ export class ApiClient {
                     warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
+                    hasMore?: boolean | null
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,

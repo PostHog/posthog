@@ -150,11 +150,13 @@ Read [references/running-evals.md](references/running-evals.md) when setting up 
 It covers shared credentials, provider authentication, first-run commands, concurrency limits, and common setup failures.
 Prefer remote Modal for sandboxed suites when its prerequisites are available.
 It runs agent sandboxes in parallel without the local Docker memory ceiling, so multi-case evals finish faster; keep Docker for small smoke tests or when remote access is unavailable.
+Run one harness per machine, because runs share the eval databases and the three Funnel ports.
+To run several suites, models or prompt variants at once, give each run its own devbox through `hogli devbox:*`; the same reference covers preparing a box, lending credentials, and running over SSH.
 
 ```bash
 hogli evals --list                      # suite ids, no infra
 hogli evals eval_my_thing --eval my_case  # one case, docker
-hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
+hogli evals cli_mcp --provider modal    # a domain with parallel remote sandboxes
 hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed skills only
 ```
 
@@ -162,8 +164,7 @@ hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed sk
 
 - Run from a flox shell (or wrap in `flox activate -- bash -c "..."`): the personhog build needs flox's Rust toolchain, and outside it the preflight `cargo build` dies on a missing `pkg-config`/OpenSSL.
 - Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
-- `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
-- Team cloning and case seeding use one setup slot on ordinary local machines and four when `CODER` or `CI` is set.
+- On Coder, the harness defaults to two setup workers and twelve Modal sandboxes. See [concurrency](../../../products/posthog_ai/eval_harness/README.md#concurrency) for overrides and other providers.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
 - `--skill-delivery bundled` is the default native-skill path. `--skill-delivery exec` enables the MCP skill prompt and clears all native skill directories; compare the modes in separate runs because MCP configuration is process-wide.
 - `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-6.1-sol`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the local and PostHog experiment metadata, so compare scores within one runtime.

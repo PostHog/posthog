@@ -97,6 +97,7 @@ class AgentEgressRegistry:
     def latest(self, *, team_id: int, run_id: UUID) -> AgentEgressRegistration | None:
         return (
             AgentEgressRegistration.objects.for_team(team_id)
+            .defer("git_read_grant")
             .filter(task_run_id=run_id, task_run__team_id=team_id, region=self.region)
             .order_by("-id")
             .first()
@@ -106,7 +107,7 @@ class AgentEgressRegistry:
         registration = (
             AgentEgressRegistration.objects.for_team(team_id)
             .select_related("task_run__task__created_by", "task_run__task__team")
-            .defer(*(f"task_run__task__team__{field}" for field in DEPRECATED_ATTRS))
+            .defer("git_read_grant", *(f"task_run__task__team__{field}" for field in DEPRECATED_ATTRS))
             .filter(
                 task_run_id=run_id,
                 task_run__team_id=team_id,
@@ -149,7 +150,9 @@ class AgentEgressRegistry:
                 raise ValueError("Task run actor is not authorized")
             if not _run_sandbox_matches(run, sandbox_id, execution_id):
                 raise ValueError("The egress sandbox does not belong to this execution")
-            registrations = AgentEgressRegistration.objects.for_team(team_id).filter(task_run_id=run.id)
+            registrations = (
+                AgentEgressRegistration.objects.for_team(team_id).filter(task_run_id=run.id).defer("git_read_grant")
+            )
             existing = registrations.filter(execution_id=execution_id).first()
             now = timezone.now()
             if existing is not None:
@@ -172,7 +175,11 @@ class AgentEgressRegistry:
                 if current.region != self.region:
                     raise ValueError("Execution region cannot change")
                 registrations.filter(execution_id=current.execution_id, revoked=False).update(
-                    revoked=True, revoked_at=now, revoked_by="tasks-worker", revocation_reason="replaced"
+                    revoked=True,
+                    revoked_at=now,
+                    revoked_by="tasks-worker",
+                    revocation_reason="replaced",
+                    git_read_grant=None,
                 )
             return registrations.create(
                 team_id=team_id,
@@ -239,5 +246,11 @@ class AgentEgressRegistry:
             return bool(
                 AgentEgressRegistration.objects.for_team(team_id)
                 .filter(task_run_id=run.id, execution_id=execution_id, region=self.region, revoked=False)
-                .update(revoked=True, revoked_at=timezone.now(), revoked_by=revoked_by, revocation_reason=reason)
+                .update(
+                    revoked=True,
+                    revoked_at=timezone.now(),
+                    revoked_by=revoked_by,
+                    revocation_reason=reason,
+                    git_read_grant=None,
+                )
             )

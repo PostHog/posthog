@@ -111,6 +111,7 @@ def grounded_lines(page_lines: list[str], source_text: str, commit_sha: str) -> 
         max_retries=GROUNDING_MAX_RETRIES,
         system=GROUNDING_INSTRUCTIONS,
         content=f"<source>\n{source_text}\n</source>\n\n<lines>\n{numbered_lines}\n</lines>",
+        stage="grounding",
     )
     if isinstance(reply, Declined):
         logger.warning("knowledge_writer_grounding_declined", cause=reply.cause)

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -31,16 +33,33 @@ const codeEmail: CodeEmailApi = {
 
 const BANNER = "This email's metrics and run logs couldn't load. Check your connection and try again."
 
+const TAGGING_OFF_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    workflows_config: { capture_workflows_engagement_events: true, email_workflow_run_link_tag_enabled: false },
+}
+
 describe('CodeEmailTabs', () => {
     let logic: ReturnType<typeof codeEmailLogic.build>
 
     let sendRequests: Record<string, string>[]
     let sends: Record<string, string>[]
+    let trendRows: [string[], string, number[]][]
 
     const mocks = (workflow: () => [number, unknown]): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/projects/:team_id/transactional_code_emails/:id/': codeEmail,
             '/api/environments/:team_id/hog_flows/:id/': workflow,
+            '/api/projects/:team_id/transactional_email_log/impact/': {
+                sent: 10,
+                delivered: 9,
+                opened: 5,
+                clicked: 2,
+                not_clicked: 7,
+                untracked: 0,
+                window_days: 7,
+                after_click: null,
+                without_click: null,
+            },
             '/api/projects/:team_id/transactional_email_log/': ({ request }) => {
                 sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
                 return [200, { results: sends, has_more: false }]
@@ -50,6 +69,7 @@ describe('CodeEmailTabs', () => {
             '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                 const { query } = ((await request.json()) as { query: { query: string } }).query
                 const isEmailTotals = query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                const isTrends = query.includes('groupArray(bucket)')
                 return [
                     200,
                     {
@@ -58,7 +78,9 @@ describe('CodeEmailTabs', () => {
                                   [10, 'email-step', 'email_sent'],
                                   [3, 'email-step', 'email_bounced_transient'],
                               ]
-                            : [],
+                            : isTrends
+                              ? trendRows
+                              : [],
                     },
                 ]
             },
@@ -80,8 +102,19 @@ describe('CodeEmailTabs', () => {
     const renderTabs = ({
         sendLinks = true,
         quillFilters = false,
-    }: { sendLinks?: boolean; quillFilters?: boolean } = {}): void => {
+        impact = false,
+        trendRows: rows,
+    }: {
+        sendLinks?: boolean
+        quillFilters?: boolean
+        impact?: boolean
+        trendRows?: [string[], string, number[]][]
+    } = {}): void => {
         sendRequests = []
+        trendRows = rows ?? [
+            [['2026-03-14'], 'email_delivered', [2]],
+            [['2026-03-14'], 'email_sandbox_delivered', [3]],
+        ]
         sends = [
             {
                 message_id: 'msg-1',
@@ -90,11 +123,12 @@ describe('CodeEmailTabs', () => {
                 created_at: '2026-03-14T10:00:00Z',
             },
         ]
-        initKeaTests()
+        initKeaTests(true, TAGGING_OFF_TEAM)
         featureFlagLogic.mount()
         const flags = {
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillFilters,
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT]: impact,
         }
         featureFlagLogic.actions.setFeatureFlags(
             Object.entries(flags)
@@ -154,6 +188,24 @@ describe('CodeEmailTabs', () => {
 
         expect(await screen.findByText(/^3 soft bounced/)).toBeInTheDocument()
         expect(screen.queryByText(BANNER)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['counting test sender deliveries as delivered', undefined],
+        [
+            'counting sent minus bounced as delivered before any receipt, like the Email steps table',
+            [
+                [['2026-03-13', '2026-03-14'], 'email_sent', [7, 0]],
+                [['2026-03-13', '2026-03-14'], 'email_bounced', [0, 2]],
+            ] as [string[], string, number[]][],
+        ],
+    ])('shows email outcome cards instead of workflow run cards, %s', async (_, rows) => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ trendRows: rows })
+
+        expect(await screen.findByText('vs. 5 prior')).toBeInTheDocument()
+        expect(screen.getByText('5')).toBeInTheDocument()
+        expect(screen.queryByText('Workflows in progress')).not.toBeInTheDocument()
     })
 
     it("lists this email's sends, each linked to its page with the filters to come back to", async () => {
@@ -262,6 +314,15 @@ describe('CodeEmailTabs', () => {
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
         expect(screen.queryByText('Run logs')).not.toBeInTheDocument()
         expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
+    })
+
+    it('offers to turn on link tracking on the Impact tab of a sensitive code email, since a send can turn sensitivity off', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ impact: true })
+
+        fireEvent.click(await screen.findByText('Impact'))
+
+        expect(await screen.findByText('Turn on for project')).toBeInTheDocument()
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

@@ -437,6 +437,98 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('turnstile challenge', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        afterEach(() => {
+            logic.unmount()
+            jest.restoreAllMocks()
+        })
+
+        it('resubmits with the solved challenge and drops the used challenge when that submit fails', async () => {
+            const answers = [
+                [
+                    428,
+                    {
+                        code: 'challenge_required',
+                        detail: 'Additional verification is required to continue.',
+                        extra: { challenge_nonce: 'challenge:abc:uuid', turnstile_site_key: 'site_key_123' },
+                    },
+                ],
+                [403, { code: 'suspicious_attempt_blocked', detail: 'Your account has been flagged.' }],
+            ]
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => answers.shift() ?? [500, {}],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+            const createSpy = jest.spyOn(api, 'create')
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic)
+                .toDispatchActions(['submitLoginFailure'])
+                .toMatchValues({
+                    loginChallenge: { nonce: 'challenge:abc:uuid', siteKey: 'site_key_123' },
+                    generalError: null,
+                })
+
+            logic.actions.setLoginTurnstileToken('turnstile_abc')
+            await expectLogic(logic)
+                .toDispatchActions(['submitLogin', 'submitLoginFailure'])
+                .toMatchValues({
+                    loginChallenge: null,
+                    generalError: { code: 'suspicious_attempt_blocked', detail: 'Your account has been flagged.' },
+                })
+
+            const loginBodies = createSpy.mock.calls.filter(([url]) => url === 'api/login').map(([, body]) => body)
+            expect(loginBodies).toEqual([
+                { email: 'user@example.com', password: 'a-password' },
+                {
+                    email: 'user@example.com',
+                    password: 'a-password',
+                    turnstile_token: 'turnstile_abc',
+                    challenge_nonce: 'challenge:abc:uuid',
+                },
+            ])
+        })
+        it('keeps a solved challenge for the next submit when the form fails its own validation', async () => {
+            useMocks({
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => [
+                        428,
+                        {
+                            code: 'challenge_required',
+                            detail: 'Additional verification is required to continue.',
+                            extra: { challenge_nonce: 'challenge:abc:uuid', turnstile_site_key: 'site_key_123' },
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure'])
+            logic.actions.setLoginValues({ password: '' })
+            logic.actions.setLoginTurnstileToken('turnstile_abc')
+            await expectLogic(logic)
+                .toDispatchActions(['submitLogin', 'submitLoginFailure'])
+                .toMatchValues({
+                    solvedLoginChallenge: { nonce: 'challenge:abc:uuid', token: 'turnstile_abc' },
+                })
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock

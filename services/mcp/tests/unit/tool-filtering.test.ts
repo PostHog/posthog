@@ -1150,6 +1150,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-activity',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
+            'scout-config-retrieve-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1185,6 +1186,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'signals-source-filters',
             'error-tracking-issue-tags',
             'inbox-plan-edits-mcp',
+            'scout-send-message',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1228,12 +1230,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'self-driving-usage-display',
                 'logs-agent-tools',
                 'release-objects',
+                'signals-monitor-pr',
             ])
         )
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

@@ -2,10 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { Button, Separator, Switch, Text } from '@posthog/quill'
 
+import { QuillTestAccountFilterSwitch } from 'lib/components/QuillTestAccountFilterSwitch'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { overviewMetricsLogic } from 'products/marketing_analytics/frontend/overview/overviewMetricsLogic'
@@ -31,6 +34,59 @@ export const MarketingAnalyticsOptionsMenu = ({
         scope: RestrictionScope.Project,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const handleEditMetrics = (): void => {
+        setOptionsOpen(false)
+        openEditor()
+    }
+    const testAccountDisabledReason = editRestrictionReason ?? (currentTeamLoading ? 'Saving…' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <div className="flex w-80 max-w-full flex-col gap-4">
+                {showMetricEditor && (
+                    <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={handleEditMetrics}
+                        data-attr="marketing-configure-metrics"
+                    >
+                        <IconPencil />
+                        Edit top-line metrics
+                    </Button>
+                )}
+                {canToggleConversionGoals && (
+                    <div className="flex flex-col gap-2">
+                        <Text size="xs" variant="muted" weight="semibold" render={<div className="m-0" />}>
+                            Conversions
+                        </Text>
+                        <Switch
+                            size="sm"
+                            checked={includeConversionGoals}
+                            onCheckedChange={(checked: boolean) => setShowConversionGoals(checked)}
+                            data-attr="marketing-ad-performance-conversion-goals"
+                        >
+                            Include conversion goals
+                        </Switch>
+                    </div>
+                )}
+                {showIntegrations && (
+                    <div className="flex flex-col gap-2">
+                        <Text size="xs" variant="muted" weight="semibold" render={<div className="m-0" />}>
+                            Integrations
+                        </Text>
+                        <IntegrationFilter />
+                    </div>
+                )}
+                {(showMetricEditor || canToggleConversionGoals || showIntegrations) && <Separator />}
+                <QuillTestAccountFilterSwitch
+                    checked={shouldFilterTestAccounts}
+                    onChange={updateFilterTestAccounts}
+                    disabledReason={testAccountDisabledReason}
+                />
+            </div>
+        )
+    }
 
     return (
         // Ordered by how often they get touched, so the rarely-changed
@@ -42,10 +98,7 @@ export const MarketingAnalyticsOptionsMenu = ({
                     size="small"
                     fullWidth
                     icon={<IconPencil />}
-                    onClick={() => {
-                        setOptionsOpen(false)
-                        openEditor()
-                    }}
+                    onClick={handleEditMetrics}
                     data-attr="marketing-configure-metrics"
                 >
                     Edit top-line metrics
@@ -77,7 +130,7 @@ export const MarketingAnalyticsOptionsMenu = ({
                 fullWidth
                 checked={shouldFilterTestAccounts}
                 onChange={updateFilterTestAccounts}
-                disabledReason={editRestrictionReason ?? (currentTeamLoading ? 'Saving…' : undefined)}
+                disabledReason={testAccountDisabledReason}
             />
         </div>
     )

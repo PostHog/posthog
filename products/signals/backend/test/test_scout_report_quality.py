@@ -2,7 +2,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.scout_harness.tools.report_quality import apply_report_quality_checks
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.tools.report_quality import (
+    apply_report_quality_checks,
+    repair_suggested_prompts,
+)
+
+_TOO_LONG = "x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)
 
 
 class TestReportQualityChecks(SimpleTestCase):
@@ -30,4 +36,34 @@ class TestReportQualityChecks(SimpleTestCase):
     def test_pr_style_title_is_a_hint_only(self, title: str, check_ids: list[str]) -> None:
         result = apply_report_quality_checks(title=title, summary=None)
         assert result.title == title
+        assert [hint.check_id for hint in result.hints] == check_ids
+
+    @parameterized.expand(
+        [
+            ("omitted", None, None, []),
+            ("cleared", [], [], []),
+            ("inside_the_bounds", ["Which teams?", "Since when?"], ["Which teams?", "Since when?"], []),
+            ("blank_only_still_clears", ["  "], [], []),
+            ("one_too_long", ["Which teams?", _TOO_LONG], ["Which teams?"], ["suggested_prompt_too_long"]),
+            ("only_too_long_keeps_the_stored_set", [_TOO_LONG], None, ["suggested_prompt_too_long"]),
+            ("duplicate", ["Which teams?", " Which teams? "], ["Which teams?"], ["duplicate_suggested_prompt"]),
+            (
+                "past_the_cap",
+                [f"Question {i}?" for i in range(MAX_SUGGESTED_PROMPTS + 2)],
+                [f"Question {i}?" for i in range(MAX_SUGGESTED_PROMPTS)],
+                ["too_many_suggested_prompts"],
+            ),
+            (
+                "the_cap_counts_after_the_other_bounds",
+                [_TOO_LONG, "A?", "A?", "B?", "C?"],
+                ["A?", "B?", "C?"],
+                ["suggested_prompt_too_long", "duplicate_suggested_prompt"],
+            ),
+        ]
+    )
+    def test_suggested_prompts_past_a_bound_are_left_out(
+        self, _name: str, prompts: list[str] | None, expected: list[str] | None, check_ids: list[str]
+    ) -> None:
+        result = repair_suggested_prompts(prompts)
+        assert result.prompts == expected
         assert [hint.check_id for hint in result.hints] == check_ids

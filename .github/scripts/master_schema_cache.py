@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 WORKFLOW_PATH = ".depot/workflows/ci-backend.yml"
 DB_ROUTING_PATHS = frozenset(
     {"products/db_routing.yaml", "posthog/product_db_config.py", "posthog/product_db_router.py"}
@@ -18,6 +16,7 @@ NON_DJANGO_MIGRATION = re.compile(r"/(clickhouse|async_migrations)/migrations/")
 POSTGRES_IMAGE = re.compile(r"[ \t\n\v\f\r]*image:[ \t\n\v\f\r]*postgres:")
 WHITESPACE = re.compile(r"[ \t\n\v\f\r]")
 MASTER_SNAPSHOT_KEY = re.compile(r"posthog-schema-master-([0-9a-f]{40})")
+SCHEMA_INPUT_PATHSPECS = ("*/migrations/*.py", "uv.lock", "docker-compose.base.yml", *sorted(DB_ROUTING_PATHS))
 
 
 class GitError(Exception):
@@ -109,6 +108,26 @@ class MasterSchemaCache:
     def key(self, *, epoch: str) -> str | None:
         return SchemaInputs.read(self.repository, "HEAD").cache_key(epoch)
 
+    def ancestor_keys(self, *, revision: str, epoch: str, limit: int) -> list[str]:
+        checkout = SchemaInputs.read(self.repository, revision)
+        seen = {checkout.cache_key(epoch)}
+        keys: list[str] = []
+        changes = self.repository.run(
+            "log", "--first-parent", f"--max-count={limit * 4}", "--format=%H", revision, "--", *SCHEMA_INPUT_PATHSPECS
+        )
+        for commit in changes.split():
+            parent = f"{commit}^1"
+            if len(keys) == limit or not self.repository.has_commit(parent):
+                break
+            ancestor = SchemaInputs.read(self.repository, parent)
+            key = ancestor.cache_key(epoch)
+            if key is None or ancestor.incompatibility_with(checkout) is not None:
+                break
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+        return keys
+
     def validate(self, *, key: str, epoch: str, dump: Path) -> bool:
         try:
             reason = self._incompatibility_reason(key, epoch)
@@ -140,6 +159,9 @@ class MasterSchemaCache:
         )
 
     def _epoch(self, revision: str) -> str | None:
+        # Backend CI runs the ancestor-keys command with the runner's system Python, which may lack PyYAML.
+        import yaml
+
         workflow = yaml.safe_load(self.repository.run("show", f"{revision}:{WORKFLOW_PATH}"))
         epoch = workflow.get("env", {}).get("SCHEMA_CACHE_EPOCH")
         return None if epoch is None else str(epoch)
@@ -154,11 +176,19 @@ def main() -> None:
     validate = commands.add_parser("validate", help="Discard a master snapshot that HEAD cannot migrate forward")
     validate.add_argument("--dump", type=Path, required=True)
     validate.add_argument("--cache-key", required=True)
+    ancestors = commands.add_parser(
+        "ancestor-keys", help="Print the keys of older migration sets the revision can migrate forward from"
+    )
+    ancestors.add_argument("--revision", required=True)
+    ancestors.add_argument("--limit", type=int, required=True)
     args = parser.parse_args()
 
     cache = MasterSchemaCache(args.repository)
     if args.command == "key":
         sys.stdout.write(f"{cache.key(epoch=args.epoch) or ''}\n")
+    elif args.command == "ancestor-keys":
+        for key in cache.ancestor_keys(revision=args.revision, epoch=args.epoch, limit=args.limit):
+            sys.stdout.write(f"{key}\n")
     else:
         cache.validate(key=args.cache_key, epoch=args.epoch, dump=args.dump)
 

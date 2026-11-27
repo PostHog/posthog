@@ -22,6 +22,7 @@ function issue(number: number, title: string, hoursAgo: number, malformed = fals
         created_at: new Date(Date.parse(NOW) - hoursAgo * 3_600_000).toISOString(),
         malformed,
         field_values: {},
+        failed_conditions: null,
     }
 }
 

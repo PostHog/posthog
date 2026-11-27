@@ -14,6 +14,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -56,6 +57,10 @@ const DESTINATION_LABEL: Record<DestinationTypeEnumApi, string> = {
     [DestinationTypeEnumApi.Email]: 'Email',
     [DestinationTypeEnumApi.InApp]: 'In-app notification',
 }
+
+// The alerts platform writes one app metric per notification it sends, under the alert configuration's id.
+const ALERT_APP_SOURCE = 'alert'
+const ALERT_METRIC_LABELS: Record<string, string> = { success: 'Sent', failure: 'Failed' }
 
 // Past this many logos the row grows too wide, so the rest collapse into a "+N" chip.
 const MAX_STACKED_ICONS = 3
@@ -186,6 +191,25 @@ export function WarehouseAlertsSection({ entry, ...logicProps }: WarehouseAlerts
         },
         createdByColumn() as unknown as LemonTableColumn<PlatformAlertConfigurationApi, any>,
         updatedAtColumn() as LemonTableColumn<PlatformAlertConfigurationApi, any>,
+        {
+            title: 'Last 7 days',
+            tooltip: 'Notifications sent and failed each day',
+            width: 0,
+            render: (_, alert) => (
+                <AppMetricsSparkline
+                    logicKey={`warehouse-alert-sparkline-${alert.id}`}
+                    metricLabels={ALERT_METRIC_LABELS}
+                    forceParams={{
+                        appSource: ALERT_APP_SOURCE,
+                        appSourceId: alert.id,
+                        metricKind: ['success', 'failure'],
+                        breakdownBy: 'metric_kind',
+                        interval: 'day',
+                        dateFrom: '-7d',
+                    }}
+                />
+            ),
+        },
         {
             title: 'Status',
             key: 'status',

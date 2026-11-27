@@ -1,4 +1,6 @@
+import re
 from collections.abc import Callable
+from ipaddress import ip_address
 from math import factorial
 
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -48,6 +50,46 @@ TRINO_TUPLE_OPERATORS = {
 TRINO_VECTOR_REWRITES = frozenset(
     {"lpnorm", "lpdistance", "l1normalize", "l2normalize", "linfnormalize", "lpnormalize"}
 )
+TRINO_SEQUENCE_MAX_ENTRIES = 10_000
+TRINO_SEQUENCE_MAX_BLOCKS = 100
+TRINO_SEQUENCE_LIMIT_MESSAGE = (
+    f"Trino mode supports arrays of up to {TRINO_SEQUENCE_MAX_ENTRIES * TRINO_SEQUENCE_MAX_BLOCKS:,} entries "
+    "from range and index functions"
+)
+
+
+def bounded_sequence(start: str, stop: str, step: int = 1) -> str:
+    block = TRINO_SEQUENCE_MAX_ENTRIES * step
+    step_arg = "" if step == 1 else f", {step}"
+    bounds = "__hogql_sequence_bounds"
+    block_count = f"(({bounds}[2] - {bounds}[1]) / {block})"
+    block_start = f"({bounds}[1] + __hogql_sequence_block * {block})"
+    block_stop = f"{block_start} + least({block - step}, {bounds}[2] - {block_start})"
+    blocks = (
+        f"flatten(transform(sequence(0, {block_count}), "
+        f"__hogql_sequence_block -> sequence({block_start}, {block_stop}{step_arg})))"
+    )
+    return (
+        f"element_at(transform(ARRAY[ROW(CAST({start} AS BIGINT), CAST({stop} AS BIGINT))], {bounds} -> "
+        f"IF(abs({block_count}) >= {TRINO_SEQUENCE_MAX_BLOCKS}, fail('{TRINO_SEQUENCE_LIMIT_MESSAGE}'), {blocks})), 1)"
+    )
+
+
+def array_indexes(value: str) -> str:
+    return bounded_sequence("1", f"cardinality({value})")
+
+
+def _with_bound_array(value: str, body: Callable[[str], str]) -> str:
+    bound = "__hogql_bound_array"
+    return f"element_at(transform(ARRAY[{value}], {bound} -> {body(bound)}), 1)"
+
+
+def _limit_prefix_scan(name: str, value: str, body: str) -> str:
+    return (
+        f"IF(cardinality({value}) > {TRINO_SEQUENCE_MAX_ENTRIES}, "
+        f"fail('{name} supports arrays of up to {TRINO_SEQUENCE_MAX_ENTRIES:,} entries in Trino mode'), {body})"
+    )
+
 
 TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "any": "arbitrary",
@@ -604,11 +646,13 @@ def _array_resize(args: list[str]) -> str:
 
 def _array_difference(args: list[str]) -> str:
     _require_args("arrayDifference", args, 1)
-    value = args[0]
-    return (
-        f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
-        f"IF(__hogql_index = 1, 0, {value}[__hogql_index] - {value}[__hogql_index - 1])))"
+    return _with_bound_array(
+        args[0],
+        lambda value: (
+            f"IF(cardinality({value}) = 0, ARRAY[], "
+            f"transform({array_indexes(value)}, __hogql_index -> "
+            f"IF(__hogql_index = 1, 0, {value}[__hogql_index] - {value}[__hogql_index - 1])))"
+        ),
     )
 
 
@@ -911,24 +955,33 @@ def _array_compact(args: list[str]) -> str:
 
 def _array_enumerate_dense(args: list[str]) -> str:
     _require_args("arrayEnumerateDense", args, 1)
-    value = args[0]
-    return (
-        f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
-        f"array_position(transform(array_distinct(slice({value}, 1, __hogql_index)), "
-        f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))"
+    return _with_bound_array(
+        args[0],
+        lambda value: _limit_prefix_scan(
+            "arrayEnumerateDense",
+            value,
+            f"IF(cardinality({value}) = 0, ARRAY[], "
+            f"transform({array_indexes(value)}, __hogql_index -> "
+            f"array_position(transform(array_distinct(slice({value}, 1, __hogql_index)), "
+            f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))",
+        ),
     )
 
 
 def _array_enumerate_uniq(args: list[str]) -> str:
     if not args:
         raise _invalid_arguments("arrayEnumerateUniq", "arrayEnumerateUniq expects at least one array.")
-    value = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
-    return (
-        f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
-        f"cardinality(filter(slice({value}, 1, __hogql_index), __hogql_value -> "
-        f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))"
+    source = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
+    return _with_bound_array(
+        source,
+        lambda value: _limit_prefix_scan(
+            "arrayEnumerateUniq",
+            value,
+            f"IF(cardinality({value}) = 0, ARRAY[], "
+            f"transform({array_indexes(value)}, __hogql_index -> "
+            f"cardinality(filter(slice({value}, 1, __hogql_index), __hogql_value -> "
+            f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))",
+        ),
     )
 
 
@@ -1234,6 +1287,85 @@ def _ipv4_cidr_to_range(args: list[str]) -> str:
     )
 
 
+_IPV6_OR_DOTTED_IPV4_SHAPE = r"'^(?:[0-9]{1,3}(?:\.[0-9]{1,3}){3}|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)$'"
+_IPV6_OR_STRICT_DOTTED_IPV4_SHAPE = r"'^(?:(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,3}){3}|[0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)$'"
+
+
+_IP_ADDRESS_LITERAL = re.compile(r"'([0-9A-Fa-f:.]+)'")
+
+
+def _is_ip_address_literal(sql: str) -> bool:
+    match = _IP_ADDRESS_LITERAL.fullmatch(sql)
+    if match is None:
+        return False
+    try:
+        ip_address(match.group(1))
+    except ValueError:
+        return False
+    return True
+
+
+def _to_ipv6(name: str, fallback: str | None) -> Callable[[list[str]], str]:
+    def handler(args: list[str]) -> str:
+        if len(args) not in ({1, 2} if name == "toIPv6OrDefault" else {1}):
+            raise _invalid_arguments(name, f"{name} received an invalid number of arguments.")
+        if _is_ip_address_literal(args[0]):
+            return f"IPADDRESS {args[0]}"
+        value = "__hogql_ipv6"
+        shape = _IPV6_OR_STRICT_DOTTED_IPV4_SHAPE
+        if name == "toIPv6OrDefault":
+            default = f"CAST({args[1]} AS IPADDRESS)" if len(args) == 2 else "IPADDRESS '::'"
+            shape = _IPV6_OR_DOTTED_IPV4_SHAPE
+        elif fallback is None:
+            default = "fail('Invalid IPv6 address')"
+        elif fallback == "NULL":
+            default = "CAST(NULL AS IPADDRESS)"
+        else:
+            default = "IPADDRESS '::'"
+        parsed = f"IF(regexp_like({value}, {shape}), TRY_CAST({value} AS IPADDRESS))"
+        result = f"coalesce({parsed}, {default})"
+        if name != "toIPv6OrDefault":
+            result = f"IF({value} IS NULL, NULL, {result})"
+        return f"element_at(transform(ARRAY[CAST({args[0]} AS VARCHAR)], {value} -> {result}), 1)"
+
+    return handler
+
+
+_IPV6_CIDR = "__hogql_ipv6_cidr"
+
+
+def _ipv6_cidr_bound(upper: bool) -> str:
+    prefix = f"{_IPV6_CIDR}[2]"
+    masks = (
+        f"bitwise_left_shift(BIGINT '-1', CAST(64 - least({prefix}, 64) AS INTEGER))",
+        f"bitwise_left_shift(BIGINT '-1', CAST(128 - greatest({prefix}, 64) AS INTEGER))",
+    )
+    words = []
+    for start, mask in zip((1, 9), masks):
+        word = f"from_big_endian_64(substr({_IPV6_CIDR}[1], {start}, 8))"
+        bounded = f"bitwise_or({word}, bitwise_not({mask}))" if upper else f"bitwise_and({word}, {mask})"
+        words.append(f"to_big_endian_64({bounded})")
+    return f"CAST(concat({words[0]}, {words[1]}) AS IPADDRESS)"
+
+
+def _ipv6_cidr_expression(args: list[str], result_type: str, result: str) -> str:
+    _require_args("IPv6CIDRToRange", args, 2)
+    return (
+        f"element_at(transform(ARRAY[ROW(CAST(CAST({args[0]} AS IPADDRESS) AS VARBINARY), "
+        f"least(CAST({args[1]} AS BIGINT), 128))], {_IPV6_CIDR} -> "
+        f"IF({_IPV6_CIDR}[1] IS NULL OR {_IPV6_CIDR}[2] IS NULL, CAST(NULL AS {result_type}), {result})), 1)"
+    )
+
+
+def _ipv6_cidr_to_range(args: list[str]) -> str:
+    bounds = f"ROW({_ipv6_cidr_bound(upper=False)}, {_ipv6_cidr_bound(upper=True)})"
+    return _ipv6_cidr_expression(args, "ROW(IPADDRESS, IPADDRESS)", bounds)
+
+
+def ipv6_cidr_range_bound(args: list[str], index: int) -> str:
+    return _ipv6_cidr_expression(args, "IPADDRESS", _ipv6_cidr_bound(upper=index == 2))
+
+
 def _query_string_and_fragment(args: list[str]) -> str:
     _require_args("queryStringAndFragment", args, 1)
     query = _raw_url_query("__hogql_url")
@@ -1309,8 +1441,9 @@ def _cut_url_parameter(args: list[str]) -> str:
         f"strpos(__hogql_parameter, '=') > 0 AND split_part(__hogql_parameter, '=', 1) = {name})"
     )
     match_position = f"array_position({matches}, true)"
+    parameter_positions = array_indexes("__hogql_parameters")
     remaining = (
-        "transform(filter(sequence(1, cardinality(__hogql_parameters)), "
+        f"transform(filter({parameter_positions}, "
         "__hogql_position -> __hogql_position <> __hogql_match_position), "
         "__hogql_position -> element_at(__hogql_parameters, __hogql_position))"
     )
@@ -1530,10 +1663,7 @@ def _url_query_part(name: str, fragment: bool) -> Callable[[list[str]], str]:
 def _split_by_regexp(args: list[str]) -> str:
     if len(args) not in {2, 3}:
         raise _invalid_arguments("splitByRegexp", "splitByRegexp expects a pattern, string, and optional limit.")
-    split = (
-        f"IF({args[0]} = '', IF({args[1]} = '', ARRAY[], transform(sequence(1, length({args[1]})), "
-        f"__hogql_index -> substr({args[1]}, __hogql_index, 1))), regexp_split({args[1]}, {args[0]}))"
-    )
+    split = f"IF({args[0]} = '', regexp_extract_all({args[1]}, '(?s).'), regexp_split({args[1]}, {args[0]}))"
     return split if len(args) == 2 else f"slice({split}, 1, {args[2]})"
 
 
@@ -1931,6 +2061,11 @@ TRINO_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toIPv4OrNull": _to_ipv4("toIPv4OrNull", "NULL"),
     "toIPv4OrZero": _to_ipv4("toIPv4OrZero", "zero"),
     "IPv4CIDRToRange": _ipv4_cidr_to_range,
+    "toIPv6": _to_ipv6("toIPv6", None),
+    "toIPv6OrDefault": _to_ipv6("toIPv6OrDefault", "default"),
+    "toIPv6OrNull": _to_ipv6("toIPv6OrNull", "NULL"),
+    "toIPv6OrZero": _to_ipv6("toIPv6OrZero", "zero"),
+    "IPv6CIDRToRange": _ipv6_cidr_to_range,
     "toValidUTF8": _identity("toValidUTF8"),
     "mapContains": _map_contains,
     "mapApply": _map_apply,

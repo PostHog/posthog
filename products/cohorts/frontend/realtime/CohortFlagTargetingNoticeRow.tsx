@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { cohortRealtimeReadinessLogic } from './cohortRealtimeReadinessLogic'
 import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
 import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
-import { dailyReasonSentence } from './realtimeReadiness'
+import { canTurnOnRealtime, dailyReasonSentence, unpreparableReasonSentence } from './realtimeReadiness'
 
 /** One cohort a condition set targets that feature flags can't target yet: why, and what to do about it. */
 export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number }): JSX.Element | null {
@@ -24,6 +24,7 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
     if (!cohort || !realtime) {
         return null
     }
+    const unpreparable = unpreparableReasonSentence(realtime)
 
     // A new tab, because leaving the flag editor would discard its unsaved conditions.
     const name = quillSurface ? (
@@ -58,6 +59,14 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                         </span>
                         <RealtimePlanLimitsLink limit="history_days" location="flag_editor" />
                     </div>
+                )
+            }
+            if (!canTurnOnRealtime(realtime)) {
+                return (
+                    <span>
+                        Feature flags can't target {name}.{' '}
+                        <span>{unpreparable ?? "Realtime can't be turned on for it."}</span>
+                    </span>
                 )
             }
             return (
@@ -117,12 +126,22 @@ export function CohortFlagTargetingNoticeRow({ cohortId }: { cohortId: number })
                 </div>
             )
         case 'needs_attention':
-            return realtime.reason === 'too_large_to_build' ? (
-                <span>
-                    Feature flags can't target {name} yet. The events in its criteria happen too often for PostHog to
-                    prepare it automatically. Contact support to have it prepared.
-                </span>
-            ) : (
+            if (realtime.reason === 'too_large_to_build') {
+                return (
+                    <span>
+                        Feature flags can't target {name} yet. The events in its criteria happen too often for PostHog
+                        to prepare it automatically. Contact support to have it prepared.
+                    </span>
+                )
+            }
+            if (unpreparable) {
+                return (
+                    <span>
+                        Feature flags can't target {name}. <span>{unpreparable}</span>
+                    </span>
+                )
+            }
+            return (
                 <span>
                     Feature flags can't target {name} yet, because PostHog hasn't prepared it. Contact support if this
                     doesn't change.

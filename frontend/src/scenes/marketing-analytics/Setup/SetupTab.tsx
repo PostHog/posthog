@@ -3,8 +3,10 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { Button, Heading, Text } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,6 +24,7 @@ import { ConversionGoalRecommendations } from 'products/marketing_analytics/fron
 import { dashboardSetupPromptsLogic } from 'products/marketing_analytics/frontend/setup/dashboardSetupPromptsLogic'
 
 import { runNavigateOp } from './navigateOps'
+import { QuillSetupSectionNav } from './QuillSetupSectionNav'
 import { suggestionsForSection } from './sectionRouting'
 import { SectionSuggestions } from './SectionSuggestions'
 import { SETUP_SECTIONS } from './setupSections'
@@ -74,6 +77,7 @@ export function SetupTab(): JSX.Element {
         useActions(setupPlanLogic)
     const { integrationSettingsModal, setupEntryPointLabel } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Keep the audit gated for one release so the two flags can roll independently;
     // drop this once Setup is the only way in.
@@ -109,44 +113,77 @@ export function SetupTab(): JSX.Element {
 
     return (
         <div className="flex flex-col @min-[48rem]/main-content:flex-row gap-6 mt-4 mb-8">
-            <div className="@min-[48rem]/main-content:hidden">
-                <LemonSelect
-                    fullWidth
-                    value={active.key}
-                    onChange={setSetupSection}
-                    options={sections.map((section) => ({ value: section.key, label: section.label }))}
-                    aria-label="Setup section"
+            {todayRailNav ? (
+                <QuillSetupSectionNav
+                    sections={sections}
+                    activeKey={active.key}
+                    suggestions={visibleSuggestions}
+                    onSelect={setSetupSection}
                 />
-            </div>
-            <nav className="hidden @min-[48rem]/main-content:flex w-56 shrink-0 flex-col gap-px">
-                {sections.map((section) => (
-                    <LemonButton
-                        key={section.key}
-                        size="small"
-                        fullWidth
-                        active={section.key === active.key}
-                        onClick={() => setSetupSection(section.key)}
-                        sideIcon={<SectionBadge suggestions={visibleSuggestions} section={section.key} />}
-                    >
-                        {section.label}
-                    </LemonButton>
-                ))}
-            </nav>
+            ) : (
+                <>
+                    <div className="@min-[48rem]/main-content:hidden">
+                        <LemonSelect
+                            fullWidth
+                            value={active.key}
+                            onChange={setSetupSection}
+                            options={sections.map((section) => ({ value: section.key, label: section.label }))}
+                            aria-label="Setup section"
+                        />
+                    </div>
+                    <nav className="hidden @min-[48rem]/main-content:flex w-56 shrink-0 flex-col gap-px">
+                        {sections.map((section) => (
+                            <LemonButton
+                                key={section.key}
+                                size="small"
+                                fullWidth
+                                active={section.key === active.key}
+                                onClick={() => setSetupSection(section.key)}
+                                sideIcon={<SectionBadge suggestions={visibleSuggestions} section={section.key} />}
+                            >
+                                {section.label}
+                            </LemonButton>
+                        ))}
+                    </nav>
+                </>
+            )}
 
             <div className="grow min-w-0 deprecated-space-y-4">
-                <div>
-                    <h2 className="mb-1">{active.label}</h2>
-                    {active.description && <p className="text-secondary mb-0">{active.description}</p>}
-                </div>
-                {dismissedPrompt && (
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => restore(dismissedPrompt)}
-                        data-attr="marketing-restore-dashboard-suggestions"
-                    >
-                        Show suggestions on dashboard
-                    </LemonButton>
+                {todayRailNav ? (
+                    <div className="flex flex-col gap-1">
+                        <Heading render={<h2 className="m-0" />}>{active.label}</Heading>
+                        {active.description && (
+                            <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                {active.description}
+                            </Text>
+                        )}
+                    </div>
+                ) : (
+                    <div>
+                        <h2 className="mb-1">{active.label}</h2>
+                        {active.description && <p className="text-secondary mb-0">{active.description}</p>}
+                    </div>
                 )}
+                {dismissedPrompt &&
+                    (todayRailNav ? (
+                        <div>
+                            <Button
+                                variant="outline"
+                                onClick={() => restore(dismissedPrompt)}
+                                data-attr="marketing-restore-dashboard-suggestions"
+                            >
+                                Show suggestions on dashboard
+                            </Button>
+                        </div>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => restore(dismissedPrompt)}
+                            data-attr="marketing-restore-dashboard-suggestions"
+                        >
+                            Show suggestions on dashboard
+                        </LemonButton>
+                    ))}
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
                 {active.key !== SetupSection.SUGGESTIONS && active.key !== SetupSection.SOURCES && (
@@ -165,17 +202,29 @@ export function SetupTab(): JSX.Element {
                             }}
                         />
                     )}
-                {active.key === SetupSection.SOURCES && (
-                    <LemonButton
-                        size="small"
-                        loading={setupPlanLoading}
-                        onClick={rescanSources}
-                        disabledReason={sourceScanDisabledReason}
-                        data-attr="marketing-sources-rescan"
-                    >
-                        Scan events again
-                    </LemonButton>
-                )}
+                {active.key === SetupSection.SOURCES &&
+                    (todayRailNav ? (
+                        <div>
+                            <Button
+                                loading={setupPlanLoading}
+                                onClick={rescanSources}
+                                disabledReason={sourceScanDisabledReason}
+                                data-attr="marketing-sources-rescan"
+                            >
+                                Scan events again
+                            </Button>
+                        </div>
+                    ) : (
+                        <LemonButton
+                            size="small"
+                            loading={setupPlanLoading}
+                            onClick={rescanSources}
+                            disabledReason={sourceScanDisabledReason}
+                            data-attr="marketing-sources-rescan"
+                        >
+                            Scan events again
+                        </LemonButton>
+                    ))}
                 {active.content}
             </div>
 

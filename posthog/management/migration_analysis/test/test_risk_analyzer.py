@@ -1533,6 +1533,127 @@ class TestCombinationRisks:
         assert any("CRITICAL" in warning for warning in combination_risks)
         assert any("DML" in warning for warning in combination_risks)
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_event_and_function_body",
+                "CREATE OR REPLACE FUNCTION bump() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                "UPDATE audit SET n = n + 1; RETURN NEW; END $$; "
+                "CREATE TRIGGER t BEFORE UPDATE OR DELETE ON test_table FOR EACH ROW EXECUTE FUNCTION bump();",
+                False,
+            ),
+            (
+                "trigger_event_with_columns",
+                "CREATE TRIGGER t AFTER UPDATE OF a, b ON test_table EXECUTE FUNCTION f();",
+                False,
+            ),
+            ("do_block_runs_now", "DO $$ BEGIN UPDATE test_table SET foo = 'bar'; END $$;", True),
+            (
+                "function_called_by_select",
+                "CREATE FUNCTION f() RETURNS void AS $$ UPDATE test_table SET x = 1 $$ LANGUAGE sql; SELECT f();",
+                True,
+            ),
+            (
+                "function_called_as_table_function",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT * FROM f();",
+                True,
+            ),
+            (
+                "schema_qualified_function_called",
+                'CREATE FUNCTION public."f"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                "SELECT 1 FROM public.f();",
+                True,
+            ),
+            (
+                "quoted_name_with_dash_called",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT * FROM "f-g"();',
+                True,
+            ),
+            (
+                "quoted_name_with_space_called",
+                'CREATE FUNCTION "my func"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my func"();',
+                True,
+            ),
+            (
+                "quoted_schema_with_space_called",
+                'CREATE FUNCTION "my schema".f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my schema".f();',
+                True,
+            ),
+            (
+                "comment_between_name_and_paren",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT f /* run it */ ();",
+                True,
+            ),
+            (
+                "name_with_dollar_called",
+                "CREATE FUNCTION f$1() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                True,
+            ),
+            (
+                "quoted_name_ending_in_escaped_quote_called",
+                'CREATE FUNCTION "ab"""() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "ab"""();',
+                True,
+            ),
+            (
+                "unquoted_name_called_with_quotes",
+                'CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT "f"();',
+                True,
+            ),
+            (
+                "prefix_of_called_name_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                False,
+            ),
+            (
+                "quoted_name_not_called_leaves_body_out",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT g();',
+                False,
+            ),
+            (
+                "unrelated_call_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT now();",
+                False,
+            ),
+            (
+                "procedure_called_by_call",
+                "CREATE PROCEDURE p() LANGUAGE sql AS $$ DELETE FROM test_table $$; CALL p();",
+                True,
+            ),
+            (
+                "single_quoted_body_before_do_block",
+                "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'; "
+                "DO $$ BEGIN UPDATE test_table SET a = 1; END $$;",
+                True,
+            ),
+            (
+                "update_after_function",
+                "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$; UPDATE test_table SET a = 1;",
+                True,
+            ),
+        ]
+    )
+    def test_runsql_dml_counts_only_sql_run_by_the_migration(self, _name, sql, expect_dml):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql=sql),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert any("DML" in warning for warning in combination_risks) == expect_dml
+        assert (operation_risks[1].level == RiskLevel.BLOCKED) == expect_dml
+
     def test_runsql_with_ddl_and_schema_operations(self):
         """DDL + schema ops should give specific message about splitting"""
         mock_migration = MagicMock()

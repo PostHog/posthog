@@ -2,7 +2,8 @@
 
 The regional proxy verifies run capabilities against the Tasks registry.
 The relay forwards HTTP requests to one configured regional endpoint using mTLS.
-The only regional operation is an authenticated `GET /v1/probe`, which returns 204 without contacting an upstream.
+The regional listener serves authenticated `GET /v1/probe` requests and an optional Git read adapter.
+The probe returns 204 without contacting an upstream.
 The probe rejects declared or streaming request bodies without waiting for their contents.
 Tasks owns registration and capability issuance.
 A development probe uses Tasks' Modal provisioning and an isolated relay sidecar. An opt-in observation mode runs the same probe on an existing Tasks VM. Agent traffic and upstream credentials still use their current paths.
@@ -175,7 +176,7 @@ Selected TaskRun -> ordinary VM provision and agent launch
   maintained enrollment handoff -> revoke old execution, enroll a fresh relay
 ```
 
-Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+Enrollment uses the existing probe lifecycle. Initial enrollment requires a fresh Modal VM with full network access. Interactive runs also require `maintain_for_run: true`; bounded enrollment and development observation exclude them. Initial enrollment skips snapshots and reserves 1 GiB for the sidecar. By default, agent routing and credentials stay unchanged; the Git opt-in below moves clone/fetch credentials outside the guest. Neither mode changes agentsh or the sandbox network policy.
 
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
@@ -283,16 +284,23 @@ Neither process accepts CONNECT or general upstream destinations.
 | -------------------------- | ---------------- | ---------------- |
 | `listen_address`           | `:8443`          | `127.0.0.1:8080` |
 | `admin_address`            | `127.0.0.1:9090` | `127.0.0.1:9090` |
+| `metrics_address`          | disabled         | disabled         |
 | `request_timeout_seconds`  | 30               | 300              |
 | `shutdown_timeout_seconds` | 10               | 10               |
 
 The relay's request budget includes connecting to the proxy and forwarding its response.
-The proxy's budget covers its own request handling; its only operation is currently the probe.
+The proxy's budget covers lookup, request handling and any upstream transfer.
 The relay also waits at most 30 seconds for response headers.
 Before adding streaming adapters, set and test these budgets together, leaving room in the relay's budget for connection and forwarding time.
 
 Listener addresses must use IP literals. Administration must bind to loopback.
 It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Set `metrics_address` (for example, `:9092`) for a separate metrics listener that serves only `GET /metrics`.
+Restrict that port to the metrics scraper through network policy. Keep it off public Services and load balancers.
+The listener has no authentication; use loopback unless the deployment enforces that restriction.
+Each metrics endpoint allows one collection at a time and five scrapes per second, with a burst of five. Excess scrapes return 503 before collection.
+The listeners have separate budgets, so a busy network scraper cannot exhaust the loopback admin endpoint's capacity.
+Administration stays on loopback.
 Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
 The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
 Readiness checks local material and audit health, not registry or upstream availability.
@@ -318,6 +326,12 @@ The proxy writes versioned admission and completion events as JSON lines to stdo
 Events include a generated request ID, trusted run identity when authorization succeeds, operation, outcome, status and duration.
 They exclude tokens, raw URLs, headers and bodies.
 Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
+The proxy exports `egress_certificate_expiration_timestamp_seconds{role}` for the loaded serving leaf and each configured CA bundle.
+The bounded roles are `server`, `server_ca`, `client_ca`, `registry_ca`, `git_grant_ca` and `git_upstream_ca`.
+Set the proxy's optional `server_ca_file` to the public issuer bundle to monitor its expiry; this does not change client authentication or upstream trust.
+Each bundle reports its earliest certificate expiry, including expired certificates retained during rotation. System trust stores are not reported.
+File changes become visible only after a successful reload or restart. A failed reload keeps the previous expiry values.
+Use cert-manager metrics to monitor upstream serving leaves, which the proxy does not load from files.
 
 Each request passing the rate limiter reserves room for both events before authorization.
 
@@ -353,6 +367,173 @@ The callback must be safe for concurrent calls and must not block. Client errors
 Choose a budget that allows long streams to finish. Expiry cuts off an active stream.
 The relay sets the same deadline on reads from and writes to the guest. Response wrappers must support `SetReadDeadline` and `SetWriteDeadline`, or expose the underlying writer through `Unwrap`.
 If either deadline cannot be set, the relay reports the failure through `OnError` and aborts before sending anything upstream.
+
+### Git read adapter
+
+The request listener mounts `internal/gitread` only when `git_read` is configured.
+Without it, Git paths return 404. Sandbox launch and credential removal require a separate rollout.
+
+```text
+Relay -> mTLS + run verification -> audit reservation -> Git read grant
+      -> Smokescreen CONNECT -> verified GitHub HTTPS with injected token
+```
+
+The caller verifies the capability and relay identity first, reserves audit capacity,
+then calls `Prepare` with that registration. `Lookup` reads an already-published grant;
+it must not mint or refresh credentials. A grant binds the repository and credential
+version to the exact team, run, execution, actor, epoch, relay key and authority.
+Missing, revoked or expired grants deny access. Lookup failures return unavailable.
+Token minting and coordinated refresh remain with the existing Tasks worker owners.
+
+The supported paths follow [Git's smart HTTP protocol](https://git-scm.com/docs/http-protocol):
+
+| Request                                                            | Operation                                 |
+| ------------------------------------------------------------------ | ----------------------------------------- |
+| `GET /v1/git/{owner}/{repo}.git/info/refs?service=git-upload-pack` | Discover refs                             |
+| `POST /v1/git/{owner}/{repo}.git/git-upload-pack`                  | Clone/fetch negotiation and pack transfer |
+
+The adapter creates a new header set, injects Basic authentication for `x-access-token`,
+and sends only to `https://github.com/{owner}/{repo}.git/...`. Guest authorization,
+cookies and other headers are dropped. Git protocol v2 is allowed; other protocol
+header values are rejected. Redirects, pushes, LFS and other paths are refused.
+Response headers are limited to the Git content type and `Cache-Control: no-store`;
+upstream errors have generic responses. Successful pack data streams to the guest.
+
+The listener applies the existing per-relay rate limit and reserves both audit records before lookup or forwarding.
+Git records include the credential version and transferred byte counts, without repository paths or tokens.
+Admission records authorization; completion records the transfer outcome. A partial response is marked `interrupted` and aborted.
+
+Add this block to the proxy configuration to enable Git reads:
+
+```json
+{
+  "git_read": {
+    "grant_url": "https://registry.example.com",
+    "grant_signing_key_file": "/run/egress/git-grant-key",
+    "smokescreen_url": "http://smokescreen.smokescreen.svc.cluster.local:4750"
+  }
+}
+```
+
+The grant endpoint requires HTTPS and its dedicated credential-lookup key, not the registry key.
+Terminate TLS in a local listener that forwards to Django over loopback.
+Django requires a `127.0.0.1` or `::1` transport peer as well as the HTTPS marker; forwarded client-address headers cannot satisfy this check.
+The local listener must restrict the grant route and methods, strip caller headers, set the HTTPS marker, and forward the scoped service authorization.
+`grant_ca_file` and `upstream_ca_file` optionally replace system trust for their respective connections.
+Both default to system certificate validation. Smokescreen is required; denied or failed CONNECT requests never fall back to direct access.
+The grant client connects directly to its configured regional endpoint, refuses redirects and fetches a current grant for each Git request.
+Reload builds new clients and swaps them only after all material validates; a failed reload retains the previous configuration.
+
+Upload-pack requests accept plain or gzip bodies, with a 1 MiB limit on both wire
+and decoded sizes. The adapter buffers this bounded negotiation before forwarding
+it uncompressed. Pack responses stream without whole-response buffering.
+Transfer deadlines cannot exceed either
+registration lease, credential expiry, the caller deadline or the configured timeout.
+This first slice supports small transfers that fit within the current lease;
+long clones need continued authorization before this restriction can be relaxed.
+Prepare a fresh operation for each request so rotation takes effect on the next call.
+The response writer must support read/write deadlines. A failed response stream is
+aborted rather than reported as a complete pack.
+
+Tests run actual `git clone`, `fetch` and denied operations against a local
+[`git-http-backend`](https://git-scm.com/docs/git-http-backend), using synthetic tokens.
+They exercise token replacement, scope checks, stripped headers and cancellation.
+Listener tests also cover TLS grant lookup, CONNECT routing, copied-capability denial, audit failure and partial responses.
+They do not prove cloud transport or sandbox credential removal.
+
+### Git grant publication
+
+`AgentEgressGitGrants.publish` stores one repository's read credential on an active execution.
+The existing Django encrypted field protects the payload at rest in the regional database.
+The trusted worker must authorize the repository, resolve the correct actor's token, and supply a validity deadline no later than the upstream token's expiry.
+Publication accepts at most one hour of validity; it does not infer expiry from token prefixes or change the minting identity.
+Set `publish_git_read_grant: true` in the regional enrollment config to publish grants
+for read-only runs with exactly one pinned repository. It is off by default.
+The worker uses the team's GitHub installation, scopes the token to that repository's
+contents and metadata, and keeps GitHub's actual expiry. It does not reuse the legacy
+token cache, which does not store expiry.
+
+Enrollment publishes the first grant. The existing GitHub credential refresh activity
+rotates it, reading the live execution from run state. Publication checks authority
+again after minting; a delayed refresh cannot overwrite a newer grant or a withdrawal.
+The execution keeps the opt-in separately, so refresh can retry first publication
+after a temporary owner lookup failure. A withdrawn grant stays withdrawn.
+A failed refresh emits `agent_egress_git_refresh_failed` without token values and leaves
+the previous grant valid only until its original expiry. Ineligible runs receive no
+grant. Losing the repository or integration clears the existing grant at refresh.
+
+This opt-in only exercises worker publication. Sandbox tokens and Git routing stay
+on their existing path; initial enrollment still follows cloning and agent launch.
+Initial publication runs in its own activity while the workflow renews the execution lease.
+Slow minting does not suspend renewal; cancellation or loss of authority stops publication and closes the execution.
+If optional publication exhausts its retries, enrollment continues without a Git grant and the existing refresh activity can retry later.
+Public sandbox repositories need no token; GitHub's rejection of a repository scope leaves it without a grant.
+Set `route_git_reads: true` alongside `publish_git_read_grant`, `maintain_for_run`
+and `renew_relay_certificate` to use the adapter for the initial Git cohort. Deploy
+the proxy's `git_read` configuration, HTTPS grant endpoint and lookup key first.
+Only fresh, noninteractive, read-only runs with one pinned GitHub repository and
+the default image qualify; public sandbox repositories are excluded. Repository snapshots, baked clones, sandbox rotation
+and workflow continuation are disabled for this pilot.
+
+```text
+Create VM -> enroll relay -> publish repository grant -> install Git route -> clone
+Git -> credential helper reads current run capability -> private relay HTTP listener
+    -> mTLS regional proxy -> GitHub with worker-minted repository token
+```
+
+The parent waits for the grant and route before cloning. Enrollment failure stops
+the clone; there is no raw-token fallback. The protected `agent_egress_git_reads`
+run state keeps later refreshes from writing `GITHUB_TOKEN`, `GH_TOKEN` or a
+token-bearing remote. A resumed run carrying this flag is refused until resume
+support is implemented. Refresh still rotates the encrypted grant.
+
+The workflow negotiates Git routing through a versioned input before the worker
+removes guest tokens. Older histories keep their previous command sequence.
+Git configuration is installed in both the control and task filesystem views.
+Grant refresh also runs without a task-linked integration, and sibling token
+rotation cannot deliver a user token to a scoped run. If required relay maintenance
+ends unexpectedly, the parent fails the run; optional observation remains non-fatal.
+
+Git's credential helper reads the capability file on each authentication challenge.
+It returns it as the Basic password for that relay and repository only; it does not
+store it in Git config or remotes. The proxy accepts this form only on enabled Git
+routes and still requires the bound relay certificate. The guest-to-relay hop uses
+the provider's private HTTP bridge; relay-to-proxy traffic uses mTLS.
+
+This cohort supports clone/fetch, not pushes, `gh`, LFS or submodule credentials.
+Other credentials and direct sandbox networking retain their current behavior.
+Transfers remain bounded by the relay timeout and the grant's authorization lease;
+long transfers need a separate continued-authorization design before rollout.
+
+```text
+Worker: publish(version, previous_version, repository, token, expiry)
+  -> active execution + matching previous version
+  -> encrypted grant
+Proxy: scoped HTTPS lookup
+  -> recheck execution and repository
+  -> credential + version + current lease
+```
+
+Retries with the same version and payload are idempotent.
+A delayed rotation cannot overwrite a newer version.
+`clear` removes the credential and advances its version, fencing earlier publishers.
+Execution revocation, replacement and sandbox cleanup erase the payload.
+Expiry denies access even when cleanup has not run; an abandoned row can retain expired ciphertext until cleanup.
+Registration metadata lookups do not load or return the credential.
+
+The grant endpoint has its own `posthog:agent_egress_credentials` audience and `AGENT_EGRESS_CREDENTIALS_JWT_SECRETS` key list, newest first.
+Provision separate values per region; there is no default or fallback to the registration key.
+Tokens last at most 30 seconds and bind team, run, execution, region, repository and the `git_read_grant` operation.
+The endpoint requires HTTPS and returns `Cache-Control: no-store` on every response.
+After authentication and claim validation, an atomic Redis budget limits each team's execution to a burst of 60 lookups, refilling at 600 per hour.
+Rotating the lookup JWT does not reset the budget. Exhaustion returns `429` with `Retry-After`; an unavailable budget store returns `503` without reading the grant.
+The Go client refuses HTTP and redirects, checks the returned binding, and distinguishes denial from unavailability.
+Neither endpoint nor client mints an upstream token.
+
+This slice supplies storage, opted-in worker publication and a proxy client.
+It does not mount the adapter, provision the service key, or remove sandbox credentials.
+The credential client requires a verified TLS path to Django; the metadata client's optional cluster HTTP path does not apply.
+Before serving Git traffic, maintain proxy state within its lease without a database lookup for every Git request.
 
 ## Registration and time
 

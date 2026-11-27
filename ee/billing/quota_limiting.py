@@ -36,6 +36,7 @@ from posthog.quota_migration import (
 )
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    combine_ai_credits,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -415,11 +416,14 @@ def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
     return is_team_over_credit_budget(team_api_token, QuotaResource.AI_CREDITS)
 
 
-def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[str]) -> dict[str, dict[str, float]]:
+def get_teams_limited_until(
+    team_api_tokens: Iterable[str], resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, dict[str, float]]:
+    """`timeout_seconds` bounds the connect and the read, for a caller that can do without the answer."""
     tokens = list(team_api_tokens)
     names = list(resources)
     now_ts = timezone.now().timestamp()
-    pipe = get_client().pipeline()
+    pipe = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds).pipeline()
     for token in tokens:
         for name in names:
             pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{name}", token)
@@ -434,8 +438,10 @@ def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[
     }
 
 
-def get_team_limited_until(team_api_token: str, resources: Iterable[str]) -> dict[str, float]:
-    return get_teams_limited_until([team_api_token], resources)[team_api_token]
+def get_team_limited_until(
+    team_api_token: str, resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, float]:
+    return get_teams_limited_until([team_api_token], resources, timeout_seconds=timeout_seconds)[team_api_token]
 
 
 _LLM_GATEWAY_PROJECTION_BATCH = 500
@@ -523,6 +529,16 @@ def _quota_usage(organization_usage: Mapping[str, Any], resource_usage: Mapping[
     return billing_total + sum(
         count for day, count in daily_usage.items() if date.fromisoformat(day) >= first_lacking_day
     )
+
+
+def _has_usage(organization: Organization, resource: QuotaResource) -> bool:
+    """Whether the organization has used any of the resource.
+
+    A limit can be set without it: a zero allowance limits an organization that has used nothing,
+    and a deactivated organization gets no flags even when it has no usage at all.
+    """
+    usage = organization.usage or {}
+    return _quota_usage(usage, usage.get(resource.value) or {}) > 0
 
 
 def _daily_usage(
@@ -1424,6 +1440,8 @@ def _timed_query(name, fn, *args, **kwargs):
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
+    orgs_with_usage: dict[str, set[str]]  # by resource, the limited and suspended orgs that used any of it
+    discarded_orgs: set[str]  # their decisions were discarded, so the limits they had before still stand
     stats: dict[str, float | int]
 
 
@@ -1579,6 +1597,9 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
+    ai_token_credits = dict(counter_report.counts[UsageCounter.AI_CREDITS])
+    # Absent from counter reports saved before the key existed.
+    ai_compute_credits = dict(counter_report.counts.get("teams_with_ai_compute_credits_used_in_period", []))
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
     mcp_event_counts = _timed_query(
         "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end
@@ -1606,7 +1627,10 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
-        "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
+        "teams_with_ai_credits_used_in_period": {
+            team_id: combine_ai_credits(ai_token_credits.get(team_id, 0), ai_compute_credits.get(team_id, 0))
+            for team_id in ai_token_credits.keys() | ai_compute_credits.keys()
+        },
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_signals_spend_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.SIGNALS_SPEND_CREDITS]
@@ -1733,6 +1757,7 @@ def update_all_orgs_billing_quotas(
     )
     quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    orgs_with_usage: dict[str, set[str]] = {x.value: set() for x in QuotaResource}
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     recordings_transitioned_team_ids: set[int] = set()
@@ -1880,6 +1905,8 @@ def update_all_orgs_billing_quotas(
                             batch=usage_batch,
                         )
                         if result:
+                            if _has_usage(org, resource):
+                                orgs_with_usage[field].add(org_id)
                             quota_limited_until = result.get("quota_limited_until")
                             limiting_suspended_until = result.get("quota_limiting_suspended_until")
                             if limiting_suspended_until:
@@ -2102,6 +2129,8 @@ def update_all_orgs_billing_quotas(
     return QuotaLimitingRunResult(
         quota_limited_orgs=quota_limited_orgs,
         quota_limiting_suspended_orgs=quota_limiting_suspended_orgs,
+        orgs_with_usage=orgs_with_usage,
+        discarded_orgs=failed_org_ids,
         stats={
             "duration_s": round(total_duration_s, 1),
             "orgs_total": total_orgs,

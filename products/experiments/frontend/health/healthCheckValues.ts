@@ -186,6 +186,11 @@ function flagReading(values: HealthCheckValues | undefined): HealthReading | nul
     return reading('Feature flag', text)
 }
 
+function billingLimitReading(label: string, values: HealthCheckValues | undefined, key: string): HealthReading | null {
+    const reached = values?.[key]
+    return reading(label, typeof reached === 'boolean' ? (reached ? 'Reached' : 'Not reached') : null)
+}
+
 /** What a check read, in the order the panel lists it. The p-value shows with the rule that judges it instead. */
 export function healthCheckReadings(values: HealthCheckValues | undefined, units: string): HealthReading[] {
     const handling = values?.multiple_variant_handling
@@ -261,8 +266,13 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         numberReading('Dynamic cohorts', values, 'dynamic_cohort_count', formatCount),
         numberReading('Running for', values, 'since_start_hours', formatHours),
         dailyCalculationReading(values),
+        billingLimitReading('Product analytics billing limit', values, 'events_billing_limit_reached'),
+        timeReading('Limited until', values, 'events_billing_limit_ends_at', true),
+        billingLimitReading('Feature flags billing limit', values, 'feature_flags_billing_limit_reached'),
+        timeReading('Limited until', values, 'feature_flags_billing_limit_ends_at', true),
         reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
         sampleReading(values, units),
+        timeReading('Significant since', values, 'significant_since_at', true),
         numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),
         numberReading(
             `${capitalizeFirstLetter(units)} the release conditions served`,
@@ -355,6 +365,10 @@ export function healthCheckShowsDecidingValue(check: Pick<HealthPanelCheck, 'val
     return !rule.minimum || (minimumValue !== null && minimumValue >= rule.minimum.threshold)
 }
 
+export function healthIsComparedVariant(variant: string, expected: Record<string, number> | null | undefined): boolean {
+    return expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
+}
+
 /**
  * The exposed users of each compared variant against the planned split, from the exposure answer. The planned shares
  * come from the sample ratio test, so they are missing while too few users are exposed for it.
@@ -371,9 +385,7 @@ export function healthExposureSplit(
     const ordered = exposures.timeseries?.length
         ? exposures.timeseries.map(({ variant }) => variant)
         : Object.keys(totals)
-    const variants = ordered.filter((variant) =>
-        expected ? variant in expected : variant !== EXPERIMENT_VARIANT_MULTIPLE
-    )
+    const variants = ordered.filter((variant) => healthIsComparedVariant(variant, expected))
     const comparedCount = variants.reduce((sum, variant) => sum + (totals[variant] ?? 0), 0)
     const plannedTotal = expected ? Object.values(expected).reduce((sum, count) => sum + count, 0) : 0
     if (variants.length < 2 || comparedCount === 0) {

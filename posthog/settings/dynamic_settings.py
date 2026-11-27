@@ -14,16 +14,15 @@ CONSTANCE_CONFIG = {
         "Copy static cohort members that reached ClickHouse but not Postgres, a few cohorts every 30 minutes.",
         bool,
     ),
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION": (
-        False,
-        "Require every provisioning partner that registered itself from a client ID metadata document (CIMD) to be "
-        "linked to a PostHog organization with a CIMD verification token. A partner without that link cannot provision "
-        "while this is on, including a partner that was already accepted.",
-        bool,
-    ),
     "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
         True,
         "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
+    "EXPERIMENTS_RECALCULATION_ENABLED": (
+        True,
+        "Run experiment metric recalculations, including the hourly scheduled ones. Set to False to stop new and "
+        "pending runs. Runs already in progress finish. A change takes effect within about a minute.",
         bool,
     ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
@@ -504,7 +503,7 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "STATIC_COHORT_RECONCILIATION_ENABLED",
-    "CIMD_PROVISIONING_REQUIRES_ORGANIZATION",
+    "EXPERIMENTS_RECALCULATION_ENABLED",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",

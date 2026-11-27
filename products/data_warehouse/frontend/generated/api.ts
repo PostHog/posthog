@@ -910,7 +910,7 @@ export const getDataWarehouseTotalRowsStatsRetrieveUrl = (projectId: string) => 
 }
 
 /**
- * Returns aggregated statistics for the data warehouse total rows processed within the current billing period.
+ * Returns this team's data warehouse rows processed within the organization's current billing period.
  * Used by the frontend data warehouse scene to display usage information.
  */
 export const dataWarehouseTotalRowsStatsRetrieve = async (

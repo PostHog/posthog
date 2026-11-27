@@ -32,7 +32,7 @@ describe('ContentAutopilotPromptsTopicTable', () => {
         expect(onSelect).toHaveBeenCalledWith(row.topic)
     })
 
-    it('shows the answers behind each rate, without failed checks', () => {
+    it('shows each rate alone in its cell, never with the answers it is out of', () => {
         const busyRow = {
             ...row,
             checks: 1250,
@@ -46,7 +46,7 @@ describe('ContentAutopilotPromptsTopicTable', () => {
             <ContentAutopilotPromptsTopicTable rows={[busyRow]} selectedTopic={null} onSelect={jest.fn()} />
         )
 
-        expect(within(container).getByText('50%').textContent).toBe('50% of 1,240')
-        expect(within(container).getByText('25%').textContent).toBe('25% of 1,240')
+        expect(within(container).getByText('50%').textContent).toBe('50%')
+        expect(within(container).getByText('25%').textContent).toBe('25%')
     })
 })

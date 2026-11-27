@@ -325,22 +325,24 @@ class TestBuildAnthropicClient:
         assert result is mock_anthropic.return_value
 
 
-class TestBuildersRequireTheGateway:
+class TestBuildersRequireGoGateway:
     @pytest.mark.parametrize(
         "builder",
         [build_openai_client, build_async_openai_client, build_anthropic_client, build_async_anthropic_client],
         ids=["openai", "async_openai", "anthropic", "async_anthropic"],
     )
     @pytest.mark.parametrize(
-        ("url", "api_key"),
-        [("", ""), (AI_GATEWAY_URL, ""), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+        ("url", "api_key", "message"),
+        [
+            ("", "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured.*bin/setup-gateway-e2e"),
+            (AI_GATEWAY_URL, "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"),
+            ("https://ai-gateway.example", AI_GATEWAY_KEY, "AI_GATEWAY_URL must include the OpenAI base path"),
+        ],
         ids=["unset", "half_applied", "missing_v1"],
     )
-    def test_raises_when_the_gateway_is_unset_or_misconfigured(self, builder, url, api_key):
+    def test_raises_when_the_gateway_is_unset_or_misconfigured(self, builder, url, api_key, message):
         with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
-            with pytest.raises(
-                GatewayNotConfiguredError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"
-            ):
+            with pytest.raises(GatewayNotConfiguredError, match=message):
                 builder()
 
 

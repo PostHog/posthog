@@ -143,6 +143,7 @@ class TestServiceNowSourcePagination:
         script: list[ScriptedResponse],
         resume_state: ServiceNowResumeConfig | None = None,
         api_version: str = SERVICENOW_API_VERSION_V1,
+        endpoint: str = "incidents",
         **inputs: Any,
     ) -> DriveResult:
         config = ServiceNowSourceConfig(
@@ -150,7 +151,7 @@ class TestServiceNowSourcePagination:
             auth_method=ServiceNowAuthMethodConfig(selection="api_key", api_key="x"),
         )
         return SourceDriver(ServiceNowSource(), config).run(
-            "incidents", script, resume_state=resume_state, api_version=api_version, **inputs
+            endpoint, script, resume_state=resume_state, api_version=api_version, **inputs
         )
 
     def test_paginates_until_short_page(self) -> None:
@@ -176,16 +177,30 @@ class TestServiceNowSourcePagination:
         assert [r["sys_id"] for r in result.rows] == ["5"]
         assert result.requests[0].param("sysparm_offset") == "4"
 
-    def test_incremental_query_in_params(self) -> None:
+    @parameterized.expand(
+        [
+            ("chosen_field", "incidents", "sys_created_on", "sys_created_on"),
+            ("default_field", "incidents", None, "sys_updated_on"),
+            # sys_journal_field has no sys_updated_on; ServiceNow ignores a filter on an unknown field.
+            ("journal_default_field", "journal_entries", None, "sys_created_on"),
+        ]
+    )
+    def test_incremental_query_in_params(
+        self, _name: str, endpoint: str, incremental_field: str | None, expected_field: str
+    ) -> None:
         with mock.patch.object(servicenow_module, "DEFAULT_PAGE_SIZE", 2):
             result = self._run(
                 [_result_response([])],
+                endpoint=endpoint,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
-                incremental_field="sys_updated_on",
+                incremental_field=incremental_field,
             )
 
-        assert result.requests[0].param("sysparm_query") == "sys_updated_on>=2024-01-01 00:00:00^ORDERBYsys_updated_on"
+        assert (
+            result.requests[0].param("sysparm_query")
+            == f"{expected_field}>=2024-01-01 00:00:00^ORDERBY{expected_field}"
+        )
 
     @parameterized.expand(
         [
@@ -211,6 +226,9 @@ class TestServiceNowSourceShape:
             endpoint, [_result_response([])], api_version=SERVICENOW_API_VERSION_V1
         )
 
+        assert result.requests[0].url.split("?")[0] == (
+            f"https://acme.service-now.com/api/now/table/{SERVICENOW_ENDPOINTS[endpoint].table}"
+        )
         response = result.response
         assert response is not None
         assert response.name == endpoint

@@ -6,7 +6,7 @@ import json
 import random
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, suppress
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -38,7 +38,8 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scoping import team_scope
+from posthog.models.integration import Integration
+from posthog.models.scoping import team_scope, unscoped
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
@@ -51,6 +52,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportCheck,
     SignalScoutConfig,
+    SignalScoutMessage,
     SignalScoutPendingTrigger,
     SignalScoutRun,
     SignalSpend,
@@ -76,12 +78,19 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_WORKFLOW,
     failure_streak_pause_threshold,
 )
+from products.signals.backend.scout_harness.message_routes import (
+    MAX_MESSAGE_TITLE_LENGTH,
+    MAX_MESSAGES_PER_SCOUT_PER_WINDOW,
+    MessageRoute,
+    MessageTarget,
+)
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
     MEMORY_UPKEEP_SCOUT,
+    OWN_SCRATCHPAD_STALE_DAYS,
     _checkout_section,
     build_run_prompt,
 )
@@ -96,6 +105,7 @@ from products.signals.backend.scout_harness.runner import (
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
     _memory_upkeep_is_live,
+    _own_scratchpad_counts,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -107,6 +117,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.team_limits import BackgroundBackoff
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
+from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadCounts
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
     TrialContext,
@@ -458,6 +469,15 @@ class TestReportChartsSection(SimpleTestCase):
         assert breakdown_column != sql_chart["chartSettings"]["xAxis"]["column"]
 
 
+_MESSAGE_ROUTES = (
+    MessageRoute(
+        key="outside-team-change",
+        when="Someone outside the team merges a significant change to our code",
+        targets=(MessageTarget(type="slack_dm", target_id="U0123ABC456"),),
+    ),
+)
+
+
 class TestPromptCacheablePrefix(SimpleTestCase):
     @parameterized.expand(
         [
@@ -505,8 +525,10 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             memory_upkeep_is_live=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
+            message_routes=_MESSAGE_ROUTES,
             mcp_server_names=["Datadog (EU)"],
             repositories=["acme-co/service"],
+            own_scratchpad=ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17),
         )
 
         offsets = [
@@ -518,13 +540,16 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Write access",
                 "# Your checkout",
                 "# Structured output",
+                "# Messages",
                 "# Your run identity",
+                "# Your scratchpad",
             )
         ]
         # Per-team values first, the run's own identity last.
         assert offsets == sorted(offsets)
         head = prompt[: offsets[0]]
         # Every stable section, down to the closing output-format one, sits above the block.
+        assert "# Scratchpad upkeep" in head
         assert "# Output format" in head
         for value in (
             "00000000-0000-0000-0000-000000000abc",
@@ -534,8 +559,67 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "Datadog",
             "acme-co/service",
             '"verdict"',
+            "outside-team-change",
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+    @parameterized.expand([("live", False), ("dry_run", True)])
+    def test_messages_section_renders_only_route_config_so_runs_of_one_config_share_it(
+        self, _name: str, dry_run: bool
+    ) -> None:
+        def messages_section(run_id: str, started_at: datetime) -> str:
+            prompt = build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-routes",
+                    version=3,
+                    body="watch",
+                    description="d",
+                    allowed_tools=["emit_report"],
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id=run_id,
+                team_id=1,
+                started_at=started_at,
+                message_routes=_MESSAGE_ROUTES,
+                messages_dry_run=dry_run,
+            )
+            start = prompt.index("# Messages")
+            return prompt[start : prompt.index("# Your run identity", start)]
+
+        first = messages_section("00000000-0000-0000-0000-000000000001", datetime(2026, 5, 1, tzinfo=UTC))
+        second = messages_section("00000000-0000-0000-0000-000000000002", datetime(2026, 5, 2, tzinfo=UTC))
+
+        assert first == second
+        assert "- `outside-team-change`: Someone outside the team merges a significant change" in first
+        assert ("leave `report_id` out" in first) is dry_run
+        assert "Silence is the normal outcome" in first
+        assert "The cap is a safety limit, never a target" in first
+        assert f"{MAX_MESSAGES_PER_SCOUT_PER_WINDOW} messages" not in first
+        assert f"at most {MAX_MESSAGE_TITLE_LENGTH} characters" in first
+
+    def test_messages_section_is_absent_without_routes(self) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-routes",
+                version=3,
+                body="watch",
+                description="d",
+                allowed_tools=["emit_report"],
+                files=[],
+                skill_id="skill-1",
+                origin="custom",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000001",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, tzinfo=UTC),
+        )
+
+        assert "# Messages" not in prompt
+        assert "scout-send-message" not in prompt
 
     @parameterized.expand(
         [
@@ -571,18 +655,82 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         if rendered:
             assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
 
+    @parameterized.expand(
+        [
+            ("counts_shown", ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17), False, True),
+            ("no_entries", ScratchpadCounts(live=0, without_expiry=0, not_updated_since_cutoff=0), False, False),
+            ("failed_check", None, False, False),
+            ("private_trial", ScratchpadCounts(live=41, without_expiry=29, not_updated_since_cutoff=17), True, False),
+        ]
+    )
+    def test_own_scratchpad_counts_render_only_for_a_scout_holding_live_entries(
+        self, _name: str, counts: ScratchpadCounts | None, is_private_trial: bool, rendered: bool
+    ) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-memory-holder",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            own_scratchpad=counts,
+            is_private_trial=is_private_trial,
+        )
+
+        assert ("# Your scratchpad" in prompt) is rendered
+        if rendered:
+            assert "- live: 41\n- with no expiry: 29\n" in prompt
+            assert f"- not updated in the last {OWN_SCRATCHPAD_STALE_DAYS} days: 17" in prompt
+
 
 class TestMemoryUpkeepCheck(SimpleTestCase):
-    def test_a_failed_check_resolves_false(self) -> None:
+    @parameterized.expand(
+        [
+            ("memory_upkeep", "has_live_entry_created_by", lambda: _memory_upkeep_is_live(MagicMock()), False),
+            (
+                "own_scratchpad",
+                "count_live_entries_created_by",
+                lambda: _own_scratchpad_counts(MagicMock(parent_team_id=None, id=1), "signals-scout-errors"),
+                None,
+            ),
+        ]
+    )
+    def test_a_failed_check_resolves_to_no_section(
+        self, _name: str, query: str, check: Callable[[], object], expected: object
+    ) -> None:
         with (
             patch(
-                "products.signals.backend.scout_harness.runner.has_live_entry_created_by",
+                f"products.signals.backend.scout_harness.runner.{query}",
                 side_effect=RuntimeError("database unavailable"),
             ),
             patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
         ):
-            assert _memory_upkeep_is_live(MagicMock()) is False
+            assert check() is expected
         capture.assert_called_once()
+
+
+class TestOwnScratchpadCountsQuery(BaseTest):
+    def test_the_check_reads_the_scratchpad_without_an_ambient_team_scope(self) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember
+
+        run = SignalScoutRun.objects.create(
+            task_run=_make_task_run(self.team), team=self.team, skill_name="signals-scout-errors", skill_version=1
+        )
+        remember(team_id=self.team.id, key="noise:checkout", content="c", run_id=str(run.id))
+
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            counts = _own_scratchpad_counts(self.team, "signals-scout-errors")
+
+        assert counts == ScratchpadCounts(live=1, without_expiry=1, not_updated_since_cutoff=0)
 
 
 class TestMemoryUpkeepGate(BaseTest):
@@ -620,7 +768,9 @@ class TestMemoryUpkeepGate(BaseTest):
             )
             remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
 
-        assert _memory_upkeep_is_live(self.team) is expected
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1545,7 +1695,7 @@ class TestPromptBuilder(BaseTest):
                     "memory_upkeep_is_live",
                     "# Memory upkeep",
                     'key_prefix="learned:area:"',
-                    ["signals-scout-dreaming", "dream:digest:", "learned:"],
+                    ["signals-scout-dreaming", "dream:digest:", "learned:<kind>"],
                 ),
             )
         ]
@@ -1792,6 +1942,12 @@ class TestPromptBuilder(BaseTest):
         # not at "whoever owns this scout" guesswork — dropping the reference re-opens the
         # last-editor-becomes-the-assignee failure mode.
         assert ("the skill authors named in *Your run identity*" in prompt) is expect_escalation
+        # A self-improvement report has no repository, so its apply-the-change prompt is the owner's
+        # only one-click path. Without the field in this list, scouts follow the shared guidance and skip it.
+        assert ("`suggested_prompts` = one action prompt" in prompt) is expect_escalation
+        assert ("send the apply-the-change prompt described below as `suggested_prompts`" in prompt) is (
+            _name == "custom_report_scout"
+        )
         if _name == "custom_report_scout_emit_only":
             # The emit-only variant must never name the edit tool it lacks (fails closed).
             assert "scout-edit-report" not in prompt
@@ -3909,6 +4065,61 @@ async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
     assert props["status"] == TaskRun.Status.CANCELLED.value
     # Cancellation skips the DB read, so emit volume is left unknown rather than guessed.
     assert props["emitted_count"] is None
+
+
+@pytest.mark.parametrize("ending", ["completed", "failed", "cancelled"])
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_every_runner_ending_sends_the_runs_queued_messages(ateam, aerrors_skill, ending):
+    # The report a queued message points at already exists, so a failed or cancelled run sends too.
+    def seed_queued_message(config: SignalScoutConfig, run_id: Any) -> SignalScoutMessage:
+        integration = Integration.objects.create(team=ateam, kind=Integration.IntegrationKind.SLACK)
+        config.output_destinations = {
+            "slack": {"integration_id": integration.id},
+            "messages": [{"key": "big-change", "when": "w", "to": [{"type": "slack_dm", "user": "U0123ABC456"}]}],
+        }
+        config.save(update_fields=["output_destinations"])
+        run = SignalScoutRun.objects.create(
+            id=run_id,
+            team=ateam,
+            task_run=_make_task_run(ateam),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+        )
+        report = SignalReport.objects.create(team=ateam, title="A finding", status=SignalReport.Status.READY)
+        return SignalScoutMessage.all_teams.create(
+            team_id=ateam.id,
+            run=run,
+            skill_name=run.skill_name,
+            report=report,
+            route_key="big-change",
+            dedupe_key="pr-1",
+            title="A message",
+            body="Body",
+        )
+
+    seeded: list[SignalScoutMessage] = []
+
+    async def fake_spawn(**kwargs):
+        seeded.append(await database_sync_to_async(seed_queued_message)(kwargs["config"], kwargs["run_id"]))
+        if ending == "failed":
+            raise RuntimeError("sandbox lost")
+        if ending == "cancelled":
+            raise asyncio.CancelledError("worker is shutting down")
+        return "ok"
+
+    with (
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.scout_harness.message_send.scout_send_message_enabled", return_value=True),
+        patch("products.signals.backend.scout_harness.message_send.enqueue_scout_slack_delivery"),
+        suppress(RuntimeError, asyncio.CancelledError),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    message = await database_sync_to_async(SignalScoutMessage.all_teams.get)(pk=seeded[0].pk)
+    assert message.status == SignalScoutMessage.Status.SENT
 
 
 @pytest.mark.asyncio
