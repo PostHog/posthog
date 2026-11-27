@@ -31,3 +31,13 @@ RULE_HITS = Counter(
     "Exact abuse rules that matched a reported hog function",
     labelnames=["rule"],
 )
+FRONTIER_REVIEWS = Counter(
+    "cdp_abuse_frontier_reviews_total",
+    "Frontier reviews of saves that would have alerted, by verdict or failure reason",
+    labelnames=["outcome"],
+)
+FRONTIER_REVIEW_SKIPS = Counter(
+    "cdp_abuse_frontier_review_skips_total",
+    "Saves that would have alerted but were not reviewed by the frontier model",
+    labelnames=["reason"],
+)

@@ -1,0 +1,79 @@
+"""Run the frontier review of a function once its burst of saves is over, and report it as `cdp abuse review`.
+It only reports: nothing here acts on the verdict."""
+
+from products.cdp.backend.abuse import frontier, metrics, shadow
+from products.cdp.backend.abuse.case_file import build_case_file
+from products.cdp.backend.abuse.judge import Review, ReviewFailure, Verdict, review_case
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+EVENT = "cdp abuse review"
+
+
+def review_when_quiet(team_id: int, hog_function_id: str) -> float | None:
+    """Seconds until the task has to run again because the function was saved since, or None once it is done. The
+    latest version is reviewed even when it no longer alerts, so a probe cannot hide by saving a clean version
+    within the countdown."""
+    wait = frontier.take_due_review(hog_function_id)
+    if wait is not None:
+        return wait
+    hog_function = shadow.scorable_hog_functions(enabled_only=False).filter(team_id=team_id, id=hog_function_id).first()
+    if hog_function is not None:
+        review_latest(hog_function)
+    return None
+
+
+def review_latest(hog_function: HogFunction) -> None:
+    """Score the latest version again and review it, unless a verdict already covers it or the switch went off."""
+    team = hog_function.team
+    if not (shadow.shadow_enabled(team) and shadow.frontier_review_switched_on(team)):
+        metrics.FRONTIER_REVIEW_SKIPS.labels(frontier.SkipReason.SWITCHED_OFF.value).inc()
+        return
+    scored = shadow.score(hog_function)
+    fingerprint = frontier.fingerprint(
+        shadow.content_of(hog_function, hog_function.template), scored.rule_hits, scored.outbound_call
+    )
+    skipped = frontier.skip_reason(
+        switched_on=True, stored=frontier.stored_verdict(str(hog_function.id)), fingerprint=fingerprint
+    )
+    if skipped is not None:
+        metrics.FRONTIER_REVIEW_SKIPS.labels(skipped.value).inc()
+        return
+    result = review_case(build_case_file(hog_function, scored), team_id=hog_function.team_id)
+    shadow.capture(hog_function, scored, _review_properties(scored, result), event=EVENT)
+    if isinstance(result, Review):
+        metrics.FRONTIER_REVIEWS.labels(result.verdict.value).inc()
+        # Remembered only after the event is captured, so a lost event means a second review, never a silent save.
+        frontier.store_verdict(
+            str(hog_function.id),
+            verdict=result.verdict.value,
+            parked=result.verdict is Verdict.TRUE_POSITIVE,
+            fingerprint=fingerprint,
+        )
+    else:
+        metrics.FRONTIER_REVIEWS.labels(result.reason.value).inc()
+
+
+def _review_properties(scored: shadow.ScoredHogFunction, result: Review | ReviewFailure) -> dict[str, object]:
+    verdict = scored.verdict
+    jev: dict[str, object] = {
+        "rule_hits": [rule.value for rule in scored.rule_hits],
+        "would_alert": scored.would_alert,
+        "would_block": scored.would_block,
+        "risk_score": None if verdict is None else verdict.risk_score,
+        "jev_error": None if scored.failure is None else scored.failure.value,
+        **({} if verdict is None else {f"score_{question}": score for question, score in verdict.scores.items()}),
+    }
+    if isinstance(result, ReviewFailure):
+        return {**jev, "review_failure": result.reason.value, "refusal_category": result.refusal_category}
+    return {
+        **jev,
+        "verdict": result.verdict.value,
+        "confidence": result.confidence,
+        "findings": list(result.findings),
+        "suggested_action": result.suggested_action.value,
+        "admin_reason": result.admin_reason,
+        "review_model": result.model,
+        "review_latency_ms": result.latency_ms,
+        "review_input_tokens": result.input_tokens,
+        "review_output_tokens": result.output_tokens,
+    }

@@ -255,6 +255,8 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "model": "jevk5-0.2",
             "input_tokens": 512,
             "admin_url": absolute_uri(f"/admin/cdp/hogfunction/{hog_function.id}/change/"),
+            "frontier_review_queued": False,
+            **({"frontier_review_skipped": "switched_off"} if would_alert else {}),
         }
         assert SECRET_VALUE not in json.dumps(event, default=str)
 
