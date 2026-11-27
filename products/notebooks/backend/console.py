@@ -6,7 +6,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 from posthog.admin.console.panels import Owner
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation, ToolPlace
 from posthog.models.user import User
 from posthog.utils import pluralize
 
@@ -125,6 +125,10 @@ class NotebookMarkdownMigrationTool(ConsoleTool):
     owner = DATA_TOOLS
     group = "Product data"
     description = "Converts rich notebooks to markdown notebooks in batches, after a preview."
+
+    def place(self, request: HttpRequest) -> ToolPlace | None:
+        team_id = _team_id(request)
+        return ToolPlace.under("team", team_id) if team_id is not None else None
 
     def page(self, request: HttpRequest) -> Page:
         team_id = _team_id(request)
