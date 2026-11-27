@@ -357,7 +357,7 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
     })
 
-    it('sends no door opens or answers while a staff user previews another day', async () => {
+    it('sends no door opens or answers while a staff user previews another day, and keeps the live doors shut', async () => {
         const api = calendarApi()
         useMocks(api.mocks)
         preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
@@ -373,6 +373,25 @@ describe('adventCalendarLogic', () => {
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
         expect({ opens: api.opens, answers: api.answers }).toEqual({ opens: [], answers: [] })
+
+        router.actions.push('/workflows/advent')
+        expect(doorOf(logic, 'door-1')?.status).toBe('ready')
+        logic.actions.activateDoor('door-1')
+
+        await waitFor(() => expect(api.opens).toMatchObject([{ day: 1 }]))
+    })
+
+    it('shows the pick another tab saved when a staff preview answers the same door', async () => {
+        useMocks(calendarApi().mocks)
+        signIn({ is_staff: true })
+        router.actions.push('/workflows/advent', { day: '2' })
+        logic.actions.activateDoor('door-1')
+        logic.actions.finishReveal()
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+        logic.actions.answerDoor('door-2', 'james')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
     })
 
     it.each([

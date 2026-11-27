@@ -27,6 +27,21 @@ describe('IssueTagsButton', () => {
         expect(container).toBeEmptyDOMElement()
     })
 
+    it('shows one circle per distinct tag color on the button, at most three', () => {
+        const tags = (['blue', 'blue', 'teal', 'red', 'green'] as const).map((color, index) => ({
+            key: String(index),
+            label: String(index),
+            color,
+        }))
+        const { container } = render(<IssueTagsButton tags={tags} onTagClick={jest.fn()} />)
+
+        expect(Array.from(container.querySelectorAll('[class*="IssueTagDot--"]'), (dot) => dot.className)).toEqual([
+            expect.stringContaining('IssueTagDot--blue'),
+            expect.stringContaining('IssueTagDot--teal'),
+            expect.stringContaining('IssueTagDot--red'),
+        ])
+    })
+
     it('sends the key of the tag clicked in the list, then closes the list', async () => {
         const user = userEvent.setup()
         const onTagClick = jest.fn()

@@ -178,12 +178,12 @@
             "type": "array"
         },
         "suggested_prompts": {
-            "description": "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.",
+            "description": "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them. The report stores at most 3 unique prompts of up to 200 characters each. A prompt past those bounds is left out, not cut, and the rest of the report is stored. `quality_hints` says which bound left a prompt out.",
             "items": {
-                "maxLength": 200,
+                "maxLength": 2000,
                 "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 10,
             "type": "array"
         },
         "suggested_reviewers": {

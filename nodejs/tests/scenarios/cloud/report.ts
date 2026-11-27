@@ -14,7 +14,7 @@ import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
 import { Manifest, evidenceOf, keyOf } from './lease'
 import { CloudProfile, RunInputs } from './profile'
-import { receiptsOf } from './teardown'
+import { leftBehind, receiptsOf } from './teardown'
 
 export type RunEnd = { exitCode: number; reasons: string[]; teardownClean: boolean }
 
@@ -292,9 +292,7 @@ export async function report(
             const last = receipts.at(-1)
             return last
                 ? [
-                      ...last.resources
-                          .filter(({ state }) => state !== 'gone')
-                          .map(({ type, id, state }) => `${type} ${id}: ${state}`),
+                      ...last.resources.filter(leftBehind).map(({ type, id, state }) => `${type} ${id}: ${state}`),
                       ...last.unlisted.map((source) => `unknown: could not list ${source}`),
                   ]
                 : ['unknown: teardown saved no receipt']

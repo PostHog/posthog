@@ -2,7 +2,8 @@ from django.db.models import TextChoices
 
 from rest_framework import serializers
 
-from products.dashboards.backend.facade.query_sharing import MAX_CACHED_TILES_BATCH_SIZE, DashboardSharingOutcome
+from products.dashboards.backend.facade.enums import DashboardSharingOutcome
+from products.dashboards.backend.facade.query_sharing import MAX_CACHED_TILES_BATCH_SIZE
 
 
 class DashboardSharingRefreshType(TextChoices):

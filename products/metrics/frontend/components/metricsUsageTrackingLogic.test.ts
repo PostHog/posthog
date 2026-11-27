@@ -85,7 +85,7 @@ describe('metricsUsageTrackingLogic', () => {
     // The whole point of this logic is the action -> event mapping; a renamed or disconnected
     // source action silently kills the dashboard tile that reads the event.
     it.each([
-        ['metrics tab changed', () => metricsSceneLogic.actions.setActiveTab('sql'), { tab: 'sql' }],
+        ['metrics tab changed', () => metricsSceneLogic.actions.setActiveTab('alerts'), { tab: 'alerts' }],
         [
             'metrics viewer aggregation changed',
             () => metricsViewerLogic.actions.setAggregation('p95'),
