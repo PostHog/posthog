@@ -106,8 +106,14 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
 const OBSERVED_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/
 const MAX_OBSERVED_NAMES = 64
 
+// Protocol names are short words. A long word, or one mixing letters with digits, is shaped like a
+// token or an id a client put in the name, and the name would carry that value into analytics.
+function hasValueShapedWord(name: string): boolean {
+    return (name.match(/[A-Za-z0-9]+/g) ?? []).some((word) => word.length > 32 || (word.length >= 8 && /\d/.test(word)))
+}
+
 export function observedNames(names: Iterable<string>): string[] | undefined {
-    const valid = [...new Set(names)].filter((name) => OBSERVED_NAME.test(name)).sort()
+    const valid = [...new Set(names)].filter((name) => OBSERVED_NAME.test(name) && !hasValueShapedWord(name)).sort()
     return valid.length > 0 ? valid.slice(0, MAX_OBSERVED_NAMES) : undefined
 }
 

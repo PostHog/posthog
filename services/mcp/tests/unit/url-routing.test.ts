@@ -242,6 +242,7 @@ describe('URL Routing', () => {
                     Authorization: 'Bearer phx_test',
                     'User-Agent': 'openai-mcp/1.0.0 (Codex)',
                     'X-Example-Session': 'session-value',
+                    'X-Session-a1b2c3d4e5f6': '1',
                 },
             })
             expect(parseRequestProperties(request, {}).requestHeaderNames).toEqual([
