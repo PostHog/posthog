@@ -170,28 +170,16 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
-function webhookTriggersByStep({ journal, drive, steps }: MeasureEvidence): [Step, JournalEntry[]][] {
-    const inDrive = (at: number): boolean => at >= drive.startedAt && at < drive.endedAt
-    const triggers = journal.filter(({ kind }) => kind === 'webhook')
-    const stepOf = ({ step, offeredAt }: JournalEntry): Step | undefined =>
-        step !== undefined
-            ? steps[step]
-            : inDrive(offeredAt)
-              ? steps.findLast(({ fromMs }) => drive.startedAt + fromMs <= offeredAt)
-              : undefined
-    const placed = triggers.map((entry) => [stepOf(entry), entry] as const)
-    const byStep = new Map(
-        steps
-            .filter((step) => inDrive(drive.startedAt + step.fromMs) || placed.some(([at]) => at === step))
-            .map((step) => [step, [] as JournalEntry[]])
+function webhookTriggersByStep({ journal, steps }: MeasureEvidence): [Step, JournalEntry[]][] {
+    const byStep = Map.groupBy(
+        journal.filter(({ kind, step }) => kind === 'webhook' && step !== undefined),
+        ({ step }) => step!
     )
-    for (const [step, entry] of placed) {
-        if (step !== undefined) {
-            byStep.get(step)!.push(entry)
-        }
-    }
-    return [...byStep]
+    return steps.map((step, index) => [step, byStep.get(index) ?? []])
 }
+
+const untimedAttempt = ({ answer }: JournalEntry): boolean =>
+    (answer.retries ?? 0) + 1 > (answer.attemptsMs?.length ?? 0)
 
 export const webhookTriggerAnswerMs: MeasurementDefinition = {
     name: 'webhook_trigger_answer_ms',
@@ -209,7 +197,10 @@ export const webhookTriggerAnswerMs: MeasurementDefinition = {
                 key: `${percentile}_${scale}x`,
                 ...(answered.length === 0
                     ? { value: null, censored: true as const, unmeasured: 'cdp-api answered no trigger in this step' }
-                    : { value: nearestRank(answered, share) }),
+                    : {
+                          value: nearestRank(answered, share),
+                          ...(triggers.some(untimedAttempt) ? { incomplete: true as const } : {}),
+                      }),
             }))
         }),
 }

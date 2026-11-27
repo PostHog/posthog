@@ -8,11 +8,12 @@ const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const MINUTE = 60_000
 const HORIZON_SEQ = 200
 
-const triggered = (unitId: string, offeredAtMs: number, answer: IntakeAnswer): JournalEntry => ({
+const triggered = (unitId: string, step: number, offeredAtMs: number, answer: IntakeAnswer): JournalEntry => ({
     unitId,
     kind: 'webhook',
     teamId: 7,
     offeredAt: FROM + offeredAtMs,
+    step,
     answer,
     expect: { deliveries: [WEBHOOK_ACTION] },
 })
@@ -30,25 +31,23 @@ const delivered = (seq: number, unitId: string): TruthRecord => ({
 const ramp: Step[] = [
     { scale: 1, fromMs: 0, toMs: MINUTE },
     { scale: 5, fromMs: MINUTE, toMs: 2 * MINUTE },
-    { scale: 10, fromMs: 2 * MINUTE, toMs: 3 * MINUTE },
 ]
 
 const fastTriggers = Array.from({ length: 97 }, (_, i) =>
-    triggered(`fast-${i}`, 4000 + i, { accepted: true, attemptsMs: [25] })
+    triggered(`fast-${i}`, 0, 4000 + i, { accepted: true, attemptsMs: [25] })
 )
 
 const journal = [
-    triggered('run-1', 1000, { accepted: true, attemptsMs: [10] }),
-    triggered('run-2', 2000, { accepted: true, attemptsMs: [20] }),
-    triggered('run-3', 3000, { accepted: true, attemptsMs: [30] }),
+    triggered('run-1', 0, 1000, { accepted: true, attemptsMs: [10] }),
+    triggered('run-2', 0, 2000, { accepted: true, attemptsMs: [20] }),
+    triggered('run-3', 0, 3000, { accepted: true, attemptsMs: [30] }),
     ...fastTriggers,
-    { ...triggered('run-late-1x', MINUTE + 500, { accepted: false, status: 429, attemptsMs: [7] }), step: 0 },
-    triggered('run-4', MINUTE + 1000, { accepted: true, retries: 1, attemptsMs: [400, 5] }),
-    triggered('run-5', MINUTE + 2000, { accepted: false, status: 429, attemptsMs: [7] }),
-    triggered('run-6', MINUTE + 3000, { accepted: false, status: 503, retries: 2, attemptsMs: [60, 70, 80] }),
-    triggered('run-7', MINUTE + 4000, { accepted: false, transportError: 'ECONNRESET' }),
-    { ...triggered('run-8', MINUTE + 5000, { accepted: true }), kind: 'transactional' as const },
-    triggered('run-after-drive', 2 * MINUTE, { accepted: true, attemptsMs: [9000] }),
+    triggered('run-late-1x', 0, MINUTE + 500, { accepted: false, status: 429, attemptsMs: [7] }),
+    triggered('run-4', 1, MINUTE + 1000, { accepted: true, retries: 1, attemptsMs: [400, 5] }),
+    triggered('run-5', 1, MINUTE + 2000, { accepted: false, status: 429, attemptsMs: [7] }),
+    triggered('run-6', 1, MINUTE + 3000, { accepted: false, status: 503, retries: 2, attemptsMs: [60, 70, 80] }),
+    triggered('run-7', 1, MINUTE + 4000, { accepted: false, transportError: 'ECONNRESET' }),
+    { ...triggered('run-8', 1, MINUTE + 5000, { accepted: true }), kind: 'transactional' as const },
 ]
 
 const evidence = (judged: Partial<MeasureEvidence> = {}): MeasureEvidence => ({
@@ -105,26 +104,36 @@ describe('workflow webhook triggers per ramp step', () => {
         })
     })
 
+    it('marks the answer times of a step incomplete when an attempt in it got no answer', () => {
+        const rows = measure([{ name: 'webhook_trigger_answer_ms', params: {} }], evidence())
+
+        expect(rows.map(({ key, incomplete }) => [key, incomplete ?? false])).toEqual([
+            ['p50_1x', false],
+            ['p99_1x', false],
+            ['p50_5x', true],
+            ['p99_5x', true],
+        ])
+    })
+
+    it('leaves a step with no answered attempt untimed', () => {
+        const rows = measure(
+            [{ name: 'webhook_trigger_answer_ms', params: {} }],
+            evidence({ journal: [triggered('run-7', 0, 1000, { accepted: false, transportError: 'ECONNRESET' })] })
+        )
+
+        expect(rows.filter(({ key }) => key?.endsWith('_1x'))).toEqual([
+            expect.objectContaining({ key: 'p50_1x', value: null, censored: true }),
+            expect.objectContaining({ key: 'p99_1x', value: null, censored: true }),
+        ])
+    })
+
     it.each([
         ['the truth could not be read', { unread: 'edge unreachable' }, 'edge unreachable'],
         ['the run reached no recovery horizon', { horizonSeq: undefined }, 'no recovery horizon'],
-    ])('leaves the lost count unmeasured when %s, and a step with no answer untimed', (_, judged, reason) => {
-        const rows = measure(
-            [
-                { name: 'webhook_trigger_answer_ms', params: {} },
-                { name: 'webhook_trigger_outcomes', params: {} },
-            ],
-            evidence({
-                journal: [triggered('run-7', 1000, { accepted: false, transportError: 'ECONNRESET' })],
-                ...judged,
-            })
-        )
+    ])('leaves the lost count unmeasured when %s', (_, judged, reason) => {
+        const rows = measure([{ name: 'webhook_trigger_outcomes', params: {} }], evidence(judged))
 
-        expect(rows.filter(({ key }) => key?.startsWith('p') || key?.startsWith('lost'))).toEqual([
-            expect.objectContaining({ key: 'p50_1x', value: null, censored: true }),
-            expect.objectContaining({ key: 'p99_1x', value: null, censored: true }),
-            expect.objectContaining({ key: 'p50_5x', value: null, censored: true }),
-            expect.objectContaining({ key: 'p99_5x', value: null, censored: true }),
+        expect(rows.filter(({ key }) => key?.startsWith('lost'))).toEqual([
             expect.objectContaining({
                 key: 'lost_1x',
                 value: null,
