@@ -37,7 +37,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         [
             ("signing_partner_made_public", {"can_create_accounts": True}, True, {"client_type": "public"}, True),
             ("signing_partner_drops_its_key", {"pays_for_customers": True}, True, {"jwks_uri": ""}, True),
-            ("partner_without_signing_capabilities", {"can_provision_resources": True}, True, {"jwks_uri": ""}, False),
+            ("resource_only_partner_drops_its_key", {"can_provision_resources": True}, True, {"jwks_uri": ""}, True),
             # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
             ("not_a_provisioning_partner", {"pays_for_customers": True}, False, {"jwks_uri": ""}, False),
             ("unrelated_edit", {"can_create_accounts": True}, True, {"name": "Renamed"}, False),

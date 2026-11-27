@@ -213,12 +213,33 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
 // The API truncates at this many rows and says nothing when it does.
 const API_FILE_CAP = 3000
 
+const API_RETRY_DELAYS_MS = [2_000, 8_000]
+
+type ApiChangedFiles = {files: File[]; apiRows: number; apiTruncated: boolean}
+
+async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<ApiChangedFiles> {
+  for (const delayMs of API_RETRY_DELAYS_MS) {
+    try {
+      return await listChangedFilesFromApi(token, pullRequest)
+    } catch (error) {
+      if (!isTransientApiError(error)) {
+        throw error
+      }
+      core.warning(`Listing changed files from the GitHub API failed (${String(error)}), retrying in ${delayMs} ms`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+  return await listChangedFilesFromApi(token, pullRequest)
+}
+
+function isTransientApiError(error: unknown): boolean {
+  const status = (error as {status?: unknown} | null)?.status
+  return typeof status !== 'number' || status >= 500
+}
+
 // Uses github REST api to get list of files changed in PR
 // Truncation is judged on API rows, not on `files`, which expands a rename into two.
-async function getChangedFilesFromApi(
-  token: string,
-  pullRequest: PullRequest
-): Promise<{files: File[]; apiRows: number; apiTruncated: boolean}> {
+async function listChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<ApiChangedFiles> {
   core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
   try {
     const client = github.getOctokit(token)

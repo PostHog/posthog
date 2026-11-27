@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, utimesSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import type { AlertState } from '../alerts/alerts'
 import type { JournalEntry } from '../judge/judge'
 import type { MetricSample, QueueSample } from '../judge/measurements'
 import type { TruthSource } from '../judge/truth'
@@ -16,6 +17,8 @@ const TRUTH_TIMEOUT_MS = 500
 const TRUTH_PAGE = 1000
 
 export type LivePhase = 'reset' | 'seed' | 'drive' | 'converge' | 'judge' | 'end'
+
+export type RunStop = { phase: 'connect' | Exclude<LivePhase, 'end'>; stack: string }
 
 export type LiveTruth = Pick<TruthRecord, 'seq' | 'at' | 'kind' | 'unitId' | 'actionId' | 'status' | 'fault'>
 
@@ -32,7 +35,17 @@ export type LiveRecord =
           journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
       }
-    | { type: 'end'; at: number; status: string; statusReason: string }
+    | {
+          type: 'alert'
+          at: number
+          latest?: number
+          rule: string
+          instance: string
+          tier?: string
+          state: AlertState
+          value: number | null
+      }
+    | { type: 'end'; at: number; status: string; statusReason: string; stopped?: RunStop }
 
 export type LiveSources = {
     timeline(): ValveTimelineEntry[]

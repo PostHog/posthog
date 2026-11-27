@@ -9,7 +9,6 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
-    DASHBOARD_V2_WARMING_START_WINDOW,
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
     insights_to_keep_fresh,
@@ -17,6 +16,7 @@ from posthog.caching.warming import (
     warm_insight_cache_task,
 )
 from posthog.constants import AvailableFeature
+from posthog.errors import unknown_type_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.query_cache import QueryCache
@@ -242,13 +242,11 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_on", True, DASHBOARD_V2_WARMING_START_WINDOW),
-            ("flag_off", False, WARMING_START_WINDOW),
+            ("flags_on", True),
+            ("flags_off", False),
         ]
     )
-    def test_dashboard_v2_warms_only_tiles_read_since_their_last_compute(
-        self, _name: str, flag_on: bool, start_window: timedelta
-    ) -> None:
+    def test_warming_keeps_the_pre_dashboard_v2_policy_with_no_viewer(self, _name: str, flag_on: bool) -> None:
         dispatched_at = datetime.now(UTC)
         self.team1.extra_settings = {"insights_cache_warming": True}
         self.team1.save(update_fields=["extra_settings"])
@@ -287,21 +285,20 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
             patch("posthog.caching.utils.sync_execute", return_value=[]),
             patch(
                 "posthog.caching.warming.posthoganalytics.feature_enabled",
-                side_effect=lambda flag, *args, **kwargs: flag_on and flag == "dashboard-v2",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag in ("dashboard-v2", "dashboard-v2-users"),
             ),
             patch("posthog.caching.warming.warm_insight_cache_task.si") as warm_task,
             patch("posthog.caching.warming.chain") as warm_chain,
         ):
             schedule_warming_for_teams_task()
 
-        expected = ["never_computed_read", "read_after_compute"] if flag_on else list(tiles)
         self.assertCountEqual(
             [call.args for call in warm_task.call_args_list],
-            [(insight_ids[name], dashboard.pk) for name in expected],
+            [(insight_ids[name], dashboard.pk) for name in tiles],
         )
         self.assertEqual(
             warm_chain.return_value.apply_async.call_args.kwargs["eta"],
-            dispatched_at + deterministic_offset(str(self.team1.pk), start_window),
+            dispatched_at + deterministic_offset(str(self.team1.pk), WARMING_START_WINDOW),
         )
 
 
@@ -379,12 +376,19 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("no timestamp binding"), "hogql_query_error"),
+            ("clickhouse_user_safe", unknown_type_error("Variant(Int64, UInt64)", code=50), "unknown_type"),
+        ]
+    )
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")
-    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=QueryError("no timestamp binding"))
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
     def test_query_errors_are_reported_as_an_event_instead_of_being_captured(
-        self, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
+        self, _name, error, expected_error_code, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
     ):
+        mock_calculate.side_effect = error
         insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
         capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
 
@@ -394,4 +398,4 @@ class TestWarmInsightCacheTask(APIBaseTest):
         capture_ph_event.assert_called_once()
         assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
-        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"
+        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == expected_error_code

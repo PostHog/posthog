@@ -1,10 +1,10 @@
 """Scheduled entrypoints for the AEO citation runner.
 
-The dispatcher is double-gated: a team must be in the AEO_CITATION_TEAM_IDS env
-allowlist AND have the `aeo-citation-tracking` feature flag enabled. Both are
-empty/off by default, so this is a no-op everywhere until deliberately turned
-on. Each eligible team gets its own long-running task so one slow team can't
-block another and a worker restart only loses one team's in-flight run.
+The dispatcher covers the teams with active prompts whose organization is active,
+approved AI data processing, and is in the `aeo-citation-tracking` flag. Only people
+with the early-access flag can add or turn on prompts. Each eligible team gets its own
+long-running task so one slow team can't block another and a worker restart only
+loses one team's in-flight run.
 
 A run takes hours and a worker rollout kills it part way, so beat dispatches
 several times a day and the runner skips the prompts a killed run already
@@ -13,9 +13,9 @@ covered. A per-team lease stops two dispatches from running at once.
 
 from __future__ import annotations
 
+import time
 import threading
 
-from django.conf import settings
 from django.db import InterfaceError, OperationalError
 
 import structlog
@@ -29,17 +29,19 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend import auto_setup, keyword_suggestions, suggestions
+from products.aeo.backend import auto_setup, keyword_suggestions, run_stop, suggestions
 from products.aeo.backend.catalog import recompute_own_citations, sync_brands_from_run
 from products.aeo.backend.check_brands import enrich_check_brands, enrich_lock, has_stale_brands, has_unresolved_checks
+from products.aeo.backend.credits import out_of_ai_credits
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
+    SETUP_PROMPT_COUNT,
     KeywordSuggestionRequest,
     PromptSuggestionRequest,
     SetupRequest,
 )
 from products.aeo.backend.facts import backfill_facts, has_checks_without_facts
-from products.aeo.backend.models import AEOCitationCheck
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.temporal.brand_sentiment import start_backlog_sentiment_scoring
 
@@ -62,6 +64,8 @@ SUGGESTION_TIME_LIMIT_SECONDS = SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
 # stalled on slow engine retries keeps its lease.
 RUN_LEASE_SECONDS = 10 * 60
 RUN_LEASE_RENEW_SECONDS = 60
+RUN_LEASE_WAIT_RETRIES = 40
+RUN_LEASE_WAIT_SECONDS = 15
 
 # One recompute per team at a time. The lock outlives the time limit, so a killed task cannot leave
 # two passes writing the same checks.
@@ -76,11 +80,11 @@ ENRICH_LOCK_SECONDS = ENRICH_TIME_LIMIT_SECONDS + 60
 
 
 def citation_tracking_enabled(team: Team) -> bool:
-    """The double gate: a team runs only when it is in the env allowlist AND has
-    the flag on. Both default off, so this is fail-closed. Shared by the dispatcher
-    and the per-team task so a task queued directly cannot skip the gate."""
-    allowlist = {str(raw).strip() for raw in settings.AEO_CITATION_TEAM_IDS}
-    if str(team.id) not in allowlist:
+    """Shared by the dispatcher and the per-team task so a task queued directly cannot skip the gate."""
+    organization = team.organization
+    if not organization.is_active or organization.is_pending_deletion:
+        return False
+    if not organization.is_ai_data_processing_approved:
         return False
     # No person is behind this scheduled run; the team UUID keeps the flag call
     # well-formed and the organization group lets the flag target teams.
@@ -92,20 +96,28 @@ def citation_tracking_enabled(team: Team) -> bool:
     )
 
 
+def citation_checks_can_run(team: Team) -> bool:
+    if not citation_tracking_enabled(team):
+        logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
+        return False
+    if out_of_ai_credits(team):
+        logger.info("aeo_citation_run_skipped_no_credits", team_id=team.id)
+        return False
+    return True
+
+
+def _teams_with_active_prompts() -> list[Team]:
+    active = AEOPrompt.objects.unscoped().filter(active=True, archived_at__isnull=True).values("team_id")
+    return list(Team.objects.filter(id__in=active).select_related("organization").order_by("id"))
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
 def run_aeo_citation_checks_task() -> None:
-    """Beat entrypoint: fan out one runner task per allowlisted, flag-enabled team."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
-            continue
-        if not citation_tracking_enabled(team):
-            logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
-            continue
-        run_aeo_citation_checks_for_team_task.delay(team.id)
+    """Beat entrypoint: fan out one runner task per team with active prompts that passes the gate."""
+    for team in _teams_with_active_prompts():
+        if citation_checks_can_run(team):
+            run_aeo_citation_checks_for_team_task.delay(team.id, queued_at=time.time())
 
 
 @shared_task(ignore_result=True)
@@ -113,12 +125,7 @@ def run_aeo_citation_checks_task() -> None:
 def score_aeo_sentiment_backlog_task() -> None:
     """Beat entrypoint: scores each enabled team's unscored answers, so answers that no run's scoring
     covered (a failed pass, or ones recorded before scoring existed) don't wait for the next run."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            logger.warning("aeo_sentiment_backlog_unknown_team", team_id=raw_team_id)
-            continue
+    for team in _teams_with_active_prompts():
         if not citation_tracking_enabled(team):
             continue
         try:
@@ -132,11 +139,7 @@ def score_aeo_sentiment_backlog_task() -> None:
 def refresh_aeo_stored_results_task() -> None:
     """Beat entrypoint: fan out one refresh per enabled team. It keeps the default views stored, and
     bounds how long a write that forgot to bump the version can leave an old result in use."""
-    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
-        try:
-            team = Team.objects.get(id=int(raw_team_id))
-        except (Team.DoesNotExist, ValueError):
-            continue
+    for team in _teams_with_active_prompts():
         if citation_tracking_enabled(team):
             refresh_aeo_stored_results_for_team_task.delay(team.id)
 
@@ -167,34 +170,55 @@ def refresh_aeo_stored_results_for_team_task(team_id: int) -> None:
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     soft_time_limit=RUN_SOFT_TIME_LIMIT_SECONDS,
     time_limit=RUN_TIME_LIMIT_SECONDS,
+    # Celery's default of 3 would end a first run's wait for the lease long before the 40 tries it is allowed.
+    max_retries=RUN_LEASE_WAIT_RETRIES,
 )
 @skip_team_scope_audit  # Team is the tenant, not tenant data; prompts are read via AEOPrompt.objects.for_team
-def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
+def run_aeo_citation_checks_for_team_task(
+    self: Task, team_id: int, wait_for_lease: bool = False, queued_at: float | None = None
+) -> None:
+    # A stop asked for after the run was queued ends it; a stop from before leaves it alone. A task queued without
+    # the time counts from when it first runs.
+    since = queued_at if queued_at is not None else time.time()
     try:
-        team = Team.objects.get(id=team_id)
+        team = Team.objects.select_related("organization").get(id=team_id)
     except Team.DoesNotExist:
         logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
+        run_stop.clear_run_queued(team_id)
         return
     # Re-check the gate here too, so this task fails closed even if it is queued
     # outside the dispatcher (which already checks before fan-out).
-    if not citation_tracking_enabled(team):
-        logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
+    if not citation_checks_can_run(team):
+        run_stop.clear_run_queued(team_id)
         return
     # thread_local=False: the renewal thread must see the token the task thread acquired.
-    lease = get_client().lock(f"aeo_citation_run:{team_id}", timeout=RUN_LEASE_SECONDS, thread_local=False)
+    lease = get_client().lock(run_stop.lease_key(team_id), timeout=RUN_LEASE_SECONDS, thread_local=False)
     if not lease.acquire(blocking=False):
+        if wait_for_lease and self.request.retries < RUN_LEASE_WAIT_RETRIES:
+            # Setup's first run must not be lost to a run still finishing, such as one stopped before a restart.
+            raise self.retry(countdown=RUN_LEASE_WAIT_SECONDS, kwargs={"wait_for_lease": True, "queued_at": since})
         logger.info("aeo_citation_task_already_running", team_id=team_id)
+        run_stop.clear_run_queued(team_id)
         return
+    run_stop.clear_run_queued(team_id)
     stop_renewing = threading.Event()
-    lease_lost = threading.Event()
-    renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, lease_lost, team_id), daemon=True)
-    renewer.start()
+    stop = threading.Event()
+    renewer = threading.Thread(target=_renew_lease, args=(lease, stop_renewing, stop, team_id), daemon=True)
+    stop_watcher = threading.Thread(
+        target=run_stop.watch_for_stop, args=(team_id, stop_renewing, stop), kwargs={"since": since}, daemon=True
+    )
     try:
-        summary, _ = run_citation_checks(team, stop=lease_lost)
+        if run_stop.stop_requested(team_id, since=since):
+            logger.info("aeo_citation_task_stopped_before_start", team_id=team_id)
+            return
+        renewer.start()
+        stop_watcher.start()
+        summary, _ = run_citation_checks(team, stop=stop)
         if summary.run_id:
             result = sync_brands_from_run(team.id, summary.run_id)
             logger.info("aeo_brand_sync_done", team_id=team_id, domains=result.domains, created=result.created)
@@ -218,7 +242,8 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         raise
     finally:
         stop_renewing.set()
-        renewer.join(timeout=RUN_LEASE_RENEW_SECONDS)
+        if renewer.is_alive():
+            renewer.join(timeout=RUN_LEASE_RENEW_SECONDS)
         try:
             lease.release()
         except LockError:
@@ -315,6 +340,7 @@ def set_up_aeo_task(team_id: int, job_id: str, request: dict) -> None:
                 run_first_check=request.get("run_first_check", False),
                 only_first_run=request.get("only_first_run", False),
                 activate_paused_prompts=request.get("activate_paused_prompts", False),
+                prompt_count=request.get("prompt_count", SETUP_PROMPT_COUNT),
             ),
         )
     except Exception:

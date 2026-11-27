@@ -23,6 +23,10 @@ export interface HttpRequest {
     form?: Record<string, string>
     token?: string
     timeoutMs?: number
+    // The request goes to the PostHog API, so its answer can carry notices (see `Notices.watch`).
+    posthog?: boolean
+    // `manual` returns a 3xx to the caller instead of sending the request again to its target.
+    redirect?: RequestRedirect
 }
 
 export interface HttpResponse {
@@ -55,6 +59,8 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
                   ? undefined
                   : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
+            posthogApi: request.posthog === true,
+            redirect: request.redirect,
         })
         text = await response.text()
     } catch (error) {
@@ -198,7 +204,7 @@ export class PostHogApi {
         const url = this.url(path)
         const send = (): Promise<HttpResponse> =>
             this.session.send(
-                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs }),
+                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs, posthog: true }),
                 (answer) => answer.status === 401
             )
         let response = await send()

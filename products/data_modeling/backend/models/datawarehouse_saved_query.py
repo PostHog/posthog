@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
     from posthog.models.user import User
 
+    from products.data_modeling.backend.logic.describe_columns import ZeroRowJevPlan
+
 from posthog.hogql import ast
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
@@ -47,6 +49,7 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.contracts import SchedulingUnavailableError, ViewEngine
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
@@ -409,7 +412,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
         try:
-            materialize_saved_query(self, triggered_by_id=triggered_by_id)
+            materialize_saved_query(self, trigger=MaterializationRunTrigger.MANUAL, triggered_by_id=triggered_by_id)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
@@ -511,6 +514,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         *,
         bypass_warehouse_access_control: bool = False,
         database: Database | None = None,
+        jev_plan: Optional["ZeroRowJevPlan"] = None,
     ) -> dict[str, dict[str, Any]]:
         from products.data_modeling.backend.logic.describe_columns import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             describe_query_columns,
@@ -528,6 +532,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     user=user,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
                     database=database,
+                    jev_plan=jev_plan,
                 )
 
         return {

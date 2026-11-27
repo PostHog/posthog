@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -34,12 +34,24 @@ const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, transactionalOnly, tagsFilter } =
-        useValues(messageTemplatesLogic)
+    const {
+        templates,
+        templatesLoading,
+        hasActiveFilters,
+        canLoadMoreTemplates,
+        canRetryTemplates,
+        moreTemplatesLoading,
+        search,
+        createdByFilter,
+        transactionalOnly,
+        tagsFilter,
+    } = useValues(messageTemplatesLogic)
     const {
         deleteTemplate,
         createTemplate,
         duplicateTemplate,
+        loadMoreTemplates,
+        loadTemplates,
         setSearch,
         setCreatedByFilter,
         setTransactionalOnly,
@@ -48,7 +60,7 @@ export function MessageTemplatesTable(): JSX.Element {
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const { startNewTemplate } = useActions(newTemplateAgentLogic)
 
-    const showProductIntroduction = !templatesLoading && templates.length === 0
+    const showProductIntroduction = !templatesLoading && templates.length === 0 && !hasActiveFilters
     // Same check as the "New template" button in the header: the template API needs Editor access.
     const editTemplatesDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
@@ -109,7 +121,7 @@ export function MessageTemplatesTable(): JSX.Element {
                     />
                 )}
             </div>
-            {templatesLoading ? (
+            {templatesLoading && templates.length === 0 ? (
                 <Spinner className="text-6xl" />
             ) : (
                 <div className="MessageTemplatesGrid">
@@ -135,7 +147,7 @@ export function MessageTemplatesTable(): JSX.Element {
                             </div>
                         </button>
                     )}
-                    {filteredTemplates.map((template, index) => (
+                    {templates.map((template, index) => (
                         <MessageTemplateCard
                             key={template.id}
                             template={template}
@@ -209,6 +221,30 @@ export function MessageTemplatesTable(): JSX.Element {
                             }
                         />
                     ))}
+                </div>
+            )}
+            {!templatesLoading && templates.length === 0 && hasActiveFilters && (
+                <p className="text-secondary mt-4" data-attr="templates-no-matches">
+                    No templates match. Try another search or clear the filters.
+                </p>
+            )}
+            {canRetryTemplates && (
+                <div className="flex justify-center mt-4">
+                    <LemonButton type="secondary" onClick={() => loadTemplates()} data-attr="templates-reload">
+                        Reload templates
+                    </LemonButton>
+                </div>
+            )}
+            {canLoadMoreTemplates && (
+                <div className="flex justify-center mt-4">
+                    <LemonButton
+                        type="secondary"
+                        onClick={loadMoreTemplates}
+                        loading={moreTemplatesLoading}
+                        data-attr="templates-load-more"
+                    >
+                        Load more templates
+                    </LemonButton>
                 </div>
             )}
         </div>

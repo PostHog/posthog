@@ -37,6 +37,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
+from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_PROPERTY_COLUMNS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
@@ -57,8 +58,10 @@ from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
     is_grouped,
+    needs_stored_json,
     visit_after_grouping,
 )
+from posthog.hogql.transforms.property_types import key_json_document_read
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -167,6 +170,13 @@ def resolve_materialized_property_source(
         return None
 
     if context.modifiers.materializationMode == "disabled":
+        return None
+
+    # ai_events is a Distributed table, so ClickHouse runs a SELECT that reads it, with its joins and subqueries, on the
+    # ai-events cluster. There, `person` is a Distributed shim built from the base DDL
+    # (posthog/models/ai_events/person_shims.py), and it has none of the pmat_* columns that the materialized-column
+    # registry lists for the main cluster.
+    if table_name == "person" and context.reads_ai_events:
         return None
 
     # The flag_evaluations typed columns are fixed DDL, so they are declared on the table, not read from the registry.
@@ -1196,14 +1206,19 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
+        outer_reads_ai_events = self.context.reads_ai_events
+        reads_ai_events = outer_reads_ai_events
         join: ast.JoinExpr | None = node.select_from
         while join is not None:
             table_type: ast.Type | None = join.table.type if join.table is not None else None
             while table_type is not None:
                 scope.add(id(table_type))
+                if isinstance(table_type, ast.TableType) and isinstance(table_type.table, AiEventsTable):
+                    reads_ai_events = True
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
+        self.context.reads_ai_events = reads_ai_events
         try:
             with self._grouped_clause(False):
                 if not is_grouped(node):
@@ -1215,6 +1230,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             return result
         finally:
             self._tables_in_scope.pop()
+            self.context.reads_ai_events = outer_reads_ai_events
 
     def visit_join_constraint(self, node: ast.JoinConstraint) -> ast.JoinConstraint:
         self._join_constraint_depth += 1
@@ -1345,21 +1361,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     def _native_property_document(self, document: ast.Expr) -> _OptimizableProperty | None:
         """The native property that `document` serializes, or None.
 
-        The property pass writes `ifNull(toJSONString(<property>), '')` as the document of a JSON function whose
-        first key is constant.
+        The property pass writes a `key_json_document` as the document of a JSON function whose first key is constant.
         """
-        if not (
-            isinstance(document, ast.Call)
-            and document.name == "ifNull"
-            and len(document.args) == 2
-            and isinstance(document.args[1], ast.Constant)
-            and document.args[1].value == ""
-            and isinstance(document.args[0], ast.Call)
-            and document.args[0].name == "toJSONString"
-            and len(document.args[0].args) == 1
-        ):
-            return None
-        return self._native_property(document.args[0].args[0])
+        key_read = key_json_document_read(document)
+        return None if key_read is None else self._native_property(key_read)
 
     def _native_property(self, operand: ast.Expr) -> _OptimizableProperty | None:
         """The property of a native JSON column that `operand` reads by one key, or None.
@@ -1509,6 +1514,9 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 return self.visit(exported_json_text)
 
         if self._in_grouped_clause:
+            if needs_stored_json(node):
+                with self._grouped_clause(False):
+                    return self.visit_call(node)
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
             comparison = _call_form_comparison(node)

@@ -1,0 +1,101 @@
+# serializer version: 1
+# name: TestTraceMetricsQueries.test_the_read_is_one_tagged_grouping_sets_query[new_events_schema]
+  '''
+  SELECT in_current AS in_current,
+         toStartOfHour(least(greatest(first_timestamp, if(in_current, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata'), toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata'))), if(in_current, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata'), toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')))) AS bucket,
+         grouping(bucket) AS is_period_total,
+         count() AS traces,
+         countIf(has_error) AS errored,
+         sum(ifNull(trace_cost, 0)) AS cost,
+         uniqIf(trace_session_id, isNotNull(trace_session_id)) AS sessions,
+         uniqIf(trace_user_id, isNotNull(trace_user_id)) AS users,
+         quantile(0.5)(trace_latency_s) AS p50_latency_s,
+         quantile(0.95)(trace_latency_s) AS p95_latency_s,
+         quantile(0.99)(trace_latency_s) AS p99_latency_s,
+         countIf(isNotNull(trace_cost)) AS traces_with_cost,
+         countIf(isNotNull(trace_latency_s)) AS traces_with_latency,
+         countIf(isNotNull(trace_session_id)) AS traces_with_session,
+         sum(trace_session_declines) AS session_declines,
+         sum(trace_identified_generations) AS identified_generations,
+         sum(trace_non_otel_generations) AS non_otel_generations
+  FROM
+    (SELECT trace_id AS trace_id,
+            max(current_read) AS in_current,
+            argMax(first_timestamp, current_read) AS first_timestamp,
+            tupleElement(argMax(tuple(trace_latency_s), current_read), 1) AS trace_latency_s,
+            tupleElement(argMax(tuple(trace_cost), current_read), 1) AS trace_cost,
+            argMax(has_error, current_read) AS has_error,
+            tupleElement(argMax(tuple(trace_session_id), current_read), 1) AS trace_session_id,
+            argMax(trace_session_declines, current_read) AS trace_session_declines,
+            tupleElement(argMax(tuple(trace_user_id), current_read), 1) AS trace_user_id,
+            argMax(trace_identified_generations, current_read) AS trace_identified_generations,
+            argMax(trace_non_otel_generations, current_read) AS trace_non_otel_generations
+     FROM
+       (SELECT CAST(events.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id,
+               min(toTimeZone(events.timestamp, 'Asia/Kolkata')) AS first_timestamp,
+               max(toTimeZone(events.timestamp, 'Asia/Kolkata')) AS last_timestamp,
+               1 AS current_read,
+               round(if(equals(countIf(ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0)), 0), NULL, if(ifNull(greater(maxIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), and(equals(events.event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0))), 0), 0), maxIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), and(equals(events.event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0))), if(equals(countIf(and(ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0), notEquals(events.event, '$ai_generation'))), 0), sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), equals(events.event, '$ai_generation')), sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), in(ifNull(CAST(events.properties.`$ai_parent_id`, 'Nullable(String)'), ''), tuple('', CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'))))))), 2) AS trace_latency_s,
+               sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64'), NULL), in(events.event, tuple('$ai_generation', '$ai_embedding'))) AS trace_cost,
+               greater(countIf(equals(CAST(events.properties.`$ai_is_error`, 'Nullable(String)'), 'true')), 0) AS has_error,
+               nullIf(argMinIf(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), tuple(toTimeZone(events.timestamp, 'Asia/Kolkata'), CAST(events.properties.`$ai_session_id`, 'Nullable(String)')), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), notEquals(ifNull(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), ''), ''))), '') AS trace_session_id,
+               countIf(and(isNotNull(events.properties.`$ai_session_id`), equals(if(equals(dynamicType(accurateCast(events.properties.`$ai_session_id`, 'Dynamic')), 'Float64'), 'Double', JSONType(ifNull(if(isNull(events.properties.`$ai_session_id`), NULL, if(and(in(ascii(CAST(events.properties.`$ai_session_id`, 'Nullable(String)')), tuple(91, 123)), isValidJSON(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'))), CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), toJSONString(events.properties.`$ai_session_id`))), ''))), 'Null'))) AS trace_session_declines,
+               if(greater(countIf(and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))), 0), argMinIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), tuple(toTimeZone(events.timestamp, 'Asia/Kolkata'), events.distinct_id), and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))), NULL) AS trace_user_id,
+               countIf(and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))) AS trace_identified_generations,
+               countIf(and(equals(events.event, '$ai_generation'), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0)))) AS trace_non_otel_generations
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), isNotNull(events.properties.`$ai_trace_id`), notEquals(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), or(isNull(events.properties.ai_support_impersonated), ifNull(notEquals(CAST(events.properties.ai_support_impersonated, 'Nullable(String)'), 'true'), 1)))
+        GROUP BY trace_id
+        HAVING and(greater(countIf(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding'))), 0), greater(countIf(1), 0), lessOrEquals(first_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), greaterOrEquals(last_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')))
+        UNION ALL SELECT CAST(events.properties.`$ai_trace_id`, 'Nullable(String)') AS trace_id,
+                         min(toTimeZone(events.timestamp, 'Asia/Kolkata')) AS first_timestamp,
+                         max(toTimeZone(events.timestamp, 'Asia/Kolkata')) AS last_timestamp,
+                         0 AS current_read,
+                         round(if(equals(countIf(ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0)), 0), NULL, if(ifNull(greater(maxIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), and(equals(events.event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0))), 0), 0), maxIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), and(equals(events.event, '$ai_trace'), ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0))), if(equals(countIf(and(ifNull(greater(ifNull(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), 0), 0), 0), notEquals(events.event, '$ai_generation'))), 0), sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), equals(events.event, '$ai_generation')), sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_latency`, 'Float64')), accurateCastOrNull(events.properties.`$ai_latency`, 'Float64'), NULL), in(ifNull(CAST(events.properties.`$ai_parent_id`, 'Nullable(String)'), ''), tuple('', CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'))))))), 2) AS trace_latency_s,
+                         sumIf(if(isFinite(accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64')), accurateCastOrNull(events.properties.`$ai_total_cost_usd`, 'Float64'), NULL), in(events.event, tuple('$ai_generation', '$ai_embedding'))) AS trace_cost,
+                         greater(countIf(equals(CAST(events.properties.`$ai_is_error`, 'Nullable(String)'), 'true')), 0) AS has_error,
+                         nullIf(argMinIf(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), tuple(toTimeZone(events.timestamp, 'Asia/Kolkata'), CAST(events.properties.`$ai_session_id`, 'Nullable(String)')), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding')), notEquals(ifNull(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), ''), ''))), '') AS trace_session_id,
+                         countIf(and(isNotNull(events.properties.`$ai_session_id`), equals(if(equals(dynamicType(accurateCast(events.properties.`$ai_session_id`, 'Dynamic')), 'Float64'), 'Double', JSONType(ifNull(if(isNull(events.properties.`$ai_session_id`), NULL, if(and(in(ascii(CAST(events.properties.`$ai_session_id`, 'Nullable(String)')), tuple(91, 123)), isValidJSON(CAST(events.properties.`$ai_session_id`, 'Nullable(String)'))), CAST(events.properties.`$ai_session_id`, 'Nullable(String)'), toJSONString(events.properties.`$ai_session_id`))), ''))), 'Null'))) AS trace_session_declines,
+                         if(greater(countIf(and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))), 0), argMinIf(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), tuple(toTimeZone(events.timestamp, 'Asia/Kolkata'), events.distinct_id), and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))), NULL) AS trace_user_id,
+                         countIf(and(equals(events.event, '$ai_generation'), and(notEquals(events.distinct_id, ifNull(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0))))) AS trace_identified_generations,
+                         countIf(and(equals(events.event, '$ai_generation'), not(ifNull(equals(ifNull(CAST(events.properties.`$ai_ingestion_source`, 'Nullable(String)'), ''), 'otel'), 0)))) AS trace_non_otel_generations
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback')), greaterOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), lessOrEquals(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), isNotNull(events.properties.`$ai_trace_id`), notEquals(CAST(events.properties.`$ai_trace_id`, 'Nullable(String)'), '')), or(isNull(events.properties.ai_support_impersonated), ifNull(notEquals(CAST(events.properties.ai_support_impersonated, 'Nullable(String)'), 'true'), 1)))
+        GROUP BY trace_id
+        HAVING and(greater(countIf(in(events.event, tuple('$ai_trace', '$ai_span', '$ai_generation', '$ai_embedding'))), 0), greater(countIf(1), 0), lessOrEquals(first_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata')), greaterOrEquals(last_timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'Asia/Kolkata'))))
+     GROUP BY trace_id)
+  GROUP BY GROUPING
+  SETS ((in_current), (in_current,
+                       bucket))
+  ORDER BY is_period_total DESC
+  LIMIT 8 SETTINGS readonly=2,
+                   max_execution_time=30,
+                   timeout_overflow_mode='throw',
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1,
+                   output_format_json_escape_forward_slashes=0
+  '''
+# ---

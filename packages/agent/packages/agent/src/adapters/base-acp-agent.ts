@@ -151,17 +151,20 @@ export abstract class BaseAcpAgent implements Agent {
     gatewayUrl?: string,
     gatewayAuthToken?: string,
     projectId?: number,
+    listModels?: () => Promise<GatewayModel[]>,
   ): Promise<{
     currentModelId: string;
     options: SessionConfigSelectOption[];
   }> {
     // Authenticated so the gateway can mark plan-restricted models —
     // anonymous fetches see everything allowed.
-    this.gatewayModels = await fetchGatewayModels(
-      gatewayUrl
-        ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
-        : undefined,
-    );
+    this.gatewayModels = listModels
+      ? await listModels().catch(() => [])
+      : await fetchGatewayModels(
+          gatewayUrl
+            ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
+            : undefined,
+        );
 
     // A retired model stays served for saved sessions, so only the one this
     // session already runs is offered.
@@ -179,7 +182,9 @@ export abstract class BaseAcpAgent implements Agent {
         description: `Context: ${model.context_window.toLocaleString()} tokens`,
         // Locked models stay listed so the picker can gate them instead of
         // silently dropping them.
-        ...(model.allowed ? {} : { _meta: restrictedModelMeta() }),
+        ...(model.allowed || this.usesMachineAuth()
+          ? {}
+          : { _meta: restrictedModelMeta() }),
       }))
       .sort((a, b) => compareModelsForPicker(a.value, b.value));
 

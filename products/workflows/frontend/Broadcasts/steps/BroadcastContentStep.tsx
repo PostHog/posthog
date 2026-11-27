@@ -13,6 +13,8 @@ import { IntegrationType } from '~/types'
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { RunLinkTagHint } from '../../Workflows/hogflows/steps/components/RunLinkTagHint'
+import { RunLinkTagSwitch } from '../../Workflows/hogflows/steps/components/RunLinkTagSwitch'
 import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
 import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
@@ -36,6 +38,7 @@ export function BroadcastContentStep(): JSX.Element {
         templatingErrors,
         selectedSender,
         emailSettings,
+        emailStepSensitive,
         aiEmailDraftStatus,
         channel,
     } = useValues(broadcastWizardLogic)
@@ -191,6 +194,15 @@ export function BroadcastContentStep(): JSX.Element {
                     bordered
                     data-attr="broadcast-tracking-toggle"
                 />
+                {emailSettings.trackingEnabled && !emailStepSensitive && (
+                    <RunLinkTagSwitch
+                        label="Connect clicks to sessions"
+                        checked={emailSettings.runLinkTagEnabled}
+                        onChange={(runLinkTagEnabled) => setEmailSettings({ runLinkTagEnabled })}
+                        bordered
+                        data-attr="broadcast-run-link-tag-toggle"
+                    />
+                )}
                 <LemonSwitch
                     label="Add UTM tags to links"
                     checked={emailSettings.utmTagsEnabled}
@@ -199,7 +211,9 @@ export function BroadcastContentStep(): JSX.Element {
                     data-attr="broadcast-utm-tags-toggle"
                 />
             </div>
-            {!emailSettings.trackingEnabled && (
+            {emailSettings.trackingEnabled ? (
+                !emailStepSensitive && <RunLinkTagHint />
+            ) : (
                 <span className="text-xs text-secondary">
                     Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
                 </span>

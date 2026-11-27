@@ -5,10 +5,12 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import {
+    aiObservabilityOfflineExperimentsScorePreviewsCreate,
     llmAnalyticsScoreDefinitionsList,
     llmAnalyticsScoreDefinitionsVersionsList,
     llmAnalyticsScoreDefinitionsValidateCompositionCreate,
 } from '../generated/api'
+import type { ExperimentScorePreviewApi } from '../generated/api.schemas'
 import { compositeInputsLogic } from './compositeInputsLogic'
 import {
     buildCompositionFromDraft,
@@ -18,6 +20,7 @@ import {
 } from './scoreDefinitionModalUtils'
 
 jest.mock('../generated/api', () => ({
+    aiObservabilityOfflineExperimentsScorePreviewsCreate: jest.fn(),
     llmAnalyticsScoreDefinitionsList: jest.fn(),
     llmAnalyticsScoreDefinitionsVersionsList: jest.fn(),
     llmAnalyticsScoreDefinitionsValidateCompositionCreate: jest.fn(),
@@ -102,6 +105,46 @@ describe('composite input selection', () => {
         await expectLogic(logic, () => logic.actions.validateFormula(draft)).toFinishAllListeners()
         expect(validate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), body)
         expect(logic.values.validation).toEqual({ fingerprint: JSON.stringify(body), error: null })
+
+        const fromRun = compositeInputsLogic({ id: 'from-run', scope: 'experiment', experimentId: 'run-id' })
+        fromRun.mount()
+        const experimentDraft: ScoreDefinitionDraft = {
+            ...draft,
+            scope: 'experiment',
+            expression: 'safe >= 0.9',
+            inputs: draft.inputs.map((input) => ({ ...input, statistic: 'true_rate', version_policy: 'combine' })),
+        }
+        const preview: ExperimentScorePreviewApi = {
+            status: 'ok',
+            kind: 'boolean',
+            config: {},
+            passed: true,
+            inputs: [],
+            value: true,
+        }
+        jest.mocked(aiObservabilityOfflineExperimentsScorePreviewsCreate).mockResolvedValue(preview)
+        await expectLogic(fromRun, () => fromRun.actions.validateFormula(experimentDraft)).toFinishAllListeners()
+        expect(aiObservabilityOfflineExperimentsScorePreviewsCreate).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            'run-id',
+            {
+                scope: 'experiment',
+                kind: 'boolean',
+                config: body.config,
+                composition: {
+                    expression: 'safe >= 0.9',
+                    inputs: [
+                        {
+                            alias: 'safe',
+                            scorer_version_id: 'safe-v1',
+                            statistic: 'true_rate',
+                            version_policy: 'combine',
+                        },
+                    ],
+                },
+            }
+        )
+        expect(fromRun.values.validation?.preview).toEqual(preview)
 
         validate.mockRejectedValue({ detail: 'Unknown input: missing' })
         await expectLogic(logic, () =>

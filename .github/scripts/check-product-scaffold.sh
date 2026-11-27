@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Warn when a commit introduces a product directory that did not come from
 # `hogli product:bootstrap`. Never blocks: the author may be mid-work, and CI
-# holds the real gate (`hogli product:lint --all` against
-# products/isolation_baseline.txt).
+# holds the real gates (`hogli product:lint --all` against
+# products/isolation_baseline.txt, and `hoglint compare`).
 #
 # Scoped to product backends that are new in this commit. Existing products are
 # skipped outright, so this never has to answer "is this product isolated" — a
-# question that already has one implementation, in
-# tools/hogli-commands/hogli_commands/product/isolation.py, and does not need a
-# second one in shell.
+# question that already has one implementation, hoglint's Isolated level, and
+# does not need a second one in shell.
 set -uo pipefail
 
 BASELINE=products/isolation_baseline.txt

@@ -1,24 +1,24 @@
-node "events" {
+node "ingestion_events" {
   macros = {
-    hostClusterRole = "events"
+    hostClusterRole = "ingestion_events"
     hostClusterType = "online"
-    replica         = "events"
+    replica         = "ingestion_events"
     shard           = "01"
   }
 }
 
-node "medium" {
+node "ingestion_medium" {
   macros = {
-    hostClusterRole = "medium"
+    hostClusterRole = "ingestion_medium"
     hostClusterType = "online"
     replica         = "medium"
     shard           = "01"
   }
 }
 
-node "small" {
+node "ingestion_small" {
   macros = {
-    hostClusterRole = "small"
+    hostClusterRole = "ingestion_small"
     hostClusterType = "online"
     replica         = "small"
     shard           = "01"
@@ -247,7 +247,7 @@ database "posthog" {
       cluster_name    = "ai_events"
       remote_database = "posthog"
       remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+      sharding_key    = "rand()"
     }
   }
 
@@ -10642,7 +10642,7 @@ SQL
   }
 
   table "sharded_ai_events" {
-    order_by     = ["team_id", "trace_id", "timestamp"]
+    order_by     = ["team_id", "trace_id", "timestamp", "uuid"]
     partition_by = "toYYYYMM(drop_date)"
     ttl          = "drop_date"
     settings = {
@@ -10881,9 +10881,10 @@ SQL
       type        = "set(50)"
       granularity = 1
     }
-    engine "replicated_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.ai_events"
-      replica_name = "{replica}"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.ai_events"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
     }
   }
 
@@ -14527,7 +14528,7 @@ SQL
 
   table "sharded_web_bounces_dimensional_preaggregated" {
     primary_key  = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
-    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type"]
+    order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn", "channel_type", "session_hosts"]
     partition_by = "toYYYYMMDD(expires_at)"
     ttl          = "toDateTime(expires_at)"
     settings = {
@@ -14616,6 +14617,9 @@ SQL
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -14632,6 +14636,9 @@ SQL
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -15932,6 +15939,9 @@ SQL
     column "channel_type" {
       type = "LowCardinality(String)"
     }
+    column "session_hosts" {
+      type = "Array(String)"
+    }
     column "persons_uniq_state" {
       type = "AggregateFunction(uniq, UUID)"
     }
@@ -15948,6 +15958,9 @@ SQL
       type = "AggregateFunction(sum, Int64)"
     }
     column "total_session_count_state" {
+      type = "AggregateFunction(sum, Int64)"
+    }
+    column "bounce_eligible_sessions_state" {
       type = "AggregateFunction(sum, Int64)"
     }
     column "computed_at" {
@@ -19923,7 +19936,7 @@ SQL
   }
 
   materialized_view "ai_events_json_mv" {
-    to_table = "posthog.ai_events"
+    to_table = "posthog.sharded_ai_events"
     query    = <<SQL
 SELECT
   uuid,

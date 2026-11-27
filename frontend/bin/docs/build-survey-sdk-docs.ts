@@ -86,6 +86,13 @@ function generateMarkdown(): string {
         lines.push(formatRow(row))
     }
 
+    const notes = SURVEY_SDK_REQUIREMENTS.flatMap((req) =>
+        (req.docsNotes ?? []).map((note) => `- **${req.feature}:** ${note}`)
+    )
+    if (notes.length > 0) {
+        lines.push('', ...notes)
+    }
+
     return lines.join('\n')
 }
 

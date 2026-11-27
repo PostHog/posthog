@@ -1,9 +1,10 @@
 from dataclasses import replace
 from typing import Any
 
+from django.utils import timezone
+
 import pydantic
 
-from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import (
@@ -16,15 +17,15 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthSetup,
     ExperimentHealthStatsMethod,
 )
+from products.experiments.backend.facade.daily_calculation import daily_calculation_end
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
-from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
-from products.experiments.backend.health.metric_windows import load_primary_metric_windows
+from products.experiments.backend.health.metric_windows import has_metric_windows, load_primary_metric_windows
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
@@ -39,7 +40,6 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
 from products.feature_flags.backend.facade.filters import (
     condition_aggregation,
     condition_rollout_percentage,
@@ -47,25 +47,18 @@ from products.feature_flags.backend.facade.filters import (
 )
 
 
-@frozen
-class HealthInputs:
-    """What the staff view of the health checks shows: the context the checks read, the exposure query's answer that
-    the exposure checks read, and facts about the project that no check reads yet but that explain a finding."""
-
-    context: HealthContext
-    exposures: ExposureInputs
-    reader_access: ExperimentHealthReaderAccess
-    # None when the experiment has no flag, or the flag has no version.
-    flag_version: int | None
-    project: ProjectSetupFacts
-
-
 def evaluate_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The health endpoint's checks and the flag's setup. The checks read the experiment, its flag, its linked
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
-    flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
+    flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow. With `at_launch`, the checks of
+    a draft that run only after launch also run as if it launched now."""
     experiment = _load_experiment(team_id, experiment_id)
     if experiment.is_rule_linked:
         # The checks and the setup read the release conditions and the variants of a v1 flag, and none reads a
@@ -73,28 +66,24 @@ def evaluate_experiment_health(
         return not_checked_health(EXPERIMENT_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
     team_config = _team_config(experiment)
     ctx = _health_context(experiment, team_config, reader_access, user)
-    return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx, team_config))
+    launched = _launched_now(experiment, ctx) if at_launch and not ctx.is_launched else None
+    return replace(
+        evaluate(ctx, EXPERIMENT_HEALTH_CHECKS, launched=launched), setup=_health_setup(experiment, ctx, team_config)
+    )
 
 
-def load_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> HealthInputs:
-    experiment = _load_experiment(team_id, experiment_id)
-    return HealthInputs(
-        context=_health_context(experiment, _team_config(experiment), reader_access, user),
-        exposures=load_exposure_inputs(
-            experiment,
-            user=user,
-            can_query_events=reader_access.can_query_events,
-            can_read_flag_history=reader_access.can_read_flag_history,
-        ),
-        reader_access=reader_access,
-        flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
-        project=build_project_setup_facts(
-            experiment.team,
-            can_query_events=reader_access.can_query_events,
-            denied_event_properties=reader_access.denied_event_properties,
-        ),
+def _launched_now(experiment: Experiment, ctx: HealthContext) -> HealthContext:
+    """The draft as it is when its launch succeeds. Nothing from the run exists yet: no exposures, calculation, flag
+    change or pause, so the checks that need them keep "Runs after launch"."""
+    now = timezone.now()
+    return replace(
+        ctx,
+        is_launched=True,
+        is_running=True,
+        hours_since_launch=0.0,
+        hours_since_start=0.0,
+        daily_calculation_ends_at=daily_calculation_end(now),
+        primary_metric_windows=load_primary_metric_windows(experiment, launched_at=now),
     )
 
 
@@ -250,7 +239,11 @@ def _health_context(
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment, team_config=team_config),
         primary_metric_windows=load_primary_metric_windows(
-            experiment, can_read_flag_history=reader_access.can_read_flag_history
+            experiment,
+            # The launch time reads the activity log, so only an experiment that has metric windows pays for it.
+            launched_at=experiment.launched_at(read_activity_log=reader_access.can_read_flag_history)
+            if experiment.is_running and has_metric_windows(experiment)
+            else None,
         ),
         metric_compiles=load_metric_compiles(experiment, team_config=team_config, user=user),
         latest_calculation=latest_calculation,

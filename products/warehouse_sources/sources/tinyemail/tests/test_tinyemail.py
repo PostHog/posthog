@@ -97,6 +97,23 @@ class TestTinyemailTransport:
         assert result.response.name == "campaigns"
         assert result.response.primary_keys == ["id"]
 
+    def test_templates_walk_stops_at_total_pages(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            page = int(request.param("page") or 0)
+            return ScriptedResponse(
+                json={"content": [{"id": f"tpl_{page}", "name": f"Template {page}"}], "totalPages": 2, "number": page}
+            )
+
+        driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
+        result = driver.run("templates", respond)
+
+        assert result.raised is None
+        assert [(r.method, r.path, r.param("page"), r.param("sort"), r.param("size")) for r in result.requests] == [
+            ("GET", "/v1/template", "0", "createdAt,asc", "20"),
+            ("GET", "/v1/template", "1", "createdAt,asc", "20"),
+        ]
+        assert result.rows == [{"id": "tpl_0", "name": "Template 0"}, {"id": "tpl_1", "name": "Template 1"}]
+
     def test_tinyemail_source_contact_members_row_format(self) -> None:
         driver = SourceDriver(TinyemailSource(), TinyemailSourceConfig(api_key="key"))
         result = driver.run("contact_members", _members_walk)

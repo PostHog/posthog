@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.utils import timezone
 
 from google.cloud.bigquery.table import Row
@@ -18,6 +19,7 @@ from posthog.schema import (
     ExperimentWarehouseNativeExposureConfig,
     ExperimentWarehouseNativeMathType,
     ExperimentWarehouseNativeNode,
+    ExperimentWarehouseNativeRowsLeftOut,
     ExperimentWarehouseNativeUnitBinding,
     HogQLQueryResponse,
     MultipleVariantHandling,
@@ -27,9 +29,12 @@ from posthog.hogql.direct_connection import RAW_QUERY_TABLE_DENIED_ERROR
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -38,14 +43,15 @@ from products.experiments.backend.facade.warehouse_native_access import WAREHOUS
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
+from products.experiments.backend.warehouse_native_sources import WarehouseNativeAccessError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 UNIT = ExperimentWarehouseNativeUnitBinding(unit_type="customer", id_namespace="billing_customer_id")
 EXPOSURE_QUERY = "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures"
 METRIC_QUERY = "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments"
-RESULT_COLUMNS = ["variant", "num_users", "total_sum", "total_sum_of_squares"]
-RESULT_TYPES = ["STRING", "INTEGER", "FLOAT", "FLOAT"]
+RESULT_COLUMNS = ["variant", "num_users", "total_sum", "total_sum_of_squares", "entities_with_rows"]
+RESULT_TYPES = ["STRING", "INTEGER", "FLOAT", "FLOAT", "INTEGER"]
 _SOURCE_MANAGEMENT = "products.warehouse_sources.backend.facade.source_management"
 
 
@@ -70,9 +76,9 @@ class TestWarehouseNativeMetric(APIBaseTest):
         self.warehouse.return_value = HogQLQueryResponse(
             columns=RESULT_COLUMNS,
             results=[
-                ["test", 120, 400.0, 1500.0],
-                ["$multiple", 3, 9.0, 27.0],
-                ["control", 100, 250.0, 750.0],
+                ["test", 120, 400.0, 1500.0, 118],
+                ["$multiple", 3, 9.0, 27.0, 3],
+                ["control", 100, 250.0, 750.0, 100],
             ],
         )
         self.exposure = ExperimentWarehouseNativeExposureConfig(
@@ -137,6 +143,10 @@ class TestWarehouseNativeMetric(APIBaseTest):
             (result.baseline.key, result.baseline.number_of_samples, result.baseline.sum), ("control", 100, 250.0)
         )
         self.assertEqual([(v.key, v.number_of_samples, v.sum) for v in result.variant_results], [("test", 120, 400.0)])
+        # Two exposed test entities had no purchase that counted. The bucket of several variants is not a variant.
+        self.assertEqual(
+            result.rows_left_out, ExperimentWarehouseNativeRowsLeftOut(exposed_without_rows={"control": 0, "test": 2})
+        )
         self.assertIsNone(result.clickhouse_sql)
 
     @parameterized.expand(
@@ -206,7 +216,7 @@ class TestWarehouseNativeMetric(APIBaseTest):
         index = {field.name: position for position, field in enumerate(fields)}
         row_iterator = MagicMock()
         row_iterator.__iter__.return_value = iter(
-            [Row(("control", 100, 250.0, 750.0), index), Row(("test", 120, 400.0, 1500.0), index)]
+            [Row(("control", 100, 250.0, 750.0, 100), index), Row(("test", 120, 400.0, 1500.0, 118), index)]
         )
         row_iterator.schema = fields
         client = MagicMock()
@@ -270,12 +280,20 @@ class TestWarehouseNativeMetric(APIBaseTest):
         )
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
 
-        with self.assertRaises(ValidationError) as raised:
+        with self.assertRaises(WarehouseNativeAccessError) as raised:
             ExperimentQueryRunner(query=query, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
             )
 
         self.assertIn("does not exist, or you do not have access", str(raised.exception))
+        # Publishing a link to the query asks the same hook, and records only an access control error.
+        self.assertEqual(
+            denied_query_resources(self.user, self.team, [query.model_dump(mode="json")]), ["external_data_source"]
+        )
+        # A shared link reads without a user, and the cached totals would otherwise answer it.
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        with self.assertRaises(DjangoPermissionDenied):
+            ExperimentQueryRunner(query=query, team=self.team, user=SharedLinkUser(share))
 
         # The dashboard results widget reads the same cache for the viewer.
         widget = experiment_results_widget(

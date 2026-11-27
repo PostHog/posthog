@@ -5,6 +5,7 @@ import pytest
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+from products.aeo.backend import prompt_limit
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
 from products.aeo.backend.models import AEOPrompt, AEOPromptVersion
 from products.aeo.backend.seeding import (
@@ -60,12 +61,12 @@ def team(db: None) -> Team:
 
 def test_reseeding_the_same_prompt_updates_instead_of_duplicating(team: Team) -> None:
     first = upsert_prompts(team, [_candidate("Best session replay?"), _candidate("best session replay?")])
-    assert first == {"created": 1, "updated": 1, "skipped": 0}
+    assert first == {"created": 1, "updated": 1, "skipped": 0, "held_back": 0}
     AEOPrompt.objects.for_team(team.id).update(active=False)
 
     result = upsert_prompts(team, [_candidate("  best   SESSION replay?  ", topic="Session replay")])
 
-    assert result == {"created": 0, "updated": 1, "skipped": 0}
+    assert result == {"created": 0, "updated": 1, "skipped": 0, "held_back": 0}
     prompt = AEOPrompt.objects.for_team(team.id).get()
     assert (prompt.prompt, prompt.topic, prompt.active) == ("best session replay?", "Session replay", False)
     assert list(AEOPromptVersion.objects.for_team(team.id).values_list("prompt_id", "version", "text")) == [
@@ -85,8 +86,25 @@ def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:
         ],
     )
 
-    assert result == {"created": 1, "updated": 0, "skipped": 2}
+    assert result == {"created": 1, "updated": 0, "skipped": 2, "held_back": 0}
     assert [p.prompt for p in AEOPrompt.objects.for_team(team.id)] == ["What is the best web analytics tool?"]
+
+
+def test_fitting_to_the_limit_holds_back_the_lowest_ranked_new_prompts(team: Team) -> None:
+    prompt_limit.set_max_active_prompts(team.id, 2)
+    candidates = [
+        PromptCandidate(text=text, source=AEOPrompt.Source.MANUAL, rank=rank)
+        for text, rank in [("low?", 1.0), ("high?", 3.0), ("middle?", 2.0)]
+    ]
+
+    result = upsert_prompts(team, candidates, fit_to_limit=True)
+
+    assert result["held_back"] == 1
+    assert dict(AEOPrompt.objects.for_team(team.id).values_list("prompt", "active")) == {
+        "low?": False,
+        "high?": True,
+        "middle?": True,
+    }
 
 
 def test_import_through_a_child_environment_lands_on_the_parent(team: Team) -> None:
@@ -95,5 +113,5 @@ def test_import_through_a_child_environment_lands_on_the_parent(team: Team) -> N
 
     result = upsert_prompts(child, [_candidate("best session replay?"), _candidate("Best feature flags?")])
 
-    assert result == {"created": 1, "updated": 1, "skipped": 0}
+    assert result == {"created": 1, "updated": 1, "skipped": 0, "held_back": 0}
     assert AEOPrompt.objects.for_team(team.id).count() == 2

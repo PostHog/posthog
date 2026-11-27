@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -310,7 +310,6 @@ type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: Groups
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
     idempotency_key_reused: 422,
-    idempotency_unavailable: 503,
     intake_unavailable: 503,
     invalid_request: 400,
     not_sendable: 400,
@@ -362,6 +361,11 @@ const invalidSendReplyOf = (error: z.ZodError, context: Record<string, unknown>)
         issues: issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
     })
     return { outcome: 'invalid_request', status: 400, body: { error: error.message } }
+}
+
+const invalidSlotReplyOf = (error: z.ZodError, context: Record<string, unknown>): SendReply => {
+    const reply = invalidSendReplyOf(error, context)
+    return reply.outcome === 'invalid_request' ? { ...reply, body: { error: 'invalid_recipient' } } : reply
 }
 
 const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies => {
@@ -1564,6 +1568,9 @@ export class CdpApi {
                 if (recalled) {
                     return answer(recalled)
                 }
+                if (send?.category?.archived) {
+                    return reply('category_not_found', 400, { error: 'category_not_found' })
+                }
                 const references = send?.attachments ?? []
                 if (references.length > 0 && !this.attachmentUploads.isAllowed(parseInt(req.params.team_id))) {
                     return reply('field_not_accepted', 400, { error: 'field_not_accepted' })
@@ -1586,7 +1593,7 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
-                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow) : null
+                const filesShape = references.length > 0 ? filesWorkflowShape(hogFlow, send) : null
 
                 return answer(
                     await sends.accept(
@@ -1642,16 +1649,7 @@ export class CdpApi {
                     transactionalEmailBatchRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
-                // A batch answers on the broker's ack, so a team whose sends still insert on the request path gets none.
-                if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
-                    return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
-                }
-                if (!this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE) {
-                    return refuse('not_sealing', 503, {
-                        error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',
-                    })
-                }
-                release = this.transactionalEmailBatchCapacity.admit()
+                release = this.transactionalEmailBatchCapacity.admit(parseInt(req.params.team_id))
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })
                 }
@@ -1663,11 +1661,14 @@ export class CdpApi {
                         hog_flow_id: req.params.id,
                         issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
                     })
-                    return refuse('invalid_request', 400, { error: parsed.error.message })
+                    return refuse('invalid_request', 400, { error: 'invalid_request' })
                 }
                 const batch = parsed.data
                 if (exceedsCopyLimits(batch)) {
                     return refuse('too_large', 413, { error: 'too_large' })
+                }
+                if (batch.send?.category?.archived) {
+                    return refuse('category_not_found', 400, { error: 'category_not_found' })
                 }
                 const teamId = parseInt(req.params.team_id)
 
@@ -1694,7 +1695,7 @@ export class CdpApi {
                     const request = BatchSlotRequestSchema.safeParse(slotRequestOf(batch, recipient))
                     return request.success
                         ? keyed.push(request.data) - 1
-                        : invalidSendReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
+                        : invalidSlotReplyOf(request.error, { team_id: teamId, hog_flow_id: hogFlow.id })
                 })
                 const sender = batch.send
                     ? senderOfCodeSend(team.id, batch.send, integration)
@@ -1730,7 +1731,7 @@ export class CdpApi {
                 logger.error('Error running a transactional email batch', {
                     error: e instanceof Error ? e.message : String(e),
                 })
-                return refuse('error', 500, { error: e instanceof Error ? e.message : String(e) })
+                return refuse('error', 500, { error: 'internal_error' })
             } finally {
                 stages.finish()
                 release?.()
@@ -1872,19 +1873,13 @@ export class CdpApi {
             encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
-                invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
-                intake: {
-                    modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(
-                        this.outputs,
-                        undefined,
-                        createInvocationSanitizer(this.config).seal,
-                        intakeClusterOf(this.config)
-                    ),
-                    sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
-                },
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
             }),
-            invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,
             teamWorkflowsConfig: this.teamWorkflowsConfigService,
             emailSuppression: this.emailSuppressionService,

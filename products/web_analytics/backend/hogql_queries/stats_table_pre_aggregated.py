@@ -171,6 +171,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return query
 
+    def _initial_page_query(self) -> ast.SelectQuery:
+        return self._bounce_rate_query()
+
+    def _initial_page_counts_table(self) -> str:
+        return self.bounces_table
+
     def _get_bounce_rate_filters(self) -> ast.Expr:
         return self._get_filters(
             table_name=self.bounces_table,
@@ -590,7 +596,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             else:
                 query = self._default_breakdown_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
-            query = self._bounce_rate_query()
+            query = self._initial_page_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
         else:
@@ -599,7 +605,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if self.runner.query.includeTrafficMetrics and not self.runner.query.conversionGoal:
             if self.runner.query.breakdownBy in (WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE):
                 table = (
-                    self.bounces_table
+                    self._initial_page_counts_table()
                     if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE
                     else self.stats_table
                 )

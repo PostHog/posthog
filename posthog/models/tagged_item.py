@@ -3,12 +3,12 @@ from typing import Any, cast
 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, router
 from django.db.models import F, OuterRef, Q
 from django.db.models.functions import Cast
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin, get_current_user, get_was_impersonated
-from posthog.models.tag import Tag
+from posthog.models.tag import Tag, tag_assignment_transaction
 from posthog.models.tagged_item_registry import (
     TaggableModel,
     content_type_for,
@@ -47,13 +47,42 @@ class TaggedItemQuerySet(models.QuerySet):
     def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:  # type: ignore[override]
         """Fill the generic pointer on each row, because bulk_create never calls save()."""
         objs = list(objs)
+        using = getattr(self, "_db", None) or router.db_for_write(TaggedItem)
         uncached_tag_ids = {obj.tag_id for obj in objs if not TaggedItem.tag.is_cached(obj)}
-        tags = Tag.objects.in_bulk(uncached_tag_ids) if uncached_tag_ids else {}
+        tags = Tag.objects.using(using).in_bulk(uncached_tag_ids) if uncached_tag_ids else {}
+        if uncached_tag_ids - tags.keys():
+            raise ValidationError("This tag no longer exists. Refresh the tags and try again.")
         for obj in objs:
             if obj.tag_id in tags:
                 obj.tag = tags[obj.tag_id]
             obj.sync_team()
-        return cast(list[TaggedItem], super().bulk_create(cast(Iterable[Any], objs), *args, **kwargs))
+        with tag_assignment_transaction([obj.tag.team_id for obj in objs], using=using):
+            locked_tags = {
+                tag.id: tag
+                for tag in Tag.objects.using(using)
+                .filter(id__in=[obj.tag_id for obj in objs])
+                .order_by("id")
+                .select_for_update(of=("self",))
+            }
+            for obj in objs:
+                if obj.tag_id not in locked_tags:
+                    raise ValidationError("This tag no longer exists. Refresh the tags and try again.")
+                obj.tag = locked_tags[obj.tag_id]
+                obj.sync_team()
+            return cast(
+                list[TaggedItem],
+                super(TaggedItemQuerySet, self.using(using)).bulk_create(cast(Iterable[Any], objs), *args, **kwargs),
+            )
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        using = getattr(self, "_db", None) or router.db_for_write(TaggedItem)
+        queryset = self.using(using)
+        tag_ids = list(queryset.values_list("tag_id", flat=True).distinct())
+        tags = Tag.objects.using(using).filter(id__in=tag_ids)
+        team_ids = list(tags.values_list("team_id", flat=True))
+        with tag_assignment_transaction(team_ids, using=using):
+            list(tags.order_by("id").select_for_update(of=("self",)))
+            return super(TaggedItemQuerySet, queryset.filter(tag_id__in=tag_ids)).delete()
 
 
 class TaggedItem(ModelActivityMixin, UUIDTModel):
@@ -183,11 +212,34 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         self.team_id = self.tag.team_id
 
     def save(self, *args, **kwargs):
-        self.sync_team()
-        self.full_clean()
-        if kwargs.get("update_fields"):
-            kwargs["update_fields"] = {*kwargs["update_fields"], *GENERIC_POINTER_FIELDS}
-        return super().save(*args, **kwargs)
+        using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+        if not type(self).tag.is_cached(self):
+            try:
+                self.tag = Tag.objects.using(using).get(id=self.tag_id)
+            except Tag.DoesNotExist as error:
+                raise ValidationError("This tag no longer exists. Refresh the tags and try again.") from error
+        with tag_assignment_transaction([self.tag.team_id], using=using):
+            try:
+                self.tag = (
+                    Tag.objects.using(using)
+                    .select_for_update(of=("self",))
+                    .get(id=self.tag_id, team_id=self.tag.team_id)
+                )
+            except Tag.DoesNotExist as error:
+                raise ValidationError("This tag no longer exists. Refresh the tags and try again.") from error
+            self.sync_team()
+            self.full_clean(exclude={"tag", "team", "content_type"}, validate_unique=False, validate_constraints=False)
+            if (
+                self._state.adding
+                and self.pk is not None
+                and type(self).objects.using(using).filter(pk=self.pk).exists()
+            ):
+                raise ValidationError({"id": self.unique_error_message(type(self), ("id",))})
+            for constraint in self._meta.constraints:
+                constraint.validate(type(self), self, using=using)
+            if kwargs.get("update_fields"):
+                kwargs["update_fields"] = {*kwargs["update_fields"], *GENERIC_POINTER_FIELDS}
+            return super().save(*args, **{**kwargs, "using": using})
 
     def __str__(self) -> str:
         return str(self.tag)
@@ -195,14 +247,26 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     def delete(self, *args, **kwargs):
         from posthog.models.signals import model_activity_signal
 
-        model_activity_signal.send(
-            sender=self.__class__,
-            scope=self.__class__.__name__,
-            before_update=self,
-            after_update=None,
-            activity="deleted",
-            user=get_current_user(),
-            was_impersonated=get_was_impersonated(),
-        )
+        using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+        with tag_assignment_transaction([self.team_id] if self.team_id is not None else [], using=using):
+            tag = (
+                Tag.objects.using(using)
+                .select_related("team")
+                .select_for_update(of=("self",))
+                .filter(id=self.tag_id)
+                .first()
+            )
+            if tag is None or not type(self).objects.using(using).filter(id=self.id).exists():
+                return (0, {})
+            self.tag = tag
+            model_activity_signal.send(
+                sender=self.__class__,
+                scope=self.__class__.__name__,
+                before_update=self,
+                after_update=None,
+                activity="deleted",
+                user=get_current_user(),
+                was_impersonated=get_was_impersonated(),
+            )
 
-        return super().delete(*args, **kwargs)
+            return super().delete(*args, **{**kwargs, "using": using})

@@ -23,7 +23,7 @@
         "dream_owner_skill": {
             "type": "string",
             "maxLength": 200,
-            "description": "The `created_by_skill` of the entry the change touched. For a learning or a digest you wrote, the scout whose memory or feedback it came from, or `fleet` when it spans scouts."
+            "description": "The `created_by_skill` of the entry the change touched. For a learning, a candidate or a digest you wrote, the scout whose memory or feedback it came from, or `fleet` when it spans scouts."
         },
         "dream_action": {
             "enum": [
@@ -33,10 +33,12 @@
                 "record_disagreement",
                 "fold",
                 "write_learning",
+                "write_candidate",
+                "promote_candidate",
                 "write_digest",
                 "skip_conflict"
             ],
-            "description": "What you did. `fold` is the rewrite of the surviving entry; each entry folded into it is its own `retire` record. `skip_conflict` is a write that `if_updated_at` refused."
+            "description": "What you did. `fold` is the rewrite of the surviving entry; each entry folded into it is its own `retire` record. `write_candidate` starts or extends a candidate. `promote_candidate` is the retirement of a candidate whose learning you wrote, and the learning is its own `write_learning` record. `skip_conflict` is a write that `if_updated_at` refused."
         },
         "dream_key": {
             "type": "string",
@@ -53,11 +55,12 @@
                 "never_read",
                 "conflicting_claims",
                 "repeated_feedback",
+                "verdict_placed",
                 "evidence_still_holds",
                 "digest",
                 "write_conflict"
             ],
-            "description": "Why. `stale`: the live state no longer matches. `never_read`: the owning scout's runs rebuild or ignore it. `evidence_still_holds`: a learning re-confirmed and extended."
+            "description": "Why. `stale`: the live state no longer matches. `never_read`: the owning scout's runs rebuild or ignore it. `verdict_placed`: a candidate started or extended with a verdict below the bar. `evidence_still_holds`: a learning re-confirmed and extended."
         },
         "dream_content_chars_before": {
             "type": ["integer", "null"],

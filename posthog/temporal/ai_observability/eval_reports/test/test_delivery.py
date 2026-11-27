@@ -2,6 +2,7 @@ from contextlib import nullcontext
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -15,6 +16,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
     _linkify_citations,
+    _make_citation_link,
     _render_metrics_block_html,
     _render_metrics_slack_blocks,
     _render_section_html,
@@ -176,6 +178,40 @@ class TestRenderSectionHtml(SimpleTestCase):
         html = _render_section_html("Volume drop at 14:00", "body", project_id=1, citation_map={})
         self.assertIn("<h2>Volume drop at 14:00</h2>", html)
 
+    def test_escapes_html_in_title(self):
+        html = _render_section_html(
+            'Drop <a href="https://example.com">sign in</a>', "body", project_id=1, citation_map={}
+        )
+        self.assertIn("<h2>Drop &lt;a href=", html)
+        self.assertNotIn("<a ", html)
+
+    @parameterized.expand(
+        [
+            ("external_link", "[Sign in](https://evil.example/login)"),
+            ("lookalike_domain", f"[Sign in]({settings.SITE_URL}.evil.example/login)"),
+            ("posthog_page", f"[Open the trace]({settings.SITE_URL}/shared/abc)"),
+            ("autolink", "<https://evil.example/login>"),
+            ("image", "![](https://evil.example/pixel.png)"),
+        ]
+    )
+    def test_drops_non_citation_links_and_images(self, _name: str, content: str):
+        html = _render_section_html("Summary", content, project_id=1, citation_map={})
+        self.assertNotIn("<a ", html)
+        self.assertNotIn("<img", html)
+
+    @parameterized.expand(
+        [
+            ("title_url", "Action required: https://evil.example/login", "body", "https://evil.example/login"),
+            ("body_url", "Summary", "Sign in at https://evil.example/login", "https://evil.example/login"),
+            ("body_domain", "Summary", "Sign in at evil.example/login", "evil.example"),
+            ("body_code_block", "Summary", "```\nevil.example/login\n```", "evil.example"),
+            ("body_entities", "Summary", "https&#58;&#47;&#47;evil&#46;example&#47;login", "https://evil.example"),
+        ]
+    )
+    def test_defangs_urls_and_domains(self, _name: str, title: str, content: str, link_text: str):
+        html = _render_section_html(title, content, project_id=1, citation_map={})
+        self.assertNotIn(link_text, html)
+
     def test_renders_bold_markdown(self):
         html = _render_section_html("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
         self.assertIn("<strong>Pass rate</strong>", html)
@@ -188,8 +224,31 @@ class TestRenderSectionHtml(SimpleTestCase):
             project_id=42,
             citation_map=citation_map,
         )
-        self.assertIn("/project/42/ai-observability/traces/trace-abc", html)
-        self.assertIn("12345678...", html)
+        link = _make_citation_link(42, citation_map["12345678-1234-1234-1234-123456789abc"])
+        self.assertIn(f'<a href="{link}">12345678...</a>', html)
+
+    def test_links_a_citation_beside_another_link(self):
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
+        link = _make_citation_link(1, citation_map["12345678-1234-1234-1234-123456789abc"])
+        content = "See <https://posthog.com/docs> and `12345678-1234-1234-1234-123456789abc`."
+        html = _render_section_html("Summary", content, project_id=1, citation_map=citation_map)
+        self.assertIn(f'<a href="{link}">', html)
+        self.assertNotIn("<pre>", html)
+
+    def test_keeps_code_that_looks_like_a_link(self):
+        content = '```python\nhandlers["search"](query)\n```'
+        self.assertIn(
+            "handlers[&quot;search&quot;](query)", _render_section_html("S", content, project_id=1, citation_map={})
+        )
+        self.assertIn('handlers["search"](query)', _render_section_mrkdwn("S", content, project_id=1, citation_map={}))
+
+    def test_an_unclosed_fence_does_not_reach_the_next_section(self):
+        _render_section_mrkdwn("First", "```\ncode without a closing fence", project_id=1, citation_map={})
+        self.assertNotIn("**bold**", _render_section_mrkdwn("Second", "**bold**", project_id=1, citation_map={}))
+
+    def test_cuts_long_sections_before_rendering(self):
+        html = _render_section_html("Summary", "word " * 20_000, project_id=1, citation_map={})
+        self.assertLess(len(html), 21_000)
 
     def test_renders_lists(self):
         html = _render_section_html("Stats", "- item 1\n- item 2", project_id=1, citation_map={})
@@ -217,6 +276,59 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
     def test_renders_agent_chosen_title(self):
         result = _render_section_mrkdwn("Cost spike in gpt-5.2", "Body", project_id=1, citation_map={})
         self.assertIn("*Cost spike in gpt-5.2*", result)
+
+    def test_escapes_slack_markup_in_title(self):
+        result = _render_section_mrkdwn(
+            "Drop <!channel> <https://evil.example|sign in>", "Body", project_id=1, citation_map={}
+        )
+        self.assertIn("*Drop &lt;!channel&gt; &lt;https://evil.example|sign in&gt;*", result.replace("\u200b", ""))
+
+    @parameterized.expand(
+        [
+            ("raw_markup", "<!channel> <https://evil.example|sign in>"),
+            ("link", "[Sign in](https://evil.example/login)"),
+            ("escaped_bracket", "\\[Sign in](https://evil.example/login)"),
+            ("bracket_in_label", "[a]b](https://evil.example/login)"),
+            ("bracket_ping", "[a]b](!channel)"),
+            ("fullwidth_ping", "\uff1c!channel\uff1e"),
+            ("small_form_ping", "\ufe64!here\ufe65"),
+            ("image", "![a]b](https://evil.example/p.png)"),
+        ]
+    )
+    def test_agent_markup_never_becomes_live_slack_markup(self, _name: str, content: str):
+        result = _render_section_mrkdwn("Summary", content, project_id=1, citation_map={})
+        self.assertNotIn("<", result)
+
+    @parameterized.expand(
+        [
+            ("title", "Action required: https://evil.example/login", "Body"),
+            ("body", "Summary", "Sign in at https://evil.example/login"),
+            ("title_domain", "Action required: evil.example/login", "Body"),
+            ("body_domain", "Summary", "Sign in at evil.example/login"),
+        ]
+    )
+    def test_bare_external_urls_are_inert(self, _name: str, title: str, content: str):
+        result = _render_section_mrkdwn(title, content, project_id=1, citation_map={})
+        self.assertNotIn("evil.example", result)
+
+    def test_keeps_citation_links_live(self):
+        citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
+        result = _render_section_mrkdwn(
+            "Failures", "Failed: `12345678-1234-1234-1234-123456789abc`", project_id=42, citation_map=citation_map
+        )
+        self.assertRegex(result, r"<http[^|>]+/project/42/ai-observability/traces/trace-abc[^|>]*\|12345678\.\.\.>")
+
+    @parameterized.expand(
+        [
+            ("ampersand_trace", Citation(trace_id="user=1&session=2", reason="example"), "See `user=1&session=2`."),
+            ("colon_session", Citation(session_id="sess:1", reason="example"), "Session <sess:1> failed."),
+        ]
+    )
+    def test_links_ids_with_markup_characters(self, _name: str, citation: Citation, content: str):
+        citation_map = _build_citation_map([citation])
+        link = _make_citation_link(1, next(iter(citation_map.values())))
+        self.assertIn(f'<a href="{link}">', _render_section_html("S", content, project_id=1, citation_map=citation_map))
+        self.assertIn(f"<{link}|", _render_section_mrkdwn("S", content, project_id=1, citation_map=citation_map))
 
     def test_converts_bold(self):
         result = _render_section_mrkdwn("Stats", "**Pass rate**: 80%", project_id=1, citation_map={})
@@ -645,12 +757,12 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.team_get = self.mock_team.objects.select_related.return_value.get
         self.team_get.return_value.organization.is_ai_data_processing_approved = True
 
-    def _make_report_run(self, sections=None):
+    def _make_report_run(self, sections=None, title="A nice punchline"):
         if sections is None:
             sections = [ReportSection(title="Summary", content="All good.")]
         run = MagicMock()
         run.content = EvalReportContent(
-            title="A nice punchline",
+            title=title,
             sections=sections,
             citations=[],
             metrics=EvalReportMetrics(total_runs=10, result_counts={"pass": 9, "fail": 1, "na": 0}),
@@ -700,6 +812,31 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
         for call in client.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.integrations.IntegrationManager")
+    def test_defangs_urls_in_the_evaluation_name_and_title(self, mock_integration, mock_slack_integration):
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        deliver_slack_report(
+            self._make_report_run(title="Re-authenticate at https://evil.example/login"),
+            [{"type": "slack", "integration_id": 3, "channel": "C0B5CHB0JQH"}],
+            evaluation_name="@here sign in at https://name.example <https://name.example|here>",
+            evaluation_id="eval-1",
+            team_id=7,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        header, context = client.chat_postMessage.call_args_list[0].kwargs["blocks"][:2]
+        self.assertEqual(header["type"], "header")
+        self.assertNotIn("https://evil.example", header["text"]["text"])
+        self.assertNotIn("https://name.example", header["text"]["text"])
+        self.assertNotIn("<https://name.example", context["elements"][0]["text"])
+        self.assertTrue(context["elements"][0]["verbatim"])
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.integrations.IntegrationManager")

@@ -11,6 +11,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -19,6 +20,9 @@ from posthog.exceptions import Conflict
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
     IMPORT_PROVIDER_CHOICES,
@@ -33,6 +37,8 @@ from products.messaging.backend.facade.provider_imports import (
     list_provider_import_runs,
     start_provider_import,
 )
+
+CUSTOMERIO_PROVIDER = "customerio"
 
 
 class ImportStepOptionSerializer(serializers.Serializer):
@@ -144,6 +150,9 @@ class ImportStepProgressSerializer(serializers.Serializer):
     items_omitted = serializers.IntegerField(
         help_text="How many more objects there were than `items` holds. In the list of runs, this counts every object."
     )
+    skipped = serializers.BooleanField(
+        help_text="True when the step completed without reading anything, because the key can't read it. `warnings` says why."
+    )
 
 
 class ProviderImportRunSerializer(serializers.Serializer):
@@ -241,6 +250,11 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_project_access("editor")
 
         data = request.validated_data
+        if "automations" in data["steps"]:
+            # Automations become workflow drafts, so they need the property access that editing a workflow needs.
+            permission = CDPPropertyAccessPermission()
+            if not permission.has_permission(request, self):
+                raise PermissionDenied(permission.message)
         # The import runs in the background without this request, so the key's scopes are checked here.
         scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
         if (
@@ -266,8 +280,16 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
-        if data["provider"] not in {provider.key for provider in self._providers()}:
+            # The Customer.io key stays stored for the project, so anyone else could read every profile with it.
+            if data["provider"] == CUSTOMERIO_PROVIDER:
+                if not authorization.check(resource=Resource.project(self.team.id), action=Action.EDIT):
+                    raise PermissionDenied("Only project admins can import Customer.io contacts.")
+        provider = next((provider for provider in self._providers() if provider.key == data["provider"]), None)
+        if provider is None:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        # A step whose feature flag is off isn't offered. `start_provider_import` doesn't know the flags.
+        if unknown := sorted(set(data["steps"]) - {step.key for step in provider.steps}):
+            raise ValidationError(f"{provider.label} has no step named {', '.join(unknown)}.")
         try:
             run = start_provider_import(
                 self.team_id,
@@ -291,13 +313,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ProviderImportUnavailable as e:
             raise ProviderUnavailable(str(e)) from e
 
-        report_user_action(
-            request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
         report_user_action(
             request.user,
             "workflows import run",

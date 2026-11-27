@@ -742,6 +742,22 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
     { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
     { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
     ...[
+        { name: 'ready PR', github: pullRequest(), runs: true },
+        { name: 'hourly schedule', github: schedule(), runs: true },
+        { name: 'manual dispatch', github: workflowDispatch(), runs: false },
+    ].flatMap(({ name, github, runs }) =>
+        [
+            { job: 'turbo-discover', step: 'schema-key' },
+            { job: 'django', step: 'prime-schema' },
+        ].map(({ job, step }) => ({
+            file: DEPOT_BACKEND,
+            job,
+            step,
+            scenario: { name, github, steps: { ...allFiltersChanged(workflow(DEPOT_BACKEND)), ...backendSelectors } },
+            runs,
+        }))
+    ),
+    ...[
         { name: 'ready PR labeled run-ci-backend', github: pullRequest({ labels: ['run-ci-backend'] }), runs: true },
         {
             name: 'draft PR labeled run-ci-backend',
@@ -1600,39 +1616,54 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
-        ['PR without baseline changes', pullRequest(), 'false', true, false],
-        ['PR with baseline changes', pullRequest(), 'true', true, true],
-        ['draft PR with baseline changes', pullRequest({ draft: true }), 'true', true, true],
-        ['fork PR with baseline changes', pullRequest({ fork: true }), 'true', true, true],
-        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', true, true],
-        ['merge queue', mergeQueue(), 'true', true, true],
-        ['master push', push(), 'true', false, false],
-        ['nightly', schedule(), 'true', false, false],
-    ] as const)('Storybook selection artifacts on %s', (name, github, snapshotsBaseline, graphUpload, indexUpload) => {
-        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+        ['the exact migration-set dump', ['posthog-schema-mig-v2-base'], false],
+        ['the exact base dump', ['posthog-schema-master-base'], false],
+        ['only an older migration set', ['posthog-schema-mig-v2-older'], false],
+        ['no dump', [], true],
+    ])('prime-schema-cache build step when the cache holds %s', (name, cached, builds) => {
+        const github = pullRequest()
+        const schemaKey = {
+            migrations_key: 'posthog-schema-mig-v2-base',
+            key: 'posthog-schema-master-base',
+            ancestor_keys: 'posthog-schema-mig-v2-older\nposthog-schema-mig-v2-oldest',
+        }
+        const turboDiscover = {
+            outputs: {
+                schema_migrations_key: schemaKey.migrations_key,
+                schema_cache_key: schemaKey.key,
+                schema_ancestor_keys: schemaKey.ancestor_keys,
+            },
+        }
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const lookup = workflow(DEPOT_BACKEND).jobs['prime-schema-cache']?.steps?.find(
+            (step) => step.id === 'schema-cache'
+        )
+        const context = { github, needs: { 'turbo-discover': turboDiscover } }
+        const primaryKey = evaluateTemplate(lookup?.with?.key, context, functions)
+        const restoreKeys = evaluateTemplate(lookup?.with?.['restore-keys'], context, functions)
+            .split('\n')
+            .map((key) => key.trim())
+            .filter(Boolean)
+        const matched =
+            cached.find((entry) => entry === primaryKey) ??
+            restoreKeys.map((prefix) => cached.find((entry) => entry.startsWith(prefix))).find(Boolean) ??
+            ''
+
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
             name,
             github,
-            jobOutputs: {
-                changes: {
-                    frontend: 'true',
-                    snapshots_baseline: snapshotsBaseline,
-                    merge_queue: name === 'merge queue' ? 'true' : 'false',
-                },
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                'turbo-discover': { ...backendSelectors['turbo-discover'], 'schema-key': { outputs: schemaKey } },
+                'prime-schema-cache': { 'schema-cache': { outputs: { 'cache-matched-key': matched } } },
             },
-            steps: { 'select-stories': { classify: { outputs: { mode: 'selective' } } } },
         })
+
         expect(plan.errors).toEqual([])
-        const steps = plan.jobs['build-storybook']?.steps
-        const uploadsGraph = steps?.find((step) => step.name === 'Upload module-graph artifact')?.runs
-        const uploadsIndex = steps?.find((step) => step.name === 'Upload story index artifact')?.runs
-        expect(uploadsGraph).toBe(graphUpload)
-        expect(uploadsIndex).toBe(indexUpload)
-        if (plan.jobs['select-stories']?.result === 'success') {
-            expect(uploadsGraph).toBe(true)
-        }
-        if (plan.jobs['check-baseline-removals']?.result === 'success') {
-            expect(uploadsIndex).toBe(true)
-        }
+        expect(plan.jobs['prime-schema-cache']?.steps.find((step) => step.name === 'Build schema dump')?.runs).toBe(
+            builds
+        )
     })
 
     it.each([
