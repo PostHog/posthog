@@ -607,6 +607,13 @@ class MockNotebookRunWorkflow:
         _mock_workflow_calls.extend(inputs["node_ids"])
 
 
+@temporal_workflow.defn(name="data-modeling-retire-notebook-upload")
+class MockRetireNotebookUploadWorkflow:
+    @temporal_workflow.run
+    async def run(self, _upload: RetiredNotebookUpload) -> None:
+        pass
+
+
 _child_concurrency = {"running": 0, "peak": 0, "sleep_seconds": 10}
 
 
@@ -654,11 +661,7 @@ class TestExecuteDAGWorkflowWithMocks:
 
         prepared: list[str] = []
         previous = uuid.uuid4()
-        retired: list[uuid.UUID] = []
-
-        @temporal_activity.defn(name="remove_retired_notebook_upload")
-        async def remove(upload: RetiredNotebookUpload) -> None:
-            retired.append(upload.generation)
+        publishing_workflow = ""
 
         @temporal_activity.defn(name="prepare_notebook_model")
         async def prepare(run: ModelRun) -> PreparedNotebookModel | None:
@@ -671,6 +674,8 @@ class TestExecuteDAGWorkflowWithMocks:
 
         @temporal_activity.defn(name="publish_notebook_model")
         async def publish(run: ModelRun) -> int:
+            nonlocal publishing_workflow
+            publishing_workflow = temporal_activity.info().workflow_id
             _mock_workflow_calls.append("publish")
             if publish_fails:
                 raise temporalio.exceptions.ApplicationError(
@@ -691,14 +696,13 @@ class TestExecuteDAGWorkflowWithMocks:
                     ExecuteDAGWorkflow,
                     MockMaterializeViewWorkflow,
                     MaterializeNotebookWorkflow,
-                    RetireNotebookUploadWorkflow,
+                    MockRetireNotebookUploadWorkflow,
                     MockNotebookRunWorkflow,
                 ],
                 activities=[
                     prepare,
                     publish,
                     fail,
-                    remove,
                     stub_preempt_dag_run,
                     stub_check_team_shadow_eligibility,
                     structure,
@@ -714,13 +718,55 @@ class TestExecuteDAGWorkflowWithMocks:
                     task_queue="warehouse-test",
                     execution_timeout=dt.timedelta(minutes=2),
                 )
-                assert not retired
-                if not publish_fails:
-                    await env.client.get_workflow_handle(f"retire-notebook-upload-1-{prepared[0]}").result()
-                    assert retired == [previous]
+                history = await env.client.get_workflow_handle(publishing_workflow).fetch_history()
+        retirements = [
+            event.start_child_workflow_execution_initiated_event_attributes
+            for event in history.events
+            if event.start_child_workflow_execution_initiated_event_attributes.workflow_type.name
+            == "data-modeling-retire-notebook-upload"
+        ]
+        assert [request.workflow_id for request in retirements] == (
+            [] if publish_fails else [f"retire-notebook-upload-1-{prepared[0]}"]
+        )
+        if retirements:
+            assert retirements[0].parent_close_policy == ParentClosePolicy.ABANDON
+            assert env.client.data_converter.payload_converter.from_payloads(
+                retirements[0].input.payloads, [RetiredNotebookUpload]
+            ) == [RetiredNotebookUpload(team_id=1, generation=previous)]
         assert _mock_workflow_calls == [upstream, "transform", "publish", "failed" if publish_fails else consumer]
         assert result.skipped_nodes == int(publish_fails)
         assert result.failed_nodes == int(publish_fails)
+
+    async def test_retires_the_previous_upload_after_one_day(self):
+        upload = RetiredNotebookUpload(team_id=1, generation=uuid.uuid4())
+        removed: list[RetiredNotebookUpload] = []
+
+        @temporal_activity.defn(name="remove_retired_notebook_upload")
+        async def remove(retired: RetiredNotebookUpload) -> None:
+            removed.append(retired)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="warehouse-test",
+                workflows=[RetireNotebookUploadWorkflow],
+                activities=[remove],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    RetireNotebookUploadWorkflow.run, upload, id=str(uuid.uuid4()), task_queue="warehouse-test"
+                )
+                await handle.result()
+                history = await handle.fetch_history()
+
+        events = {event.event_type: event for event in history.events}
+        timer = events[EventType.EVENT_TYPE_TIMER_STARTED].timer_started_event_attributes
+        assert timer.start_to_fire_timeout.ToTimedelta() == dt.timedelta(days=1)
+        assert (
+            events[EventType.EVENT_TYPE_TIMER_FIRED].event_id
+            < events[EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED].event_id
+        )
+        assert removed == [upload]
 
     async def test_skips_downstream_on_failure(self):
         """Test that downstream nodes are skipped when an upstream node fails."""
