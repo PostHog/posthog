@@ -137,6 +137,9 @@ export interface catalogSetupLogicActions {
     reportSetupBannerShown: () => {
         value: true
     }
+    reportSetupEmptyStateShown: () => {
+        value: true
+    }
     resumeSetupIntent: () => {
         value: true
     }
@@ -198,6 +201,7 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
         copyAgentSetupPrompt: (source: CatalogSetupSource) => ({ source }),
         dismissSetupBanner: true,
         reportSetupBannerShown: true,
+        reportSetupEmptyStateShown: true,
         recordSetupStarted: true,
         rememberSetupIntent: (source: CatalogSetupSource) => ({ source }),
         resumeSetupIntent: true,
@@ -307,8 +311,16 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
             }
         },
         reportSetupBannerShown: () => {
-            // pinned: analytics event name, renaming it breaks the setup funnel
-            posthog.capture('data catalog setup banner shown')
+            // pinned: analytics event and property names, renaming them breaks the setup funnel
+            posthog.capture('data catalog setup banner shown', {
+                ai_setup_available: values.postHogAISetupAvailable,
+            })
+        },
+        reportSetupEmptyStateShown: () => {
+            // pinned: analytics event and property names, renaming them breaks the setup funnel
+            posthog.capture('data catalog setup empty state shown', {
+                ai_setup_available: values.postHogAISetupAvailable,
+            })
         },
     })),
 ])
