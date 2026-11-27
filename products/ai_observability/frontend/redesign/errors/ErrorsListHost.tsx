@@ -63,11 +63,12 @@ export function ErrorsListHost(): JSX.Element {
                 maxOccurrences,
                 order: sortedBy,
                 onOrder: setOrder,
+                onOpen: openError,
                 firstSeen,
                 timezone,
                 'data-attr': DATA_ATTR,
             }),
-        [maxOccurrences, sortedBy, setOrder, firstSeen, timezone]
+        [maxOccurrences, sortedBy, setOrder, openError, firstSeen, timezone]
     )
     const rowProps = useCallback(
         (item: ErrorListItemApi): HTMLAttributes<HTMLTableRowElement> & { 'data-attr': string } => ({
