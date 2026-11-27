@@ -1721,7 +1721,17 @@ export interface TransactionalEmailActivitySessionApi {
     started_after_send: boolean
 }
 
-export interface TransactionalEmailActivityApi {
+export interface TransactionalEmailClickApi {
+    /** When the recipient clicked. */
+    at: string
+    /**
+     * The link that was clicked, with no path for an email marked sensitive. Null when the project doesn't capture email engagement events, or the send named no distinct ID.
+     * @nullable
+     */
+    link_url: string | null
+}
+
+export interface TransactionalEmailSendActivityApi {
     /** The distinct ID the send named. Empty when it named none, and then there are no events. */
     distinct_id: string
     /** When the email went to the provider, or when it was queued if it was never sent. */
@@ -1736,6 +1746,10 @@ export interface TransactionalEmailActivityApi {
     has_more_after: boolean
     /** The sessions the returned events belong to, in the order they first appear. */
     sessions: TransactionalEmailActivitySessionApi[]
+    /** The newest 200 clicks on the email's links, oldest first. */
+    clicks: TransactionalEmailClickApi[]
+    /** True when older clicks were left out. */
+    has_more_clicks: boolean
 }
 
 export interface TransactionalEmailConversionsApi {
@@ -1942,6 +1956,23 @@ export interface WorkflowEmailDetailApi {
     clicked: boolean
     /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
     timeline: TransactionalEmailLogEventApi[]
+}
+
+export interface TransactionalEmailActivityApi {
+    /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+    distinct_id: string
+    /** When the email went to the provider, or when it was queued if it was never sent. */
+    sent_at: string
+    /** The person's events in the week before the send, oldest first. */
+    before: TransactionalEmailActivityEventApi[]
+    /** The person's events in the week after the send, oldest first. */
+    after: TransactionalEmailActivityEventApi[]
+    /** True when older events in the window were left out. */
+    has_more_before: boolean
+    /** True when later events in the window were left out. */
+    has_more_after: boolean
+    /** The sessions the returned events belong to, in the order they first appear. */
+    sessions: TransactionalEmailActivitySessionApi[]
 }
 
 export type MessagingEmailsStatusRetrieveParams = {

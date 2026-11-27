@@ -28,7 +28,7 @@ const WorkflowsTransactionalEmailActivitySchema = () => {
 
 const workflowsTransactionalEmailActivity = (): ToolBase<
     ReturnType<typeof WorkflowsTransactionalEmailActivitySchema>,
-    WithInformationalResponse<Schemas.TransactionalEmailActivity>
+    WithInformationalResponse<Schemas.TransactionalEmailSendActivity>
 > => ({
     name: 'workflows-transactional-email-activity',
     schema: WorkflowsTransactionalEmailActivitySchema(),
@@ -37,7 +37,7 @@ const workflowsTransactionalEmailActivity = (): ToolBase<
         params: z.infer<ReturnType<typeof WorkflowsTransactionalEmailActivitySchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.TransactionalEmailActivity>({
+        const result = await context.api.request<Schemas.TransactionalEmailSendActivity>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/transactional_email_log/${encodeURIComponent(String(params.id))}/activity/`,
         })

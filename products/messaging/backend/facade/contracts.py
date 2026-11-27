@@ -651,6 +651,19 @@ class TransactionalEmailActivity:
 
 
 @frozen
+class TransactionalEmailClick:
+    at: datetime
+    link_url: str | None
+
+
+@frozen
+class TransactionalEmailSendActivity:
+    recipient: TransactionalEmailActivity
+    clicks: list[TransactionalEmailClick]
+    has_more_clicks: bool
+
+
+@frozen
 class WorkflowEmailSend:
     """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
 

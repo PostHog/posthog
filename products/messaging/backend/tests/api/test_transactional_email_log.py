@@ -575,6 +575,51 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [e["event"] for e in body["after"]] == ["$pageview"]
 
+    @parameterized.expand(
+        [
+            (
+                "every click with its link",
+                200,
+                [(1200, "https://example.com/billing"), (1500, None), (1800, "https://example.com/docs")],
+                False,
+            ),
+            ("the newest clicks", 2, [(1500, None), (1800, "https://example.com/docs")], True),
+        ]
+    )
+    def test_lists_the_newest_clicks_with_their_links(
+        self, _flag, _name, max_clicks, expected_clicks, expected_has_more
+    ):
+        message_id = self._send(
+            3 * 24 * 60,
+            "jane@example.com",
+            [("sent", 1, ""), ("clicked", 1200, ""), ("clicked", 1500, ""), ("clicked", 1800, "")],
+        )
+        queued_at = NOW - timedelta(days=3)
+        self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
+        for invocation_id, seconds, link_url in [
+            (message_id, 1200, "https://example.com/billing"),
+            (str(UUIDT()), 1500, "https://example.com/other-send"),
+            (message_id, 1800, "https://example.com/docs"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$workflows_email_link_clicked",
+                distinct_id="jane",
+                timestamp=queued_at + timedelta(seconds=seconds),
+                properties={"$workflow_invocation_id": invocation_id, "$link_url": link_url},
+            )
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_activity.MAX_CLICKS", max_clicks):
+            response = self.client.get(self._url(f"{message_id}/activity/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(datetime.fromisoformat(c["at"]), c["link_url"]) for c in body["clicks"]] == [
+            (queued_at + timedelta(seconds=seconds), link_url) for seconds, link_url in expected_clicks
+        ]
+        assert body["has_more_clicks"] is expected_has_more
+
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])
         self._send(20, "b@example.com", [("sent", 1, ""), ("bounced", 2, "hard")], domain="other.example.com")

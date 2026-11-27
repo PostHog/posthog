@@ -130874,6 +130874,16 @@ export namespace Schemas {
       sessions: TransactionalEmailActivitySession[];
     }
 
+    export interface TransactionalEmailClick {
+      /** When the recipient clicked. */
+      at: string;
+      /**
+         * The link that was clicked, with no path for an email marked sensitive. Null when the project doesn't capture email engagement events, or the send named no distinct ID.
+         * @nullable
+         */
+      link_url: string | null;
+    }
+
     export interface TransactionalEmailConversions {
       /** Sends in this group that named a person, newest 10,000 at most. */
       sends: number;
@@ -131060,6 +131070,27 @@ export namespace Schemas {
          * @nullable
          */
       median_hours_to_convert: number | null;
+    }
+
+    export interface TransactionalEmailSendActivity {
+      /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+      distinct_id: string;
+      /** When the email went to the provider, or when it was queued if it was never sent. */
+      sent_at: string;
+      /** The person's events in the week before the send, oldest first. */
+      before: TransactionalEmailActivityEvent[];
+      /** The person's events in the week after the send, oldest first. */
+      after: TransactionalEmailActivityEvent[];
+      /** True when older events in the window were left out. */
+      has_more_before: boolean;
+      /** True when later events in the window were left out. */
+      has_more_after: boolean;
+      /** The sessions the returned events belong to, in the order they first appear. */
+      sessions: TransactionalEmailActivitySession[];
+      /** The newest 200 clicks on the email's links, oldest first. */
+      clicks: TransactionalEmailClick[];
+      /** True when older clicks were left out. */
+      has_more_clicks: boolean;
     }
 
     export interface TransactionalEmailStatsRow {
