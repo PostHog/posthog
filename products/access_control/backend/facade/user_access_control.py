@@ -1534,8 +1534,8 @@ class UserAccessControl:
     @cached_property
     def read_access_fingerprint(self) -> str:
         """Equal for two snapshots of the same user and team when every input to their access decisions matches:
-        the access control rows that apply to the user here, their membership level and role ids, whether the
-        organization can use access control, and which resolution mode it uses. Any rule change, including an object grant that overrides a parent's
+        the access control rows that apply to the user here, their membership level and role ids, and whether the
+        organization can use access control. Any rule change, including an object grant that overrides a parent's
         denial, changes it. It does not encode the user or the team, so a caller comparing snapshots must check
         those separately. Lets a caller tell whether something built for one snapshot is safe to hand to a holder
         of another."""
@@ -1555,7 +1555,6 @@ class UserAccessControl:
                 membership.level if membership is not None else None,
                 sorted(str(role_id) for role_id in self._user_role_ids),
                 self.access_controls_supported,
-                self._is_most_specific_access_control_enabled,
                 rows,
             )
         )
