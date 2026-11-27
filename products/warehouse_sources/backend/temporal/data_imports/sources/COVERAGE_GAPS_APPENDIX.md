@@ -13531,13 +13531,13 @@ Diffed against: <https://help.sigmacomputing.com/reference/get-started-sigma-api
 
 Re-audited 2026-11-19 against: <https://help.sigmacomputing.com/llms.txt>
 
-- [ ] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high)
-- [ ] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high)
+- [x] `Account types (GET /v2/accountTypes)` — Lookup for the account type on each member, for licence and seat reporting (high, added here)
+- [x] `Team members (GET /v2/teams/{teamId}/members)` — Membership join between teams and members, both already synced (high, added here)
 - [ ] `Workbook schedules (GET /v2/workbooks/{workbookId}/schedules)` — Scheduled exports and alerts per workbook, with owner and cadence (medium)
 - [ ] `Workbook tags (GET /v2/workbooks/{workbookId}/tags)` — Tags per workbook, for governance and certification reporting (medium)
-- [ ] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium)
+- [x] `Workbook sources (GET /v2/workbooks/{workbookId}/sources)` — Which data models and tables each workbook reads, for lineage (medium, added here)
 - [ ] `Data model sources (GET /v2/dataModels/{dataModelId}/sources)` — Upstream connections and tables of each data model, for lineage (medium)
-- [ ] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium)
+- [x] `Data model elements (GET /v2/dataModels/{dataModelId}/elements)` — Elements inside each data model, like the workbook elements table (medium, added here)
 - [ ] `Workbook materialization schedules (GET /v2/workbooks/{workbookId}/materialization-schedules)` — Materialization cadence per workbook, for warehouse cost review (low)
 - [ ] `User attributes (GET /v2/user-attributes)` — Attribute definitions used for row-level security (low)
 - [ ] `Workbook version history (GET /v2/workbooks/{workbookId}/version-history)` — Change history of each workbook, with author and time (low)
