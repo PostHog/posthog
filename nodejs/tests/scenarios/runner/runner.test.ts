@@ -60,7 +60,15 @@ import { FakeCloud } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
 import { devEnvironment, devTarget } from '../dev-target/target'
 import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
-import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import {
+    Role,
+    RoleSpec,
+    SCENARIO_SESSION_PREFIX,
+    SES_WEBHOOKS_GROUP,
+    consumerGroupsOf,
+    roleSpecs,
+    secretsOf,
+} from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { KafkaGroup, WORKFLOWS_ADAPTER, Wiring, wiringOf } from '../environment/topology'
 import { JournalEntry } from '../judge/judge'
@@ -1660,6 +1668,23 @@ describe('runner through seed, drive and judge', () => {
 
         expect(edge.sent.length).toBeGreaterThan(0)
         expect(feedbackPosts).toEqual(edge.sent.map(() => 'Delivery'))
+    }, 30_000)
+
+    it('does not converge a feedback run while the SES webhooks group still holds a notification', async () => {
+        const result = await createRunner(
+            {
+                ...environmentOf('all'),
+                groupLag: (group) => Promise.resolve(group === SES_WEBHOOKS_GROUP ? 1 : 0),
+            },
+            env,
+            { topologyWithinMs: 1000, topologyEveryMs: 10, counterRead: { withinMs: 5000, quietMs: 0, pollMs: 100 } }
+        ).run(
+            shortSmoke([], 'event_email', { feedback: FeedbackShares.parse({ delivery: 1 }), convergeWithin: '1s' }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        expect(result.convergence?.converged).toBe(false)
     }, 30_000)
 
     it('spreads the intake offers over every cdp-api replica the profile starts', async () => {
