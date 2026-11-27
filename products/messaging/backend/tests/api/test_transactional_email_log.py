@@ -54,6 +54,8 @@ RANK = {
     "clicked": 9,
 }
 NOW = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+BILLING = "https://example.com/billing"
+DOCS = "https://example.com/docs"
 SLOW_SEND_MINUTES_AGO = 12 * 24 * 60
 DELAYED_SEND_MINUTES_AGO = 15 * 24 * 60
 IMPACT_COUNTS = {
@@ -575,11 +577,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [e["event"] for e in body["after"]] == ["$pageview"]
 
-    def _clicked_send(self, *, distinct_id: str | None = "jane") -> tuple[str, datetime]:
+    def _clicked_send(
+        self, *, distinct_id: str | None = "jane", workflow_id: str | None = None
+    ) -> tuple[str, datetime]:
         message_id = self._send(
             3 * 24 * 60,
             "jane@example.com",
             [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("clicked", 300, ""), ("clicked", 900, "")],
+            workflow_id=workflow_id,
         )
         queued_at = NOW - timedelta(days=3)
         if distinct_id:
@@ -708,72 +713,101 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "each visit goes to the link it landed on",
-                True,
+                [(300, BILLING), (330, DOCS), (360, "https://help.other-docs.com/faq")],
+                [("billing", "/billing", 303), ("docs", "/docs/", 335)],
                 [
-                    ("https://example.com/billing", "billing-visit", None),
-                    ("https://example.com/docs", "docs-visit", None),
+                    (BILLING, "billing", None),
+                    (DOCS, "docs", None),
                     ("https://help.other-docs.com/faq", None, "off_site"),
                 ],
             ),
             (
                 "unknown links leave close clicks unresolved",
-                False,
+                [(300, None), (330, None), (360, None)],
+                [("billing", "/billing", 303), ("docs", "/docs/", 335)],
                 [(None, None, "link_unknown")] * 3,
+            ),
+            (
+                "a repeat click keeps the visit it started",
+                [(300, BILLING), (330, BILLING)],
+                [("first", "/billing", 302), ("second", "/billing", 332)],
+                [(BILLING, "first", None), (BILLING, "second", None)],
+            ),
+            (
+                "query parameters tell links apart",
+                [(300, f"{BILLING}?tab=plans"), (330, f"{BILLING}?tab=invoices")],
+                [("plans", "/billing?tab=plans&utm_source=posthog", 335)],
+                [(f"{BILLING}?tab=plans", "plans", None), (f"{BILLING}?tab=invoices", None, "not_found")],
+            ),
+            (
+                "a reopened link keeps away from a nearby click",
+                [(300, BILLING), (330, DOCS)],
+                [("billing", "/billing", 303), ("reopened", "/billing", 340)],
+                [(BILLING, "billing", None), (DOCS, None, "not_found")],
             ),
         ]
     )
-    def test_matches_close_clicks_to_their_visits(self, _flag, _name, with_click_events, expected):
+    def test_matches_close_clicks_to_their_visits(self, _flag, _name, clicks, visits, expected):
         message_id = self._send(
             3 * 24 * 60,
             "jane@example.com",
-            [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 300, ""), ("clicked", 330, ""), ("clicked", 360, "")],
+            [("sent", 1, ""), ("delivered", 2, ""), *[("clicked", seconds, "") for seconds, _ in clicks]],
         )
         queued_at = NOW - timedelta(days=3)
         self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
-        if with_click_events:
-            for seconds, link in (
-                (300, "https://example.com/billing"),
-                (330, "https://example.com/docs"),
-                (360, "https://help.other-docs.com/faq"),
-            ):
+        for seconds, link in clicks:
+            if link:
                 self._email_event(
                     "$workflows_email_link_clicked", message_id, queued_at + timedelta(seconds=seconds), link
                 )
-        self._visit(
-            "billing-visit",
-            f"https://example.com/billing?ph_workflow_run={message_id}",
-            queued_at + timedelta(seconds=303),
-        )
-        self._visit(
-            "docs-visit", f"https://example.com/docs/?ph_workflow_run={message_id}", queued_at + timedelta(seconds=335)
-        )
+        for name, page, seconds in visits:
+            separator = "&" if "?" in page else "?"
+            self._visit(
+                name,
+                f"https://example.com{page}{separator}ph_workflow_run={message_id}",
+                queued_at + timedelta(seconds=seconds),
+            )
         flush_persons_and_events()
 
         assert self._clicks(message_id) == expected
 
     @parameterized.expand(
         [
-            ("tagged link without a visit", True, True, "not_found"),
-            ("link tagging off", False, True, "link_tagging_off"),
-            ("engagement events off", True, False, "link_unknown"),
+            ("tagged link without a visit", True, "https://app.example.com/billing", False, "not_found"),
+            ("link tagging off", False, "https://app.example.com/billing", False, "link_tagging_off"),
+            ("engagement events off", True, None, False, "link_unknown"),
+            ("sensitive email", True, "https://app.example.com", True, "sensitive"),
+            ("link to the home page", True, "https://app.example.com", False, "not_found"),
+            ("unreadable link", True, "https://[app.example.com/billing", False, "not_found"),
         ]
     )
-    def test_says_why_a_click_started_no_session(self, _flag, _name, link_tagging, with_click_event, reason):
+    def test_says_why_a_click_started_no_session(self, _flag, _name, link_tagging, link, sensitive, reason):
         self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging
         self.team.workflows_config.save()
-        message_id, queued_at = self._clicked_send()
-        if with_click_event:
+        self.template.sensitive = sensitive
+        self.template.save()
+        message_id, queued_at = self._clicked_send(workflow_id=str(self.workflow_id))
+        if link:
             for seconds in (300, 900):
                 self._email_event(
-                    "$workflows_email_link_clicked",
-                    message_id,
-                    queued_at + timedelta(seconds=seconds),
-                    "https://app.example.com/billing",
+                    "$workflows_email_link_clicked", message_id, queued_at + timedelta(seconds=seconds), link
                 )
         flush_persons_and_events()
 
-        link = "https://app.example.com/billing" if with_click_event else None
         assert self._clicks(message_id) == [(link, None, reason), (link, None, reason)]
+
+    @patch("products.messaging.backend.services.transactional_email_activity.MAX_OWN_EVENTS_PER_KIND", 2)
+    def test_keeps_each_click_link_when_opens_fill_the_event_limit(self, _flag):
+        message_id, queued_at = self._clicked_send()
+        for seconds in (61, 62, 63):
+            self._email_event("$workflows_email_opened", message_id, queued_at + timedelta(seconds=seconds))
+        for seconds in (300, 900):
+            self._email_event(
+                "$workflows_email_link_clicked", message_id, queued_at + timedelta(seconds=seconds), BILLING
+            )
+        flush_persons_and_events()
+
+        assert [link for link, *_ in self._clicks(message_id)] == [BILLING, BILLING]
 
     def test_finds_the_session_a_click_started_when_the_send_named_no_distinct_id(self, _flag):
         message_id, queued_at = self._clicked_send(distinct_id=None)
