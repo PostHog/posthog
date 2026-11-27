@@ -69,6 +69,10 @@ INVALID_URI_MESSAGE = (
 )
 INVALID_ACCOUNT_MESSAGE = "Enter the Cloudflare account ID as shown in the dashboard, without a URL."
 INVALID_BUCKET_MESSAGE = "Enter the name of the R2 bucket that holds the catalog, as shown in the dashboard."
+INCREMENTAL_COLUMN_MISSING_MESSAGE = (
+    "The incremental column is no longer in the Iceberg table, or its type can't be a cursor. "
+    "Pick another incremental column in the table's sync settings."
+)
 INVALID_WATERMARK_MESSAGE = (
     "The saved incremental value doesn't fit the type of the incremental column. Resync the table to start again."
 )
@@ -259,6 +263,8 @@ class CatalogClient:
             headers={"Authorization": f"Bearer {token}"},
             redact_values=(token,),
             allow_redirects=False,
+            # Load-table answers carry vended storage keys under `s3.*` names that the sample scrubber can't spot.
+            capture=False,
         )
         self._properties: dict[str, str] | None = None
 
@@ -642,9 +648,15 @@ def align_to_schema(table: pa.Table, columns: list[IcebergColumn]) -> pa.Table:
     for column in columns:
         # Files written without field ids (imported from plain Parquet) fall back to names.
         found = by_id.get(column.field_id) if by_id else by_name.get(column.name)
-        arrays.append(
-            table.column(found) if found is not None else pa.nulls(table.num_rows).cast(arrow_type(column.type))
-        )
+        target = arrow_type(column.type)
+        if found is None:
+            arrays.append(pa.nulls(table.num_rows).cast(target))
+        elif pa.types.is_null(target) or table.schema.field(found).type == target:
+            arrays.append(table.column(found))
+        else:
+            # Files written before a type promotion (int to long, float to double) hold the old type, and every
+            # batch must carry the current one.
+            arrays.append(table.column(found).cast(target))
     return pa.Table.from_arrays(arrays, names=[column.name for column in columns])
 
 
@@ -681,9 +693,7 @@ def incremental_filter(table: IcebergTable, field: str | None, last_value: Any) 
         return None
     column = table.column(field)
     if column is None or column.type_name not in INCREMENTAL_TYPES:
-        raise R2DataCatalogError(
-            f"The incremental column '{field}' isn't in the Iceberg table, or its type can't be a cursor."
-        )
+        raise R2DataCatalogError(INCREMENTAL_COLUMN_MISSING_MESSAGE)
     return IncrementalFilter(column=column, threshold=_internal_value(column.type_name, last_value))
 
 

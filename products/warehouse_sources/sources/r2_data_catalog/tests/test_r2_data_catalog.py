@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 from products.warehouse_sources.sources.r2_data_catalog import r2_data_catalog
 from products.warehouse_sources.sources.r2_data_catalog._config import R2DataCatalogSourceConfig
 from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
+    INCREMENTAL_COLUMN_MISSING_MESSAGE,
     INVALID_ACCOUNT_MESSAGE,
     INVALID_BUCKET_MESSAGE,
     INVALID_TOKEN_MESSAGE,
@@ -29,6 +30,7 @@ from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
     IcebergColumn,
     IncrementalFilter,
     R2DataCatalogResumeConfig,
+    align_to_schema,
     file_may_match,
     normalize_catalog_uri,
 )
@@ -400,12 +402,38 @@ def test_storage_403_gets_new_credentials_and_retries_once() -> None:
     assert len(vend_requests) == 2
 
 
-def test_unreadable_watermark_raises_a_non_retryable_error() -> None:
+@pytest.mark.parametrize(
+    ("field", "last_value", "expected"),
+    [
+        ("ts", "not a time", INVALID_WATERMARK_MESSAGE),
+        # A cursor column renamed or retyped in Iceberg is gone by its stored name.
+        ("renamed_ts", "2024-01-05", INCREMENTAL_COLUMN_MISSING_MESSAGE),
+        ("name", "row 5", INCREMENTAL_COLUMN_MISSING_MESSAGE),
+    ],
+)
+def test_unusable_incremental_settings_raise_a_non_retryable_error(field: str, last_value: str, expected: str) -> None:
     result = _driver().run(
-        "analytics.events", FakeR2(), incremental_field="ts", db_incremental_field_last_value="not a time"
+        "analytics.events", FakeR2(), incremental_field=field, db_incremental_field_last_value=last_value
     )
 
-    assert str(result.raised) == INVALID_WATERMARK_MESSAGE
+    assert str(result.raised) == expected
+    assert expected in R2DataCatalogSource().get_non_retryable_errors()
+
+
+def test_columns_from_files_before_a_type_promotion_get_the_current_type() -> None:
+    old = pa.table(
+        [pa.array([2**31 - 1], type=pa.int32()), pa.array([1.5], type=pa.float32())],
+        schema=pa.schema([_field("id", pa.int32(), 1), _field("score", pa.float32(), 5)]),
+    )
+    columns = [
+        IcebergColumn(field_id=1, name="id", type="long", required=True),
+        IcebergColumn(field_id=5, name="score", type="double", required=False),
+    ]
+
+    aligned = align_to_schema(old, columns)
+
+    assert aligned.schema.types == [pa.int64(), pa.float64()]
+    assert aligned.to_pylist() == [{"id": 2**31 - 1, "score": 1.5}]
 
 
 @pytest.mark.parametrize(

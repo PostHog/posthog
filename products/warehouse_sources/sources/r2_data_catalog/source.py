@@ -4,6 +4,7 @@ from requests import RequestException
 
 from products.warehouse_sources.sources.r2_data_catalog._config import R2DataCatalogSourceConfig
 from products.warehouse_sources.sources.r2_data_catalog.r2_data_catalog import (
+    INCREMENTAL_COLUMN_MISSING_MESSAGE,
     INVALID_ACCOUNT_MESSAGE,
     INVALID_BUCKET_MESSAGE,
     INVALID_TOKEN_MESSAGE,
@@ -126,6 +127,7 @@ Turn on the catalog for the R2 bucket, then create an R2 API token with the **Ad
                 INVALID_BUCKET_MESSAGE,
                 INVALID_URI_MESSAGE,
                 INVALID_WATERMARK_MESSAGE,
+                INCREMENTAL_COLUMN_MISSING_MESSAGE,
                 PERMISSION_MESSAGE,
                 NOT_FOUND_MESSAGE,
                 TABLE_NOT_FOUND_MESSAGE,
