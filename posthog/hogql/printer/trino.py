@@ -43,6 +43,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_WINDOW_ONLY_FUNCTIONS,
     array_indexes,
     bounded_sequence,
+    ipv6_cidr_range_bound,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
 from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
@@ -3894,6 +3895,8 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             return self.visit(source.args[index.value - 1])
+        if isinstance(source, ast.Call) and source.name.lower() == "ipv6cidrtorange" and index.value <= 2:
+            return ipv6_cidr_range_bound([self.visit(arg) for arg in source.args], index.value)
         return f"({self.visit(source)})[{index.value}]"
 
     def _visit_tuple_to_name_value_pairs(self, node: ast.Call) -> str:
