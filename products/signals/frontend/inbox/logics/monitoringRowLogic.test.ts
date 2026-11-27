@@ -22,6 +22,28 @@ describe('monitoringRowLogic', () => {
 
     afterEach(() => resumeKeaLoadersErrors())
 
+    it('loads checks when an already mounted row gains a lead check', async () => {
+        let requestCount = 0
+        useMocks({
+            get: {
+                [CHECKS_URL]: () => {
+                    requestCount += 1
+                    return [200, { results: [check('lead')] }]
+                },
+            },
+        })
+        const logic = monitoringRowLogic({ reportId: 'report', loadChecks: false })
+        logic.mount()
+        await Promise.resolve()
+        expect(requestCount).toBe(0)
+
+        monitoringRowLogic({ reportId: 'report', loadChecks: true })
+
+        await waitFor(() => expect(logic.values.reportChecks?.[0]?.id).toBe('lead'))
+        expect(requestCount).toBe(1)
+        logic.unmount()
+    })
+
     it.each([
         ['success', 200, { results: [check('older')] }],
         ['failure', 500, { detail: 'older request failed' }],

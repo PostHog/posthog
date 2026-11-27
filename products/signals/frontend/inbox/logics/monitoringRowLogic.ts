@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, afterMount, connect, kea, key, path, props, propsChanged, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { projectLogic } from 'scenes/projectLogic'
@@ -87,6 +87,11 @@ export const monitoringRowLogic: LogicWrapper<monitoringRowLogicType> = kea<moni
                 loadReportChecksFailure: () => true,
             },
         ],
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.loadChecks && !oldProps.loadChecks) {
+            actions.loadReportChecks()
+        }
     }),
     afterMount(({ actions, props }) => {
         if (props.loadChecks) {
