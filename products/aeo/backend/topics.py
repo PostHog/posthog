@@ -22,8 +22,7 @@ from django.db.models import Min
 from django.db.models.functions import Collate
 from django.utils import timezone
 
-from posthog.models.scoping.manager import resolve_effective_team_id
-
+from products.aeo.backend import prompt_limit
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     PromptNotFoundError,
@@ -33,7 +32,7 @@ from products.aeo.backend.facade.contracts import (
     PromptTopicNotFoundError,
     PromptUpdateError,
 )
-from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOTeamConfig
+from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.seeding import normalize_prompt
 from products.aeo.backend.stored_results import bump_data_version_on_commit
 
@@ -109,8 +108,7 @@ def _named(topic: str) -> str:
 
 
 def _lock_topics(team_id: int) -> None:
-    canonical = resolve_effective_team_id(team_id)
-    AEOTeamConfig.objects.for_team(canonical).select_for_update().get_or_create(team_id=canonical)
+    prompt_limit.lock_project(team_id)
 
 
 def _topic_exists(team_id: int, topic: str) -> bool:

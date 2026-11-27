@@ -13,7 +13,8 @@ from posthog.models.team import Team
 
 from products.aeo.backend import topics
 from products.aeo.backend.engines import CitationCheck
-from products.aeo.backend.facade.contracts import CheckMode, PromptTopicConflictError
+from products.aeo.backend.facade.api import update_prompt
+from products.aeo.backend.facade.contracts import CheckMode, PromptTopicConflictError, PromptUpdate
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -130,3 +131,66 @@ def test_topic_edits_lock_prompts_in_the_order_imports_lock_them(edit: Any) -> N
     ]
     assert prompt_locks
     assert all('ORDER BY "posthog_aeo_prompt"."prompt_hash"' in sql for sql in prompt_locks)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda team, prompt_id: update_prompt(team.id, str(prompt_id), PromptUpdate(topic="Cost"), user_id=None),
+        # Paused, so the import takes no prompt-limit lock of its own.
+        lambda team, _: upsert_prompts(
+            team, [PromptCandidate(text="new?", source="imported", topic="Cost", active=False)]
+        ),
+    ],
+    ids=["single_prompt_edit", "paused_import"],
+)
+def test_a_prompt_write_that_sets_a_topic_waits_for_a_topic_edit(write: Any) -> None:
+    team = _team()
+    upsert_prompts(
+        team,
+        [
+            PromptCandidate(text="a?", source="imported", topic="Plans"),
+            PromptCandidate(text="b?", source="imported", topic="Other"),
+        ],
+    )
+    other = AEOPrompt.objects.for_team(team.id).get(prompt="b?").id
+    renaming = threading.Event()
+    release_rename = threading.Event()
+    write_done = threading.Event()
+    relabel = topics._relabel
+
+    def hold_relabel(team_id: int, old: str, new: str) -> Any:
+        result = relabel(team_id, old, new)
+        renaming.set()
+        release_rename.wait(timeout=30)
+        return result
+
+    def rename() -> None:
+        try:
+            with team_scope(team.pk):
+                topics.rename_topic(team.id, "Plans", "Cost")
+        finally:
+            close_old_connections()
+
+    def run_write() -> None:
+        try:
+            with team_scope(team.pk):
+                write(team, other)
+        finally:
+            close_old_connections()
+            write_done.set()
+
+    with patch.object(topics, "_relabel", hold_relabel):
+        renaming_thread = threading.Thread(target=rename)
+        renaming_thread.start()
+        assert renaming.wait(timeout=30)
+        writing_thread = threading.Thread(target=run_write)
+        writing_thread.start()
+        # The write waits for the rename's lock, so a rename never checks a name a concurrent write is adding.
+        assert not write_done.wait(timeout=1)
+        release_rename.set()
+        renaming_thread.join(timeout=30)
+        writing_thread.join(timeout=30)
+
+    assert write_done.is_set()

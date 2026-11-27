@@ -280,6 +280,9 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
     text = _validated_text(change.prompt) if change.prompt is not None else None
     with transaction.atomic():
         limit = prompt_limit.lock(team_id) if change.active else None
+        if change.topic is not None:
+            # A topic change runs one at a time with the topic edits, which read topic names under this lock.
+            prompt_limit.lock_project(team_id)
         # Locks the prompt row, so two concurrent text edits cannot take the same version number.
         prompt = _get_prompt_row(team_id, prompt_id, lock=True)
         _check_update_allowed(prompt, change)
