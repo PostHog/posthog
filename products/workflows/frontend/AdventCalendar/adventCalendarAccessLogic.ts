@@ -74,14 +74,12 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
     }),
     afterMount(({ actions, cache }) => {
         actions.setLastLoadFailed(lastLoadFailedBeforeMount())
-        cache.disposables.add(
-            () =>
-                posthog.onFeatureFlags((_flags, _variants, context) => {
-                    if (typeof context?.errorsLoading === 'boolean') {
-                        actions.setLastLoadFailed(context.errorsLoading)
-                    }
-                }),
-            'flagLoads'
+        cache.disposables.add(() =>
+            posthog.onFeatureFlags((_flags, _variants, context) => {
+                if (typeof context?.errorsLoading === 'boolean') {
+                    actions.setLastLoadFailed(context.errorsLoading)
+                }
+            })
         )
     }),
 ])
