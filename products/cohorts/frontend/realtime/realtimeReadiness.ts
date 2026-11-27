@@ -11,7 +11,11 @@ export const REALTIME_POLL_INTERVAL_MS = 15_000
 // a cohort nothing is preparing is not polled for as long as its page stays open.
 export const READINESS_GRACE_POLLS = 12
 
-export const READY_NOTIFICATION_PROMISE = "We'll notify you when it's ready."
+// An instance that can't send email must not promise one, so callers pass `email_service_available` from preflight.
+export const readyNotificationPromise = (emailServiceAvailable: boolean): string =>
+    emailServiceAvailable
+        ? "We'll notify you in PostHog and by email when it's ready."
+        : "We'll notify you when it's ready."
 
 export const isBuildingHistory = (cohort: { realtime?: CohortRealtimeReadinessApi | null } | undefined): boolean =>
     cohort?.realtime?.state === 'building' || cohort?.realtime?.state === 'rebuilding'

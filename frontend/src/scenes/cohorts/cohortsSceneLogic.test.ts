@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -201,7 +202,7 @@ describe('cohortsSceneLogic', () => {
                 expect(listCohorts).toHaveBeenCalledTimes(extraRequests)
             })
 
-            it.each<[string, [number, Record<string, any>], boolean, string | null, string | null]>([
+            it.each<[string, [number, Record<string, any>], boolean, string | null, string | null, boolean?]>([
                 [
                     'the server starts preparing it',
                     [200, PREPARING],
@@ -209,12 +210,20 @@ describe('cohortsSceneLogic', () => {
                     `${TURNED_ON} We'll notify you when it's ready.`,
                     null,
                 ],
+                [
+                    'the server starts preparing it, on an instance that sends email',
+                    [200, PREPARING],
+                    true,
+                    `${TURNED_ON} We'll notify you in PostHog and by email when it's ready.`,
+                    null,
+                    true,
+                ],
                 ['the server starts preparing it, with notifications off', [200, PREPARING], false, TURNED_ON, null],
                 ['the server turns realtime on', [200, {}], true, TURNED_ON, null],
                 ['the server refuses', [400, { detail: REFUSAL_DETAIL }], true, null, REFUSAL_DETAIL],
             ])(
                 'after a turn-on from a row where %s, tells the user and reloads the list and the team once',
-                async (_, [status, body], notifications, shownSuccess, shownError) => {
+                async (_, [status, body], notifications, shownSuccess, shownError, emailServiceAvailable = false) => {
                     let requestBody: unknown = null
                     useMocks({
                         post: {
@@ -234,6 +243,10 @@ describe('cohortsSceneLogic', () => {
                     logic.mount()
                     await jest.advanceTimersByTimeAsync(0)
                     listCohorts.mockClear()
+                    preflightLogic.actions.loadPreflightSuccess({
+                        ...preflightLogic.values.preflight,
+                        email_service_available: emailServiceAvailable,
+                    } as any)
 
                     logic.actions.turnOnRealtime(3, 'Realtime off')
                     expect(logic.values.cohortIdsTurningOnRealtime).toEqual([3])

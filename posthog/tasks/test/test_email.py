@@ -1,6 +1,7 @@
 import html
 import uuid
 import hashlib
+import smtplib
 import datetime as dt
 from collections.abc import Callable
 from typing import Any, cast
@@ -15,10 +16,12 @@ from django.conf import settings
 from django.core import mail
 from django.utils import timezone
 
+from celery import current_app
 from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.email import EmailDeliveryError
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import override_instance_config, set_instance_setting
@@ -33,6 +36,7 @@ from posthog.tasks.email import (
     send_batch_export_run_failure,
     send_canary_email,
     send_code_based_verification,
+    send_cohort_realtime_ready_email,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sender_domain_sending_stopped,
@@ -66,7 +70,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.fixtures import create_app_metric2
-from posthog.test.project_access import enable_access_control
+from posthog.test.project_access import enable_access_control, restrict_project
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -746,6 +750,62 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         MockEmailMessage.assert_not_called()
         task.refresh_from_db()
         assert task.pr_ready_email_sent_at is not None
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_cohort_realtime_ready_email(
+        self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "cohort-owner@posthog.com")
+        team = user.team
+        assert team is not None
+        turned_on_at = "2026-11-27T15:25:46.123456+00:00"
+
+        send_cohort_realtime_ready_email(team.id, 42, "Buyers from example.com", user.id, turned_on_at)
+        send_cohort_realtime_ready_email(team.id, 42, "Buyers from example.com", user.id, turned_on_at)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].campaign_key == f"cohort_realtime_ready_42_{turned_on_at}"
+        html_body = mocked_email_messages[0].html_body
+        assert f'href="{settings.SITE_URL}/project/{team.project_id}/cohorts/42?utm_' in html_body
+        assert "example.com" not in html_body
+        assert "Buyers from example.&#8203;com" in html_body
+        capture = mock_ph_scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "cohort realtime ready email sent"
+        assert capture.call_args.kwargs["properties"] == {
+            "$update_person_last_seen_at": False,
+            "cohort_id": 42,
+            "team_id": team.id,
+        }
+
+    @parameterized.expand(
+        [
+            ("email_unavailable",),
+            ("inactive_user",),
+            ("removed_membership",),
+            ("no_access_to_the_project",),
+        ]
+    )
+    def test_send_cohort_realtime_ready_email_skips_when_the_user_cannot_be_told(
+        self, MockEmailMessage: MagicMock, case: str
+    ) -> None:
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "cohort-former-member@posthog.com")
+        team = user.team
+        assert team is not None
+        membership = OrganizationMembership.objects.get(organization=team.organization, user=user)
+        if case == "inactive_user":
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+        elif case == "removed_membership":
+            membership.delete()
+        elif case == "no_access_to_the_project":
+            restrict_project(team, plain_members=[membership])
+
+        with override_instance_config("EMAIL_ENABLED", case != "email_unavailable"):
+            send_cohort_realtime_ready_email(team.id, 42, "Buyers", user.id, "2026-11-27T15:25:46.123456+00:00")
+
+        MockEmailMessage.assert_not_called()
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
@@ -2771,3 +2831,35 @@ class TestEmailSendingNoticeDelivery(APIBaseTest):
         send_hog_function_filters_uncompilable(self.team.id, broken_ids)
 
         assert self.delivered_to() == sorted([self.user.email, "active-creator@posthog.com"])
+
+
+class TestCohortRealtimeReadyEmailDelivery(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        # Workers run without eager propagation, so a failure inside an eager retry comes back as a returned result.
+        self.addCleanup(setattr, current_app.conf, "task_eager_propagates", current_app.conf.task_eager_propagates)
+        current_app.conf.task_eager_propagates = False
+
+    @parameterized.expand(
+        [
+            (
+                "connection_lost",
+                {"side_effect": smtplib.SMTPServerDisconnected("gone")},
+                smtplib.SMTPServerDisconnected,
+            ),
+            ("not_accepted", {"return_value": 0}, EmailDeliveryError),
+        ]
+    )
+    def test_an_undelivered_email_raises_so_the_task_retries(
+        self, _name: str, send_behaviour: dict[str, Any], expected: type[Exception]
+    ) -> None:
+        with (
+            patch("django.core.mail.backends.locmem.EmailBackend.send_messages", **send_behaviour) as send_messages,
+            patch("posthog.tasks.email.ph_scoped_capture") as mock_ph_scoped_capture,
+            self.assertRaises(expected),
+        ):
+            send_cohort_realtime_ready_email(self.team.id, 42, "Buyers", self.user.id, "2026-11-27T15:25:46+00:00")
+
+        send_messages.assert_called_once()
+        mock_ph_scoped_capture.assert_not_called()

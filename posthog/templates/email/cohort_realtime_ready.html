@@ -1,0 +1,12 @@
+{% extends "email/base.html" %}
+{% block preheader %}Feature flags and surveys can now target {{ cohort_name }}{% endblock %}
+{% block heading %}Your cohort is ready{% endblock %}
+{% block section %}
+    <p>Hey{% if first_name %} {{ first_name }}{% endif %},</p>
+    <p>
+        Feature flags and surveys can now target <strong>{{ cohort_name }}</strong>{% if team_name %} in <strong>{{ team_name }}</strong>{% endif %}.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ cohort_url }}?{{ utm_tags }}">View cohort</a>
+    </div>
+{% endblock %}

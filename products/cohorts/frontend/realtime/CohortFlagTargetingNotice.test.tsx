@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -159,12 +160,24 @@ describe('CohortFlagTargetingNotice', () => {
     })
 
     it.each([
-        { name: 'with notifications on', notifications: true, startsOff: true, promises: true },
-        { name: 'with notifications off', notifications: false, startsOff: true, promises: false },
-        { name: 'already preparing before this editor', notifications: true, startsOff: false, promises: false },
+        {
+            name: 'with notifications on',
+            notifications: true,
+            startsOff: true,
+            promises: "We'll notify you when it's ready.",
+        },
+        {
+            name: 'with notifications on, on an instance that sends email',
+            notifications: true,
+            emailServiceAvailable: true,
+            startsOff: true,
+            promises: "We'll notify you in PostHog and by email when it's ready.",
+        },
+        { name: 'with notifications off', notifications: false, startsOff: true, promises: null },
+        { name: 'already preparing before this editor', notifications: true, startsOff: false, promises: null },
     ])(
         'shows the cohort preparing after a turn-on from the row, $name',
-        async ({ notifications, startsOff, promises }) => {
+        async ({ notifications, emailServiceAvailable = false, startsOff, promises }) => {
             useMocks({
                 post: {
                     '/api/projects/:team_id/cohorts/:id/realtime/': () => {
@@ -175,13 +188,17 @@ describe('CohortFlagTargetingNotice', () => {
             })
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: notifications })
             await renderNotice(readiness(startsOff ? 'off' : 'building'))
+            preflightLogic.actions.loadPreflightSuccess({
+                ...preflightLogic.values.preflight,
+                email_service_available: emailServiceAvailable,
+            } as any)
 
             if (startsOff) {
                 fireEvent.click(await screen.findByText('Turn on realtime'))
             }
 
-            expect(await screen.findByText(/PostHog is preparing/)).toBeInTheDocument()
-            expect(!!screen.queryByText(/under 30 minutes\. We'll notify you when it's ready\./)).toBe(promises)
+            const preparing = await screen.findByText(/PostHog is preparing/)
+            expect(preparing.textContent?.match(/(?<=under 30 minutes\. ).+$/)?.[0] ?? null).toBe(promises)
         }
     )
 

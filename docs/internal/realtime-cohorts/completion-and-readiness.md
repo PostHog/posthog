@@ -239,11 +239,21 @@ For each team with a cohort that became ready in the pass, the finalizer reads t
 It notifies for a cohort only when the flag API's readiness check passes for it: the cohort and every cohort it includes that has event criteria are flag-compatible.
 It does not check the realtime cohorts gate described below, which the request that turned the cohort on had passed.
 So the notification can come in a later pass than the cohort's own `cohort realtime ready` event, when a cohort it includes becomes ready after it.
-After the notification, the finalizer clears the recipient with a conditional update, so a turn-off or a new turn-on that committed in between stays as it is.
+When `create_notification` returns the notification, the finalizer queues an email to the same user with `send_cohort_realtime_ready_email` on the email queue.
+It sends the task by name, because `posthog/tasks/__init__.py` imports the finalizer, so a static import of `posthog.tasks.email` there is circular.
+The email has no notification setting of its own, so it follows the notification: it goes only to organizations the `real-time-notifications` flag is on for, and muting the in-app "Cohorts ready" type stops the email too.
+The task returns without sending when the instance can't send email, when the user is inactive or has left the organization, and when they have no access to the project.
+After queuing the email, the finalizer clears the recipient with a conditional update, so a turn-off or a new turn-on that committed in between stays as it is.
 A notification that `create_notification` drops also clears it, and the finalizer logs `cohort_backfill_finalizer_ready_notice_dropped`.
-It drops one when the user has muted the type or has no access to the project, and also when the evaluation of the `real-time-notifications` flag fails, so a flags service error means the person is not told.
-A notification that raises leaves the recipient in place, and the next pass that makes a cohort of the team ready tries again.
-The idempotency key holds the cohort and the turn-on time, so one turn-on sends at most one notification.
+It drops one when the flag is off for the organization, when the user has muted the type or has no access to the project, and also when the evaluation of the flag fails.
+A dropped notification queues no email, so a flags service error means the person gets neither.
+A notification or an email queue that raises leaves the recipient in place, and the next pass that makes a cohort of the team ready tries again.
+On that pass `create_notification` returns the notification it stored before, so the email is queued again.
+The notification's idempotency key and the email's campaign key both hold the cohort and the turn-on time, so one turn-on sends at most one notification and one email.
+The recipient is clear once the email is queued, so a failed send is retried only by the task itself.
+A transport error or an email the provider did not accept raises, and the task tries again up to 3 times, after 5, 10 and 20 seconds, then fails.
+An address the provider refuses as undeliverable is not retried.
+An email queued while a worker on the email queue runs a release without the task is discarded by that worker, and the recipient is already clear, so it is not sent.
 A recipient stays set, and nothing sends until another cohort of the team becomes ready, in these cases:
 
 - The process stops between the stamp's commit and this step.

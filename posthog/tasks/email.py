@@ -62,6 +62,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
@@ -1378,6 +1381,63 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
                 "repository": context.repository,
                 "branch_name": context.branch,
             },
+            groups=groups(team=team),
+        )
+
+
+@shared_task(**EMAIL_TASK_KWARGS, name="posthog.tasks.email.send_cohort_realtime_ready_email")
+@skip_team_scope_audit  # User/MessagingRecord still on RootTeamManager; team access is checked explicitly below
+def send_cohort_realtime_ready_email(
+    team_id: int, cohort_id: int, cohort_name: str, user_id: int, realtime_enabled_at: str
+) -> None:
+    """Email the user who turned realtime on for a cohort that feature flags can now target.
+
+    The backfill finalizer queues it. `realtime_enabled_at` is the turn-on the finalizer read, so a later turn-on of
+    the same cohort gets its own email.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    user = User.objects.filter(id=user_id).first()
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if user is None or not user.email or not user.is_active or team is None:
+        return
+    if not authorization.check(
+        resource=Resource.project(team.project_id), action=Action.VIEW, subject=Subject(user_id=user.pk)
+    ):
+        return
+
+    campaign_key = f"cohort_realtime_ready_{cohort_id}_{realtime_enabled_at}"
+    recipient_email_hashes = get_email_hashes(user.email)
+    if MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists():
+        return
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject="Your cohort is ready",
+        template_name="cohort_realtime_ready",
+        template_context={
+            "first_name": user.first_name or "",
+            # The SMTP template autoescapes HTML but does not defang domains like the HTTP transport does.
+            "cohort_name": html.unescape(sanitize_email_string(cohort_name or "Untitled")),
+            "cohort_url": f"{settings.SITE_URL}/project/{team.project_id}/cohorts/{cohort_id}",
+            **get_email_team_and_org_context(team=team),
+        },
+    )
+    message.add_user_recipient(user)
+    # Eager retries inside `send` end in a returned failure, which this task would finish as a success. Without them a
+    # transport error raises here, and an unaccepted email raises below, so the task's own retries run.
+    if message.send(send_async=False, retry=False):
+        logger.info("send_cohort_realtime_ready_email.undeliverable", cohort_id=cohort_id, campaign_key=campaign_key)
+        return
+    raise_if_delivery_rejected(campaign_key, user.email)
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="cohort realtime ready email sent",
+            properties={"$update_person_last_seen_at": False, "cohort_id": cohort_id, "team_id": team_id},
             groups=groups(team=team),
         )
 

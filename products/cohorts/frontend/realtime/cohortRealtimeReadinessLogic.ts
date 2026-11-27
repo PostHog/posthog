@@ -16,18 +16,19 @@ import { loaders } from 'kea-loaders'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { CohortType } from '~/types'
+import { CohortType, PreflightStatus } from '~/types'
 
 import { cohortsRealtimeCreate, cohortsRetrieve } from '../generated/api'
 import type { CohortApi } from '../generated/api.schemas'
 import {
     READINESS_GRACE_POLLS,
-    READY_NOTIFICATION_PROMISE,
     REALTIME_POLL_INTERVAL_MS,
     isBuildingHistory,
+    readyNotificationPromise,
 } from './realtimeReadiness'
 
 export interface CohortRealtimeReadinessLogicProps {
@@ -38,6 +39,7 @@ export interface CohortRealtimeReadinessLogicProps {
 export interface cohortRealtimeReadinessLogicValues {
     cohortsById: Partial<Record<number | string, CohortType>> // cohortsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    preflight: PreflightStatus | null // preflightLogic
     currentProjectId: number | string // teamLogic
     cohort: CohortType | undefined
     readyNotificationPromise: string | null
@@ -79,7 +81,11 @@ export interface cohortRealtimeReadinessLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
         cohort: (cohortsById: Partial<Record<number | string, CohortType>>, cohortId: number) => CohortType | undefined
-        readyNotificationPromise: (realtimeSwitch: CohortApi | null, featureFlags: FeatureFlagsSet) => string | null
+        readyNotificationPromise: (
+            realtimeSwitch: CohortApi | null,
+            featureFlags: FeatureFlagsSet,
+            preflight: PreflightStatus | null
+        ) => string | null
     }
 }
 
@@ -103,6 +109,8 @@ export const cohortRealtimeReadinessLogic: LogicWrapper<cohortRealtimeReadinessL
                 ['cohortsById'],
                 featureFlagLogic,
                 ['featureFlags'],
+                preflightLogic,
+                ['preflight'],
             ],
             actions: [teamLogic, ['refreshCurrentTeam'], cohortsModel, ['updateCohort']],
         })),
@@ -128,10 +136,14 @@ export const cohortRealtimeReadinessLogic: LogicWrapper<cohortRealtimeReadinessL
             // `realtimeSwitch` is set only once this logic turned the cohort on, which is the turn-on that records whom
             // to notify. A cohort that was already preparing promises nothing.
             readyNotificationPromise: [
-                (s) => [s.realtimeSwitch, s.featureFlags],
-                (realtimeSwitch: CohortApi | null, featureFlags: FeatureFlagsSet): string | null =>
+                (s) => [s.realtimeSwitch, s.featureFlags, s.preflight],
+                (
+                    realtimeSwitch: CohortApi | null,
+                    featureFlags: FeatureFlagsSet,
+                    preflight: PreflightStatus | null
+                ): string | null =>
                     realtimeSwitch && featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]
-                        ? READY_NOTIFICATION_PROMISE
+                        ? readyNotificationPromise(!!preflight?.email_service_available)
                         : null,
             ],
         }),

@@ -15,8 +15,14 @@ from parameterized import parameterized
 
 from posthog.event_usage import groups
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
+from posthog.tasks.email import send_cohort_realtime_ready_email
 
-from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
+from products.cohorts.backend.backfill.finalize import (
+    _STAMP_BY_KIND,
+    FLAGS_CACHE_TASK,
+    READY_EMAIL_TASK,
+    finalize_backfill_runs,
+)
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
 from products.cohorts.backend.models.backfill import (
@@ -399,6 +405,7 @@ class TestBackfillFinalizer(BaseTest):
             finalize_backfill_runs()
 
         cohort.refresh_from_db()
+        assert cohort.realtime_enabled_at is not None
         self.assertIsNone(cohort.realtime_ready_notify_user_id)
         self.assertEqual(
             [
@@ -414,6 +421,14 @@ class TestBackfillFinalizer(BaseTest):
                     f"/project/{self.team.project_id}/cohorts/{cohort.id}",
                 )
             ],
+        )
+        self.assertIn(
+            mock.call(
+                READY_EMAIL_TASK,
+                args=(self.team.id, cohort.id, "Weekly " * 20, self.user.id, cohort.realtime_enabled_at.isoformat()),
+                queue="email",
+            ),
+            self.mock_celery_app.send_task.call_args_list,
         )
 
     def test_waits_for_the_cohorts_it_includes_before_telling_anyone(self) -> None:
@@ -468,6 +483,38 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual([event["cohort_id"] for event in self._ready_events()], [cohort.id])
         self.assertEqual(stored_notifications_for_team(self.team.id), [])
         self.assertEqual(cohort.realtime_ready_notify_user_id, self.user.id if keeps_recipient else None)
+        self.assertNotIn(READY_EMAIL_TASK, [each.args[0] for each in self.mock_celery_app.send_task.call_args_list])
+
+    def test_an_email_that_fails_to_queue_is_queued_by_the_next_pass_that_readies_a_cohort_of_the_team(self) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
+        self._waiting_for(cohort)
+
+        def fail_to_queue_the_email(name: str, **kwargs: object) -> None:
+            if name == READY_EMAIL_TASK:
+                raise RuntimeError("broker unavailable")
+
+        self.mock_celery_app.send_task.side_effect = fail_to_queue_the_email
+
+        with self._notifications_enabled():
+            finalize_backfill_runs()
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.realtime_ready_notify_user_id, self.user.id)
+
+            self.mock_celery_app.send_task.side_effect = None
+            self._turned_on_cohort_missing_only_its_events_stamp()
+            finalize_backfill_runs()
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.realtime_ready_notify_user_id)
+        self.assertEqual([n.resource_id for n in stored_notifications_for_team(self.team.id)], [str(cohort.id)])
+        self.assertEqual(
+            [
+                each.kwargs["args"][1]
+                for each in self.mock_celery_app.send_task.call_args_list
+                if each.args[0] == READY_EMAIL_TASK
+            ],
+            [cohort.id, cohort.id],
+        )
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
     def test_person_run_is_held_not_superseded_while_the_readiness_gate_is_off(self) -> None:
@@ -566,6 +613,9 @@ class TestBackfillFinalizer(BaseTest):
         module_path, task_name = FLAGS_CACHE_TASK.rsplit(".", 1)
         task = getattr(importlib.import_module(module_path), task_name)
         self.assertEqual(task.name, FLAGS_CACHE_TASK)
+
+    def test_ready_email_task_name_matches_the_registered_task(self) -> None:
+        self.assertEqual(send_cohort_realtime_ready_email.name, READY_EMAIL_TASK)
 
     def test_cohort_scoped_run_superseded_by_stamp_divergence(self) -> None:
         # The cohort's definition diverged after reconcile completed: the stamp CAS must refuse,
