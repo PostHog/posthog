@@ -48,8 +48,9 @@ from posthog.oauth_provenance import (
     is_id_jag_origin_request,
     is_sandbox_origin_request,
 )
-from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes, scopes_missing_after_legacy_fallback
+from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback, scopes_not_covered
 
 logger = structlog.get_logger(__name__)
 
@@ -97,9 +98,7 @@ def _connection_access_token(integration: IntegrationRecord) -> str:
     return token
 
 
-def _enforce_caller_covers_connection_scopes(
-    request: Request, view: viewsets.GenericViewSet, integration: IntegrationRecord
-) -> None:
+def _enforce_caller_covers_connection_scopes(request: Request, integration: IntegrationRecord) -> None:
     """A connection acts with the creator's stored grant, which may be broader than the API key making
     this call. Require that key to itself carry the scopes the connection was granted, so a narrowly
     scoped (or leaked) key can't wield the connection to exceed its own authority. Session auth and
@@ -116,10 +115,12 @@ def _enforce_caller_covers_connection_scopes(
             "This PostHog connection's granted scopes are unknown, so it can only be used with a "
             "full-access API key or a session. Reconnect it to record its scopes."
         )
-    # Same rule as APIScopePermission: `:write` covers `:read`, and a legacy `task:*` key covers the
-    # `inbox:*` scopes split off it, as the target accepts it.
-    missing_scopes = scopes_missing_after_legacy_fallback(request, view, caller_scopes, sorted(granted))
-    if missing_scopes:
+    # `:write` covers `:read`, the same rule APIScopePermission applies.
+    missing = set(scopes_not_covered(caller_scopes, granted))
+    # A legacy `task:*` key may use a connection granted the `inbox:*` scopes split off it, as the target accepts it.
+    missing -= set(scopes_covered_by_legacy_fallback(caller_scopes, missing))
+    if missing:
+        missing_scopes = sorted(missing)
         raise InsufficientScope(
             missing_scopes,
             detail="Your API key must carry the scopes this connection was granted to use it. "
@@ -412,7 +413,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if request.headers.get(CONNECTION_MARKER_HEADER):
             raise ValidationError("A request forwarded through a PostHog connection cannot be forwarded again.")
         integration = self._get_connection(pk)
-        _enforce_caller_covers_connection_scopes(request, self, integration)
+        _enforce_caller_covers_connection_scopes(request, integration)
         return integration
 
     def _get_connection(self, pk: str | None) -> IntegrationRecord:
