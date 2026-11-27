@@ -1,4 +1,13 @@
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import {
+    type ComponentProps,
+    type MouseEvent,
+    type ReactNode,
+    forwardRef,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import {
@@ -16,14 +25,27 @@ import {
     ContextMenuSubContent,
     ContextMenuSubTrigger,
     ContextMenuTrigger,
+    MenuLabel,
 } from '@posthog/quill'
 
 import type { MenuAction } from '../../menu/menuAction'
 import { MenuActionList, type MenuParts } from '../../menu/MenuActionList'
 
+// Quill's dropdown heading inside the context menu's own, so a tile's menu and the dashboard's menu have one heading.
+const CapsLabel = forwardRef<HTMLDivElement, ComponentProps<typeof ContextMenuLabel>>(function CapsLabel(
+    { children, ...props },
+    ref
+) {
+    return (
+        <ContextMenuLabel ref={ref} {...props} className="p-0">
+            <MenuLabel>{children}</MenuLabel>
+        </ContextMenuLabel>
+    )
+})
+
 const CONTEXT_MENU_PARTS: MenuParts = {
     Group: ContextMenuGroup,
-    Label: ContextMenuLabel,
+    Label: CapsLabel,
     Separator: ContextMenuSeparator,
     Item: ContextMenuItem,
     CheckboxItem: ContextMenuCheckboxItem,
