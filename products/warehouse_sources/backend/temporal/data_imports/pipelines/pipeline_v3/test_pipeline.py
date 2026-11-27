@@ -150,6 +150,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
     pipeline._columns_known_before_run = None
+    pipeline._holds_back_new_columns = False
     pipeline._continues_incremental_handoff = False
     pipeline._resumed_incremental_run_uuid = None
     pipeline._sent_resumed_run_finalization = False
@@ -537,6 +538,30 @@ class TestReplaceScopeHandOff:
 
         [result] = projected
         assert [name for name in result.column_names if name != "_ph_debug"] == expected_columns
+
+    @pytest.mark.asyncio
+    async def test_a_batch_of_only_held_back_columns_fails_after_saving_them_for_review(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._uses_delta_write_column_selection = True
+        pipeline._holds_back_new_columns = True
+        schema = cast(Any, pipeline._schema)
+        schema.enabled_columns = ["old_column"]
+        schema.incremental_field = None
+        schema.partitioning_keys_override = None
+        schema.partitioning_keys = None
+        pipeline._resource.primary_keys = None
+        pipeline._resource.partition_keys = None
+        pipeline._resource.replace_scope = None
+        pipeline._job = MagicMock(team_id=1)
+        saved: list[list[dict[str, Any]]] = []
+
+        with (
+            patch(f"{_PIPELINE}.persist_observed_columns", side_effect=lambda _id, _team, cols: saved.append(cols)),
+            pytest.raises(NonRetryableException, match="holds new columns back"),
+        ):
+            await pipeline._process_batch(pa_table=pa.table({"new_secret": ["s"]}), batch_index=0, row_count=1)
+
+        assert [[column["name"] for column in columns] for columns in saved] == [["new_secret"]]
 
     @pytest.mark.parametrize(
         "source_policy, table_policy, enabled_columns, expected",

@@ -550,12 +550,23 @@ def drop_internal_columns(table: pa.Table) -> pa.Table:
     return table.drop_columns(internal) if internal else table
 
 
+class HeldBackColumnsOnlyError(NonReportableError):
+    """Every column a batch brings is held back by the `exclude` new-column policy."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Every column in this sync is new, and this table holds new columns back for review. Turn on "
+            "the columns to sync in the table's column settings, then sync again."
+        )
+
+
 def apply_enabled_columns_projection(
     table: pa.Table,
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None,
     partition_keys: list[str] | None,
+    hold_back_new_columns: bool = False,
 ) -> tuple[pa.Table, list[str]]:
     """Drop table columns not selected in `enabled_columns`. Returns `(table, dropped_names)`.
 
@@ -569,7 +580,8 @@ def apply_enabled_columns_projection(
     source namespace, so a raw comparison would drop every non-lowercase column. If the
     projection would drop every user-facing column, the table is returned unchanged (mirrors the
     empty-projection fallback in `filter_dwh_columns_by_enabled_columns`) — an empty table is
-    never the intended result of a column selection.
+    never the intended result of a column selection. With `hold_back_new_columns` that fallback would
+    sync the columns the `exclude` policy holds back, so it raises `HeldBackColumnsOnlyError` instead.
     """
     if enabled_columns is None:
         return table, []
@@ -589,6 +601,8 @@ def apply_enabled_columns_projection(
     if not dropped_names:
         return table, []
     if all(name in INTERNAL_COLUMN_NAMES for name in kept_names):
+        if hold_back_new_columns:
+            raise HeldBackColumnsOnlyError()
         return table, []
     return table.select(kept_names), dropped_names
 
@@ -602,6 +616,7 @@ async def observe_and_project_table(
     observed_columns: dict[str, dict[str, Any]],
     logger: FilteringBoundLogger,
     log_message: str,
+    hold_back_new_columns: bool = False,
 ) -> pa.Table:
     """Shared observe-then-project step for `_uses_delta_write_column_selection` pipelines.
 
@@ -613,7 +628,7 @@ async def observe_and_project_table(
         observed_columns[observed_column["name"]] = observed_column
 
     table, dropped_names = apply_enabled_columns_projection(
-        table, enabled_columns, primary_keys, incremental_field, partition_keys
+        table, enabled_columns, primary_keys, incremental_field, partition_keys, hold_back_new_columns
     )
     if dropped_names:
         await logger.adebug(f"{log_message}: {dropped_names}")
