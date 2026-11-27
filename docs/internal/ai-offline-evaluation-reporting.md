@@ -916,6 +916,13 @@ With all time, the charts share a range from the earliest loaded result across t
 The shared guide stays aligned on sparse charts, including charts with a single result.
 Short date ranges show time-of-day labels, and short period comparisons show elapsed durations instead of rounded days.
 
+Select two to four experiments in the experiments list and choose **Compare experiments** to see their scores side by side.
+Each row represents one pinned scorer version. **Shared scores only** shows the versions present in every selected run.
+Runs can have different item scorers and can omit the overall experiment score.
+Numeric means and boolean pass rates show the difference from the selected baseline for that version.
+These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
+Select a coverage count to inspect that scorer's items in the experiment. The comparison URL preserves the runs, baseline, and shared-score filter.
+
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
