@@ -5,6 +5,7 @@ assignment side effects that previously lived in the presentation layer, so the 
 can stay thin (parse -> facade -> serialize).
 """
 
+from collections import defaultdict
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -542,21 +543,18 @@ def bulk_update_issues(
             if resolved_until is not None and new_status != ErrorTrackingIssue.Status.RESOLVED:
                 raise InvalidIssueStatusError
             transitions = []
-            mode_only_issue_ids: list[UUID] = []
-            # Every changed issue ends with this mode. An issue that is already resolved keeps its mode
-            # unless the request names one.
-            new_resolved_until = (
-                (resolved_until or ErrorTrackingIssue.ResolvedUntil.NEXT_OCCURRENCE)
-                if new_status == ErrorTrackingIssue.Status.RESOLVED
-                else None
-            )
+            # Issues are written in groups by their resulting mode, so a bulk request stays a few queries.
+            status_change_ids_by_mode: dict[str | None, list[UUID]] = defaultdict(list)
+            mode_only_ids_by_mode: dict[str | None, list[UUID]] = defaultdict(list)
             for issue in issues:
                 status_updated = issue.status != new_status
-                resolved_until_change = (
-                    _resolved_until_change(issue.resolved_until, new_resolved_until)
-                    if status_updated or resolved_until is not None
-                    else None
+                issue_resolved_until = _resolved_until_after(
+                    status_before=issue.status,
+                    status_after=new_status,
+                    resolved_until_before=issue.resolved_until,
+                    requested=resolved_until,
                 )
+                resolved_until_change = _resolved_until_change(issue.resolved_until, issue_resolved_until)
                 if not status_updated and resolved_until_change is None:
                     continue
                 changed_issue_ids.append(issue.id)
@@ -583,10 +581,11 @@ def bulk_update_issues(
                     activity="updated",
                     detail=Detail(name=issue.name, changes=changes),
                 )
-                issue.resolved_until = new_resolved_until
+                issue.resolved_until = issue_resolved_until
                 if not status_updated:
-                    mode_only_issue_ids.append(issue.id)
+                    mode_only_ids_by_mode[issue_resolved_until].append(issue.id)
                     continue
+                status_change_ids_by_mode[issue_resolved_until].append(issue.id)
                 clickhouse_issue_ids.append(issue.id)
                 if new_status in STATUS_CHANGE_EVENTS:
                     transitions.append(
@@ -605,17 +604,15 @@ def bulk_update_issues(
                 issue.resolved_at = resolved_at
                 issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
             produce_issue_lifecycle_events_on_commit(transitions)
-            if clickhouse_issue_ids:
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=clickhouse_issue_ids).update(
+            for mode, ids in status_change_ids_by_mode.items():
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=ids).update(
                     status=new_status,
                     resolved_at=resolved_at,
-                    resolved_until=new_resolved_until,
+                    resolved_until=mode,
                     state_updated_at=timezone.now(),
                 )
-            if mode_only_issue_ids:
-                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=mode_only_issue_ids).update(
-                    resolved_until=new_resolved_until
-                )
+            for mode, ids in mode_only_ids_by_mode.items():
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=ids).update(resolved_until=mode)
         elif action == "assign":
             transitions = []
             for issue in issues:
