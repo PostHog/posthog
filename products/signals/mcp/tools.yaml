@@ -1159,9 +1159,10 @@ tools:
         title: Preview an error tracking inbox filter
         description: >
             Try candidate issue_filters before changing an error tracking source. Review passing and excluded
-            transitions from the last seven days, sample property values, and the historical spend and PR outcomes
-            of reports the excluded signals fed. Check unavailable_count before drawing conclusions about coverage.
-            A shared report can receive other signals, so its spend is not a savings estimate. Saves nothing and calls no AI.
+            transitions from the last seven days, sample property values, and the historical spend and PR outcomes of
+            reports the excluded signals fed. Check unavailable_count before drawing conclusions about coverage. A
+            shared report can receive other signals, so its spend is not a savings estimate. Saves nothing and calls no
+            AI.
     inbox-steering-instructions-get:
         operation: signals_config_list
         enabled: true
