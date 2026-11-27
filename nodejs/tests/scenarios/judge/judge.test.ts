@@ -36,7 +36,7 @@ describe('judge', () => {
     let duringProbe: (() => Promise<unknown>) | undefined
     let duringFinalPage: (() => Promise<unknown>) | undefined
     let duringHead: (() => Promise<unknown> | void) | undefined
-    let realClock: boolean
+    let drainsFeedback: boolean
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -55,8 +55,7 @@ describe('judge', () => {
             truth: {
                 head: async (read) => {
                     await duringHead?.()
-                    // A deadline on the fake clock means nothing to a real read.
-                    return edgeTruth(edge.url).head(realClock ? read : { ...read, atMostMs: undefined })
+                    return edgeTruth(edge.url).head(read)
                 },
                 after: async (cursor, read) => {
                     if (read?.final) {
@@ -88,7 +87,8 @@ describe('judge', () => {
             residentBacklog: () => Promise.resolve(resident!),
             finalRead: { attempts: 2, backoffMs: 0 },
             pollMs: 10,
-            now: () => (realClock ? Date.now() : clockMs),
+            now: () => clockMs,
+            drainsFeedback,
         })
 
     beforeEach(async () => {
@@ -115,7 +115,7 @@ describe('judge', () => {
         duringProbe = undefined
         duringFinalPage = undefined
         duringHead = undefined
-        realClock = false
+        drainsFeedback = false
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -1240,6 +1240,7 @@ describe('judge', () => {
                 credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
                 maxAttempts: 1,
             })
+            drainsFeedback = true
             judge = judgeOf()
             await judge.open(SEED)
             await internalFetch(`${edge.url}/_feedback`, {
@@ -1268,6 +1269,9 @@ describe('judge', () => {
         }))
 
     it('waits for the SES feedback of a send that landed while the edge answered its head', async () => {
+        drainsFeedback = true
+        judge = judgeOf()
+        await judge.open(SEED)
         const late = 'run-a-2'
         judge.record(offered())
         judge.record({ ...offered(), unitId: late })
@@ -1278,6 +1282,7 @@ describe('judge', () => {
             if (heads === 1) {
                 await deliver(late)
             } else if (heads === 2) {
+                // Stands in for the edge's drain: its head answers once the late send's feedback post has landed.
                 edgeRecords.append({
                     kind: 'ses.feedback',
                     unitId: late,
@@ -1303,28 +1308,23 @@ describe('judge', () => {
         ])
     })
 
-    it.each(['before the pass', 'during the lag probe'])(
-        'ends at its deadline while the edge holds its head for an SES feedback post stalled %s',
-        (when) =>
-            withHeldWebhook(async () => {
-                judge.record(offered())
-                const send = (): Promise<unknown> =>
-                    deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
-                if (when === 'before the pass') {
-                    await send()
-                } else {
-                    duringProbe = send
-                }
-                realClock = true
-                const startedAt = Date.now()
+    it.each([
+        ['without feedback shares reads no head', false, 0],
+        ['with feedback shares reads the head before and after the lag', true, 2],
+    ])('a quiet convergence pass on a profile %s', async (_story, drains, headReads) => {
+        drainsFeedback = drains
+        judge = judgeOf()
+        await judge.open(SEED)
+        judge.record(offered())
+        await deliver(UNIT)
+        let heads = 0
+        duringHead = () => {
+            heads += 1
+        }
 
-                const convergence = await judge.converge(300, NEVER_ABORTED)
-
-                expect(Date.now() - startedAt).toBeLessThan(1500)
-                expect(convergence).toMatchObject({ converged: false })
-                expect(convergence).not.toHaveProperty('unread')
-            })
-    )
+        expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
+        expect(heads).toBe(headReads)
+    })
 
     it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
         judge.record(offered())

@@ -8,7 +8,7 @@ import type { TruthRecord } from '../provider-edge'
 import { TRUTH_PAGE_LIMIT } from '../provider-edge/truth'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence, RunBoundary } from './invariants'
-import { type TruthRead, TruthReadCut, type TruthSource } from './truth'
+import type { TruthRead, TruthSource } from './truth'
 
 export type IntakeAnswer = (
     | { accepted: true }
@@ -80,6 +80,7 @@ export type JudgeOptions = {
     finalRead?: FinalRead
     pollMs?: number
     now?: () => number
+    drainsFeedback?: boolean
 }
 
 export type FinalRead = { attempts: number; backoffMs: number }
@@ -118,6 +119,7 @@ export function createJudge({
     finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
+    drainsFeedback = false,
 }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
@@ -241,28 +243,17 @@ export function createJudge({
             const startedAt = now()
             for (;;) {
                 let jobs: number | undefined
-                // A head read the deadline cut short leaves the pass unquiet, not unread, so the run is judged at the truth already read.
-                const headBeforeDeadline = (): Promise<boolean> =>
-                    source.head({ atMostMs: Math.max(1, withinMs - (now() - startedAt)) }).then(
-                        () => true,
-                        (error: unknown) => {
-                            if (error instanceof TruthReadCut) {
-                                return false
-                            }
-                            throw error
-                        }
-                    )
                 const quiet = await read(async () => {
-                    // The edge answers its head only once the feedback it is still posting has landed, so the lag probe below counts its notifications.
-                    if (!(await headBeforeDeadline())) {
-                        return false
+                    if (drainsFeedback) {
+                        // The edge answers its head only once the feedback it is still posting has landed, so the lag probe below counts its notifications.
+                        await source.head()
                     }
                     await pullTruth()
                     const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
-                    // A send that landed during the first head read may still be posting its feedback.
-                    if (!(await headBeforeDeadline())) {
-                        return false
+                    if (drainsFeedback) {
+                        // A send that landed during the first head read may still be posting its feedback.
+                        await source.head()
                     }
                     await pullTruth()
                     return runRecords() === settled

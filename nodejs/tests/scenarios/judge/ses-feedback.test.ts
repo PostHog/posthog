@@ -195,7 +195,7 @@ describe('SES notifications lost', () => {
 
     it('counts the notifications the webhook queued that the consumer neither recorded nor skipped', () => {
         expect(lostOf(run)).toEqual(
-            Object.entries({ lost: 3, queued: 20, recorded: 16, skipped: 1, failed: 0 }).map(([key, value]) => ({
+            Object.entries({ lost_floor: 3, queued: 20, recorded: 16, skipped: 1, failed: 0 }).map(([key, value]) => ({
                 name: 'ses_notifications_lost',
                 unit: 'notifications',
                 key,
@@ -229,13 +229,13 @@ describe('SES notifications lost', () => {
         [
             'recorded and skipped add up to more than queued',
             [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 30, skipped: 2 })],
-            'recorded and skipped add up to more than queued, so a batch replayed or a scrape was missed',
+            'recorded and skipped add up to more than queued; the counters do not show why',
         ],
     ])('leaves the loss unknown when %s', (_story, samples, unmeasured) => {
-        expect(lostOf(samples).find(({ key }) => key === 'lost')).toEqual({
+        expect(lostOf(samples).find(({ key }) => key === 'lost_floor')).toEqual({
             name: 'ses_notifications_lost',
             unit: 'notifications',
-            key: 'lost',
+            key: 'lost_floor',
             value: null,
             censored: true,
             unmeasured,
@@ -243,10 +243,10 @@ describe('SES notifications lost', () => {
     })
 
     it('leaves the loss unknown when the run did not converge', () => {
-        expect(lostOf(run, { converged: false }).find(({ key }) => key === 'lost')).toEqual({
+        expect(lostOf(run, { converged: false }).find(({ key }) => key === 'lost_floor')).toEqual({
             name: 'ses_notifications_lost',
             unit: 'notifications',
-            key: 'lost',
+            key: 'lost_floor',
             value: null,
             censored: true,
             unmeasured: 'the run did not converge, so the consumer may still have been recording',

@@ -261,7 +261,7 @@ const lossUnknown = (converged: boolean | undefined, failed: number, lost: numbe
         : failed > 0
           ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
           : lost < 0
-            ? 'recorded and skipped add up to more than queued, so a batch replayed or a scrape was missed'
+            ? 'recorded and skipped add up to more than queued; the counters do not show why'
             : undefined
 
 export const sesNotificationsLost: MeasurementDefinition = {
@@ -295,7 +295,7 @@ export const sesNotificationsLost: MeasurementDefinition = {
         const unknown = lossUnknown(converged, failed, lost)
         return [
             {
-                key: 'lost',
+                key: 'lost_floor',
                 ...(unknown === undefined
                     ? { value: lost }
                     : { value: null, censored: true as const, unmeasured: unknown }),

@@ -574,7 +574,7 @@ export function createRunner(
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
             const opened = runTarget.open(loaded, runId)
-            const judge = createJudge(opened)
+            const judge = createJudge({ ...opened, drainsFeedback: profile.feedback !== undefined })
             const valves = createValves()
             const live = openLiveLog(evidenceDir)
             live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
