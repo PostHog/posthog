@@ -31,7 +31,6 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     role: ROLE,
     replica,
     at: FROM + atS * 1000,
-    fetchedAt: FROM + atS * 1000,
     startedAt: FROM / 1000 + startedAtS,
     cpuSeconds,
     rssBytes,
@@ -406,6 +405,7 @@ describe('measurements', () => {
             const { samples, host } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
+            expect(samples.filter(({ at, fetchedAt }) => fetchedAt === undefined || fetchedAt < at)).toEqual([])
             expect(samples.at(-1)).toEqual({
                 role: ROLE,
                 replica: 0,
@@ -819,22 +819,41 @@ describe('measurements', () => {
             'reads recovery when a timer wakes late before a slow probe under the bar in the remainder',
             (second) =>
                 second < 700
-                    ? 1050
+                    ? 990
                     : second === 879
                       ? { startsLateMs: 885, latencyMs: 1 }
                       : second === 880
-                        ? { startsLateMs: 890, latencyMs: 1999 }
+                        ? { startsLateMs: 890, latencyMs: 1970 }
                         : 10,
             [{ ...VALVE, releasedAt: isoAt(885.39) }],
             [
-                { key: 'baseline', value: 1050 },
-                { key: 'bar', value: 2100 },
-                { key: 't0', value: 1050 },
+                { key: 'baseline', value: 990 },
+                { key: 'bar', value: 1980 },
+                { key: 't0', value: 10 },
                 { key: 't60', value: 10 },
                 { key: 't120', value: 10 },
                 { key: 'recovery_seconds', value: 0 },
             ],
             (second) => second !== 881 && second !== 882,
+        ],
+        [
+            'reads recovery over a short remainder that follows a gap in the probes before it',
+            (second) =>
+                second === 878
+                    ? { startsLateMs: 490, latencyMs: 10 }
+                    : second === 880
+                      ? { startsLateMs: 100, latencyMs: 10 }
+                      : 10,
+            [{ ...VALVE, releasedAt: isoAt(880.3) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 879,
         ],
         [
             'leaves recovery unknown when the writer idles long enough to hide a timed-out write in the remainder',
@@ -1001,115 +1020,20 @@ describe('measurements', () => {
         })
     }
 
-    const pickedWith = (
-        picked: (second: number) => [fast: number, slow: number],
-        { replica = 0, slowFrom = 0 } = {}
-    ): MetricSample[] => {
-        let fast = 0
-        let slow = slowFrom
-        return everySecondOf(2, 1497, 5).map((second) => {
-            const [newFast, newSlow] = picked(second)
-            fast += newFast
-            slow += newSlow
-            return {
-                ...sample(second, 0, 1, 100, replica),
-                role: HOGFLOW,
-                lateness: { hogflow: { '0.5': fast, '5': fast + slow, '+Inf': fast + slow } },
-            }
-        })
-    }
-
-    const censoredPickupPoints = ['t0', 't60', 't120'].map((offset) => ({
-        key: `hogflow_${offset}`,
-        value: null,
-        censored: true,
-        unmeasured: UNBOUNDED_PICKUPS,
-    }))
-
-    it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
-        [
-            'publishes the baseline and bar, and censors every valve minute',
-            pickedEvery5s(between(705, 760)),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-            ],
-        ],
-        [
-            'counts a scrape interval that straddles T0 after T0 only, so slow pickups after the fault leave the baseline alone',
-            pickedEvery5s(between(702, 702), { offsetS: 2, slowCount: 50 }),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-            ],
-        ],
-        [
-            'censors the baseline when a counter drops in it',
-            pickedEvery5s(between(705, 760)).map((scrape) =>
-                scrape.at === atS(650) ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 0, '+Inf': 0 } } } : scrape
-            ),
-            [
-                { key: 'hogflow_baseline', value: null, censored: true },
-                { key: 'hogflow_bar', value: null, censored: true },
-            ],
-        ],
-        [
-            'censors the baseline when one replica has no scrape fetched before T0',
-            [
-                ...pickedWith(() => [10, 0]),
-                ...pickedWith(() => [10, 0], { replica: 1 }).map(({ fetchedAt, ...scrape }) =>
-                    scrape.at < atS(700) ? scrape : { ...scrape, fetchedAt }
-                ),
-            ],
-            [
-                { key: 'hogflow_baseline', value: null, censored: true },
-                { key: 'hogflow_bar', value: null, censored: true },
-            ],
-        ],
-        [
-            'censors the baseline when a counter drops in it, though another replica went unscraped there',
-            [
-                ...pickedWith(() => [0, 0], { replica: 1 }).filter(({ at }) => at < atS(105) || at > atS(685)),
-                ...pickedWith(() => [10, 0]).map((scrape) =>
-                    scrape.at === atS(652)
-                        ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 0, '+Inf': 0 } } }
-                        : scrape
-                ),
-            ],
-            [
-                { key: 'hogflow_baseline', value: null, censored: true },
-                { key: 'hogflow_bar', value: null, censored: true },
-            ],
-        ],
-        [
-            'keeps a scrape requested before T0 but fetched after it out of the baseline',
-            pickedWith((second) => (second === 697 ? [0, 50] : between(707, 757)(second) ? [0, 10] : [10, 0])).map(
-                (scrape) => (scrape.at === atS(697) ? { ...scrape, fetchedAt: atS(701) } : scrape)
-            ),
-            [
-                { key: 'hogflow_baseline', value: 0.5 },
-                { key: 'hogflow_bar', value: 1 },
-            ],
-        ],
-        [
-            'censors the baseline when no scrape says when its fetch completed',
-            pickedEvery5s(between(705, 760)).map(({ fetchedAt: _fetchedAt, ...scrape }) => scrape),
-            [
-                { key: 'hogflow_baseline', value: null, censored: true },
-                { key: 'hogflow_bar', value: null, censored: true },
-            ],
-        ],
-    ])('pickup p99 %s', (_story, samples, baseline) => {
+    it('censors the pickup baseline, bar, valve points and recovery, since scrape windows cannot bound pickups at T0', () => {
         expect(
             measure(
                 ['pickup_p99_seconds', 'pickup_recovery_seconds'].map((name) => ({ name, params: {} })),
-                evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+                evidence({ samples: pickedEvery5s(between(705, 760)), drive: DRIVE, timeline: THREE_MINUTE_VALVE })
             )
         ).toEqual([
-            ...[...baseline, ...censoredPickupPoints].map((value) => ({
+            ...['baseline', 'bar', 't0', 't60', 't120'].map((key) => ({
                 name: 'pickup_p99_seconds',
                 unit: 's',
-                ...value,
+                key: `hogflow_${key}`,
+                value: null,
+                censored: true,
+                unmeasured: UNBOUNDED_PICKUPS,
             })),
             {
                 name: 'pickup_recovery_seconds',
