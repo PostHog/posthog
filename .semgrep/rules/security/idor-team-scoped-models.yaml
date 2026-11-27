@@ -242,6 +242,8 @@ rules:
                               |ExternalDataSourceDestination
                               |FeatureFlag
                               |FeatureFlagCodeAnalysis
+                              |FlagObservationWindow
+                              |FlagWindowsCursor
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -802,6 +804,8 @@ rules:
                         |ExternalDataSource
                         |FeatureFlag
                         |FeatureFlagCodeAnalysis
+                        |FlagObservationWindow
+                        |FlagWindowsCursor
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
