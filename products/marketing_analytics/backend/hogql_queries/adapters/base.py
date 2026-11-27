@@ -3,6 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, cast
 
 import structlog
@@ -242,6 +243,23 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def get_source_id(self) -> str:
         """Return the source ID for filtering purposes"""
         return self.config.source_id
+
+    def cost_data_synced_at(self) -> datetime | None:
+        """When a warehouse sync last finished writing rows to the table that holds this level's cost rows.
+
+        Reads `last_full_run`, not `last_synced_at`: that one is the start of the run, so a job built while
+        the sync was still loading would pass for one that saw its rows. None when no sync writes the
+        table (a self-managed table), so only the clock can age its rows.
+        """
+        table: DataWarehouseTable | None = None
+        if self._has_hierarchical_config():
+            table = self._level_tables().stats_table
+        elif isinstance(self.config, ExternalConfig):
+            table = self.config.table
+        if table is None:
+            return None
+        finished = (schema.last_full_run for schema in table.externaldataschema_set.all())
+        return max((stamp for stamp in finished if stamp is not None), default=None)
 
     @abstractmethod
     def validate(self) -> ValidationResult:

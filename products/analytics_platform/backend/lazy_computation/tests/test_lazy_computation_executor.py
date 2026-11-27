@@ -1664,6 +1664,7 @@ class TestParseTtlSchedule(SimpleTestCase):
             ("negative_empty_ttl", {"empty_result_ttl_seconds": -60}),
             ("zero_max_age", {"empty_result_max_age_seconds": 0}),
             ("negative_max_age", {"empty_result_max_age_seconds": -60}),
+            ("zero_source_change_max_age", {"source_change_max_age_seconds": 0}),
             ("zero_jitter", {"default_ttl_jitter_seconds": 0}),
             ("negative_jitter", {"default_ttl_jitter_seconds": -60}),
         ]
@@ -2315,6 +2316,65 @@ class TestComputationExecutorExecute(BaseTest):
         else:
             assert job.id not in result.job_ids
             assert insert_count[0] == 1
+
+    @parameterized.expand(
+        [
+            ("source_changed_after_the_build", timedelta(hours=1), 1, True, 1, False),
+            ("source_changed_before_the_build", timedelta(hours=-1), 1, True, 0, False),
+            ("window_older_than_the_max_age", timedelta(hours=1), 10, True, 0, False),
+            ("check_only_reader_within_grace", timedelta(hours=1), 1, False, 0, True),
+        ]
+    )
+    def test_source_change_ends_freshness_of_earlier_jobs(
+        self,
+        _name: str,
+        changed_after_build: timedelta,
+        window_age_days: int,
+        run_inserts: bool,
+        expected_inserts: int,
+        expected_stale: bool,
+    ) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        window_end = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=window_age_days)
+        window_start = window_end - timedelta(days=1)
+        created_at = now - timedelta(hours=2)
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=window_start,
+            time_range_end=window_end,
+            status=PreaggregationJob.Status.READY,
+            expires_at=now + timedelta(days=5),
+        )
+        PreaggregationJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        schedule = TtlSchedule(
+            rules=[],
+            default_ttl_seconds=5 * 24 * 60 * 60,
+            source_changed_at=created_at + changed_after_build,
+            source_change_max_age_seconds=3 * 24 * 60 * 60,
+        )
+        insert_count = [0]
+
+        result = LazyComputationExecutor(
+            ttl_schedule=schedule,
+            run_inserts=run_inserts,
+            stale_while_revalidate_seconds=None if run_inserts else 6 * 60 * 60,
+        ).execute(
+            team=self.team,
+            query_info=query_info,
+            start=window_start,
+            end=window_end,
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        assert insert_count[0] == expected_inserts
+        assert result.stale is expected_stale
+        assert (job.id in result.job_ids) is (expected_inserts == 0)
 
     @parameterized.expand(
         [

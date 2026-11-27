@@ -18,6 +18,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
     COSTS_EMPTY_RESULT_TTL_SECONDS,
     COSTS_PRECOMPUTE_MAX_WINDOW_DAYS,
     COSTS_PRECOMPUTE_TTL_SECONDS,
+    COSTS_SYNC_INVALIDATION_MAX_AGE_SECONDS,
     costs_precompute_ttl_schedule,
     strip_infinity_sentinels,
 )
@@ -48,7 +49,7 @@ class TestCostsPrecomputeTtlSchedule(BaseTest):
     """
 
     def test_opts_into_the_empty_result_cap(self):
-        schedule = costs_precompute_ttl_schedule(self.team)
+        schedule = costs_precompute_ttl_schedule(self.team, None)
 
         assert schedule.empty_result_ttl_seconds == COSTS_EMPTY_RESULT_TTL_SECONDS
         assert schedule.empty_result_max_age_seconds == COSTS_EMPTY_RESULT_MAX_AGE_SECONDS
@@ -56,16 +57,16 @@ class TestCostsPrecomputeTtlSchedule(BaseTest):
     def test_jobs_are_day_granular(self):
         # Emptiness is only observable per job, so a merged multi-day job would hide a sync gap
         # that sat next to productive days.
-        assert costs_precompute_ttl_schedule(self.team).max_window_days == COSTS_PRECOMPUTE_MAX_WINDOW_DAYS == 1
+        assert costs_precompute_ttl_schedule(self.team, None).max_window_days == COSTS_PRECOMPUTE_MAX_WINDOW_DAYS == 1
 
     def test_keeps_the_band_ttls(self):
-        schedule = costs_precompute_ttl_schedule(self.team)
+        schedule = costs_precompute_ttl_schedule(self.team, None)
 
         assert schedule.default_ttl_seconds == COSTS_PRECOMPUTE_TTL_SECONDS["default"]
         assert schedule.get_ttl(datetime.now(UTC)) == COSTS_PRECOMPUTE_TTL_SECONDS["0d"]
 
     def test_recent_empty_window_is_capped_but_old_one_is_not(self):
-        schedule = costs_precompute_ttl_schedule(self.team)
+        schedule = costs_precompute_ttl_schedule(self.team, None)
         now = datetime.now(UTC)
 
         recent = schedule.empty_result_expires_at(now, now - timedelta(hours=1))
@@ -75,6 +76,16 @@ class TestCostsPrecomputeTtlSchedule(BaseTest):
         # Past the horizon, empty means empty — keep the band TTL instead of rescanning history.
         old_window_end = now - timedelta(seconds=COSTS_EMPTY_RESULT_MAX_AGE_SECONDS + 60)
         assert schedule.empty_result_expires_at(now, old_window_end) is None
+
+    def test_a_sync_reaches_recent_windows_but_not_old_ones(self):
+        synced_at = datetime.now(UTC)
+        schedule = costs_precompute_ttl_schedule(self.team, synced_at)
+        built_before_the_sync = synced_at - timedelta(minutes=5)
+
+        assert schedule.source_change_expires_at(built_before_the_sync, synced_at - timedelta(hours=1)) == synced_at
+
+        old_window_end = synced_at - timedelta(seconds=COSTS_SYNC_INVALIDATION_MAX_AGE_SECONDS + 60)
+        assert schedule.source_change_expires_at(built_before_the_sync, old_window_end) is None
 
 
 class TestStripInfinitySentinels:

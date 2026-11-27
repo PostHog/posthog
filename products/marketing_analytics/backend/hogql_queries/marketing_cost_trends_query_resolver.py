@@ -90,7 +90,9 @@ class MarketingCostTrendsQueryResolver:
                     insert_query=insert_query,
                     time_range_start=date_range.date_from(),
                     time_range_end=date_range.date_to(),
-                    ttl_seconds=costs_precompute_ttl_schedule(self.team),
+                    # No sync time: the chart cannot rebuild, so a sync would only send it to the live
+                    # query while the table beside it still serves these rows until the warmer rebuilds.
+                    ttl_seconds=costs_precompute_ttl_schedule(self.team, None),
                     table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                     run_inserts=False,
                     stale_while_revalidate_seconds=0,

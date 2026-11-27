@@ -306,6 +306,8 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             ),
             patch.object(MarketingSourceFactory, "__init__", initialize_factory),
             patch.object(MarketingSourceFactory, "create_adapters", create_adapters),
+            # The warmer reads the sync time from the table's schema rows; this test has no database.
+            patch.object(MarketingSourceAdapter, "cost_data_synced_at", return_value=None),
             patch(f"{base_module}.MarketingSourceFactory", MarketingSourceFactory),
             patch(f"{base_module}.marketing_ensure_precomputed", side_effect=ensure_precomputed),
             # The job identity asks the instance settings which events table a build reads; this test has no database.

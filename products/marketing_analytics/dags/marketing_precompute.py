@@ -547,7 +547,7 @@ def _ensure_costs_for_team(
                 team,
                 LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 partial(adapter.build_materialization_query, source_id),
-                costs_precompute_ttl_schedule(team),
+                costs_precompute_ttl_schedule(team, adapter.cost_data_synced_at()),
                 start,
                 end,
                 chunk_days,
