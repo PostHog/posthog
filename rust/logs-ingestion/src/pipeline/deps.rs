@@ -11,6 +11,7 @@ use crate::normalize::LogsSettings;
 use crate::rate_limiter::{Clock, KeyRoot, TokenBucketRedis};
 use crate::retention::CompiledRetentionRuleSet;
 use crate::sampling::CompiledRuleSet;
+use crate::unknown_tokens::UnknownTokens;
 
 use super::errors::DependencyRetry;
 
@@ -102,4 +103,6 @@ pub struct LogsIngestionConsumerDeps {
     pub clock: Clock,
     /// Shadow mode only, so a comparator can find the input message. Node never writes `source_offset` there.
     pub source_offset_header: bool,
+    /// Primary mode only. The set it writes is production state that capture-logs uses to turn tokens away.
+    pub unknown_tokens: Option<Arc<dyn UnknownTokens>>,
 }
