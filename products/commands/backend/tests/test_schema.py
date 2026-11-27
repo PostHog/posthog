@@ -41,6 +41,7 @@ _MODE = CommandDeclaration(verb="mode", summary="Test command.", args=_ModeArgs,
         (REVIEW, "--deep", ReviewArgs(deep=True)),
         (REVIEW, "\u2014deep", ReviewArgs(deep=True)),
         (STAMP, "", StampArgs()),
+        (STAMP, "--allow-broadcast check the migration", StampArgs(allow_broadcast=True, note="check the migration")),
         # Prose keeps its apostrophes and words, because nothing splits it like a shell.
         (
             QA,
@@ -68,7 +69,6 @@ def test_parse_arguments_accepts(declaration: CommandDeclaration[object], raw: s
         (REVIEW, "--nope"),
         (REVIEW, "--deep=yes"),
         (REVIEW, "some text"),
-        (STAMP, "now"),
         (LOOP, ""),
         (LOOP, "--"),
         (_MODE, "--mode other"),
@@ -120,7 +120,7 @@ def test_signature_and_usage_cover_every_declaration() -> None:
     assert sorted(listed) == sorted(declaration.verb for declaration in (*COMMAND_DECLARATIONS, HELP))
     assert [usage(declaration) for declaration in (REVIEW, STAMP, QA, LOOP, _MODE)] == [
         "@posthog review [--deep] [--no-resolve]",
-        "@posthog stamp",
+        "@posthog stamp [--allow-broadcast] [<note>]",
         "@posthog qa [<focus>]",
         "@posthog loop <name>",
         "@posthog mode [--mode <quick|deep>]",
