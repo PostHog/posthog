@@ -47,8 +47,11 @@ export type ScanFailure = { kind: 'ai-analysis-not-allowed' } | { kind: 'scan-er
 export interface ScanSkips {
     busy: number
     quota: number
-    failed: number
+    questionLimit: number
+    unscannable: number
 }
+
+type SessionFate = 'scanned' | keyof ScanSkips
 
 export type ScanBlockedState =
     | { kind: 'not-main-environment' }
@@ -107,25 +110,33 @@ function isSettled(session: ObservationRequestSessionApi): boolean {
     return session.state !== 'pending' && session.state !== 'running'
 }
 
-function isSkipped(session: ObservationRequestSessionApi): boolean {
-    return (
-        session.scan_outcome === 'skipped_quota' ||
-        session.scan_outcome === 'skipped_limit' ||
-        session.scan_outcome === 'skipped_scanner_limit'
-    )
-}
-
-function neverStarted(session: ObservationRequestSessionApi): boolean {
-    return isSkipped(session) || session.scan_outcome === 'failed'
+function sessionFate(session: ObservationRequestSessionApi): SessionFate {
+    switch (session.scan_outcome) {
+        case 'skipped_limit':
+            return 'busy'
+        case 'skipped_quota':
+            return 'quota'
+        case 'skipped_scanner_limit':
+            return 'questionLimit'
+        case 'failed':
+            return 'unscannable'
+    }
+    // A session with no recording to watch, or whose scan never got an outcome, settles without being watched.
+    if (session.state === 'ineligible' || (session.scan_outcome === null && session.state === 'failed')) {
+        return 'unscannable'
+    }
+    return 'scanned'
 }
 
 function scanSkips(request: ObservationRequestApi): ScanSkips {
-    const quota = request.sessions.filter((session) => session.scan_outcome === 'skipped_quota').length
-    return {
-        busy: request.sessions.filter(isSkipped).length - quota,
-        quota,
-        failed: request.sessions.filter((session) => session.scan_outcome === 'failed').length,
+    const skips: ScanSkips = { busy: 0, quota: 0, questionLimit: 0, unscannable: 0 }
+    for (const session of request.sessions) {
+        const fate = sessionFate(session)
+        if (fate !== 'scanned') {
+            skips[fate] += 1
+        }
     }
+    return skips
 }
 
 function scanRequestState(request: ObservationRequestApi): AfterClickingScanState {
@@ -133,7 +144,7 @@ function scanRequestState(request: ObservationRequestApi): AfterClickingScanStat
     if (total > 0 && request.sessions.every((session) => session.scan_outcome === 'skipped_quota')) {
         return { kind: 'credits-used-up' }
     }
-    const started = request.sessions.filter((session) => !neverStarted(session))
+    const started = request.sessions.filter((session) => sessionFate(session) === 'scanned')
     const skipped = scanSkips(request)
     if (request.status === 'completed') {
         const withResult = started.filter((session) => session.state === 'succeeded').length
@@ -459,7 +470,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                         kind: 'scanning',
                         done: 0,
                         total: sessions?.sessions.length ?? 0,
-                        skipped: { busy: 0, quota: 0, failed: 0 },
+                        skipped: { busy: 0, quota: 0, questionLimit: 0, unscannable: 0 },
                     }
                 }
                 if (sessionsFailed) {
@@ -498,7 +509,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             posthog.capture('transactional email impact scan finished', {
                 sessions: request.sessions.length,
                 sessions_with_result: state.kind === 'finished' ? state.withResult : 0,
-                sessions_skipped: skipped.busy + skipped.quota + skipped.failed,
+                sessions_skipped: skipped.busy + skipped.quota + skipped.questionLimit + skipped.unscannable,
                 credits_used_up: skipped.quota > 0,
             })
         }
@@ -520,7 +531,14 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
             refreshScanSuccess: ({ scanRequest }) => follow(scanRequest),
             startScanFailure: reportFailure,
             refreshScanFailure: reportFailure,
-            retryScan: () => (values.scanRequest ? actions.refreshScan() : actions.startScan()),
+            retryScan: () => {
+                cache.pollFailures = 0
+                if (values.scanRequest) {
+                    actions.refreshScan()
+                } else {
+                    actions.startScan()
+                }
+            },
             resetScan: () => {
                 cache.disposables.dispose('scanPoll')
                 cache.pollFailures = 0

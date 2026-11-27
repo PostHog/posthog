@@ -2,30 +2,22 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { ScanSkips } from './afterClickingScanLogic'
 
-export function AfterClickingSkippedSessions({ skipped }: { skipped: ScanSkips }): JSX.Element | null {
-    if (!skipped.busy && !skipped.quota && !skipped.failed) {
-        return null
-    }
+const REASONS: { key: keyof ScanSkips; reason: string }[] = [
+    { key: 'busy', reason: 'because Replay vision is busy. Ask again later to scan them.' },
+    { key: 'quota', reason: 'because your organization ran out of Replay vision credits.' },
+    { key: 'questionLimit', reason: 'because this question reached its Replay vision credit limit for this period.' },
+    { key: 'unscannable', reason: "because Replay vision couldn't watch their recordings." },
+]
+
+export function AfterClickingSkippedSessions({ skipped }: { skipped: ScanSkips }): JSX.Element {
     return (
         <>
-            {skipped.busy > 0 ? (
-                <span className="text-secondary text-sm">
-                    <span>{skipped.busy}</span> {pluralize(skipped.busy, 'session', 'sessions', false)} weren't scanned
-                    because Replay vision is busy. Ask again later to scan them.
+            {REASONS.filter(({ key }) => skipped[key] > 0).map(({ key, reason }) => (
+                <span key={key} className="text-secondary text-sm">
+                    <span>{skipped[key]}</span> {pluralize(skipped[key], 'session', 'sessions', false)} weren't scanned{' '}
+                    {reason}
                 </span>
-            ) : null}
-            {skipped.quota > 0 ? (
-                <span className="text-secondary text-sm">
-                    <span>{skipped.quota}</span> {pluralize(skipped.quota, 'session', 'sessions', false)} weren't
-                    scanned because your organization ran out of Replay vision credits.
-                </span>
-            ) : null}
-            {skipped.failed > 0 ? (
-                <span className="text-secondary text-sm">
-                    <span>{skipped.failed}</span> {pluralize(skipped.failed, 'session', 'sessions', false)} weren't
-                    scanned because Replay vision couldn't start their scans. Ask again to try them.
-                </span>
-            ) : null}
+            ))}
         </>
     )
 }
