@@ -48,6 +48,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.cohorts.backend.parity.eligibility import (
     UNSUPPORTED_STATE_VARIANT,
     behavioral_history_over_limit,
@@ -146,6 +147,17 @@ def has_event_criteria(cohort: Cohort) -> bool:
     if cohort._has_filter_type("behavioral"):
         return True
     return not cohort.filters and any(prop.type == "behavioral" for prop in cohort.properties.flat)
+
+
+def flags_can_target(cohort: Cohort) -> bool:
+    """Whether the flag API's readiness check passes for a flag that targets this cohort.
+
+    That check covers the cohort and every cohort it includes, and refuses when one with event criteria is not
+    flag-compatible, so a cohort whose own state is ``ready`` can still be refused. The realtime cohorts gate
+    (``is_realtime_cohort_flag_targeting_enabled``) is a separate check, and this function does not run it.
+    """
+    cohorts = [cohort, *get_all_cohort_dependencies(cohort, stop_traversal_at_static=True)]
+    return all(each.is_flag_compatible for each in cohorts if not each.is_static and has_event_criteria(each))
 
 
 def _has_person_criteria(cohort: Cohort) -> bool:

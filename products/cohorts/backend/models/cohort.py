@@ -162,6 +162,7 @@ COHORT_REALTIME_SWITCH_FIELDS = (
     "last_backfill_events_at",
     "last_backfill_person_properties_at",
     "last_realtime_cohort_calculation_at",
+    "realtime_ready_notify_user_id",
 )
 
 
@@ -286,6 +287,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # Null while realtime is off. The choice survives a save that makes the cohort ineligible, so the
     # pipeline loads a cohort only when it is both `realtime` and on.
     realtime_enabled_at = models.DateTimeField(blank=True, null=True)
+    # The user who turned realtime on, until the finalizer tells them flags can target the cohort.
+    realtime_ready_notify_user_id = models.BigIntegerField(null=True, blank=True)
 
     last_import_total_count = models.IntegerField(
         blank=True,

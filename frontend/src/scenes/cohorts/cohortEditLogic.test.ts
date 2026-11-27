@@ -7,8 +7,10 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError } from 'lib/api-error'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cohortBlockingWorkflowsModalLogic } from 'scenes/cohorts/cohortBlockingWorkflowsModalLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
@@ -321,6 +323,76 @@ describe('cohortEditLogic', () => {
                 })
             expect(criteriaGroupKeys()).toEqual(keysBeforeTurnOn)
         })
+
+        it.each([
+            {
+                name: 'a turn-on with notifications on',
+                startsOn: false,
+                notifications: true,
+                state: 'building',
+                promises: true,
+            },
+            {
+                name: 'a turn-on with notifications off',
+                startsOn: false,
+                notifications: false,
+                state: 'building',
+                promises: false,
+            },
+            {
+                name: '"Try again" on a cohort that is on',
+                startsOn: true,
+                notifications: true,
+                state: 'building',
+                promises: false,
+            },
+            {
+                name: 'a turn-on the server reports ready',
+                startsOn: false,
+                notifications: true,
+                state: 'ready',
+                promises: false,
+            },
+        ] as const)(
+            'after $name, promises a notification: $promises',
+            async ({ startsOn, notifications, state, promises }) => {
+                const before: CohortRealtimeReadinessApi = startsOn
+                    ? { ...readyRealtime, state: 'needs_attention', ready_at: null }
+                    : { ...readyRealtime, state: 'off', ready_at: null }
+                const after = state === 'building' ? buildingRealtime : readyRealtime
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/cohorts/:id/': {
+                            ...mockCohort,
+                            realtime_enabled: startsOn,
+                            realtime: before,
+                        },
+                    },
+                    post: {
+                        '/api/projects/:team_id/cohorts/:id/realtime/': {
+                            ...mockCohort,
+                            realtime_enabled: true,
+                            realtime: after,
+                        },
+                    },
+                })
+                await initCohortLogic({ id: 1 })
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: notifications })
+                logic.actions.setCohort({ ...mockCohort, realtime_enabled: startsOn, realtime: before })
+
+                await expectLogic(logic, () => {
+                    logic.actions.switchRealtime(true)
+                })
+                    .toDispatchActions(['switchRealtimeSuccess'])
+                    .toFinishAllListeners()
+
+                expect((lemonToast.success as jest.Mock).mock.calls).toEqual(
+                    promises
+                        ? [["Realtime is on, and PostHog is preparing this cohort. We'll notify you when it's ready."]]
+                        : []
+                )
+            }
+        )
 
         it.each([
             // A cohort that is on holds a slot of the plan's limit, so it has to be possible to free it.

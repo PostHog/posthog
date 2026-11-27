@@ -31,6 +31,7 @@
     'people',
     'person_filters_shape_hash',
     'realtime_enabled_at',
+    'realtime_ready_notify_user_id',
     'version',
   ])
 # ---
@@ -565,6 +566,7 @@
     'realtime_enabled',
     'realtime_enabled_at',
     'realtime_ready_at',
+    'realtime_ready_notify_user_id',
     'remove_user_by_uuid',
     'save',
     'team_id',

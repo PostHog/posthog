@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -155,21 +158,32 @@ describe('CohortFlagTargetingNotice', () => {
         expect(container).toBeEmptyDOMElement()
     })
 
-    it('turns realtime on from the row and then shows the cohort preparing', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team_id/cohorts/:id/realtime/': () => {
-                    served = readiness('building')
-                    return [200, cohort()]
+    it.each([
+        { name: 'with notifications on', notifications: true, startsOff: true, promises: true },
+        { name: 'with notifications off', notifications: false, startsOff: true, promises: false },
+        { name: 'already preparing before this editor', notifications: true, startsOff: false, promises: false },
+    ])(
+        'shows the cohort preparing after a turn-on from the row, $name',
+        async ({ notifications, startsOff, promises }) => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': () => {
+                        served = readiness('building')
+                        return [200, cohort()]
+                    },
                 },
-            },
-        })
-        await renderNotice(readiness('off'))
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: notifications })
+            await renderNotice(readiness(startsOff ? 'off' : 'building'))
 
-        fireEvent.click(await screen.findByText('Turn on realtime'))
+            if (startsOff) {
+                fireEvent.click(await screen.findByText('Turn on realtime'))
+            }
 
-        expect(await screen.findByText(/PostHog is preparing/)).toBeInTheDocument()
-    })
+            expect(await screen.findByText(/PostHog is preparing/)).toBeInTheDocument()
+            expect(!!screen.queryByText(/under 30 minutes\. We'll notify you when it's ready\./)).toBe(promises)
+        }
+    )
 
     it('reads a cohort created after the shared model listed cohorts', async () => {
         listed = false

@@ -32,6 +32,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_key
 from products.cohorts.backend.models.team_access import RealtimeCohortLevel, RealtimeCohortTeamAccess
+from products.notifications.backend.facade.testing import stored_notifications_for_team
 
 
 class TestFinalizerKindCoverage(SimpleTestCase):
@@ -378,6 +379,95 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual(result.errored, 0)
         self.assertEqual(run.status, CohortBackfillRunStatus.COMPLETED)
         self.assertIsNotNone(cohort.last_backfill_events_at)
+
+    def _waiting_for(self, cohort: Cohort) -> Cohort:
+        Cohort.objects.filter(id=cohort.id).update(realtime_ready_notify_user_id=self.user.id)
+        cohort.refresh_from_db()
+        return cohort
+
+    def _notifications_enabled(self) -> mock._patch:
+        return mock.patch(
+            "posthoganalytics.feature_enabled", side_effect=lambda flag, *a, **kw: flag == "real-time-notifications"
+        )
+
+    def test_tells_the_person_who_turned_realtime_on_once_flags_can_target_the_cohort(self) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
+        Cohort.objects.filter(id=cohort.id).update(name="Weekly " * 20)
+        self._waiting_for(cohort)
+
+        with self._notifications_enabled():
+            finalize_backfill_runs()
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.realtime_ready_notify_user_id)
+        self.assertEqual(
+            [
+                (n.notification_type, n.title, n.resolved_user_ids, n.resource_id, n.source_url)
+                for n in stored_notifications_for_team(self.team.id)
+            ],
+            [
+                (
+                    "cohort_realtime_ready",
+                    f"Cohort ready: {('Weekly ' * 20)[:85]}…",
+                    [self.user.id],
+                    str(cohort.id),
+                    f"/project/{self.team.project_id}/cohorts/{cohort.id}",
+                )
+            ],
+        )
+
+    def test_waits_for_the_cohorts_it_includes_before_telling_anyone(self) -> None:
+        included_run, (included,) = self._make_run(["completed"], scope=CohortBackfillScope.COHORT, observed=False)
+        filters = self._behavioral_filters()
+        filters["properties"]["values"].append({"type": "cohort", "key": "id", "value": included.id})
+        outer = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=filters,
+            realtime_ready_notify_user_id=self.user.id,
+        )
+        ensure_filters_shape_hash(outer)
+        outer.refresh_from_db()
+        self._make_run(["completed"], scope=CohortBackfillScope.COHORT, cohorts=[outer])
+        stamped = timezone.now()
+        Cohort.objects.filter(id__in=[outer.id, included.id]).update(last_backfill_person_properties_at=stamped)
+
+        with self._notifications_enabled():
+            finalize_backfill_runs()
+            outer.refresh_from_db()
+            self.assertIsNotNone(outer.last_backfill_events_at)
+            self.assertEqual(stored_notifications_for_team(self.team.id), [])
+
+            CohortBackfillRun.objects.for_team(self.team.id).filter(id=included_run.id).update(
+                reconcile_observed_at=timezone.now()
+            )
+            finalize_backfill_runs()
+
+        outer.refresh_from_db()
+        self.assertIsNone(outer.realtime_ready_notify_user_id)
+        self.assertEqual([n.resource_id for n in stored_notifications_for_team(self.team.id)], [str(outer.id)])
+
+    @parameterized.expand(
+        [
+            ("raises_and_keeps_the_recipient_for_a_later_pass", RuntimeError("unavailable"), True),
+            ("is_dropped_and_clears_the_recipient", lambda *a, **kw: False, False),
+        ]
+    )
+    def test_a_notification_that_is_not_sent_keeps_the_stamp_and_the_ready_event(
+        self, _name: str, flag_check: object, keeps_recipient: bool
+    ) -> None:
+        _run, cohort = self._turned_on_cohort_missing_only_its_events_stamp()
+        self._waiting_for(cohort)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=flag_check):
+            finalize_backfill_runs()
+
+        cohort.refresh_from_db()
+        self.assertIsNotNone(cohort.last_backfill_events_at)
+        self.assertEqual([event["cohort_id"] for event in self._ready_events()], [cohort.id])
+        self.assertEqual(stored_notifications_for_team(self.team.id), [])
+        self.assertEqual(cohort.realtime_ready_notify_user_id, self.user.id if keeps_recipient else None)
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
     def test_person_run_is_held_not_superseded_while_the_readiness_gate_is_off(self) -> None:

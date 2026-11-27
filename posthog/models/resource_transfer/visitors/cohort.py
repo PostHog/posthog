@@ -27,6 +27,7 @@ class CohortVisitor(
         "last_realtime_cohort_calculation_at",
         # A copy arrives with realtime off, because turning it on runs checks and starts a build.
         "realtime_enabled_at",
+        "realtime_ready_notify_user_id",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
         "person_filters_shape_hash",

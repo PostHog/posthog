@@ -39,7 +39,7 @@ from products.cohorts.backend.realtime_limits import (
     max_realtime_history_days,
     realtime_cohorts_used,
 )
-from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
+from products.cohorts.backend.realtime_state import CohortRealtimeState, flags_can_target, resolve_realtime_readiness
 from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
@@ -73,14 +73,19 @@ class RealtimeLimitReached(RealtimeTurnOnRefused):
         self.used = used
 
 
-def turn_realtime_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]) -> list[int]:
+def turn_realtime_on(
+    team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool], notify_user_id: int | None = None
+) -> list[int]:
     """Turn realtime on for the cohort and every realtime cohort it includes, and queue their backfills.
 
     Returns the ids it turned on. Raises ``RealtimeTurnOnRefused`` before it writes anything when one
     of them can never be ready, or ``can_edit`` refuses one of them, and its subclass ``RealtimeLimitReached``
     when the project's plan doesn't allow them.
+
+    When it turns the cohort on and flags can't target it yet, it records ``notify_user_id`` on the cohort, and the
+    backfill finalizer tells that user once flags can.
     """
-    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=True)
+    return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=True, notify_user_id=notify_user_id)
 
 
 def turn_realtime_on_for_included_cohorts(
@@ -94,7 +99,14 @@ def turn_realtime_on_for_included_cohorts(
     return _turn_on(team_id, cohort_id, can_edit=can_edit, including_cohort=False)
 
 
-def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool], including_cohort: bool) -> list[int]:
+def _turn_on(
+    team_id: int,
+    cohort_id: int,
+    *,
+    can_edit: Callable[[Cohort], bool],
+    including_cohort: bool,
+    notify_user_id: int | None = None,
+) -> list[int]:
     if not is_processing_team(team_id, fresh=True):
         raise RealtimeTurnOnRefused("Realtime cohorts aren't available for this project.")
 
@@ -129,6 +141,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
                 setattr(each, field, None)
             each.realtime_enabled_at = now
             _refuse_unless_it_can_be_ready(each)
+            if notify_user_id is not None and each.id == cohort_id and not flags_can_target(each):
+                each.realtime_ready_notify_user_id = notify_user_id
 
         # The team's lock is held from this count through the saves below, so two turn-ons, or a turn-on and an
         # edit, can't both take the last slot.
