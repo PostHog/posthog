@@ -109,6 +109,8 @@ AI_JUDGE_PROFILE = ScoringProfile(
     },
 )
 
+SCORING_PROFILES = (DEFAULT_PROFILE, AI_JUDGE_PROFILE)
+
 DEFAULT_LIMITS = ScoringLimits()
 # The largest value a flag payload can set for each limit.
 MAX_LIMITS = ScoringLimits(max_breakdown_values=25, max_series=50, max_backfill_buckets=90)

@@ -37,11 +37,11 @@ class RemoteConfigCacheTool(ConsoleTool):
     owner = None
     group = "Infrastructure"
     description = "The config JSON that SDKs read for one team, as the cache holds it."
+    subject = "team"
 
     def page(self, request: HttpRequest) -> Page:
-        team_id = request.GET.get("team", "").strip()
-        team = Team.objects.filter(pk=int(team_id)).first() if team_id.isascii() and team_id.isdigit() else None
-        if team is None:
+        team = self.subject_of(request)
+        if not isinstance(team, Team):
             return Page(
                 blocks=(
                     Notice(

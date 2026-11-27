@@ -74,7 +74,9 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
     # This technically truncates the millisecond part of the value, but if it came from
     # a `DateTime` then we assume it is empty (as it would have been empty before).
     (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
-    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): _make_ensure_array(
+        functools.partial(pa.compute.seconds_between, pa.scalar(EPOCH, type=pa.timestamp("ms", tz="Etc/UTC")))
+    ),
 }
 
 

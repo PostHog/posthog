@@ -1,6 +1,9 @@
 {
     "extends": ["//"],
     "tasks": {
+        "backend:test": {
+            "inputs": ["$TURBO_EXTENDS$", "merge_check/**/*.py"]
+        },
         "backend:contract-check": {
             "inputs": [
                 "backend/facade/**",

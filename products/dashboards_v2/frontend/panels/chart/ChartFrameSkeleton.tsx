@@ -30,3 +30,25 @@ export function ChartFrameSkeleton({ children }: { children: ReactNode }): JSX.E
         </div>
     )
 }
+
+/** A pulsing outline drawn in SVG, for the parts of a chart skeleton that blocks can't draw. */
+export function SkeletonSvg({
+    viewBox,
+    className = 'size-full',
+    children,
+}: {
+    viewBox: string
+    className?: string
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <svg
+            viewBox={viewBox}
+            preserveAspectRatio="none"
+            className={`${className} animate-pulse text-primary opacity-15 motion-reduce:animate-none`}
+            aria-hidden="true"
+        >
+            {children}
+        </svg>
+    )
+}

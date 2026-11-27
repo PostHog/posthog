@@ -430,7 +430,7 @@ class TestExports(APIBaseTest):
             # Should warm up the cache
             export_image(exported_asset)
             mock_export_rendered_asset.assert_called_once_with(
-                exported_asset, max_height_pixels=None, insight_cache_keys=ANY
+                exported_asset, max_height_pixels=None, insight_cache_keys=ANY, session=None
             )
 
             mock_calculate.assert_called_once()
