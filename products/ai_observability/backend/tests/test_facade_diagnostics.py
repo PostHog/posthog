@@ -11,8 +11,15 @@ from parameterized import parameterized
 from posthog.paging import PageRequest
 
 from products.ai_observability.backend.facade import api, diagnostics
-from products.ai_observability.backend.facade.diagnostics_contracts import ErrorListCounts, ErrorTrend
+from products.ai_observability.backend.facade.diagnostics_contracts import (
+    ErrorFirstSeen,
+    ErrorFirstSeenList,
+    ErrorListCounts,
+    ErrorNewCount,
+    ErrorTrend,
+)
 from products.ai_observability.backend.logic.diagnostics.entity_keys import encode_entity_key
+from products.ai_observability.backend.logic.traces.lookback import LOOKBACK
 from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection, TraceWindow
 
 from .logic.diagnostics.test_error_group_queries import DAY, PERSON_A, _flagged
@@ -205,6 +212,43 @@ class TestErrorsFacade(ClickhouseTestMixin, BaseTest):
         with pytest.raises(error):
             diagnostics.get_error(self.team, self.user, self.selection, key)
 
+    def test_new_count_counts_the_errors_first_seen_in_the_range(self) -> None:
+        self._seed_rising_and_new()
+
+        assert diagnostics.count_new_errors(self.team, self.user, self.selection, search=None) == ErrorNewCount(count=1)
+
+    def test_first_seen_has_one_item_per_key_in_request_order_with_the_checked_date_and_newness(self) -> None:
+        stale = "Stale cache entry"
+        seed(
+            self.team,
+            [
+                _flagged(stale, -int(LOOKBACK / timedelta(minutes=1)), "stale-before"),
+                _flagged(stale, 5, "stale-now"),
+                _flagged(SCHEMA_REJECTED, -5 * DAY, "schema-before"),
+                _flagged(SCHEMA_REJECTED, 6, "schema-now"),
+                _flagged(REFUSED, 0, "refused-now"),
+            ],
+        )
+        keys = [encode_entity_key(message) for message in (stale, SCHEMA_REJECTED, REFUSED, "Never raised")]
+
+        first_seen = diagnostics.load_error_first_seen(self.team, self.user, self.selection, [*keys, keys[0]])
+
+        assert first_seen == ErrorFirstSeenList(
+            items=[
+                ErrorFirstSeen(key=keys[0], first_seen=at(0) - LOOKBACK, is_new=False),
+                ErrorFirstSeen(key=keys[1], first_seen=at(-5 * DAY), is_new=False),
+                ErrorFirstSeen(key=keys[2], first_seen=at(0), is_new=True),
+                ErrorFirstSeen(key=keys[3], first_seen=None, is_new=False),
+            ],
+            checked_from=(at(0) - LOOKBACK).astimezone(self.team.timezone_info).date(),
+        )
+
+    def test_first_seen_refuses_more_keys_than_the_limit(self) -> None:
+        keys = [encode_entity_key(f"Error {index}") for index in range(diagnostics.ERROR_FIRST_SEEN_MAX_KEYS + 1)]
+
+        with pytest.raises(diagnostics.ErrorFirstSeenTooManyKeysError):
+            diagnostics.load_error_first_seen(self.team, self.user, self.selection, keys)
+
 
 _LOADERS: list[tuple[str, Callable[..., Any]]] = [
     (
@@ -220,6 +264,13 @@ _LOADERS: list[tuple[str, Callable[..., Any]]] = [
         ),
     ),
     ("detail", lambda team, user, selection: diagnostics.get_error(team, user, selection, encode_entity_key("E"))),
+    ("new_count", lambda team, user, selection: diagnostics.count_new_errors(team, user, selection, search=None)),
+    (
+        "first_seen",
+        lambda team, user, selection: diagnostics.load_error_first_seen(
+            team, user, selection, [encode_entity_key("E")]
+        ),
+    ),
 ]
 _REFUSED_WINDOWS: list[tuple[str, TraceWindow, type[Exception]]] = [
     (

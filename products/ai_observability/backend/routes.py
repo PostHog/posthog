@@ -33,6 +33,8 @@ from products.ai_observability.backend.api import (
     ScoreDefinitionViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views.error_first_seen import ErrorFirstSeenViewSet
+from products.ai_observability.backend.presentation.views.error_new_count import ErrorNewCountViewSet
 from products.ai_observability.backend.presentation.views.errors import ErrorViewSet
 from products.ai_observability.backend.presentation.views.session_people import SessionPeopleViewSet
 from products.ai_observability.backend.presentation.views.session_previews import SessionPreviewsViewSet
@@ -118,6 +120,19 @@ def register_routes(routers: RouterRegistry) -> None:
         ("exports", TraceExportViewSet, "project_ai_observability_trace_exports"),
     ]:
         traces_router.register(prefix, viewset, basename, ["team_id", TRACE_LOOKUP])
+    # Registered before the errors, so that the error route does not read "first_seen" or "new_count" as an error key.
+    routers.projects.register(
+        r"ai_observability/errors/first_seen",
+        ErrorFirstSeenViewSet,
+        "project_ai_observability_error_first_seen",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/errors/new_count",
+        ErrorNewCountViewSet,
+        "project_ai_observability_error_new_count",
+        ["team_id"],
+    )
     routers.projects.register(r"ai_observability/errors", ErrorViewSet, "project_ai_observability_errors", ["team_id"])
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
     # @me/spend is only useful where billing data is available; mirrors the

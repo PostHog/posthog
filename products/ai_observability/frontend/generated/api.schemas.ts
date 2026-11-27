@@ -316,6 +316,37 @@ export interface ErrorGroupDetailApi {
     previousSeries: number[]
 }
 
+export interface ErrorFirstSeenRequestApi {
+    /**
+     * Up to 100 error keys, as the errors list hands them out.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 65536
+     */
+    keys: string[]
+}
+
+export interface ErrorFirstSeenApi {
+    /** The error's id, as requested. */
+    key: string
+    /** The time of the error's earliest occurrence from the checked date to the end of the range, whatever day it falls on. Null when it has none there. */
+    firstSeen: string | null
+    /** Whether the error is new to the range: it occurred in the range and not in the 30 days before it. */
+    isNew: boolean
+}
+
+export interface ErrorFirstSeenListApi {
+    /** One item per requested key, once each, in the order first requested. */
+    items: ErrorFirstSeenApi[]
+    /** The lookback bound: the date 30 days before the range starts. Nothing before it was read, so an error first seen on it may have occurred earlier. */
+    checkedFrom: string
+}
+
+export interface ErrorNewCountApi {
+    /** How many errors of the selection are new to the range: they occurred in the range and not in the 30 days before it. */
+    count: number
+}
+
 /**
  * * `sessions` - sessions
  * * `tool_calls` - tool_calls
@@ -7261,6 +7292,63 @@ export type AiObservabilityErrorsRetrieveParams = {
      * Up to 50 property filters as a JSON-encoded list. Errors are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
      */
     properties?: string
+}
+
+export type AiObservabilityErrorsFirstSeenCreateParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+}
+
+export type AiObservabilityErrorsNewCountRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only errors from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Errors are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+    /**
+     * Text to look for in the error message, ignoring case. It narrows the counts too. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string
 }
 
 export type AiObservabilityInstrumentationChecklistRetrieveParams = {

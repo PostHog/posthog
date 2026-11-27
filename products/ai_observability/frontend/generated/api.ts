@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiObservabilityErrorsFirstSeenCreateParams,
     AiObservabilityErrorsListParams,
+    AiObservabilityErrorsNewCountRetrieveParams,
     AiObservabilityErrorsRetrieveParams,
     AiObservabilityInstrumentationChecklistRetrieveParams,
     AiObservabilityOfflineExperimentsItemsDestroyParams,
@@ -65,8 +67,11 @@ import type {
     DatasetsListParams,
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
+    ErrorFirstSeenListApi,
+    ErrorFirstSeenRequestApi,
     ErrorGroupDetailApi,
     ErrorListApi,
+    ErrorNewCountApi,
     EvalSuggestionAcceptApi,
     EvalSuggestionApi,
     EvalSuggestionDismissApi,
@@ -338,6 +343,79 @@ export const aiObservabilityErrorsRetrieve = async (
     options?: RequestInit
 ): Promise<ErrorGroupDetailApi> => {
     return apiMutator<ErrorGroupDetailApi>(getAiObservabilityErrorsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityErrorsFirstSeenCreateUrl = (
+    projectId: string,
+    params?: AiObservabilityErrorsFirstSeenCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/errors/first_seen/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/errors/first_seen/`
+}
+
+/**
+ * A read that writes nothing: when each error first occurred, checked from 30 days before the date range to
+ * its end. It takes the keys in the body because a page of them does not fit in a query string. Send the date
+ * range and the test account switch of the list the keys came from. The check ignores the list's other
+ * filters.
+ */
+export const aiObservabilityErrorsFirstSeenCreate = async (
+    projectId: string,
+    errorFirstSeenRequestApi: ErrorFirstSeenRequestApi,
+    params?: AiObservabilityErrorsFirstSeenCreateParams,
+    options?: RequestInit
+): Promise<ErrorFirstSeenListApi> => {
+    return apiMutator<ErrorFirstSeenListApi>(getAiObservabilityErrorsFirstSeenCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorFirstSeenRequestApi),
+    })
+}
+
+export const getAiObservabilityErrorsNewCountRetrieveUrl = (
+    projectId: string,
+    params?: AiObservabilityErrorsNewCountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/errors/new_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/errors/new_count/`
+}
+
+/**
+ * How many errors of the errors list are new to the date range: they occurred in it and not in the 30 days
+ * before it. Send the filters and search of the list, so the two agree.
+ */
+export const aiObservabilityErrorsNewCountRetrieve = async (
+    projectId: string,
+    params?: AiObservabilityErrorsNewCountRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorNewCountApi> => {
+    return apiMutator<ErrorNewCountApi>(getAiObservabilityErrorsNewCountRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -10,6 +10,24 @@
 import * as zod from 'zod'
 
 /**
+ * A read that writes nothing: when each error first occurred, checked from 30 days before the date range to
+ * its end. It takes the keys in the body because a page of them does not fit in a query string. Send the date
+ * range and the test account switch of the list the keys came from. The check ignores the list's other
+ * filters.
+ */
+export const aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax = 65536
+
+export const aiObservabilityErrorsFirstSeenCreateBodyKeysMax = 100
+
+export const AiObservabilityErrorsFirstSeenCreateBody = /* @__PURE__ */ zod.object({
+    keys: zod
+        .array(zod.string().max(aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax))
+        .min(1)
+        .max(aiObservabilityErrorsFirstSeenCreateBodyKeysMax)
+        .describe('Up to 100 error keys, as the errors list hands them out.'),
+})
+
+/**
  * Mark a check as not applicable to this project.
  */
 export const AiObservabilityInstrumentationChecklistDismissCreateBody = /* @__PURE__ */ zod.object({
