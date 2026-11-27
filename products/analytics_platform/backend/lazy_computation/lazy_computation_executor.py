@@ -769,6 +769,7 @@ class LazyComputationResult:
     # Every served job's range and computed_at, so a caller can ask how fresh a specific part of the
     # range is (for example the latest day) instead of only the oldest stamp.
     served_windows: tuple[ServedWindow, ...] = ()
+    wait_timed_out: bool = False
 
 
 def _served_windows(jobs: list[PreaggregationJob]) -> tuple[ServedWindow, ...]:
@@ -1387,6 +1388,7 @@ class LazyComputationExecutor:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
                     result = LazyComputationResult(
+                        wait_timed_out=True,
                         ready=False,
                         job_ids=[],
                         errors=errors,
@@ -1472,6 +1474,7 @@ class LazyComputationExecutor:
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
                             errors.append("Timeout waiting for computation jobs")
                             result = LazyComputationResult(
+                                wait_timed_out=True,
                                 ready=False,
                                 job_ids=[],
                                 errors=errors,

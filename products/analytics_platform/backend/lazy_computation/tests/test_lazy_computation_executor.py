@@ -2722,6 +2722,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         assert result.ready is False
+        assert result.wait_timed_out
         assert any("Timeout" in e for e in result.errors)
 
     def test_does_not_create_duplicate_for_pending_range(self):

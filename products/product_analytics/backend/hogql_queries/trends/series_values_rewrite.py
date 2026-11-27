@@ -46,6 +46,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.product_analytics.backend.facade.contracts import (
     PrecomputedSeriesValues,
     SeriesValuesBlocker as Blocker,
+    SeriesValuesBuildError,
     SeriesValuesFeature as Feature,
     SeriesValuesUnavailable,
 )
@@ -502,6 +503,8 @@ class _Rewriter(CloningVisitor):
                 result = ensure(run_inserts=True, database=_insert_database(team))
         finally:
             hogql_select_rewrite.reset(hook)
+        if self.request.mode == "stored_only" and not result.ready and result.errors and not result.wait_timed_out:
+            raise SeriesValuesBuildError("\n".join(result.errors))
         # A job can expire while the executor collects its result. A day that no returned job covers would
         # read as zero.
         if not result.ready or not result.job_ids or not _covers(result.served_windows, jobs):

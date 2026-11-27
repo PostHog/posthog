@@ -73,6 +73,10 @@ class SeriesValuesFeature(StrEnum):
     EVENT_PROPERTY_FILTERS = "event_property_filters"
 
 
+class SeriesValuesBuildError(RuntimeError):
+    """The executor failed to build the stored Trends values a caller requested."""
+
+
 class SeriesValuesBlocker(StrEnum):
     """Why a query gets no stored values."""
 

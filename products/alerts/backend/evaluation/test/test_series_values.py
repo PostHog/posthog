@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
@@ -33,7 +34,7 @@ from products.alerts.backend.evaluation.series_values_shadow import (
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_source_cycle import QUERY_ID_PREFIX
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues
+from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues, SeriesValuesBuildError
 from products.product_analytics.backend.facade.models import Insight
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -255,6 +256,26 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert shadowed == live
         assert (properties["outcome"], properties["reason"]) == ("error", "RuntimeError")
+
+    def test_an_insert_failure_is_captured_and_the_live_check_stands(self) -> None:
+        alert = self._alert(detector=None)
+        live = check_alert_for_insight(alert)
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                side_effect=ServerException("INSERT grant missing", code=497),
+            ),
+            patch(f"{_SHADOW}.capture_exception") as capture,
+        ):
+            shadowed, properties = self._shadowed_check(alert)
+
+        assert shadowed == live
+        assert (properties["outcome"], properties["reason"]) == ("error", "SeriesValuesBuildError")
+        capture.assert_called_once()
+        error, context = capture.call_args.args
+        assert isinstance(error, SeriesValuesBuildError)
+        assert "INSERT grant missing" in str(error)
+        assert context["alert_id"] == str(alert.pk)
 
     def test_a_check_without_time_for_the_build_skips_it(self) -> None:
         alert = self._alert(detector=None)
