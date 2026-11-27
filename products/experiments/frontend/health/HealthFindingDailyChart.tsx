@@ -26,7 +26,11 @@ export function HealthFindingDailyChart({
         return null
     }
     const startedOn = finding.evidence.mismatch_started_on
-    const splitChanged = finding.subcode === 'split_changed' || (!!splitCheck && healthChangedWhileExposed(splitCheck))
+    // After the end the split check sends no rows, so the finding's own evidence of a split change counts too.
+    const splitChanged =
+        finding.subcode === 'split_changed' ||
+        finding.evidence.split_change_ruled_out === true ||
+        (!!splitCheck && healthChangedWhileExposed(splitCheck))
     return (
         <HealthDailyShareChart
             exposures={exposures}

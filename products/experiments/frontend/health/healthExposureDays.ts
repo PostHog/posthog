@@ -1,6 +1,8 @@
 import { dayjs } from 'lib/dayjs'
+import { getVariantColor } from 'scenes/experiments/utils'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { MultivariateFlagVariant } from '~/types'
 
 import { healthIsComparedVariant } from './healthCheckValues'
 
@@ -52,4 +54,9 @@ export function healthDailyShares(daily: HealthDailyExposures): { variant: strin
 export function healthChangeDays(changedAt: string[], timezone: string, days: string[]): string[] {
     const changeDays = new Set(changedAt.map((time) => dayjs(time).tz(timezone).format('YYYY-MM-DD')))
     return days.filter((day) => changeDays.has(day))
+}
+
+// None for a variant the flag lacks, because the canvas can't draw the CSS variable that getVariantColor falls back to.
+export function healthVariantColor(variant: string, flagVariants: MultivariateFlagVariant[]): string | undefined {
+    return flagVariants.some(({ key }) => key === variant) ? getVariantColor(variant, flagVariants) : undefined
 }

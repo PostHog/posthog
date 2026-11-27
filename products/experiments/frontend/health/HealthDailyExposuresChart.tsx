@@ -5,12 +5,14 @@ import { type Series, TimeSeriesLineChart, type TimeSeriesLineChartConfig } from
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { HEALTH_CHART_MARKER_MARGIN, type HealthChartDayMarker, HealthChartDayMarkers } from './HealthChartDayMarkers'
-import { healthChangeDays, healthDailyExposures } from './healthExposureDays'
+import { healthChangeDays, healthDailyExposures, healthVariantColor } from './healthExposureDays'
 
 export function HealthDailyExposuresChart({
     exposures,
@@ -22,11 +24,19 @@ export function HealthDailyExposuresChart({
     units: string
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
+    const { experiment } = useValues(experimentLogic)
+    const flagVariants = useMemo(() => getExperimentVariants(experiment), [experiment])
     const theme = useChartTheme()
     const daily = useMemo(() => healthDailyExposures(exposures), [exposures])
     const series = useMemo<Series[]>(
-        () => (daily?.variants ?? []).map(({ variant, counts }) => ({ key: variant, label: variant, data: counts })),
-        [daily]
+        () =>
+            (daily?.variants ?? []).map(({ variant, counts }) => ({
+                key: variant,
+                label: variant,
+                data: counts,
+                color: healthVariantColor(variant, flagVariants),
+            })),
+        [daily, flagVariants, theme]
     )
     const markers = useMemo<HealthChartDayMarker[]>(
         () =>

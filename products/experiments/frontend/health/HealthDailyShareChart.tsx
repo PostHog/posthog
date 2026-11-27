@@ -4,13 +4,15 @@ import { useMemo } from 'react'
 import { type Series, TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { HEALTH_CHART_MARKER_MARGIN, type HealthChartDayMarker, HealthChartDayMarkers } from './HealthChartDayMarkers'
 import { formatHealthPercentage, healthExposureSplit } from './healthCheckValues'
-import { healthChangeDays, healthDailyExposures, healthDailyShares } from './healthExposureDays'
+import { healthChangeDays, healthDailyExposures, healthDailyShares, healthVariantColor } from './healthExposureDays'
 import { HealthPlannedShareLines } from './HealthPlannedShareLines'
 
 export function HealthDailyShareChart({
@@ -29,12 +31,20 @@ export function HealthDailyShareChart({
     units: string
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
+    const { experiment } = useValues(experimentLogic)
+    const flagVariants = useMemo(() => getExperimentVariants(experiment), [experiment])
     const theme = useChartTheme()
     const daily = useMemo(() => healthDailyExposures(exposures), [exposures])
     const shares = useMemo(() => (daily ? healthDailyShares(daily) : null), [daily])
     const series = useMemo<Series[]>(
-        () => (shares ?? []).map(({ variant, shares }) => ({ key: variant, label: variant, data: shares })),
-        [shares]
+        () =>
+            (shares ?? []).map(({ variant, shares }) => ({
+                key: variant,
+                label: variant,
+                data: shares,
+                color: healthVariantColor(variant, flagVariants),
+            })),
+        [shares, flagVariants, theme]
     )
     const planned = useMemo(
         () =>
