@@ -9,8 +9,9 @@ from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
 
 from posthog.admin.console.panels import Owner, Tone
+from posthog.admin.console.records import RecordLink
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation, ToolPlace
 from posthog.models.user import User
 
 from products.data_modeling.backend.facade.api import (
@@ -375,9 +376,23 @@ class DagTiersTool(ConsoleTool):
     group = "Data warehouse"
     description = "What each cadence tier of a data modeling DAG holds, and what its last run did."
 
-    def page(self, request: HttpRequest) -> Page:
+    @classmethod
+    def report(cls, request: HttpRequest) -> DagTierReport | None:
         dag_id = DagIdParam.parse(request)
-        report = get_dag_tier_report(dag_id) if dag_id is not None else None
+        if dag_id is None:
+            return None
+        return cls.once_per_request(request, ("dag", str(dag_id)), lambda: get_dag_tier_report(dag_id))
+
+    def place(self, request: HttpRequest) -> ToolPlace | None:
+        report = self.report(request)
+        if report is None:
+            return None
+        return ToolPlace.under(
+            "team", report.team_id, (RecordLink(label=report.dag_name, href=request.get_full_path()),)
+        )
+
+    def page(self, request: HttpRequest) -> Page:
+        report = self.report(request)
         if report is None:
             return Page(
                 blocks=(
