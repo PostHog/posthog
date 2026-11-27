@@ -18,6 +18,7 @@ from posthog.models import User
 from posthog.permissions import user_can_access_resource
 
 from products.messaging.backend.facade.contracts import (
+    EmailClickNoSessionReason,
     EmailDeliveryStatus,
     EmailLogEventKind,
     EmailStatsGroupBy,
@@ -354,6 +355,56 @@ class TransactionalEmailActivitySerializer(serializers.Serializer):
     )
 
 
+class TransactionalEmailClickSessionSerializer(serializers.Serializer):
+    session_id = serializers.CharField(help_text="The session ID, the same one session recordings use.")
+    landed_at = serializers.DateTimeField(help_text="When the first page the link opened was viewed.")
+    landing_url = serializers.CharField(help_text="The URL of that page, with the email's run tag.")
+    duration_seconds = serializers.IntegerField(help_text="From the session's first event to its last, in seconds.")
+    pageview_count = serializers.IntegerField(help_text="How many pages the session viewed.")
+    device_type = serializers.CharField(allow_null=True, help_text="Such as `Desktop` or `Mobile`. Null when unknown.")
+    browser = serializers.CharField(allow_null=True, help_text="The browser of the session. Null when unknown.")
+    city = serializers.CharField(allow_null=True, help_text="The city the session came from. Null when unknown.")
+
+
+class TransactionalEmailClickSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When the recipient clicked.")
+    link_url = serializers.CharField(
+        allow_null=True,
+        help_text="The link that was clicked. Only its origin for a sensitive email. Null when the project doesn't "
+        "capture email engagement events, or the send named no distinct ID.",
+    )
+    event_uuid = serializers.CharField(
+        allow_null=True, help_text="The `$workflows_email_link_clicked` event of this click. Null when there is none."
+    )
+    session = TransactionalEmailClickSessionSerializer(
+        allow_null=True, help_text="The session the click started in the product. Null when none was found."
+    )
+    no_session_reason = serializers.ChoiceField(
+        choices=EmailClickNoSessionReason.choices,
+        allow_null=True,
+        help_text="Why no session was found: `off_site` when the link goes outside the sending domain, "
+        "`link_tagging_off` when the project doesn't tag email links, `link_unknown` when no click event recorded "
+        "the link, and `not_found` when no page view carried this send's run tag. Null when a session was found.",
+    )
+
+
+class TransactionalEmailOwnEventSerializer(serializers.Serializer):
+    uuid = serializers.CharField(help_text="The event's UUID.")
+    event = serializers.CharField(help_text="Such as `$workflows_email_delivered` or `$workflows_email_link_clicked`.")
+    timestamp = serializers.DateTimeField(help_text="When it happened.")
+
+
+class TransactionalEmailSendActivitySerializer(TransactionalEmailActivitySerializer):
+    clicks = TransactionalEmailClickSerializer(
+        many=True, help_text="Each click on a link in the email, oldest first, with the session it started."
+    )
+    email_events = TransactionalEmailOwnEventSerializer(
+        many=True,
+        help_text="The events PostHog captured for this send, oldest first. Empty when the project doesn't capture "
+        "email engagement events, or the send named no distinct ID.",
+    )
+
+
 class _PageSchema(AutoSchema):
     # The list returns one page object with `has_more`, so drf-spectacular must not wrap it in an array.
     def _is_list_view(self, serializer: object = None) -> bool:
@@ -462,13 +513,13 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         ],
         responses={
-            200: TransactionalEmailActivitySerializer,
+            200: TransactionalEmailSendActivitySerializer,
             403: OpenApiResponse(description="The user has no access to persons or to querying events."),
             404: OpenApiResponse(description="No send of this project has this ID, or it is older than the log keeps."),
         },
         summary="Get what a transactional email's recipient did around the send",
         description=f"The recipient's events in the {ACTIVITY_WINDOW_DAYS} days before and after one send, with the "
-        "sessions they belong to.",
+        "sessions they belong to, and each click on the email's links with the session it started.",
     )
     @action(detail=True, methods=["GET"])
     def activity(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
@@ -486,7 +537,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         if activity is None:
             raise NotFound()
-        return Response(TransactionalEmailActivitySerializer(asdict(activity)).data)
+        data = asdict(activity)
+        return Response(TransactionalEmailSendActivitySerializer({**data.pop("recipient"), **data}).data)
 
     @validated_request(
         query_serializer=TransactionalEmailStatsQuerySerializer,

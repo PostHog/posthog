@@ -1,6 +1,7 @@
 """What the recipient of one email did in the product around the send."""
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -10,15 +11,24 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
+from posthog.domain_connect import organizational_domain
 from posthog.models import Team, User
 from posthog.models.person.util import get_person_by_distinct_id
 
 from products.messaging.backend.facade.contracts import (
+    EmailClickNoSessionReason,
     EmailLogEventKind,
     TransactionalEmailActivity,
     TransactionalEmailActivityEvent,
     TransactionalEmailActivitySession,
+    TransactionalEmailClick,
+    TransactionalEmailClickSession,
+    TransactionalEmailLogDetail,
+    TransactionalEmailOwnEvent,
+    TransactionalEmailSendActivity,
 )
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_TTL_DAYS
 from products.messaging.backend.services.transactional_email_log import get_transactional_email
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
@@ -26,6 +36,14 @@ ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_BEFORE_LIMIT = 50
 ACTIVITY_AFTER_LIMIT = 100
 MAX_DISTINCT_IDS = 100
+MAX_OWN_EVENTS = 200
+MAX_LANDINGS = 100
+CLICK_EVENT = "$workflows_email_link_clicked"
+OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
+SAME_CLICK = timedelta(seconds=1)
+LANDING_BEFORE_CLICK = timedelta(minutes=2)
+LANDING_AFTER_CLICK = timedelta(minutes=30)
+SESSION_SPAN = timedelta(days=1)
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -60,15 +78,25 @@ def get_transactional_email_activity(
     message_id: UUID,
     *,
     access: WorkflowViewAccess | None = None,
-) -> TransactionalEmailActivity | None:
-    """The recipient's events in the week before and after one send, or None when the reader can't see the send."""
+) -> TransactionalEmailSendActivity | None:
+    """The recipient's events in the week before and after one send, and each click with the session it started, or
+    None when the reader can't see the send."""
     detail = get_transactional_email(team.id, message_id, access=access)
     if detail is None:
         return None
     sent_at = next(
         (event.at for event in detail.timeline if event.kind == EmailLogEventKind.SENT), detail.entry.created_at
     )
-    return get_email_activity(team, user, detail.distinct_id, sent_at)
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    own_events = _own_events(team, user, detail)
+    return TransactionalEmailSendActivity(
+        recipient=get_email_activity(team, user, detail.distinct_id, sent_at),
+        clicks=_clicks(team, user, detail, own_events),
+        email_events=[
+            TransactionalEmailOwnEvent(uuid=event.uuid, event=event.event, timestamp=event.timestamp)
+            for event in own_events
+        ],
+    )
 
 
 def get_email_activity(
@@ -231,3 +259,189 @@ def _sessions(
         )
         for session_id, events in events_by_session.items()
     ]
+
+
+@frozen
+class _OwnEvent:
+    uuid: str
+    event: str
+    timestamp: datetime
+    link_url: str | None
+
+
+def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDetail) -> list[_OwnEvent]:
+    if not detail.distinct_id:
+        return []
+    queued_at = detail.entry.created_at
+    response = execute_hogql_query(
+        """
+        SELECT uuid, event, timestamp, properties.$link_url
+        FROM events
+        WHERE event IN {events}
+          AND distinct_id = {distinct_id}
+          AND properties.$workflow_invocation_id = {message_id}
+          AND timestamp >= {start} AND timestamp < {end}
+        ORDER BY timestamp
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "events": ast.Constant(value=list(OWN_EVENTS)),
+            "distinct_id": ast.Constant(value=detail.distinct_id),
+            "message_id": ast.Constant(value=detail.entry.message_id),
+            "start": ast.Constant(value=queued_at - LANDING_BEFORE_CLICK),
+            "end": ast.Constant(value=queued_at + timedelta(days=EMAIL_STATUS_TTL_DAYS)),
+            "limit": ast.Constant(value=MAX_OWN_EVENTS),
+        },
+        query_type="transactional_email_activity_own_events",
+        workload=Workload.ONLINE,
+    )
+    return [
+        _OwnEvent(uuid=str(uuid), event=event, timestamp=timestamp.astimezone(UTC), link_url=link_url or None)
+        for uuid, event, timestamp, link_url in response.results or []
+    ]
+
+
+def _clicks(
+    team: Team, user: User | None, detail: TransactionalEmailLogDetail, own_events: list[_OwnEvent]
+) -> list[TransactionalEmailClick]:
+    click_times = [event.at for event in detail.timeline if event.kind == EmailLogEventKind.CLICKED]
+    if not click_times:
+        return []
+    unmatched = [event for event in own_events if event.event == CLICK_EVENT]
+    sessions = _sessions_by_click(
+        click_times,
+        _landings(team, user, detail.entry.message_id, click_times[0], click_times[-1]),
+    )
+    link_tagging_enabled = team.workflows_config.email_workflow_run_link_tag_enabled
+    clicks = []
+    for index, at in enumerate(click_times):
+        event = _take_click_event(at, unmatched)
+        link_url = event.link_url if event else None
+        session = sessions.get(index)
+        clicks.append(
+            TransactionalEmailClick(
+                at=at,
+                link_url=link_url,
+                event_uuid=event.uuid if event else None,
+                session=session,
+                no_session_reason=None
+                if session
+                else _no_session_reason(link_url, link_tagging_enabled, detail.entry.sending_domain),
+            )
+        )
+    return clicks
+
+
+def _take_click_event(at: datetime, unmatched: list[_OwnEvent]) -> _OwnEvent | None:
+    closest = min(unmatched, key=lambda event: abs(event.timestamp - at), default=None)
+    if closest is None or abs(closest.timestamp - at) > SAME_CLICK:
+        return None
+    unmatched.remove(closest)
+    return closest
+
+
+def _landings(
+    team: Team, user: User | None, message_id: str, first_click: datetime, last_click: datetime
+) -> list[TransactionalEmailClickSession]:
+    start = first_click - LANDING_BEFORE_CLICK
+    end = last_click + LANDING_AFTER_CLICK
+    response = execute_hogql_query(
+        """
+        SELECT
+            $session_id,
+            min(timestamp) AS landed_at,
+            argMin(properties.$current_url, timestamp),
+            argMin(properties.$device_type, timestamp),
+            argMin(properties.$browser, timestamp),
+            argMin(properties.$geoip_city_name, timestamp)
+        FROM events
+        WHERE event = '$pageview'
+          AND timestamp >= {start} AND timestamp < {end}
+          AND $session_id != ''
+          AND position(properties.$current_url, 'ph_workflow_run=') > 0
+          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') = {message_id}
+        GROUP BY $session_id
+        ORDER BY landed_at
+        LIMIT {limit}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "message_id": ast.Constant(value=message_id),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "limit": ast.Constant(value=MAX_LANDINGS),
+        },
+        query_type="transactional_email_activity_landings",
+        workload=Workload.ONLINE,
+    )
+    landings = response.results or []
+    stats = _session_stats(team, user, [row[0] for row in landings], start - SESSION_SPAN, end + SESSION_SPAN)
+    return [
+        TransactionalEmailClickSession(
+            session_id=session_id,
+            landed_at=landed_at.astimezone(UTC),
+            landing_url=landing_url,
+            duration_seconds=stats[session_id][0],
+            pageview_count=stats[session_id][1],
+            device_type=device_type or None,
+            browser=browser or None,
+            city=city or None,
+        )
+        for session_id, landed_at, landing_url, device_type, browser, city in landings
+    ]
+
+
+def _session_stats(
+    team: Team, user: User | None, session_ids: list[str], start: datetime, end: datetime
+) -> dict[str, tuple[int, int]]:
+    if not session_ids:
+        return {}
+    response = execute_hogql_query(
+        """
+        SELECT $session_id, dateDiff('second', min(timestamp), max(timestamp)), countIf(event = '$pageview')
+        FROM events
+        WHERE timestamp >= {start} AND timestamp < {end} AND $session_id IN {session_ids}
+        GROUP BY $session_id
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "session_ids": ast.Constant(value=session_ids),
+        },
+        query_type="transactional_email_activity_session_stats",
+        workload=Workload.ONLINE,
+    )
+    return {session_id: (duration, pageviews) for session_id, duration, pageviews in response.results or []}
+
+
+def _sessions_by_click(
+    click_times: list[datetime], landings: list[TransactionalEmailClickSession]
+) -> dict[int, TransactionalEmailClickSession]:
+    sessions: dict[int, TransactionalEmailClickSession] = {}
+    for landing in landings:
+        index = max(
+            (index for index, at in enumerate(click_times) if at <= landing.landed_at + LANDING_BEFORE_CLICK),
+            default=None,
+        )
+        if index is None or index in sessions or landing.landed_at > click_times[index] + LANDING_AFTER_CLICK:
+            continue
+        sessions[index] = landing
+    return sessions
+
+
+def _no_session_reason(
+    link_url: str | None, link_tagging_enabled: bool, sending_domain: str
+) -> EmailClickNoSessionReason:
+    link_host = urlparse(link_url).hostname if link_url else None
+    if link_host and sending_domain and organizational_domain(link_host) != organizational_domain(sending_domain):
+        return EmailClickNoSessionReason.OFF_SITE
+    if not link_tagging_enabled:
+        return EmailClickNoSessionReason.LINK_TAGGING_OFF
+    if not link_url:
+        return EmailClickNoSessionReason.LINK_UNKNOWN
+    return EmailClickNoSessionReason.NOT_FOUND

@@ -650,6 +650,48 @@ class TransactionalEmailActivity:
     sessions: list[TransactionalEmailActivitySession]
 
 
+class EmailClickNoSessionReason(LabeledStrEnum):
+    OFF_SITE = "off_site", "The link goes outside the sending domain, so it carries no run tag"
+    LINK_TAGGING_OFF = "link_tagging_off", "The project doesn't tag email links"
+    LINK_UNKNOWN = "link_unknown", "No click event recorded the link"
+    NOT_FOUND = "not_found", "No visit with this send's run tag"
+
+
+@frozen
+class TransactionalEmailClickSession:
+    session_id: str
+    landed_at: datetime
+    landing_url: str
+    duration_seconds: int
+    pageview_count: int
+    device_type: str | None
+    browser: str | None
+    city: str | None
+
+
+@frozen
+class TransactionalEmailClick:
+    at: datetime
+    link_url: str | None
+    event_uuid: str | None
+    session: TransactionalEmailClickSession | None
+    no_session_reason: EmailClickNoSessionReason | None
+
+
+@frozen
+class TransactionalEmailOwnEvent:
+    uuid: str
+    event: str
+    timestamp: datetime
+
+
+@frozen
+class TransactionalEmailSendActivity:
+    recipient: TransactionalEmailActivity
+    clicks: list[TransactionalEmailClick]
+    email_events: list[TransactionalEmailOwnEvent]
+
+
 @frozen
 class WorkflowEmailSend:
     """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
