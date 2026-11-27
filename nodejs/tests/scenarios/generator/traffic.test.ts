@@ -40,7 +40,7 @@ const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
 const ROUTE = `/api/projects/${UNIT.teamId}/hog_flows/${UNIT.flowId}/transactional_email`
 
-type Answer = { status: number; body: object; takesMs?: number }
+type Answer = { status: number; body: object; takesMs?: number; answersAfterMs?: number }
 
 const NEVER_ABORTED = new AbortController().signal
 
@@ -72,7 +72,13 @@ function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }):
             received.push({ method: req.method, url: req.url, authorized, body })
             receivedAt.push(clock.now())
             clock.pass?.(answer.takesMs ?? 0)
-            res.writeHead(answer.status, { 'content-type': 'application/json' }).end(JSON.stringify(answer.body))
+            setTimeout(
+                () =>
+                    res
+                        .writeHead(answer.status, { 'content-type': 'application/json' })
+                        .end(JSON.stringify(answer.body)),
+                answer.answersAfterMs ?? 0
+            )
         })
     })
     return new Promise((resolve) =>
@@ -166,14 +172,10 @@ describe('traffic', () => {
                     ...context,
                     cdpApi: {
                         ...context.cdpApi!,
-                        jwt: {
-                            mint: () => {
-                                throw new Error('signing key unavailable')
-                            },
-                        } as unknown as ScopedServiceJwt,
+                        jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, ''),
                     },
                 }),
-                'signing key unavailable',
+                'no signing key configured',
             ],
         ])('journals a transport error when %s', async (_story, contextOf, error) => {
             const cdpApi = await startCdpApi([{ status: 202, body: {} }])
@@ -219,6 +221,24 @@ describe('traffic', () => {
                     ).toEqual({ accepted: true, retries: 1, attemptsMs: [0, 0] })
                     expect(cdpApi.receivedAt).toEqual([0, 500])
                     expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
+
+            it("retries a 5xx that cdp-api answers only after its broker's ack deadline", async () => {
+                const clock = controlledClock()
+                const cdpApi = await startCdpApi(
+                    [
+                        { ...UNAVAILABLE, answersAfterMs: 3_500 },
+                        { status: 202, body: { status: 'queued' } },
+                    ],
+                    clock
+                )
+                try {
+                    expect(
+                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
+                    ).toEqual({ accepted: true, retries: 1, attemptsMs: [0, 0] })
                 } finally {
                     await cdpApi.close()
                 }
@@ -351,6 +371,25 @@ describe('traffic', () => {
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK)
                 .map((message) => message.value as never)
+
+        it("journals cdp-api's reason when it refuses a webhook it could not queue", async () => {
+            const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
+            mockProducerObserver.produceSpy.mockImplementationOnce(() =>
+                Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+            )
+            const readings = [0, 120_000]
+            const pastTheDeadline: SendClock = { now: () => readings.shift() ?? 120_000, wait: () => Promise.resolve() }
+            const context = contextFor(url, undefined, pastTheDeadline)
+
+            expect(
+                await workflowWebhook.offer({ unitId: 'run-w-1', teamId, flowId: flow.id }, context, NEVER_ABORTED)
+            ).toEqual({
+                accepted: false,
+                status: 503,
+                outcome: 'intake_unavailable',
+                attemptsMs: [0],
+            })
+        })
 
         it("retries its seeded flow's webhook under the unit's key, so the retried runs share one id and the next unit gets its own", async () => {
             const flow = await insertHogFlow(hub.postgres, await workflowWebhook.flow(teamId, 0, 1))
