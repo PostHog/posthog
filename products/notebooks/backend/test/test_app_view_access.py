@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.token_bucket import BucketDecision
 
@@ -287,6 +287,49 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.client.force_login(self.recipient)
         self.assertContains(self.client.get(url), "Publish this chart as a table or single number")
 
+    @parameterized.expand(["ActionsBar", "ActionsLineGraph", "Auto"])
+    def test_grouped_chart_values_only_share_distinct_displayed_categories(self, display: str) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        chart = json.dumps({"display": display})
+        self.release.markdown = f'<SQLV2 nodeId="totals" runId="{run_id}" code="SELECT 1" vizQuery={{{chart}}} />'
+        self.release.sql_rows[f"schema:{run_id}"]["row_count"] = 2
+        self.release.sql_rows[run_id] = [["Spring", 6], ["Spring", 9]]
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        output = self.client.get(url)
+        self.assertContains(output, "Publish this chart as a table or single number")
+        self.assertNotContains(output, "<td>6</td>", html=True)
+        self.assertNotContains(output, "<td>9</td>", html=True)
+
+    def test_shared_budget_counts_a_saved_table_again_when_the_layout_repeats_it(self) -> None:
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        value = "North team " * 12
+        self.release.sql_rows[run_id] = [[value, 42]]
+        self.release.save(update_fields=["sql_rows"])
+        with patch("products.notebooks.backend.app_delivery.MAX_RELEASE_RESULT_BYTES", 320):
+            url = self.grant()
+            self.client.force_login(self.recipient)
+            self.assertContains(self.client.get(url), value.strip())
+
+            repeated = {**self.release.layout["blocks"][0], "id": "comparison", "tab_id": "notes"}
+            self.release = NotebookAppRelease.objects.for_team(self.team.pk).create(
+                team=self.team,
+                notebook=self.notebook,
+                revision=2,
+                title=self.release.title,
+                layout={**self.release.layout, "blocks": [*self.release.layout["blocks"], repeated]},
+                markdown=self.release.markdown,
+                sql_rows=self.release.sql_rows,
+            )
+            self.client.force_login(self.user)
+            url = self.grant()
+            self.client.force_login(self.recipient)
+            output = self.client.get(url)
+            self.assertContains(output, "This app exceeds the shared output limit")
+            self.assertNotContains(output, value.strip())
+            self.assertContains(self.client.get(url), "This app exceeds the shared output limit")
+
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"},
@@ -308,6 +351,11 @@ class TestNotebookAppViewAccess(APIBaseTest):
             self.client.get(f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/activity/"),
             self.recipient.email,
         )
+        OrganizationMembership.objects.create(
+            organization=Organization.objects.create(name="Another organization"),
+            user=self.recipient,
+            level=OrganizationMembership.Level.OWNER,
+        )
         self.client.force_login(self.recipient)
         for route in (
             "notebooks/activity/",
@@ -319,3 +367,62 @@ class TestNotebookAppViewAccess(APIBaseTest):
                 response = self.client.get(f"/api/projects/{self.team.pk}/{route}")
                 self.assertNotContains(response, "app_view_grant")
                 self.assertContains(response, str(ordinary.pk))
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, False),
+            ("owner", OrganizationMembership.Level.OWNER, False),
+            ("staff_member", OrganizationMembership.Level.MEMBER, True),
+        ]
+    )
+    def test_privileged_auditors_see_grants_and_revocations_after_deletion(
+        self, _name: str, level: OrganizationMembership.Level, is_staff: bool
+    ) -> None:
+        self.grant()
+        revoke = self.client.post(
+            self.management, {"recipient_uuid": str(self.recipient.uuid), "revoke": True}, format="json"
+        )
+        assert revoke.status_code == 200
+        self.notebook.deleted = True
+        self.notebook.save(update_fields=["deleted"])
+        audit_ids = ActivityLog.objects.filter(
+            organization_id=self.organization.pk,
+            team_id=self.team.pk,
+            item_id=self.notebook.short_id,
+            detail__contains={"changes": [{"field": "app_view_grant"}]},
+        ).values_list("pk", flat=True)
+        assert len(audit_ids) == 2
+        outside = Organization.objects.create(name="Separate organization")
+        outside_team = Team.objects.create(organization=outside, name="Separate project")
+        outside_record = ActivityLog.objects.create(
+            organization_id=outside.pk,
+            team_id=outside_team.pk,
+            scope="Notebook",
+            activity="updated",
+            item_id=self.notebook.short_id,
+            detail={"changes": [{"field": "app_view_grant", "after": {"recipient": "outside@example.com"}}]},
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = level
+        self.organization_membership.save(update_fields=["level"])
+        self.user.is_staff = is_staff
+        self.user.save(update_fields=["is_staff"])
+        project = f"/api/projects/{self.team.pk}"
+        routes = [
+            f"{project}/activity_log/",
+            f"{project}/advanced_activity_logs/",
+            f"{project}/advanced_activity_logs/?is_csv_export=1",
+        ]
+        org_audit = f"/api/organizations/{self.organization.pk}/advanced_activity_logs/"
+        if level >= OrganizationMembership.Level.ADMIN:
+            routes.append(org_audit)
+        else:
+            assert self.client.get(org_audit).status_code == 403
+        for route in routes:
+            with self.subTest(route=route):
+                response = self.client.get(route)
+                self.assertContains(response, self.recipient.email)
+                self.assertNotContains(response, str(outside_record.pk))
+                for row_id in audit_ids:
+                    self.assertContains(response, str(row_id))
