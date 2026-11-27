@@ -24,7 +24,9 @@ import { SaveStatus } from '../dashboard/saved/SaveStatus'
 import { ANALYTICS_FILTER_TYPES } from '../filters/analytics/analyticsFilterTypes'
 import { useDashboardFilters } from '../filters/useDashboardFilters'
 import { runSampleQuery } from '../fixtures/runSampleQuery'
+import type { ChartBackgroundColor } from '../panels/chart/ChartPanel'
 import { createChartPanel } from '../panels/chart/createChartPanel'
+import { TILE_BACKGROUND_COLORS } from '../panels/core/tileBackground'
 import { markdownPanel } from '../panels/markdown/markdownSpec'
 import { createQueryBatchRunner } from '../query/queryBatchRunner'
 import {
@@ -33,6 +35,15 @@ import {
     savedDashboardLogicProps,
     dashboardSceneLogic,
 } from './dashboardSceneLogic'
+
+// TODO(2026-11-27): Remove with the kitchen sink fixture. It shows a host coloring a tile from the chart's data.
+const kitchenSinkBackgroundColor: ChartBackgroundColor = ({ panel, frames }) => {
+    if (panel.title !== 'Percentage') {
+        return null
+    }
+    const latest = frames[0]?.fields.find((field) => field.type === 'number')?.values.at(-1)
+    return typeof latest === 'number' && latest > 0.5 ? TILE_BACKGROUND_COLORS.red : TILE_BACKGROUND_COLORS.green
+}
 
 export const scene: SceneExport = {
     component: DashboardScene,
@@ -89,7 +100,11 @@ function DashboardV2(): JSX.Element {
                           ),
                   })
                 : runSampleQuery
-        return [createChartPanel({ runQuery, sampleData }), markdownPanel, KITCHEN_SINK_CUSTOM_PANEL]
+        return [
+            createChartPanel({ runQuery, sampleData, backgroundColor: kitchenSinkBackgroundColor }),
+            markdownPanel,
+            KITCHEN_SINK_CUSTOM_PANEL,
+        ]
     }, [runsRealQueries, currentTeamId, sampleData])
     // TODO(2026-11-25): Offer filters with real queries once the query batch request carries them; until then only the
     // sample runner applies them, so a filter bar there would narrow nothing.
