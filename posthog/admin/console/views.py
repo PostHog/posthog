@@ -671,6 +671,15 @@ def _with_query(url: str, request: HttpRequest) -> str:
     return url + _query_suffix(request)
 
 
+def _subject_crumbs(tool: ConsoleTool, request: HttpRequest) -> tuple[RecordLink, ...]:
+    """The breadcrumb through the record a tool page is about. Empty for a tool that is not about one record."""
+    obj = tool.subject_of(request)
+    if obj is None or tool.subject is None:
+        return ()
+    record_type = RECORD_TYPES[tool.subject]
+    return (*record_type.parents(obj), RecordLink(label=record_type.title(obj), href=record_type.url(obj)))
+
+
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
@@ -698,6 +707,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
+            "subject_crumbs": _subject_crumbs(tool, request),
             "page": tool.page(request).refuse_secrets("tool page").check_operations(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
@@ -759,7 +769,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         badge=tool.group,
         subtitle=tool.description,
         back_url=tool_url,
-        breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
+        breadcrumbs=(*_subject_crumbs(tool, request), RecordLink(label=tool.title, href=tool_url)),
         is_record=False,
     )
     step = ConfirmStep(request, ConfirmationToken(request, f"tool:{tool.key}", operation.key))

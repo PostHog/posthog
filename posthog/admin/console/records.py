@@ -2,6 +2,7 @@ import re
 from collections.abc import Callable
 from typing import Any, ClassVar
 
+from django.core.exceptions import ValidationError
 from django.db.models import Model, Q, QuerySet
 from django.urls import reverse
 
@@ -114,6 +115,13 @@ class RecordType:
 
     def url(self, obj: Model) -> str:
         return reverse(self.url_name, kwargs={"pk": obj.pk})
+
+    def find(self, pk: str) -> Model | None:
+        """The record with this primary key, or None when the key is malformed or names no record."""
+        try:
+            return self.queryset().filter(pk=pk.strip()).first() if pk.strip() else None
+        except (ValueError, ValidationError):
+            return None
 
     def short_id(self, obj: Model) -> str:
         """The ID to show next to a link to the record. A UUID is too long to read there, so it shows none."""

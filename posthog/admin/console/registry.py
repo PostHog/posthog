@@ -114,6 +114,8 @@ class ConsoleRegistry:
             raise ValueError(
                 f"Console tool {tool_class.__name__} uses group {tool_class.group!r}, not one of {sorted(TOOL_GROUPS)}"
             )
+        if tool_class.subject is not None and tool_class.subject not in RECORD_TYPES:
+            raise ValueError(f"Console tool {tool_class.__name__} is about unknown record type {tool_class.subject!r}")
         existing = self._tools.get(tool_class.key)
         if existing is not None and not _same_declaration(existing, tool_class):
             raise ValueError(f"Console tool key {tool_class.key!r} is already used by {existing.__name__}")
