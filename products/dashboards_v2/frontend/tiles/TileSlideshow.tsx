@@ -12,7 +12,8 @@ import { type SavedPanel } from '../panels/core/panelSchema'
 import { ContentTile } from './core/ContentTile'
 
 /** A tab's content tiles in the order a person reads them, the tiles in a section where the section sits. */
-function contentTilesInOrder(tiles: Tile[]): { id: string; panel: SavedPanel }[] {
+/** The tiles a slideshow steps through: every content tile on a tab, with a section's tiles in its place. */
+export function contentTilesInOrder(tiles: Tile[]): { id: string; panel: SavedPanel }[] {
     return inReadingOrder(tiles).flatMap(({ id, panel }) =>
         isSectionPanel(panel) ? contentTilesInOrder(panel.tiles) : [{ id, panel }]
     )
