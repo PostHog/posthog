@@ -83,10 +83,14 @@ def migrate_experiment(
     as part of this call; without it, an unmigrated one raises LegacyMigrationError.
     """
     with transaction.atomic():
-        original = Experiment.objects.select_for_update().get(pk=experiment_id, team_id=team_id)
+        original = Experiment.objects.for_team(team_id).including_deleted().select_for_update().get(pk=experiment_id)
 
         migrated_to = (original.stats_config or {}).get("migrated_to")
-        existing = Experiment.objects.filter(pk=migrated_to, team_id=team_id).first() if migrated_to else None
+        existing = (
+            Experiment.objects.for_team(team_id).including_deleted().filter(pk=migrated_to).first()
+            if migrated_to
+            else None
+        )
         if existing:
             return ExperimentMigration(
                 experiment=existing,
