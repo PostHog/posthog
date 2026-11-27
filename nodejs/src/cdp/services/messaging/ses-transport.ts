@@ -12,7 +12,7 @@ export type SesClientOptions = Pick<
     'region' | 'endpoint' | 'credentials' | 'retryStrategy' | 'maxAttempts'
 >
 
-export type SesSend = { email: SesEmail } | { email: SesEmail; files: LoadedAttachment[]; deadline: AbortSignal }
+export type SesSend = { email: SesEmail; files?: LoadedAttachment[]; deadline: AbortSignal }
 
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 export type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
@@ -82,8 +82,8 @@ function boundedSendResultLabel(error: unknown): string {
     return isOneOf(SES_REFUSAL_NAMES, name) || name === 'TimeoutError' ? name : 'other'
 }
 
-function failureOf(error: unknown, deadline: AbortSignal | undefined, mayHaveReachedSes: boolean): SesSendOutcome {
-    if (deadline?.aborted) {
+function failureOf(error: unknown, deadline: AbortSignal, mayHaveReachedSes: boolean): SesSendOutcome {
+    if (deadline.aborted) {
         return mayHaveReachedSes
             ? { kind: 'unknown', message: MAY_HAVE_SENT_BEFORE_DEADLINE }
             : { kind: 'not_sent', reason: 'before_deadline', cause: error }
@@ -147,10 +147,9 @@ export class SesTransport {
         this.clients = { plain: client, files: client }
     }
 
-    async send(send: SesSend): Promise<SesSendOutcome> {
-        const kind: SendKind = 'files' in send ? 'files' : 'plain'
-        const deadline = 'files' in send ? send.deadline : undefined
-        const command = new SendEmailCommand('files' in send ? withAttachments(send.email, send.files) : send.email)
+    async send({ email, files = [], deadline }: SesSend): Promise<SesSendOutcome> {
+        const kind: SendKind = files.length ? 'files' : 'plain'
+        const command = new SendEmailCommand(withAttachments(email, files))
         const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
         const startedAt = performance.now()
         const observeDuration = (result: 'success' | 'error'): void =>
@@ -158,12 +157,10 @@ export class SesTransport {
                 .labels({ result, with_files: WITH_FILES_LABEL[kind] })
                 .observe(performance.now() - startedAt)
         try {
-            const response = deadline
-                ? await settleBeforeAbortEvenWhileCredentialsStall(
-                      deadline,
-                      this.clients[kind].send(command, { abortSignal: deadline })
-                  )
-                : await this.clients[kind].send(command)
+            const response = await settleBeforeAbortEvenWhileCredentialsStall(
+                deadline,
+                this.clients[kind].send(command, { abortSignal: deadline })
+            )
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }

@@ -30,6 +30,7 @@ const ATTACHMENT_WAIT_EXPIRED = 'attachment_wait_expired'
 const WAITED_TOO_LONG_MESSAGE = `${ATTACHMENT_WAIT_EXPIRED}: this email waited ${LONGEST_WAIT_FOR_ROOM_MS / DAY_MS} days for an email worker with room for its files, so it was not sent before its files could expire. Send it again.`
 const waitedTooLongForRoom = new WeakSet<CyclotronJobInvocation>()
 const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
+const SENDING_STOPS_AFTER_STOP_STARTS_MS = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
 
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
@@ -168,6 +169,15 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         )
         const unchecked = invocations.filter((invocation) => !Object.hasOwn(checked, invocation.functionId))
         return { ...(await super.hogFlowsFor(unchecked)), ...checked }
+    }
+
+    public override async stop(): Promise<void> {
+        const sendingStops = setTimeout(() => this.emailService.stopSending(), SENDING_STOPS_AFTER_STOP_STARTS_MS)
+        try {
+            await super.stop()
+        } finally {
+            clearTimeout(sendingStops)
+        }
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {

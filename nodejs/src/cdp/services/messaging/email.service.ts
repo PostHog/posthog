@@ -631,6 +631,7 @@ type EmailSendDecision =
 
 export class EmailService {
     sesTransport: SesTransport | null
+    private readonly sending = new AbortController()
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
@@ -677,6 +678,10 @@ export class EmailService {
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
         this.stillOwnsJob = stillOwnsJob
+    }
+
+    public stopSending(): void {
+        this.sending.abort(new Error('The email worker stopped sending before its queue disconnects'))
     }
 
     private async jobOwnershipBeforeSend(
@@ -1805,9 +1810,11 @@ export class EmailService {
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
 
-        const outcome = await this.sesTransport.send(
-            deadline ? { email: sendEmailParams, files, deadline } : { email: sendEmailParams }
-        )
+        const outcome = await this.sesTransport.send({
+            email: sendEmailParams,
+            files,
+            deadline: deadline ? AbortSignal.any([deadline, this.sending.signal]) : this.sending.signal,
+        })
         return messageIdOrSendError(outcome, from.email)
     }
 
