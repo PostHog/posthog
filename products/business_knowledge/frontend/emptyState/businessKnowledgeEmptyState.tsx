@@ -3,7 +3,6 @@ import { IconBook } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -16,8 +15,6 @@ const HedgehogReading = pngHoggie(readingIsMagicPng)
 
 export const businessKnowledgeEmptyState: SceneProductEmptyState = {
     statusLogic: businessKnowledgeSetupLogic,
-    // The scene already shows "not found" when the flag is off, so keep the gate behind it.
-    featureFlag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
     // The gate replaces the scene, so the Libraries / Settings tab bar inside it never mounts.
     // Keep it on the frame so Settings stays reachable with no sources yet.
     SceneNav: function BusinessKnowledgeEmptyStateNav(): JSX.Element {

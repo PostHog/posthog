@@ -954,7 +954,7 @@ def _business_knowledge_maintained_for_team(team: Team) -> bool:
 
     `is_maintained_for_team`, not `is_available_for_team`: the section rides on every run, so a
     knowledge base a team tried once and abandoned would tax the whole lane forever. Resolved
-    fresh per run so a flag flip, a first finished ingest, or a team returning to curate lands on
+    fresh per run so a first finished ingest, or a team returning to curate lands on
     the next run. Falls back to off on a read error rather than propagating: the resolved value
     forks the prompt and is stamped on the run row + both lifecycle events, so a raise would book a
     failed run and advance the streak over a section the run does not need. Swallowing here also

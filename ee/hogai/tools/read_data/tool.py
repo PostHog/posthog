@@ -79,7 +79,7 @@ from ee.hogai.tools.read_data.prompts import (
     READ_DATA_PROMPT,
     READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
 )
-from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, has_customer_analytics_mode_feature_flag
+from ee.hogai.utils.feature_flags import has_customer_analytics_mode_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -326,8 +326,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["activity_log_prompt"] = READ_DATA_ACTIVITY_LOG_PROMPT
             kinds.append(ReadActivityLog)
 
-        has_bk = await database_sync_to_async(has_business_knowledge_feature_flag)(team)
-        if has_bk and await database_sync_to_async(has_ready_sources)(team.id):
+        if await database_sync_to_async(has_ready_sources)(team.id):
             prompt_vars["business_knowledge_prompt"] = READ_DATA_BK_PROMPT
             kinds.append(ReadBusinessKnowledgeDocument)
 

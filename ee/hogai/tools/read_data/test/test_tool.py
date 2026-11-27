@@ -107,7 +107,7 @@ def _make_summary() -> SummarizationResponse:
 
 class TestReadDataTool(BaseTest):
     async def test_create_tool_class_with_billing_access(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -126,7 +126,7 @@ class TestReadDataTool(BaseTest):
         assert "Billing information" in tool.description
 
     async def test_create_tool_class_without_billing_access(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -147,7 +147,7 @@ class TestReadDataTool(BaseTest):
         assert "data_warehouse_table" in tool.description
 
     async def test_create_tool_class_without_context_manager(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
 
@@ -168,7 +168,7 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_insight_schema_only(self):
         """Test reading an insight without executing it returns the schema."""
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -204,7 +204,7 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_insight_with_execution(self):
         """Test reading an insight with execution returns results and artifact."""
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         tool_call_id = "test_call_id"
         state = AssistantState(messages=[], root_tool_call_id=tool_call_id)
@@ -258,7 +258,7 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_insight_not_found(self):
         """Test that not found insight raises MaxToolRetryableError."""
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -281,7 +281,7 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_insight_default_execute_is_false(self):
         """Test that execute defaults to False when not specified."""
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -318,7 +318,7 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_insight_uses_fallback_name_when_none(self):
         """Test that insight name falls back to 'Insight {id}' when name is None."""
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -1595,7 +1595,7 @@ class TestReadDataTool(BaseTest):
         assert "feature_flag_key" in str(exc_info.value)
 
     async def test_read_insight_denied_when_user_lacks_object_access(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -1624,7 +1624,7 @@ class TestReadDataTool(BaseTest):
             mock_uac.check_access_level_for_object.assert_called_once_with(mock_insight, "viewer")
 
     async def test_read_insight_allowed_when_user_has_object_access(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -1658,7 +1658,7 @@ class TestReadDataTool(BaseTest):
             mock_record.assert_called_once_with(team=team, user_id=user.id, insight_id=mock_insight.id)
 
     async def test_read_insight_skips_object_check_for_state_source(self):
-        team = MagicMock()
+        team = MagicMock(id=self.team.id)
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -2173,9 +2173,8 @@ class TestReadDataTool(BaseTest):
         assert "Errors: 2" in result
         assert "Tokens: 100 in / 50 out" in result
 
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
     @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
-    async def test_create_tool_class_includes_bk_when_flag_enabled(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+    async def test_create_tool_class_includes_bk_with_ready_sources(self, _mock_ready: MagicMock):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
@@ -2187,8 +2186,8 @@ class TestReadDataTool(BaseTest):
 
         assert "Business knowledge document" in tool.description
 
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=False)
-    async def test_create_tool_class_excludes_bk_when_flag_disabled(self, _mock_ff: MagicMock):
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=False)
+    async def test_create_tool_class_excludes_bk_without_ready_sources(self, _mock_ready: MagicMock):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
@@ -2201,11 +2200,8 @@ class TestReadDataTool(BaseTest):
         assert "Business knowledge document" not in tool.description
 
     @patch("ee.hogai.tools.read_data.tool.get_document_window")
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
     @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
-    async def test_read_bk_document_returns_formatted_chunks(
-        self, _mock_ready: MagicMock, _mock_ff: MagicMock, mock_window: MagicMock
-    ):
+    async def test_read_bk_document_returns_formatted_chunks(self, _mock_ready: MagicMock, mock_window: MagicMock):
         from products.business_knowledge.backend.logic import KnowledgeSearchResult
 
         doc_id = uuid4()
@@ -2245,11 +2241,8 @@ class TestReadDataTool(BaseTest):
         assert "[5]" in result
 
     @patch("ee.hogai.tools.read_data.tool.get_document_window")
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
     @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
-    async def test_read_bk_document_empty_raises_retryable(
-        self, _mock_ready: MagicMock, _mock_ff: MagicMock, mock_window: MagicMock
-    ):
+    async def test_read_bk_document_empty_raises_retryable(self, _mock_ready: MagicMock, mock_window: MagicMock):
         mock_window.return_value = []
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -2273,9 +2266,8 @@ class TestReadDataTool(BaseTest):
                     }
                 )
 
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
     @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
-    async def test_read_bk_document_invalid_uuid_raises_retryable(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+    async def test_read_bk_document_invalid_uuid_raises_retryable(self, _mock_ready: MagicMock):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
@@ -2297,9 +2289,8 @@ class TestReadDataTool(BaseTest):
                     }
                 )
 
-    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
     @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
-    async def test_read_bk_document_access_denied(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+    async def test_read_bk_document_access_denied(self, _mock_ready: MagicMock):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
         context_manager.check_user_has_billing_access = AsyncMock(return_value=False)

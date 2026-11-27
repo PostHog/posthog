@@ -174,9 +174,9 @@ class CollectEligibleTicketsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by organization group, the same as `product-business-knowledge`. The headless
-    # worker only sends the group properties listed here (unlike posthog-js, which auto-attaches full
-    # group properties), so a release condition on any other organization property never matches.
+    # The flag is targeted by organization group. The headless worker only sends the group properties
+    # listed here (unlike posthog-js, which auto-attaches full group properties), so a release
+    # condition on any other organization property never matches.
     try:
         return bool(
             posthoganalytics.feature_enabled(

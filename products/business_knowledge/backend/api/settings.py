@@ -14,7 +14,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
-    PostHogFeatureFlagPermission,
     get_authenticator_scoped_team_ids,
     is_authenticated_via_project_secret_api_key,
 )
@@ -72,10 +71,8 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
-        PostHogFeatureFlagPermission,
         CanonicalTeamTokenPermission,
     ]
-    posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
     http_method_names = ["get", "patch", "post", "head", "options"]

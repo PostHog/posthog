@@ -14,7 +14,6 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
-import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -310,9 +309,6 @@ export class RequestStateResolver {
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
         const mergedFlags: EvaluatedFlags = {
             ...allFlags,
-            // The API gates the key's routes on this flag, and `getApiKey` above succeeded only
-            // because the key passed that gate.
-            ...(usesProjectSecretKey ? { [PROJECT_SECRET_KEY_FEATURE_FLAG]: true } : {}),
             ...overrides,
         }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]

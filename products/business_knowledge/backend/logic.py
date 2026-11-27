@@ -2510,25 +2510,11 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
     return results
 
 
-def has_feature_flag(team: Team) -> bool:
-    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
-    check — `ee/hogai/utils/feature_flags.py` delegates here."""
-    if settings.DEBUG:
-        return True
-    return feature_enabled_or_false(
-        "product-business-knowledge",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-
-
 DOCS_SHADOW_FLAG = "business-knowledge-docs-shadow"
 
 
 def has_docs_shadow_feature_flag(team: Team) -> bool:
-    """Org-keyed, same as `has_feature_flag`. Off in DEBUG so local docs search does not shadow."""
+    """Org-keyed. Off in DEBUG so local docs search does not shadow."""
     if settings.DEBUG:
         return False
     # Local evaluation only. A remote lookup would run on every docs search.
@@ -2543,17 +2529,17 @@ def has_docs_shadow_feature_flag(team: Team) -> bool:
 
 
 def is_available_for_team(team: Team) -> bool:
-    """Feature flag + ready sources — the full "should agents use BK?" predicate.
+    """Ready sources — the full "should agents use BK?" predicate.
 
     Accepts a child-environment team: knowledge rows are project-scoped under the canonical
     parent, and `has_ready_sources` is `canonical=True` (it does not resolve the parent itself),
-    so a child id is resolved here. The flag is org-keyed, and a child shares its parent's org.
+    so a child id is resolved here.
     """
-    return has_feature_flag(team) and has_ready_sources(team.parent_team_id or team.id)
+    return has_ready_sources(team.parent_team_id or team.id)
 
 
 def is_maintained_for_team(team: Team) -> bool:
-    """Feature flag + a maintained knowledge base — the "is this worth prompt space?" predicate.
+    """A maintained knowledge base — the "is this worth prompt space?" predicate.
 
     Stricter than `is_available_for_team`, and for a different question. A tool decides whether
     it can serve a search (availability); a prompt section decides whether every run on this
@@ -2564,7 +2550,7 @@ def is_maintained_for_team(team: Team) -> bool:
     before reading the (canonical-scoped) source rows — the scout runner passes the run's team,
     which may be a child env.
     """
-    return has_feature_flag(team) and has_maintained_sources(team.parent_team_id or team.id)
+    return has_maintained_sources(team.parent_team_id or team.id)
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,6 @@
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.business_knowledge.backend.logic import has_feature_flag as bk_has_feature_flag
-
 
 def is_privacy_mode_enabled(team: Team) -> bool:
     """
@@ -136,9 +134,3 @@ def has_customer_analytics_mode_feature_flag(team: Team, user: User) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
-
-
-def has_business_knowledge_feature_flag(team: Team) -> bool:
-    # Canonical check lives in the owning product; kept as a delegate so existing
-    # ee call sites and test patches don't move.
-    return bk_has_feature_flag(team)

@@ -986,9 +986,8 @@ Keep it a close-out, not a transcript: methodology and tool-by-tool narration be
 The `{_TASK_SUMMARY_TOOL}` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. It is a harness tool in your sandbox, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`; it is not on the `mcp__posthog__exec` interface, per *How to call tools*. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
-# resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
-# That predicate covers the flag, which is also what puts these tools in the run's MCP toolset, so
-# the section states the base as a fact and names the tools as present. The alternative — render
+# resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`),
+# so the section states the base as a fact and names the tools as present. The alternative — render
 # always, have the scout self-check the project profile — charged every prompt in the fleet for a
 # section a team without a knowledge base could only skip.
 _BUSINESS_KNOWLEDGE = """# Business knowledge
@@ -1918,8 +1917,7 @@ def build_run_prompt(
     check is False. A private trial always keeps the list recipe, because trial reads cannot search.
 
     `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
-    renders the business-knowledge section, which names tools that only exist in the run's toolset
-    when that product's flag is on. The stricter predicate is deliberate — the section rides on
+    renders the business-knowledge section. The stricter predicate is deliberate — the section rides on
     every run of the lane, so a base a team tried once and abandoned would tax the lane forever.
     Off renders nothing at all, so such a team never pays for the section.
 

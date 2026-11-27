@@ -24,7 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_client
+from posthog.permissions import APIScopePermission, get_authenticator_client
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -123,9 +123,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeSource.objects.unscoped()
     serializer_class = KnowledgeSourceSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
-    posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -654,8 +653,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # Every action listed here must apply the key's library limit from `key_libraries`.
     psak_allowed_actions = ["search", "window"]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "product-business-knowledge"
+    permission_classes = [IsAuthenticated, APIScopePermission]
     throttle_classes = KNOWLEDGE_THROTTLES
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -867,8 +865,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     scope_object = "business_knowledge"
     queryset = KnowledgeGapSuggestion.objects.unscoped()
     serializer_class = KnowledgeGapSuggestionSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "product-business-knowledge"
+    permission_classes = [IsAuthenticated, APIScopePermission]
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

@@ -31,7 +31,6 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
-    [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
     [AccessControlResourceType.MarketingAnalytics]: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
     [AccessControlResourceType.Canvas]: FEATURE_FLAGS.TODAY_RAIL_NAV,
 }

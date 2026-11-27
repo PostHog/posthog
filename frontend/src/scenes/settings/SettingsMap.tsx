@@ -1745,7 +1745,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSection />,
-                flag: ['PRODUCT_SUPPORT_AI_SUGGESTION_ORGS', 'PRODUCT_BUSINESS_KNOWLEDGE'],
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['learn', 'support', 'ticket', 'resolved', 'business', 'knowledge', 'conversation'],
             },
@@ -1790,7 +1790,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-business-knowledge',
         title: 'Business knowledge',
         group: 'Products',
-        flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
         settings: [
             {
                 id: 'business-knowledge-connect-agent',

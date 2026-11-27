@@ -15,9 +15,6 @@ export const PROJECT_SECRET_KEY_TOOLS: readonly string[] = [
 
 export const PROJECT_SECRET_KEY_SCOPES: readonly string[] = ['business_knowledge:read']
 
-// The API gates every route above on this flag, so a key that passed the probe is in the rollout.
-export const PROJECT_SECRET_KEY_FEATURE_FLAG = 'product-business-knowledge'
-
 export function isProjectSecretKey(token: string | undefined): boolean {
     return token?.startsWith(PROJECT_SECRET_KEY_PREFIX) === true
 }

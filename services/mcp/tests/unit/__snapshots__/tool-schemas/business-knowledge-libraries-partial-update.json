@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "name": {
+            "description": "New name. Omit to keep the current name.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "repos": {
+            "description": "Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "source_ids": {
+            "description": "Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

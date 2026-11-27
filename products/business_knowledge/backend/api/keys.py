@@ -12,11 +12,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.project_secret_api_key import ProjectSecretAPIKeySerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.permissions import (
-    PostHogFeatureFlagPermission,
-    TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
-)
+from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
 from ..key_libraries import key_limits, limit_key_to_library
 from ..libraries import LibraryNotFound
@@ -32,9 +28,7 @@ class KnowledgeKeyViewSet(TeamAndOrgViewSetMixin, ViewSet):
     permission_classes = [
         TimeSensitiveActionPermission,
         TeamMemberStrictManagementPermission,
-        PostHogFeatureFlagPermission,
     ]
-    posthog_feature_flag = "product-business-knowledge"
     pagination_class = None
 
     @validated_request(

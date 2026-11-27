@@ -718,10 +718,8 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     plus the 5 most recently updated sources.
 
     Inventory for a scout that already knows the knowledge base exists: which sources are there,
-    how much is searchable, what changed recently. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
-    profiles stay valid across flag flips. Whether the run is told about the base at all is the
-    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
+    how much is searchable, what changed recently. Whether the run is told about the base at all
+    is the prompt's call, gated per run on a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

@@ -29,15 +29,10 @@ export const scene: SceneExport<KnowledgeLibraryLogicProps> = {
 }
 
 export function KnowledgeLibraryScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { library, libraryLoading, libraryNotFound, saving } = useValues(knowledgeLibraryLogic)
     const { loadLibrary, openDialog, deleteLibrary } = useActions(knowledgeLibraryLogic)
     const { push } = useActions(router)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     if (libraryLoading && !library) {
         return (

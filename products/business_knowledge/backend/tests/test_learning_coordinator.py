@@ -125,17 +125,15 @@ class TestCollectLearningEvidence(BaseTest):
 
     @parameterized.expand(
         [
-            ("setting_off", False, True, True, True),
-            ("feature_flag_off", True, False, True, True),
-            ("ai_approval_off", True, True, False, True),
-            ("support_off", True, True, True, False),
+            ("setting_off", False, True, True),
+            ("ai_approval_off", True, False, True),
+            ("support_off", True, True, False),
         ]
     )
     def test_gate_blocks_collection(
         self,
         _name: str,
         setting_enabled: bool,
-        feature_flag_enabled: bool,
         ai_approved: bool,
         support_enabled: bool,
     ) -> None:
@@ -145,20 +143,17 @@ class TestCollectLearningEvidence(BaseTest):
         self.team.conversations_enabled = support_enabled
         self.team.save(update_fields=["conversations_enabled"])
 
-        with patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=feature_flag_enabled):
-            result = collect_learning_evidence(LearningCoordinatorInput())
+        result = collect_learning_evidence(LearningCoordinatorInput())
 
         assert result.items == []
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_conversations_ai_setting_does_not_gate_learning(self, _feature_flag) -> None:
+    def test_conversations_ai_setting_does_not_gate_learning(self) -> None:
         result = collect_learning_evidence(LearningCoordinatorInput())
 
         assert len(result.items) == 1
         assert result.items[0].evidence == self.provider.refs_by_team[self.team.id][0]
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_child_environment_creates_run_on_canonical_team(self, _feature_flag) -> None:
+    def test_child_environment_creates_run_on_canonical_team(self) -> None:
         self.team.conversations_enabled = False
         self.team.save(update_fields=["conversations_enabled"])
         child = Team.objects.create(
@@ -180,8 +175,7 @@ class TestCollectLearningEvidence(BaseTest):
         assert run.team_id == self.team.id
         assert run.source_team_id == child.id
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_completed_revision_is_skipped_and_failed_revision_is_retried(self, _feature_flag) -> None:
+    def test_completed_revision_is_skipped_and_failed_revision_is_retried(self) -> None:
         completed_ref = _evidence(self.team.id, 3)
         failed_ref = _evidence(self.team.id, 4)
         self.provider.refs_by_team[self.team.id] = [completed_ref, failed_ref]
@@ -236,8 +230,7 @@ class TestCollectLearningEvidence(BaseTest):
         )
         return run
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_reads_old_tickets_and_waits_for_their_runs_to_complete(self, _feature_flag) -> None:
+    def test_backfill_reads_old_tickets_and_waits_for_their_runs_to_complete(self) -> None:
         old_ref = self._old_evidence(7)
         self.provider.refs_by_team[self.team.id] = [old_ref]
 
@@ -261,8 +254,7 @@ class TestCollectLearningEvidence(BaseTest):
         assert progress is not None
         assert (progress.status, progress.tickets_read) == ("completed", 1)
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_survives_a_collection_failure(self, _feature_flag) -> None:
+    def test_backfill_survives_a_collection_failure(self) -> None:
         self.provider.refs_by_team[self.team.id] = []
         learning_settings.start_learning_backfill(self.team)
         self.provider.error = RuntimeError("provider unavailable")
@@ -274,8 +266,7 @@ class TestCollectLearningEvidence(BaseTest):
     @patch(f"{COLLECT_MODULE}.LEARNING_BACKFILL_REWIND_ROWS", 1)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 2)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_resumes_past_settled_tickets_beyond_the_scan_budget(self, _feature_flag) -> None:
+    def test_backfill_resumes_past_settled_tickets_beyond_the_scan_budget(self) -> None:
         completed_ref, gave_up_ref, unread_ref = (self._old_evidence(seed) for seed in (8, 9, 10))
         self.provider.refs_by_team[self.team.id] = [completed_ref, gave_up_ref, unread_ref]
         self._run_for(completed_ref, LearningRunStatus.COMPLETED)
@@ -292,8 +283,7 @@ class TestCollectLearningEvidence(BaseTest):
     @patch(f"{COLLECT_MODULE}.LEARNING_BACKFILL_REWIND_ROWS", 2)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 2)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_does_not_skip_a_ticket_when_an_earlier_one_is_reopened(self, _feature_flag) -> None:
+    def test_backfill_does_not_skip_a_ticket_when_an_earlier_one_is_reopened(self) -> None:
         first_ref, second_ref, unread_ref = (self._old_evidence(seed) for seed in (11, 12, 13))
         self.provider.refs_by_team[self.team.id] = [first_ref, second_ref, unread_ref]
         self._run_for(first_ref, LearningRunStatus.COMPLETED)
@@ -306,8 +296,7 @@ class TestCollectLearningEvidence(BaseTest):
 
         assert [item.evidence for item in resumed.items] == [unread_ref]
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_defers_other_environments_when_the_team_budget_is_full(self, _feature_flag) -> None:
+    def test_backfill_defers_other_environments_when_the_team_budget_is_full(self) -> None:
         child = Team.objects.create(
             organization=self.organization,
             project=self.project,
@@ -329,8 +318,7 @@ class TestCollectLearningEvidence(BaseTest):
         assert self._backfill_state()[0] is not None
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_fresh_revision_waits_for_settle_window(self, _feature_flag, _now) -> None:
+    def test_fresh_revision_waits_for_settle_window(self, _now) -> None:
         fresh = _evidence(self.team.id, 5, revision_at=datetime(2026, 9, 11, 23, 58, tzinfo=UTC))
         settled = _evidence(self.team.id, 6, revision_at=datetime(2026, 9, 11, 23, 54, tzinfo=UTC))
         self.provider.refs_by_team[self.team.id] = [fresh, settled]
@@ -341,8 +329,7 @@ class TestCollectLearningEvidence(BaseTest):
 
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 10)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_completed_page_does_not_starve_older_revision(self, _feature_flag) -> None:
+    def test_completed_page_does_not_starve_older_revision(self) -> None:
         completed_refs = [_evidence(self.team.id, seed) for seed in (7, 8)]
         unseen_ref = _evidence(self.team.id, 9)
         self.provider.refs_by_team[self.team.id] = [*completed_refs, unseen_ref]
@@ -363,8 +350,7 @@ class TestCollectLearningEvidence(BaseTest):
         assert [item.evidence for item in result.items] == [unseen_ref]
         assert [call[3] for call in self.provider.calls] == [0, 2]
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_active_and_backed_off_runs_do_not_consume_team_cap(self, _feature_flag) -> None:
+    def test_active_and_backed_off_runs_do_not_consume_team_cap(self) -> None:
         blocked_refs = [_evidence(self.team.id, seed) for seed in range(40, 50)]
         unseen_ref = _evidence(self.team.id, 50)
         self.provider.refs_by_team[self.team.id] = [*blocked_refs, unseen_ref]
@@ -382,8 +368,7 @@ class TestCollectLearningEvidence(BaseTest):
 
         assert [item.evidence for item in result.items] == [unseen_ref]
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_per_team_and_global_caps_bound_each_tick(self, _feature_flag) -> None:
+    def test_per_team_and_global_caps_bound_each_tick(self) -> None:
         teams = [self.team]
         for index in range(5):
             team = Team.objects.create_with_data(
@@ -410,8 +395,7 @@ class TestCollectLearningEvidence(BaseTest):
     @patch(f"{COLLECT_MODULE}.LEARNING_MAX_ITEMS_PER_TICK", 1)
     @patch(f"{COLLECT_MODULE}.LEARNING_MAX_ITEMS_PER_TEAM", 1)
     @patch(f"{COLLECT_MODULE}.timezone.now")
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_tick_rotates_first_team_before_global_cap(self, _feature_flag, now_mock) -> None:
+    def test_tick_rotates_first_team_before_global_cap(self, now_mock) -> None:
         first_tick = datetime.now(UTC).replace(second=0, microsecond=0)
         now_mock.return_value = first_tick
         other_team = Team.objects.create_with_data(
@@ -441,8 +425,7 @@ class TestCollectLearningEvidence(BaseTest):
             other_team.id,
         }
 
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_duplicate_evidence_across_children_creates_one_run(self, _feature_flag) -> None:
+    def test_duplicate_evidence_across_children_creates_one_run(self) -> None:
         self.team.conversations_enabled = False
         self.team.save(update_fields=["conversations_enabled"])
         children = [
@@ -477,8 +460,7 @@ class TestCollectLearningEvidence(BaseTest):
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 1)
-    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_manual_input_targets_one_ticket_before_pagination(self, _feature_flag, _now) -> None:
+    def test_manual_input_targets_one_ticket_before_pagination(self, _now) -> None:
         revision_at = datetime(2026, 8, 1, tzinfo=UTC)
         selected = _evidence(self.team.id, 30, revision_at=revision_at)
         self.provider.refs_by_team[self.team.id] = [

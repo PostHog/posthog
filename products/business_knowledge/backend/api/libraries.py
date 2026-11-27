@@ -15,7 +15,7 @@ from rest_framework.viewsets import ViewSet
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -57,10 +57,8 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
-        PostHogFeatureFlagPermission,
         CanonicalTeamTokenPermission,
     ]
-    posthog_feature_flag = "product-business-knowledge"
     throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 

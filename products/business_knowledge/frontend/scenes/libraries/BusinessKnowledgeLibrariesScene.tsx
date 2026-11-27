@@ -4,7 +4,6 @@ import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
-import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -25,14 +24,9 @@ export const scene: SceneExport = {
 }
 
 export function BusinessKnowledgeLibrariesScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { libraries, librariesLoading } = useValues(librariesLogic)
     const { openCreate, loadLibraries } = useActions(librariesLogic)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     return (
         <SceneContent>

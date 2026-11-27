@@ -12,7 +12,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 from posthog.synthetic_user import SyntheticUser
 
 from products.business_knowledge.backend.github_repos import (
@@ -52,8 +52,7 @@ class BusinessKnowledgeRepositoriesViewSet(TeamAndOrgViewSetMixin, ViewSet):
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # Every action listed here must apply the key's library limit from `key_libraries`.
     psak_allowed_actions = ["search", "read_file"]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    posthog_feature_flag = "product-business-knowledge"
+    permission_classes = [IsAuthenticated, APIScopePermission]
     throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 

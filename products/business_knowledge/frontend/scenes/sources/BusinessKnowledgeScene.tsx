@@ -5,7 +5,6 @@ import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -43,7 +42,6 @@ export const scene: SceneExport = {
 }
 
 export function BusinessKnowledgeScene(): JSX.Element {
-    const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         sources,
@@ -59,10 +57,6 @@ export function BusinessKnowledgeScene(): JSX.Element {
     } = useValues(businessKnowledgeLogic)
     const { openCreateModal, deleteSource, refreshSource } = useActions(businessKnowledgeLogic)
     const { push } = useActions(router)
-
-    if (!isEnabled) {
-        return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
-    }
 
     return (
         <SceneContent>
