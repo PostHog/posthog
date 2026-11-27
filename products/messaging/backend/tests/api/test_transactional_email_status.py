@@ -359,6 +359,11 @@ class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
             ),
             ("inside_a_comment", ["<a@example.com> (see <0100018c-ours-000000@email.amazonses.com>)"], set()),
             (
+                "after_an_escaped_paren_in_a_comment",
+                ["(note \\) <0100018c-ours-000000@email.amazonses.com>) <a@example.com>"],
+                set(),
+            ),
+            (
                 "inside_a_nested_comment",
                 ["<a@example.com> (see (also <0100018c-ours-000000@email.amazonses.com>) here)"],
                 set(),

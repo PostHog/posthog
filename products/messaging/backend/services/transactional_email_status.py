@@ -175,9 +175,14 @@ def _without_comments(header: str) -> str:
     """An RFC 5322 comment can quote another Message-ID, which names no parent of the reply. One pass, so nesting
     in a header anyone can send costs no more than its length."""
     depth = 0
+    escaped = False
     kept = []
     for char in header:
-        if char == "(":
+        if escaped:
+            escaped = False
+        elif depth and char == "\\":
+            escaped = True
+        elif char == "(":
             depth += 1
         elif char == ")" and depth:
             depth -= 1
@@ -197,7 +202,8 @@ def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMe
             newest[match[1]] = match[0]
             if len(newest) > _MAX_WIRE_IDS_PER_HEADER:
                 del newest[next(iter(newest))]
-        wire_ids.update(newest)
+        for provider_id, wire_id in newest.items():
+            wire_ids.setdefault(provider_id, wire_id)
     if not wire_ids:
         return ()
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
