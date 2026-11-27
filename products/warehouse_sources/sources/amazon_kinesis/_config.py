@@ -6,4 +6,7 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class AmazonKinesisSourceConfig(config.Config):
-    pass
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_region: str
+    aws_session_token: str | None = None
